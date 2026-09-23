@@ -1,6 +1,7 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const MODULE_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/module_execution.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -88,14 +89,25 @@ fn lowering_selects_owner_and_rejects_initializer_suspension_before_lowering() {
         );
     }
     assert!(!analyzed_owner.contains("_ =>"));
+    let admission = bounded(
+        MODULE_LOWERING_SOURCE,
+        "    pub(super) fn admit_sync_disposable_scope_owner(",
+        "    pub(super) fn lower_module_instantiation_boundary(",
+    );
+    assert!(admission.contains("owner.sync_disposable_scope_owner()"));
+    assert!(admission.contains("matches!("));
+    assert!(admission.contains("FunctionProtocolIr::ModuleActivation"));
+    assert!(admission.contains("FunctionProtocolIr::AsyncModuleActivation"));
+    assert!(admission.contains("owner.parent_owner_id.as_deref()"));
+    assert!(admission.contains("return None;"));
 
     let lower = bounded(
         LOWERING_SOURCE,
         "    fn lower_using_declaration(",
-        "    /// Selects the only legal lifetime for an ordinary statement-list `using`.",
+        "    fn sync_disposable_scope_execution(",
     );
     for marker in [
-        "let owner = self.sync_disposable_scope_owner()",
+        "let owner = self.admit_sync_disposable_scope_owner()?",
         "owner == SyncDisposableScopeOwnerPlan::AsyncGenerator",
         "ContainsSymbol::AwaitExpression",
         "ContainsSymbol::YieldExpression",
@@ -124,11 +136,10 @@ fn lowering_selects_owner_and_rejects_initializer_suspension_before_lowering() {
 
     let selection = bounded(
         LOWERING_SOURCE,
-        "    fn sync_disposable_scope_owner(",
+        "    fn sync_disposable_scope_execution(",
         "    fn hoist_root_statement_items(",
     );
     for marker in [
-        "function.sync_disposable_scope_owner()",
         "SyncDisposableScopeOwnerPlan::Immediate =>",
         "SyncDisposableScopeOwnerPlan::PlainGenerator =>",
         "SyncDisposableScopeOwnerPlan::AsyncFunction =>",
@@ -204,7 +215,7 @@ fn state_walkers_include_async_generator_body_but_never_generator_offsets() {
     let async_entry = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
-        "    fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
+        "    pub(crate) fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
     );
     assert!(async_entry.contains("SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
     assert!(async_entry.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));
@@ -251,7 +262,7 @@ fn async_generator_scope_disposes_before_request_dispatch_and_queue_drain() {
     for marker in [
         "owner.execution_kind()",
         "owner.binding_name()",
-        "BindingStorage::EnvSlot { slot, hops: 0 }",
+        "activation_owned_binding_storage(owner.binding_name())",
         "ActivationSyncDisposeOwner::AsyncGenerator(_) =>",
         "Self::async_statement_entry_state",
         "Self::async_statement_exit_state",
@@ -270,6 +281,7 @@ fn async_generator_scope_disposes_before_request_dispatch_and_queue_drain() {
         assert!(scope.contains(marker), "missing lifecycle marker: {marker}");
     }
     assert!(!scope.contains("self.allocate_binding("));
+    assert!(!scope.contains("BindingStorage::EnvSlot { slot, hops: 0 }"));
     assert_before(
         scope,
         "initialize_activation_sync_dispose_capability(",

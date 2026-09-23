@@ -122,19 +122,22 @@ pub(crate) fn module_early_errors(record: &SourceTextModuleRecordIr) -> Vec<IrDi
 /// time they were merged. See
 /// `docs/rust-rewrite/contracts/early-error-taxonomy.md`.
 ///
-/// A recognised static-semantics failure becomes a coded rejection
-/// (`SyntaxError`, phase `parse`, via `IrDiagnostic::rejected`). Anything else —
-/// a genuine syntax error whose wording we do not model, or a parser abort —
-/// stays `Unsupported`, because claiming `SyntaxError` for a source we simply
-/// failed to read would turn a compiler gap into a spec claim.
+/// Recognized static semantics retain their authoritative rejection code.
+/// An ordinary unclassified syntax rejection remains a SyntaxError when module
+/// loading reports it; only a caught parser abort remains a compiler gap.
 pub(crate) fn module_parse_failure_diagnostic(error: &lila_front::ParseError) -> IrDiagnostic {
     let diagnostic = error.diagnostic();
     match diagnostic.code {
         lila_front::ParseCode::Early(code) => {
             IrDiagnostic::rejected_at_parse(code, diagnostic.message.clone(), diagnostic.span)
         }
-        lila_front::ParseCode::Malformed | lila_front::ParseCode::UnsupportedParserFeature => {
-            IrDiagnostic::unsupported(diagnostic.message.clone())
+        lila_front::ParseCode::Malformed => IrDiagnostic::rejected(
+            EarlyErrorCode::ModuleSyntax,
+            diagnostic.message.clone(),
+            diagnostic.span,
+        ),
+        lila_front::ParseCode::UnsupportedParserFeature => {
+            IrDiagnostic::unsupported_parser_feature(diagnostic.message.clone())
         }
     }
 }
@@ -1596,10 +1599,21 @@ mod tests {
     }
 
     #[test]
-    fn an_unmodelled_parse_failure_stays_unsupported() {
-        // Claiming `SyntaxError` for a failure we do not model would dress a
-        // compiler gap up as a spec claim.
-        let error = lila_front::ParseError::malformed("unexpected token ')'", None);
+    fn ordinary_dependency_syntax_errors_keep_a_coded_resolution_rejection() {
+        let error = lila_front::parse("invalid syntax!", lila_front::ParseOptions::module())
+            .expect_err("malformed dependency rejects");
+        assert_eq!(error.diagnostic().code, lila_front::ParseCode::Malformed);
+        let diagnostic = module_parse_failure_diagnostic(&error);
+        assert_eq!(diagnostic.kind(), IrDiagnosticKind::LinkError);
+        assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
+        assert_eq!(diagnostic.code(), Some(EarlyErrorCode::ModuleSyntax));
+        assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+        assert!(diagnostic.span.is_some());
+    }
+
+    #[test]
+    fn a_dependency_parser_abort_remains_a_compiler_gap() {
+        let error = lila_front::ParseError::unsupported_parser_feature("parser aborted", None);
         let diagnostic = module_parse_failure_diagnostic(&error);
         assert_eq!(diagnostic.kind(), IrDiagnosticKind::Unsupported);
         assert_eq!(diagnostic.code(), None);

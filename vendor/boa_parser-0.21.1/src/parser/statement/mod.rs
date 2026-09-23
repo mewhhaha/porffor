@@ -559,8 +559,9 @@ where
         let mut patterns = Vec::new();
 
         loop {
-            let next_token_is_colon = *cursor.peek(1, interner).or_abrupt()?.kind()
-                == TokenKind::Punctuator(Punctuator::Colon);
+            let next_token_is_colon = cursor
+                .peek(1, interner)?
+                .is_some_and(|token| token.kind() == &TokenKind::Punctuator(Punctuator::Colon));
             let token = cursor.peek(0, interner).or_abrupt()?;
             match token.kind() {
                 TokenKind::Punctuator(Punctuator::CloseBlock) => {

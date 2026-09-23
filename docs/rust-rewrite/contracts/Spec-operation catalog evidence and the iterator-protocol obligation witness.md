@@ -5,6 +5,10 @@ edited to produce this document. Every count in it was obtained by reading the
 tree at `claude/test-driven-rust-opus-pp6giw`, not estimated; the command that
 produced each count is given so the dry-runner can re-derive it.
 
+> **Current census: §27 (2026-09-14).** The catalog has 47 rows: 30 expression,
+> 2 backend, 5 statement, and 10 tracked gaps. Earlier dated counts remain
+> historical; §27 supersedes their present-tense census claims.
+
 > **Read §13 first.** A dry-run discrepancy pass amended this document after the
 > encoding landed. §13 supersedes every claim it names — including parts of §2,
 > §3 A1/A3/A5/A6, §5 L1/L3/L4/L6, §6 mistake classes 1, 4, 7 and 8, §7, §10 and
@@ -2111,3 +2115,37 @@ sloppy/strict executions with every failure bucket at zero. No semantic golden,
 published-status refresh, complete Test262 prefix, or broad workspace suite was
 run. The complete invariant and commands are in
 [`sync-iterator-consumer-capability.md`](./sync-iterator-consumer-capability.md).
+
+
+## 27. With Object Environment HasBinding checkpoint (2026-09-14)
+
+`SpecOperationIr::WithEnvironmentHasBinding` contributes a new shared-expression
+row. It belongs to `SpecOperationFamily::Environment`, accepts
+`OperationDomain::WithBindingObjectAndName`, returns `NormalResult::Boolean`,
+and has `AbruptCapability::MayThrow`. The binding object is materialized only
+after With entry's canonical `ToObject` conversion. The private reference
+producer emits the operation; the exhaustive Wasm spec-operation dispatch calls
+its shared environment helper. Named environment lookup uses the same helper.
+
+The current authoritative census is:
+
+| Source | Rows |
+| --- | ---: |
+| `SpecOperationIr::ALL` from `spec_operations!` | 30 |
+| `BackendSpecOperation::ALL` from `backend_spec_operations!` | 2 |
+| `STATEMENT_EMISSION_ROWS` | 5 |
+| `TRACKED_GAP_ROWS` | 10 |
+| `SPEC_OPERATION_ROW_COUNT` | 47 |
+
+Const assertion J4 preserves the explicit `30 + 2 + 5 + 10 = 47` claim.
+The ArraySpeciesCreate and ToPropertyDescriptor evidence tests independently
+partition the assembled catalog by lowering status and assert that census.
+No tracked gap or iterator row was removed or reclassified. Earlier dated
+sections keep their historical counts; this section supersedes those counts
+for the current tree. These documents are maintained alongside the source
+invariant; there is no generated status artifact to refresh for this census.
+
+The operation's ordering, realm, completion, and emitted-size contract is in
+[With HasBinding](./with-has-binding.md). Compilation and native validation of
+the implementation are separate from this source census; no Test262 result is
+inferred from the new row.

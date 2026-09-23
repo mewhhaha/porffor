@@ -201,3 +201,130 @@ fn native_catch_all_does_not_swallow_a_wasm_trap() {
         "expected an unreachable trap, not a link error, exhausted fuel or an exception: {error}"
     );
 }
+
+#[test]
+fn completed_do_while_targets_are_not_visible_to_later_finalizers() {
+    assert_wasm_true(
+        r#"
+var trace = '';
+do { trace += 'D'; } while (false);
+try { trace += 'T'; }
+finally { trace += 'F'; }
+trace === 'DTF';
+"#,
+    );
+}
+
+#[test]
+fn nested_do_while_leaves_the_enclosing_continue_target_live() {
+    assert_wasm_true(
+        r#"
+var trace = '';
+outer: for (var index = 0; index < 2; index++) {
+  inner: do { trace += 'D'; } while (false);
+  try { trace += 'T'; continue outer; }
+  finally { trace += 'F'; }
+  trace += 'unreachable';
+}
+trace === 'DTFDTF' && index === 2;
+"#,
+    );
+}
+
+#[test]
+fn do_while_continue_runs_finally_before_the_condition() {
+    assert_wasm_true(
+        r#"
+var visits = 0, conditions = 0, finalizers = 0;
+repeat: do {
+  try {
+    visits++;
+    if (visits < 3) continue repeat;
+    break repeat;
+  } finally { finalizers++; }
+} while ((conditions++, true));
+visits === 3 && conditions === 2 && finalizers === 3;
+"#,
+    );
+}
+
+#[test]
+fn a_later_do_while_finally_break_replaces_throw_before_the_outer_catch() {
+    assert_wasm_true(
+        r#"
+var visits = 0, finalizers = 0, caught = false, marker = {};
+do { break; } while (true);
+try {
+  do {
+    try { visits++; throw marker; }
+    finally { finalizers++; break; }
+    visits += 100;
+  } while (visits < 2);
+} catch (error) { caught = true; }
+visits === 1 && finalizers === 1 && !caught;
+"#,
+    );
+}
+
+#[test]
+fn a_completed_inner_do_while_does_not_shadow_the_outer_break() {
+    assert_wasm_true(
+        r#"
+var trace = '', conditions = 0;
+outer: do {
+  inner: do { trace += 'I'; } while (false);
+  try { trace += 'B'; break outer; }
+  finally { trace += 'F'; }
+  trace += 'unreachable';
+} while ((conditions++, false));
+trace === 'IBF' && conditions === 0;
+"#,
+    );
+}
+
+#[test]
+fn a_labelled_switch_break_preserves_the_enclosing_loop_label() {
+    assert_wasm_true(
+        r#"
+var trace = '';
+outer: for (var index = 0; index < 2; index++) {
+  selected: switch (index) {
+    case 0: trace += 'A'; break selected;
+    default: trace += 'B'; break selected;
+  }
+  try { continue outer; }
+  finally { trace += 'F'; }
+  trace += 'unreachable';
+}
+trace === 'AFBF' && index === 2;
+"#,
+    );
+}
+
+#[test]
+fn labelled_switch_breaks_cross_finalizers_and_restore_outer_labels() {
+    assert_wasm_true(
+        r#"
+var trace = '', caught = false;
+outer: {
+  selected: alias: switch (1) {
+    case 1:
+      try { trace += 'T'; break selected; }
+      finally { trace += 'F'; }
+      trace += 'unreachable';
+  }
+  try {
+    selected: switch (2) {
+      case 2:
+        try { throw 'replaced'; }
+        finally { trace += 'R'; break selected; }
+    }
+  } catch (error) { caught = true; }
+  trace += 'O';
+  break outer;
+  trace += 'unreachable';
+}
+trace === 'TFRO' && !caught;
+"#,
+    );
+}

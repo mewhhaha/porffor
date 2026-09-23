@@ -285,16 +285,17 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
             "fnemit(&self,builder:&mutFunctionBuilder<'_>,function:&mutFunction){",
             "matchself{Self::ReturnCurrentFunction=>",
             "builder.emit_return_current_completion(function),Self::LeaveInCompletion=>{}}}",
-            "}enumOrdinaryToPrimitiveReceiverKind{Object,Function,}",
+            "}enumOrdinaryToPrimitiveReceiverKind{Object,Function,Array,Arguments,}",
             "implOrdinaryToPrimitiveReceiverKind{",
             "constfnvalue_kind(&self)->ValueKind{matchself{",
-            "Self::Object=>ValueKind::Object,Self::Function=>ValueKind::Function,}}}",
+            "Self::Object=>ValueKind::Object,Self::Function=>ValueKind::Function,",
+            "Self::Array=>ValueKind::Array,Self::Arguments=>ValueKind::Arguments,}}}",
             "enumConversionErrorRealm{MainRealm,CurrentFunctionRealm,}",
             "implConversionErrorRealm{constfnabi_word(&self)->i64{matchself{",
             "Self::MainRealm=>0,Self::CurrentFunctionRealm=>1,}}}",
             "enumConversionErrorRealmSource{",
-            "Fixed(ConversionErrorRealm),RuntimeHelperArgument,}",
-            "#[must_use=\"a current-function-realm primitive must be consumed by its matching ToString wrapper\"]",
+            "Fixed(ConversionErrorRealm),CurrentExecutionContext,RuntimeHelperArgument,}",
+            "#[must_use=\"a current-function-realm primitive must be consumed by a tagged or ToString projection\"]",
             "pub(crate)structCurrentFunctionRealmPrimitiveLocals{",
             "payload_local:u32,tag_local:u32,}"
         )
@@ -303,27 +304,27 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ConversionErrorRealm"),
-        16
+        13
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ConversionErrorRealmSource"),
-        23
+        26
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "CurrentFunctionRealmPrimitiveLocals",),
-        5
+        7
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ConversionErrorRealm::MainRealm"),
-        9
+        5
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ConversionErrorRealm::CurrentFunctionRealm",),
-        4
+        5
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ConversionErrorRealmSource::Fixed"),
-        12
+        8
     );
     assert_eq!(
         count_route_in_rust_sources(
@@ -331,6 +332,14 @@ fn conversion_error_realm_domains_are_closed_non_capability_authorities() {
             "ConversionErrorRealmSource::RuntimeHelperArgument",
         ),
         3
+    );
+
+    assert_eq!(
+        count_route_in_rust_sources(
+            &source_root,
+            "ConversionErrorRealmSource::CurrentExecutionContext",
+        ),
+        7
     );
 
     let all_source = normalize_rust(OPERATIONS_SOURCE);
@@ -367,6 +376,9 @@ fn conversion_error_realm_serialization_and_decoder_are_exact() {
             "matcherror_realm{",
             "ConversionErrorRealmSource::Fixed(error_realm)=>{",
             "function.instruction(&Instruction::I64Const(error_realm.abi_word()));}",
+            "ConversionErrorRealmSource::CurrentExecutionContext=>{",
+            "function.instruction(&Instruction::I64Const(",
+            "ConversionErrorRealm::CurrentFunctionRealm.abi_word(),));}",
             "ConversionErrorRealmSource::RuntimeHelperArgument=>{",
             "function.instruction(&Instruction::LocalGet(2));}}}"
         )
@@ -388,6 +400,15 @@ fn conversion_error_realm_serialization_and_decoder_are_exact() {
             "ConversionErrorRealmSource::Fixed(ConversionErrorRealm::CurrentFunctionRealm)=>self.",
             "emit_throw_current_function_realm_type_error(",
             "message,payload_local,tag_local,function,),",
+            "ConversionErrorRealmSource::CurrentExecutionContext=>{",
+            "matchself.object_read_error_realm_source(){",
+            "ObjectReadErrorRealmSource::GlobalFallback=>self.emit_throw_runtime_error(",
+            "TYPE_ERROR_NAME,message,payload_local,tag_local,function,),",
+            "ObjectReadErrorRealmSource::StandardBuiltinEnvironment|",
+            "ObjectReadErrorRealmSource::ObjectReadHelperArgument|",
+            "ObjectReadErrorRealmSource::ProxyDispatchHelperArgument=>self.",
+            "emit_throw_current_function_realm_type_error(",
+            "message,payload_local,tag_local,function,),}}",
             "ConversionErrorRealmSource::RuntimeHelperArgument=>{",
             "function.instruction(&Instruction::LocalGet(2));",
             "function.instruction(&Instruction::I64Const(",
@@ -530,6 +551,15 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
             .count(),
         1
     );
+    assert_eq!(
+        outlined
+            .code
+            .matches("self.emit_outlined_object_read_realm_argument(function);")
+            .count(),
+        1,
+        "conversion helpers must receive the trusted Realm projection"
+    );
+    assert!(!outlined.code.contains("LocalGet(self.current_env_local)"));
     let tagged_pending = normalize_rust(bounded(
         OPERATIONS_SOURCE,
         "    fn emit_tagged_to_primitive_locals_pending(",
@@ -550,6 +580,18 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
         concat!(
             "self.emit_object_to_primitive_locals_inner(",
             "hint,input_payload_local,OrdinaryToPrimitiveReceiverKind::Function,",
+            "payload_local,tag_local,",
+            "error_realm,function,)?;"
+        ),
+        concat!(
+            "self.emit_object_to_primitive_locals_inner(",
+            "hint,input_payload_local,OrdinaryToPrimitiveReceiverKind::Array,",
+            "payload_local,tag_local,",
+            "error_realm,function,)?;"
+        ),
+        concat!(
+            "self.emit_object_to_primitive_locals_inner(",
+            "hint,input_payload_local,OrdinaryToPrimitiveReceiverKind::Arguments,",
             "payload_local,tag_local,",
             "error_realm,function,)?;"
         ),
@@ -605,7 +647,7 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
         1
     );
 
-    let main_producers = [
+    let source_producers = [
         concat!(
             "self.emit_tagged_to_primitive_locals_pending(hint,input_payload_local,",
             "input_tag_local,payload_local,tag_local,&ConversionErrorRealmSource::Fixed(",
@@ -617,27 +659,27 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
             "ConversionErrorRealm::MainRealm),function,)?.route(self,route,function)"
         ),
         concat!(
-            "letpending=self.emit_object_to_primitive_locals_pending(",
-            "ToPrimitiveHint::Number,payload_local,primitive_payload_local,primitive_tag_local,",
-            "&ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),function,)?;",
+            "letpending=self.emit_tagged_to_primitive_locals_pending(",
+            "ToPrimitiveHint::Number,payload_local,tag_local,primitive_payload_local,primitive_tag_local,",
+            "&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;",
             "pending.emit_number_payload(self,function)?;"
         ),
         concat!(
-            "letpending=self.emit_object_to_primitive_locals_pending(",
-            "ToPrimitiveHint::Number,payload_local,primitive_payload_local,primitive_tag_local,",
-            "&ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),function,)?;",
+            "letpending=self.emit_tagged_to_primitive_locals_pending(",
+            "ToPrimitiveHint::Number,payload_local,tag_local,primitive_payload_local,primitive_tag_local,",
+            "&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;",
             "pending.emit_number_payload_without_return(self,function)?;"
         ),
         concat!(
-            "letpending=self.emit_object_to_primitive_locals_pending(",
-            "ToPrimitiveHint::Number,payload_local,primitive_payload_local,primitive_tag_local,",
-            "&ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),function,)?;",
+            "letpending=self.emit_tagged_to_primitive_locals_pending(",
+            "ToPrimitiveHint::Number,payload_local,tag_local,primitive_payload_local,primitive_tag_local,",
+            "&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;",
             "pending.emit_number_payload_allow_bigint(self,function)?;"
         ),
         concat!(
-            "letpending=self.emit_object_to_primitive_locals_pending(",
-            "ToPrimitiveHint::String,payload_local,primitive_payload_local,primitive_tag_local,",
-            "&ConversionErrorRealmSource::Fixed(ConversionErrorRealm::MainRealm),function,)?;",
+            "letpending=self.emit_tagged_to_primitive_locals_pending(",
+            "ToPrimitiveHint::String,payload_local,tag_local,primitive_payload_local,primitive_tag_local,",
+            "&ConversionErrorRealmSource::CurrentExecutionContext,function,)?;",
             "pending.emit_string_payload(self,function)?;"
         ),
         concat!(
@@ -646,7 +688,7 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
             "ConversionErrorRealm::MainRealm),function,)"
         ),
     ];
-    for producer in main_producers {
+    for producer in source_producers {
         assert_eq!(operations.code.matches(producer).count(), 1, "{producer}");
     }
 
@@ -711,11 +753,30 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
         Ok(())
     }
 
+    pub(crate) fn emit_current_function_realm_primitive_to_tagged_locals(
+        &mut self,
+        primitive: CurrentFunctionRealmPrimitiveLocals,
+        output_payload_local: u32,
+        output_tag_local: u32,
+        function: &mut Function,
+    ) {
+        let CurrentFunctionRealmPrimitiveLocals {
+            payload_local,
+            tag_local,
+        } = primitive;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        function.instruction(&Instruction::LocalGet(tag_local));
+        function.instruction(&Instruction::LocalSet(output_tag_local));
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+    }
+
 "#;
     assert_eq!(
         current_lifecycle.code,
         normalize_rust(expected_current_lifecycle).code,
-        "the typed token must couple both fixed current-function-Realm boundaries and release its locals exactly"
+        "the typed token must preserve fixed Realm conversion, tagged projection and exact local release"
     );
     assert_eq!(
         current_lifecycle

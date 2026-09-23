@@ -101,7 +101,8 @@ fn positional_descriptor_adapter_and_runtime_checked_escape_are_retired() {
         DEFINE_PROPERTY_SOURCE
             .matches(".from_runtime_checked()")
             .count(),
-        1
+        2,
+        "Arguments callee and the canonical TypedArray operation project converted descriptors"
     );
     assert!(!PROPERTY_DESCRIPTOR_SOURCE.contains("`emit_object_define_entry` — the"));
     assert!(!PROPERTY_DESCRIPTOR_SOURCE.contains("two `Object.defineProperty` sites"));

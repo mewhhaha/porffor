@@ -23,12 +23,12 @@ use lila_ir::{
     StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
     SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
     UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME,
-    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BIGINT64_ARRAY_NAME, BIGUINT64_ARRAY_NAME,
-    BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME,
-    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
-    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
-    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
-    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
+    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
+    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME, FLOAT32_ARRAY_NAME,
+    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
+    INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS,
+    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
+    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
     LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
     PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
@@ -86,6 +86,7 @@ mod heap_finalization_registry_record_layout;
 mod heap_host_boundary;
 mod heap_intl_date_time_format_layout;
 mod heap_intl_locale_layout;
+mod heap_intl_number_format_layout;
 mod heap_map_entry_layout;
 mod heap_map_iterator_layout;
 mod heap_map_record_layout;
@@ -120,11 +121,14 @@ mod heap_weak_set_entry_layout;
 mod heap_weak_set_record_layout;
 mod intrinsics;
 mod module;
+mod module_entry_completion;
+pub use module_entry_completion::{WasmModuleEvaluationStatus, MODULE_EVALUATION_STATUS_EXPORT};
 mod modules;
 mod objects;
 mod operations;
 mod planning;
 mod prepared_script;
+mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_helpers;
 use abi::*;
@@ -134,11 +138,13 @@ use builtins::*;
 use code_sink::{Function, LabelDepth};
 use data::*;
 pub use emit::emit;
+pub use emit::emit_with_promise_rejection_policy;
 pub(crate) use emit::{
     AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, FunctionBuilder,
     IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
     PropagateCallThrow, ReturnAbi,
 };
+pub use promise_rejection_policy::PromiseRejectionPolicy;
 // `FunctionBodySize` and `FunctionLocalCount` are part of the public face
 // because `EmittedFunctionSummary` carries them: a `pub` struct whose fields
 // name crate-private types is a `private_interfaces` warning, and flattening
@@ -743,6 +749,7 @@ mod tests {
     #[test]
     fn construct_fallback_requires_resolved_realm_intrinsics() {
         let source = include_str!("functions.rs");
+        let string_constructor = include_str!("builtins/string/constructor.rs");
         let ordinary_prototypes =
             include_str!("functions/required_resolved_realm_ordinary_prototype.rs");
         let domain = ordinary_prototypes
@@ -781,11 +788,27 @@ mod tests {
             .expect("resolved-realm ordinary-prototype consumer should be bounded")
             .0;
 
-        for (variant, offset) in [
-            ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
-            ("String", "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET"),
-            ("Number", "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET"),
-            ("Boolean", "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET"),
+        for (variant, offset, constructor) in [
+            (
+                "Object",
+                "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET",
+                construct,
+            ),
+            (
+                "String",
+                "HEAP_REALM_INTRINSICS_STRING_PROTOTYPE_OFFSET",
+                string_constructor,
+            ),
+            (
+                "Number",
+                "HEAP_REALM_INTRINSICS_NUMBER_PROTOTYPE_OFFSET",
+                construct,
+            ),
+            (
+                "Boolean",
+                "HEAP_REALM_INTRINSICS_BOOLEAN_PROTOTYPE_OFFSET",
+                construct,
+            ),
         ] {
             assert_eq!(
                 domain.matches(&format!("    {variant},")).count(),
@@ -800,7 +823,7 @@ mod tests {
                 "{variant} must map exhaustively to its realm-intrinsic slot"
             );
             assert_eq!(
-                construct
+                constructor
                     .matches(&format!("OrdinaryDefaultPrototype::{variant}"))
                     .count(),
                 1,
@@ -818,13 +841,13 @@ mod tests {
             construct
                 .matches("emit_load_required_resolved_realm_ordinary_prototype(")
                 .count(),
-            4
+            3
         );
         assert_eq!(
             construct
                 .matches("emit_install_resolved_realm_ordinary_prototype(")
                 .count(),
-            4
+            3
         );
         assert_eq!(
             construct
@@ -897,16 +920,23 @@ mod tests {
                 .count(),
             1
         );
+        let normalized_offsets = offsets
+            .chars()
+            .filter(|character| !character.is_whitespace() && !matches!(*character, '{' | '}'))
+            .collect::<String>();
         for (variant, slot) in [
             ("DisposableStack", "DISPOSABLE_STACK"),
             ("AggregateError", "AGGREGATE_ERROR"),
             ("SuppressedError", "SUPPRESSED_ERROR"),
+            ("IntlLocale", "INTL_LOCALE"),
+            ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
+            ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(
-                offsets
+                normalized_offsets
                     .matches(&format!(
-                        "Self::{variant} => HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
+                        "Self::{variant}=>HEAP_REALM_INTRINSICS_{slot}_PROTOTYPE_OFFSET"
                     ))
                     .count(),
                 1
@@ -917,8 +947,8 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            12,
-            "the closed domain count must include DisposableStack, AggregateError and SuppressedError"
+            15,
+            "the closed domain count must include disposal, aggregate errors and Intl prototypes"
         );
     }
 
@@ -2690,7 +2720,13 @@ mod tests {
             .0;
         assert!(helper_call.contains("self.emit_conversion_error_realm_argument(error_realm"));
         assert!(helper_call.contains("for _ in 0..3"));
-        assert!(helper_call.contains("LocalGet(self.current_env_local)"));
+        assert_eq!(
+            helper_call
+                .matches("self.emit_outlined_object_read_realm_argument(function)")
+                .count(),
+            1,
+            "outlined ToPrimitive must forward the typed property-read Realm argument"
+        );
         assert!(
             operations.contains("ConversionErrorRealmSource::RuntimeHelperArgument"),
             "the outlined helper body must decode the forwarded closed realm word"
@@ -3149,6 +3185,94 @@ mod tests {
                 summary.name == reported_name && summary.body_bytes.bytes() == largest_bytes
             }),
             "the first report row names {reported_name}, which is not a largest typed summary"
+        );
+    }
+
+    #[test]
+    fn dense_literals_avoid_sparse_bookkeeping_and_sparse_writes_share_one_body() {
+        fn literal_artifact(count: usize) -> WasmArtifact {
+            let elements = (0..count)
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            emit_script(&format!(
+                "function make() {{ return [{elements}]; }} make();"
+            ))
+            .expect("ordinary array literal should emit")
+        }
+
+        fn largest_make_body(artifact: &WasmArtifact) -> u32 {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::make#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("array producer must be emitted")
+        }
+
+        let small = literal_artifact(128);
+        let large = literal_artifact(1024);
+        expect_valid_module(&large, 1);
+        let added_bytes = largest_make_body(&large) - largest_make_body(&small);
+        // Each element owns evaluation and fixed stores, not another copy of
+        // the presence-list search, allocation and six-field copy loops.
+        assert!(
+            added_bytes <= (1024 - 128) * 256,
+            "896 literal elements added {added_bytes} bytes"
+        );
+        let helpers = large
+            .function_sizes
+            .iter()
+            .filter(|body| body.name == "helper::array_append_present_index")
+            .collect::<Vec<_>>();
+        assert_eq!(helpers.len(), 1, "sparse bookkeeping has one owner");
+        let helper_index = helpers[0].wasm_index;
+        let names = function_names(&large);
+        let mut function_index = imported_function_count(&large);
+        let mut producer_count = 0;
+        let mut sparse_write_calls = 0;
+        for payload in Parser::new(0).parse_all(&large.bytes) {
+            let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
+                continue;
+            };
+            let mut calls = 0;
+            for operator in body.get_operators_reader().expect("operators should parse") {
+                if matches!(
+                    operator.expect("operator should parse"),
+                    Operator::Call { function_index: callee } if callee == helper_index
+                ) {
+                    calls += 1;
+                }
+            }
+            if function_index == helper_index {
+                assert_eq!(
+                    calls, 0,
+                    "the helper cannot call its public seam recursively"
+                );
+            }
+            if names
+                .get(&function_index)
+                .is_some_and(|name| name.starts_with("js::make#"))
+            {
+                assert_eq!(calls, 0, "dense literals own their descriptors directly");
+                producer_count += 1;
+            }
+            if names
+                .get(&function_index)
+                .is_some_and(|name| name == "helper::array_write")
+            {
+                sparse_write_calls += calls;
+            }
+            function_index += 1;
+        }
+        assert!(
+            producer_count > 0,
+            "the dense producer witness is not vacuous"
+        );
+        assert!(
+            sparse_write_calls > 0,
+            "sparse writes retain the shared helper"
         );
     }
 
@@ -4795,8 +4919,13 @@ pick(true);"#,
     fn runtime_gc_root_follows_the_actual_fixed_and_template_globals() {
         let cases = [
             (
-                "fixed globals only",
+                "runtime-free completion globals",
                 "1;",
+                THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX + 1,
+            ),
+            (
+                "heap globals without templates",
+                "({ value: 1 });",
                 GLOBAL_INDEX_REGISTRY.len() as u32,
             ),
             (
@@ -4816,18 +4945,66 @@ pick(true);"#,
                 .unwrap_or_else(|error| panic!("{label} source should emit: {error}"));
             expect_valid_module(&artifact, 0);
 
+            let mut module_types = Vec::new();
             let mut global_count = 0_u32;
             let mut reference_globals = Vec::new();
             for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                let Payload::GlobalSection(reader) = payload.expect("module should parse") else {
-                    continue;
-                };
-                for (index, global) in reader.into_iter().enumerate() {
-                    let global = global.expect("global should decode");
-                    global_count += 1;
-                    if matches!(global.ty.content_type, wasmparser::ValType::Ref(_)) {
-                        reference_globals.push(index as u32);
+                match payload.expect("module should parse") {
+                    Payload::TypeSection(reader) => {
+                        for group in reader {
+                            module_types
+                                .extend(group.expect("runtime types should decode").into_types());
+                        }
                     }
+                    Payload::GlobalSection(reader) => {
+                        for (index, global) in reader.into_iter().enumerate() {
+                            let global = global.expect("global should decode");
+                            global_count += 1;
+                            let wasmparser::ValType::Ref(reference_type) = global.ty.content_type
+                            else {
+                                continue;
+                            };
+                            reference_globals.push(index as u32);
+                            assert!(global.ty.mutable, "{label}: root must be mutable");
+                            assert!(!global.ty.shared, "{label}: root must be per-instance");
+                            assert!(
+                                reference_type.is_nullable(),
+                                "{label}: root must clear to null"
+                            );
+                            let wasmparser::HeapType::Concrete(anchor_type) =
+                                reference_type.heap_type()
+                            else {
+                                panic!("{label}: root must retain its concrete anchor type");
+                            };
+                            let anchor_index =
+                                anchor_type.as_module_index().expect("anchor module index");
+                            let anchor = module_types[anchor_index as usize].unwrap_struct();
+                            assert_eq!(anchor.fields.len(), 1, "{label}: one anchor ABI field");
+                            assert!(
+                                !anchor.fields[0].mutable,
+                                "{label}: immutable anchor ABI field"
+                            );
+                            assert_eq!(
+                                anchor.fields[0].element_type,
+                                wasmparser::StorageType::Val(wasmparser::ValType::I32),
+                                "{label}: anchor ABI field is i32"
+                            );
+                            let mut init = global.init_expr.get_operators_reader();
+                            assert!(
+                                matches!(
+                                    init.read().expect("root initializer should decode"),
+                                    Operator::RefNull { hty: wasmparser::HeapType::Concrete(initializer_type) }
+                                        if initializer_type.as_module_index() == Some(anchor_index)
+                                ),
+                                "{label}: root initializes with the same typed null"
+                            );
+                            assert!(matches!(
+                                init.read().expect("root initializer should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    _ => {}
                 }
             }
 
@@ -5227,7 +5404,7 @@ pick(true);"#,
             "{}",
             artifact.debug_dump
         );
-        let expected_identity = lila_intl::embedded_locale_data_identity()
+        let expected_identity = lila_intl::embedded_intl_data_identity()
             .expect("embedded Intl identity should be valid")
             .artifact_identity();
         let identity_sections = Parser::new(0)
@@ -5603,118 +5780,206 @@ setterReceiver === receiver;
 
     #[test]
     fn preseeded_string_bytes_and_literal_payloads_are_stable() {
-        let artifact = emit_script("\",\";").expect("emit should work");
-        let data = data_segment_bytes(&artifact.bytes);
-        let mut expected_prefix = vec![b' '; 11];
-        expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
-        assert!(
-            data.starts_with(&expected_prefix),
-            "unexpected data prefix: {:?}",
-            &data[..data.len().min(32)]
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
-            ),
-            "comma literal payload should be emitted as packed offset/len"
-        );
-        let globals = global_init_i64s(&artifact.bytes);
-        assert!(
-            globals.contains(&(align_heap_start(data.len()) as i64)),
-            "heap ptr global should start after static data"
-        );
+        for (label, source, expected_heap) in [
+            ("runtime-free literal", "\",\";", false),
+            ("allocating object", "({ value: \",\" });", true),
+        ] {
+            let artifact = emit_script(source).expect("emit should work");
+            expect_valid_module(&artifact, 0);
+            let data = data_segment_bytes(&artifact.bytes);
+            let mut expected_prefix = vec![b' '; 11];
+            expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
+            assert!(
+                data.starts_with(&expected_prefix),
+                "{label}: unexpected data prefix: {:?}",
+                &data[..data.len().min(32)]
+            );
+            assert!(
+                contains_i64_const(
+                    &artifact.bytes,
+                    ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
+                ),
+                "{label}: comma literal payload should be emitted as packed offset/len"
+            );
+
+            let heap_start = align_heap_start(data.len()) as i64;
+            let mut static_segments = 0;
+            let mut pointer_slot_initializer = None;
+            let mut first_function = true;
+            let mut main_heap_start_store = false;
+            let mut pointer_reads = 0;
+            let mut pointer_writes = 0;
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                match payload.expect("module should parse") {
+                    Payload::DataSection(reader) => {
+                        for segment in reader {
+                            let segment = segment.expect("static segment should decode");
+                            static_segments += 1;
+                            let wasmparser::DataKind::Active {
+                                memory_index,
+                                offset_expr,
+                            } = segment.kind
+                            else {
+                                panic!("{label}: pooled strings must occupy an active segment");
+                            };
+                            assert_eq!(
+                                memory_index, 0,
+                                "{label}: pooled strings use private memory"
+                            );
+                            let mut offset = offset_expr.get_operators_reader();
+                            assert!(
+                                matches!(
+                                    offset.read().expect("static offset should decode"),
+                                    Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32
+                                ),
+                                "{label}: static segment must retain its prescribed offset"
+                            );
+                            assert!(matches!(
+                                offset.read().expect("static offset should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    Payload::GlobalSection(reader) => {
+                        for (index, global) in reader.into_iter().enumerate() {
+                            let global = global.expect("global should decode");
+                            if index as u32 != HEAP_PTR_GLOBAL_INDEX {
+                                continue;
+                            }
+                            assert_eq!(global.ty.content_type, wasmparser::ValType::I64);
+                            assert!(global.ty.mutable && !global.ty.shared);
+                            let mut init = global.init_expr.get_operators_reader();
+                            let Operator::I64Const { value } =
+                                init.read().expect("slot initializer should decode")
+                            else {
+                                panic!("{label}: pointer/diagnostic slot must initialize to an i64 constant");
+                            };
+                            pointer_slot_initializer = Some(value);
+                            assert!(matches!(
+                                init.read().expect("slot initializer should end"),
+                                Operator::End
+                            ));
+                        }
+                    }
+                    Payload::CodeSectionEntry(body) => {
+                        let mut previous_constant = None;
+                        for operator in body
+                            .get_operators_reader()
+                            .expect("operators should decode")
+                        {
+                            match operator.expect("operator should decode") {
+                                Operator::I64Const { value } => previous_constant = Some(value),
+                                Operator::GlobalGet { global_index }
+                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
+                                {
+                                    pointer_reads += 1;
+                                    previous_constant = None;
+                                }
+                                Operator::GlobalSet { global_index }
+                                    if global_index == HEAP_PTR_GLOBAL_INDEX =>
+                                {
+                                    pointer_writes += 1;
+                                    main_heap_start_store |=
+                                        first_function && previous_constant == Some(heap_start);
+                                    previous_constant = None;
+                                }
+                                _ => previous_constant = None,
+                            }
+                        }
+                        first_function = false;
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(
+                static_segments, 1,
+                "{label}: one pooled static-data segment"
+            );
+            if expected_heap {
+                assert_eq!(
+                    pointer_slot_initializer,
+                    Some(heap_start),
+                    "heap pointer starts after aligned static data"
+                );
+                assert!(
+                    main_heap_start_store,
+                    "main resets its allocator after static data"
+                );
+                assert!(
+                    pointer_reads > 0 && pointer_writes > 1,
+                    "the allocating fixture retains heap allocation beyond initialization"
+                );
+            } else {
+                assert_eq!(
+                    pointer_slot_initializer,
+                    Some(0),
+                    "runtime-free slot is unused throw metadata"
+                );
+                assert_eq!(
+                    global_init_i64s(&artifact.bytes),
+                    [0],
+                    "runtime-free scalar layout has no allocator state"
+                );
+                assert_eq!(
+                    (pointer_reads, pointer_writes),
+                    (0, 0),
+                    "runtime-free code must not use the diagnostic slot as a heap pointer"
+                );
+            }
+        }
+    }
+
+    fn regexp_descriptor_from_pool(
+        pool: &StringPool,
+        reference: RegExpProgramRef,
+    ) -> lila_ir::ValidatedRegExpProgram {
+        let offset = (reference.payload() >> 32) as usize - STATIC_DATA_OFFSET as usize;
+        let length = reference.payload() as u32 as usize;
+        lila_ir::ValidatedRegExpProgram::from_bytes(pool.bytes[offset..offset + length].to_vec())
+            .unwrap()
     }
 
     #[test]
     fn regexp_program_data_is_aligned_deduplicated_and_before_the_heap() {
         let artifact = emit_script("\",\"; /[a-c]/; /[a-c]/g;").expect("emit should work");
+        let program = lila_ir::RegExpProgram::compile("[a-c]", "").unwrap();
+        let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
         let data = data_segment_bytes(&artifact.bytes);
-        let encoded = lila_ir::RegExpProgram::compile("[a-c]", "")
-            .expect("class program should compile")
-            .encode();
         let offsets = data
-            .windows(encoded.len())
+            .windows(encoded.bytes().len())
             .enumerate()
-            .filter_map(|(offset, candidate)| (candidate == encoded).then_some(offset))
+            .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
             .collect::<Vec<_>>();
-
-        assert_eq!(offsets.len(), 1, "identical programs should share one blob");
-        let program_ptr = STATIC_DATA_OFFSET as usize + offsets[0];
-        assert_eq!(program_ptr % 8, 0, "program blob must be i64-aligned");
-        assert!(
-            contains_i64_const(&artifact.bytes, program_ptr as i64),
-            "literal allocation should embed the collected program pointer"
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                (encoded.len() / lila_ir::REGEXP_INSTRUCTION_WIDTH) as i64,
-            ),
-            "literal allocation should embed the instruction count"
-        );
-        assert!(
-            contains_i64_const(
-                &artifact.bytes,
-                ((((STATIC_DATA_OFFSET as u64) + 14) << 32) | 1) as i64,
-            ),
-            "appending program data must not move existing string payloads"
-        );
-        assert!(
-            global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)),
-            "heap must start after the appended program data"
-        );
+        assert_eq!(offsets.len(), 1);
+        let pointer = STATIC_DATA_OFFSET as usize + offsets[0];
+        assert_eq!(pointer % 8, 0);
+        let handle = ((pointer as u64) << 32) | encoded.bytes().len() as u64;
+        assert!(contains_i64_const_store_at_offset(
+            &artifact.bytes,
+            handle as i64,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
+        ));
+        assert!(global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)));
     }
 
     #[test]
-    fn regexp_static_program_refs_preserve_capture_count_metadata() {
-        let capture_program =
-            lila_ir::RegExpProgram::compile(r"(\d+)", "").expect("capture program should compile");
-        let no_capture_program = lila_ir::RegExpProgram::compile(r"\d+", "")
-            .expect("non-capture program should compile");
-        let mut pool = StringPool::default();
-
-        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
-        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
-
-        assert_eq!(capture_ref.capture_count, 1);
-        assert_eq!(no_capture_ref.capture_count, 0);
-        assert_eq!(
-            capture_ref.split_count as usize,
-            capture_program
-                .instructions
-                .iter()
-                .filter(|instruction| instruction.opcode == lila_ir::REGEXP_OPCODE_SPLIT)
-                .count()
-        );
-        assert_eq!(
-            no_capture_ref.split_count as usize,
-            no_capture_program
-                .instructions
-                .iter()
-                .filter(|instruction| instruction.opcode == lila_ir::REGEXP_OPCODE_SPLIT)
-                .count()
-        );
-        assert_eq!(capture_ref.repeatable_split_count, 1);
-        assert_eq!(no_capture_ref.repeatable_split_count, 1);
-    }
-
-    #[test]
-    fn regexp_static_program_refs_distinguish_repeatable_splits() {
-        let cases = [
-            ("a?a?", 2, 0),
-            ("a?b*", 2, 1),
-            ("(a|b)*", 2, 2),
-            (r"(?<=\w+)f", 2, 1),
-        ];
-        let mut pool = StringPool::default();
-        for (pattern, split_count, repeatable_split_count) in cases {
-            let program =
-                lila_ir::RegExpProgram::compile(pattern, "").expect("program should compile");
+    fn regexp_static_program_descriptors_preserve_capture_and_choice_metadata() {
+        use lila_ir::RegExpProgramWord as Word;
+        for (pattern, captures, splits, repeated) in [
+            ("a?a?", 0, 2, 0),
+            ("a?b*", 0, 2, 1),
+            ("(a|b)*", 1, 2, 2),
+            (r"(?<=\w+)f", 0, 2, 1),
+        ] {
+            let program = lila_ir::RegExpProgram::compile(pattern, "").unwrap();
+            let mut pool = StringPool::default();
             let reference = pool.collect_regexp_program_for_test(&program);
-            assert_eq!(reference.split_count, split_count, "{pattern}");
+            let descriptor = regexp_descriptor_from_pool(&pool, reference);
+            assert_eq!(descriptor.word(Word::CaptureCount), captures, "{pattern}");
+            assert_eq!(descriptor.word(Word::SplitCount), splits, "{pattern}");
             assert_eq!(
-                reference.repeatable_split_count, repeatable_split_count,
+                descriptor.word(Word::RepeatableSplitCount),
+                repeated,
                 "{pattern}"
             );
         }
@@ -5722,135 +5987,45 @@ setterReceiver === receiver;
 
     #[test]
     fn regexp_static_program_dedup_key_includes_capture_count() {
-        let no_capture_program =
-            lila_ir::RegExpProgram::compile("a", "").expect("program should compile");
-        let mut capture_program = no_capture_program.clone();
-        capture_program.capture_count = 1;
-        assert_eq!(no_capture_program.encode(), capture_program.encode());
-        assert_ne!(
-            RegExpProgramStaticKey::from_program(&no_capture_program),
-            RegExpProgramStaticKey::from_program(&capture_program),
-            "capture metadata must be part of static-program identity"
-        );
-
+        let original = lila_ir::RegExpProgram::compile("a", "").unwrap();
+        let mut with_capture = original.clone();
+        with_capture.capture_count = 1;
+        assert_eq!(original.encode(), with_capture.encode());
         let mut pool = StringPool::default();
-        let no_capture_ref = pool.collect_regexp_program_for_test(&no_capture_program);
-        let capture_ref = pool.collect_regexp_program_for_test(&capture_program);
-        assert_ne!(no_capture_ref.ptr, capture_ref.ptr);
-        assert_eq!(pool.bytes.len(), no_capture_program.encode().len() * 2);
-    }
-
-    #[test]
-    fn regexp_literal_initializes_capture_count_slot() {
-        let artifact = emit_script(r"/(\d+)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &artifact.bytes,
-                1,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            "literal allocation should initialize the immutable capture count"
+        let first = pool.collect_regexp_program_for_test(&original);
+        let second = pool.collect_regexp_program_for_test(&with_capture);
+        assert_ne!(first.payload(), second.payload());
+        assert_eq!(
+            regexp_descriptor_from_pool(&pool, first)
+                .word(lila_ir::RegExpProgramWord::CaptureCount),
+            0
         );
-
-        let no_capture_artifact = emit_script(r"/\d+/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &no_capture_artifact.bytes,
-                0,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            "no-capture literal allocation should initialize capture count to zero"
+        assert_eq!(
+            regexp_descriptor_from_pool(&pool, second)
+                .word(lila_ir::RegExpProgramWord::CaptureCount),
+            1
         );
     }
 
     #[test]
-    fn regexp_literal_initializes_split_count_slot() {
-        let artifact = emit_script(r"/(a|b)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &artifact.bytes,
-                1,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            "literal allocation should initialize immutable split metadata"
-        );
-
-        let no_choice_artifact = emit_script(r"/(a)/;").expect("emit should work");
-        assert!(
-            contains_i64_const_store_at_offset(
-                &no_choice_artifact.bytes,
-                0,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            "choice-free literal allocation should initialize split metadata to zero"
-        );
-    }
-
-    #[test]
-    fn regexp_literal_initializes_repeatable_split_count_slot() {
-        let artifact = emit_script(r"/a?b*/;").expect("emit should work");
+    fn constructed_constant_regexp_installs_one_deduplicated_descriptor_handle() {
+        let artifact = emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).unwrap();
+        let program = lila_ir::RegExpProgram::compile("(a|b)*", "").unwrap();
+        let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
+        let data = data_segment_bytes(&artifact.bytes);
+        let positions = data
+            .windows(encoded.bytes().len())
+            .enumerate()
+            .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
+            .collect::<Vec<_>>();
+        assert_eq!(positions.len(), 1);
+        let pointer = STATIC_DATA_OFFSET as u64 + positions[0] as u64;
+        let handle = (pointer << 32) | encoded.bytes().len() as u64;
         assert!(contains_i64_const_store_at_offset(
             &artifact.bytes,
-            1,
-            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
+            handle as i64,
+            HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET
         ));
-
-        let no_repeat_artifact = emit_script(r"/a?a?/;").expect("emit should work");
-        assert!(contains_i64_const_store_at_offset(
-            &no_repeat_artifact.bytes,
-            0,
-            HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-        ));
-    }
-
-    #[test]
-    fn constructed_constant_regexp_collects_deduplicated_program_and_initializes_slots() {
-        let artifact =
-            emit_script(r#"/(a|b)*/; new RegExp("(a|b)*", "");"#).expect("emit should work");
-        let program =
-            lila_ir::RegExpProgram::compile("(a|b)*", "").expect("program should compile");
-        let encoded = program.encode();
-        let data = data_segment_bytes(&artifact.bytes);
-        assert_eq!(
-            data.windows(encoded.len())
-                .filter(|candidate| *candidate == encoded)
-                .count(),
-            1,
-            "identical constructed programs should share one blob"
-        );
-        let program_ptr = STATIC_DATA_OFFSET as i64
-            + data
-                .windows(encoded.len())
-                .position(|candidate| candidate == encoded)
-                .expect("program data should be present") as i64;
-        let reference = {
-            let mut pool = StringPool::default();
-            pool.collect_regexp_program_for_test(&program)
-        };
-        for (value, offset) in [
-            (program_ptr, HEAP_REGEXP_PROGRAM_PTR_OFFSET),
-            (
-                reference.instruction_count as i64,
-                HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET,
-            ),
-            (
-                reference.capture_count as i64,
-                HEAP_REGEXP_PROGRAM_CAPTURE_COUNT_OFFSET,
-            ),
-            (
-                reference.split_count as i64,
-                HEAP_REGEXP_PROGRAM_SPLIT_COUNT_OFFSET,
-            ),
-            (
-                reference.repeatable_split_count as i64,
-                HEAP_REGEXP_PROGRAM_REPEATABLE_SPLIT_COUNT_OFFSET,
-            ),
-        ] {
-            assert!(
-                contains_i64_const_store_at_offset(&artifact.bytes, value, offset),
-                "constructed regexp should initialize matcher slot {offset}"
-            );
-        }
     }
 
     #[test]
@@ -6004,6 +6179,78 @@ object[key];
             incremental_body_bytes < 64 * 1024,
             "eleven additional outlined reads added {incremental_body_bytes} bytes \
              ({single_read_body_bytes} -> {repeated_read_body_bytes})"
+        );
+    }
+
+    #[test]
+    fn with_has_binding_has_bounded_incremental_function_body_growth() {
+        let emit_reads = |count| {
+            let reads = "selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(scope, selected) {{ with (scope) {{ {reads} }} }} probe({{selected: 1}}, 0);"
+            ))
+            .expect("with binding reads should emit")
+        };
+        let single = emit_reads(1);
+        let repeated = emit_reads(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable reads must not shrink the body");
+        // Frozen main added 92,151 bytes for these nine sites. This ceiling
+        // detects a return to the repeated generic HasBinding expression tree.
+        assert!(
+            growth < 45_000,
+            "nine With reads added {growth} bytes ({single_bytes} -> {repeated_bytes})"
+        );
+    }
+
+    #[test]
+    fn nested_with_writes_share_dynamic_property_set_dispatch() {
+        let emit_writes = |count| {
+            let writes = "destination = selected;".repeat(count);
+            emit_script(&format!(
+                "function probe(outer, inner, destination, selected) {{ \
+                 with (outer) {{ with (inner) {{ {writes} }} }} }} \
+                 probe({{}}, {{}}, 0, 1);"
+            ))
+            .expect("nested With assignments should emit")
+        };
+        let single = emit_writes(1);
+        let repeated = emit_writes(10);
+        expect_valid_module(&single, 1);
+        expect_valid_module(&repeated, 1);
+        let largest_probe = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .filter(|body| body.name.starts_with("js::probe#"))
+                .map(|body| body.body_bytes.bytes())
+                .max()
+                .expect("the probe body must be emitted")
+        };
+        let single_bytes = largest_probe(&single);
+        let repeated_bytes = largest_probe(&repeated);
+        let growth = repeated_bytes
+            .checked_sub(single_bytes)
+            .expect("additional observable assignments must not shrink the body");
+        // The frozen baseline added 538,272 bytes by copying array dispatch
+        // into each possible SetMutableBinding branch.
+        assert!(
+            growth < 180_000,
+            "nine nested With assignments added {growth} bytes ({single_bytes} -> {repeated_bytes})"
         );
     }
 

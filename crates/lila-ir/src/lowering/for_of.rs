@@ -17,7 +17,7 @@ struct LexicalForOfPatternBinding {
 
 impl<'a> ScriptLowerer<'a> {
     /// Builds the activation-backed synchronous Iterator Record walk for an
-    /// ordinary `for-of` whose body directly awaits in a plain async function.
+    /// ordinary `for-of` whose body suspends in a plain async function.
     fn lower_async_function_for_of_iterator_with_body_await(
         &mut self,
         head: AsyncFunctionForOfIteratorHeadIr,
@@ -34,12 +34,12 @@ impl<'a> ScriptLowerer<'a> {
             );
             return ForOfLoweringIr::no_iteration();
         };
-        let Some((before_suspension, suspension_statement, after_suspension, _)) =
-            Self::split_resumable_loop_body(body, false)
-        else {
-            self.unsupported("async for-of body did not lower to a direct await sequence");
-            return ForOfLoweringIr::no_iteration();
+        let statements = match body {
+            StatementIr::Block(block) if block.lexical_environment.is_none() => block.statements,
+            StatementIr::LexicalBlock(statements) => statements,
+            statement => vec![statement],
         };
+        let statements = flatten_suspending_lexical_blocks(statements);
         let record = IteratorRecordIr::new(
             self.alloc_iterator_slot(),
             self.alloc_next_method_slot(),
@@ -49,34 +49,17 @@ impl<'a> ScriptLowerer<'a> {
             head,
             record,
             head_environment,
-            before_suspension,
-            suspension_statement,
-            after_suspension,
+            statements,
             entry_state,
         ) {
             Ok(plan) => plan,
-            Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
-                AwaitSequenceError::FirstAwaitRequired | AwaitSequenceError::NestedSuspension,
-            )) => {
-                self.unsupported("async for-of body did not lower to a direct await sequence");
+            Err(AsyncFunctionForOfIteratorPlanError::InvalidBody(error)) => {
+                self.unsupported(&format!("invalid async for-of body continuation: {error:?}"));
                 return ForOfLoweringIr::no_iteration();
             }
-            Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
-                AwaitSequenceError::StateMismatch {
-                    expected_suspend_state,
-                    suspend_state,
-                    resume_state,
-                },
-            )) => {
+            Err(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { body_exit_state }) => {
                 self.unsupported(&format!(
-                    "async for-of await state mismatch: expected {expected_suspend_state}, suspend \
-                     {suspend_state}, resume {resume_state}"
-                ));
-                return ForOfLoweringIr::no_iteration();
-            }
-            Err(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { resume_state }) => {
-                self.unsupported(&format!(
-                    "async for-of exit state overflows after resume state {resume_state}"
+                    "async for-of exit state overflows after body completion {body_exit_state}"
                 ));
                 return ForOfLoweringIr::no_iteration();
             }
@@ -139,6 +122,22 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn lower_for_of_loop(&mut self, for_of: &ForOfLoop) -> (StatementIr, ValueKind) {
+        if matches!(for_of.initializer(), IterableLoopInitializer::Using(_)) {
+            let Some(region) =
+                super::synchronous_resource_loop::SynchronousResourceLoop::iterator(for_of)
+            else {
+                self.unsupported("suspension inside a synchronous resource loop");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            return region.lower(self);
+        }
+        self.lower_for_of_loop_region(for_of)
+    }
+
+    pub(super) fn lower_for_of_loop_region(
+        &mut self,
+        for_of: &ForOfLoop,
+    ) -> (StatementIr, ValueKind) {
         self.lower_for_of_head(for_of).into_statement_and_kind()
     }
 
@@ -254,17 +253,6 @@ impl<'a> ScriptLowerer<'a> {
             IterableLoopInitializer::Using(Binding::Identifier(identifier)) => {
                 if for_of.r#await() {
                     self.unsupported("using declaration in for-await-of");
-                    return ForOfLoweringIr::no_iteration();
-                }
-                if self.root_this_binding == RootThisBinding::Undefined {
-                    self.unsupported("using declaration in a module");
-                    return ForOfLoweringIr::no_iteration();
-                }
-                if self.current_generator_resume_state.is_some()
-                    || self.current_async_resume_state.is_some()
-                    || self.current_resumable_plan.is_some()
-                {
-                    self.unsupported("using declaration in a generator or async function");
                     return ForOfLoweringIr::no_iteration();
                 }
                 (
@@ -498,14 +486,14 @@ impl<'a> ScriptLowerer<'a> {
             } else {
                 self.lower_located_identifier_assign_value(source_name.clone(), value, reference)
             };
-            vec![StatementIr::Expression(assignment)]
+            vec![StatementIr::DeclarationEvaluation(assignment)]
         } else if let Some(access) = access_initializer.as_ref() {
             let value = TypedExpr::from_info(
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
             let access = access.clone();
-            vec![StatementIr::Expression(
+            vec![StatementIr::DeclarationEvaluation(
                 self.lower_property_assign_value(&access, value),
             )]
         } else if let Some(pattern) = assignment_pattern_initializer.as_ref() {
@@ -517,7 +505,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.pop_scope();
                 return ForOfLoweringIr::no_iteration();
             };
-            vec![StatementIr::Expression(assign)]
+            vec![StatementIr::DeclarationEvaluation(assign)]
         } else if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
             let init = TypedExpr::from_info(
                 element_info.clone(),

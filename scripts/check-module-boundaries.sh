@@ -296,11 +296,11 @@ require_fixed_string_count \
   0 \
   'statement lowering outside child module'
 check_no_inline_legacy_includes "$ir_statement_lowering"
-# Measured after formatting the extraction: 259 raw lines. The margin is for
-# maintenance of the exhaustive dispatcher, not statement implementations.
-check_raw_line_budget "$ir_statement_lowering" 300
+# Measured with private module suspension boundaries: 301 raw lines. The margin
+# is for the exhaustive dispatcher, not statement implementations.
+check_raw_line_budget "$ir_statement_lowering" 315
 # T02's for-in boundary owns the complete initializer/target/body lowering
-# family and its Test262-specific empty/non-enumerable recognizers. Only the
+# family. Retired source-shape recognizers must stay absent. Only the
 # statement-facing wrapper crosses this private child boundary; environment,
 # TDZ, expression and static-analysis helpers remain in their shared owners.
 ir_for_in_lowering="crates/lila-ir/src/lowering/for_in.rs"
@@ -319,16 +319,7 @@ require_regex_count \
 for private_owner in \
   lower_for_in_initializer_prefix \
   prepend_statement \
-  for_in_initializer_binding \
-  for_in_known_empty_target \
-  for_in_global_non_enumerable_guard_only \
-  for_in_builtin_non_enumerable_assert_only \
-  for_in_static_builtin_target \
-  for_in_initializer_name \
-  for_in_non_enumerable_guarded_assignment \
-  for_in_non_enumerable_guard_name \
-  for_in_not_same_value_guard_name \
-  statement_is_simple_false_assignment
+  for_in_initializer_binding
 do
   require_regex_count \
     "$ir_for_in_lowering" \
@@ -341,18 +332,35 @@ do
     0 \
     "${private_owner} outside child module"
 done
-# Twelve unmodified private methods plus the one reviewed pub(super) wrapper is
+for retired_for_in_recognizer in \
+  for_in_known_empty_target \
+  for_in_global_non_enumerable_guard_only \
+  for_in_builtin_non_enumerable_assert_only \
+  for_in_static_builtin_target \
+  for_in_initializer_name \
+  for_in_non_enumerable_guarded_assignment \
+  for_in_non_enumerable_guard_name \
+  for_in_not_same_value_guard_name \
+  statement_is_simple_false_assignment
+do
+  require_tree_regex_count \
+    crates/lila-ir/src \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+${retired_for_in_recognizer}[[:space:]]*[<(]" \
+    0 \
+    "retired for-in source-shape recognizer ${retired_for_in_recognizer}"
+done
+# Three private methods plus the one reviewed pub(super) wrapper are
 # the whole child surface. The total accepts every Rust function modifier so a
 # new const/async/unsafe/extern helper cannot hide from the private-fn count.
 require_regex_count \
   "$ir_for_in_lowering" \
   '^[[:space:]]*fn[[:space:]]+' \
-  12 \
+  3 \
   'private method'
 require_regex_count \
   "$ir_for_in_lowering" \
   '^[[:space:]]*((pub(\([^)]*\))?|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+[[:alnum:]_]+' \
-  13 \
+  4 \
   'total function declaration'
 require_regex_count \
   "$ir_for_in_lowering" \
@@ -437,7 +445,13 @@ require_fixed_string_count \
 check_no_inline_legacy_includes "$ir_for_loop_lowering"
 # Measured after formatting the extraction: 213 raw lines. The margin is for
 # maintenance of the classic-for lifecycle, not unrelated loop lowering.
-check_raw_line_budget "$ir_for_loop_lowering" 267
+# The source-proof admission wrapper adds one line beyond the former margin.
+check_raw_line_budget "$ir_for_loop_lowering" 268
+require_module_decl "$ir_lowering" "synchronous_resource_loop"
+require_file "crates/lila-ir/src/lowering/synchronous_resource_loop.rs"
+check_raw_line_budget "crates/lila-ir/src/lowering/synchronous_resource_loop.rs" 155
+require_file "crates/lila-ir/src/synchronous_loop_body.rs"
+check_raw_line_budget "crates/lila-ir/src/synchronous_loop_body.rs" 190
 # T02's for-of boundary owns every specialization decision and the
 # lowering-only protocol carrier. The statement dispatcher is the sole caller;
 # shared loop/environment helpers and public statement/protocol IR remain in
@@ -524,12 +538,12 @@ require_tree_regex_count \
   '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?struct[[:space:]]+ForOfLoweringIr([[:space:]]|\{)' \
   1 \
   'for-of protocol carrier'
-# The statement-facing wrapper is the main for-of module's only Rust-visible
-# item. The protocol carrier remains visible only to its private parent module.
+# The statement-facing wrapper and the proven resource-region entry are visible
+# to the private lowering parent. The protocol carrier stays in its own child.
 require_regex_count \
   "$ir_for_of_lowering" \
   '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' \
-  1 \
+  2 \
   'Rust-visible item'
 for shared_helper in \
   plain_async_entry_state \
@@ -611,9 +625,9 @@ require_fixed_string_count \
   0 \
   'static boolean helper copied into if-statement owner'
 check_no_inline_legacy_includes "$ir_if_statement_lowering"
-# Measured after formatting the extraction: 141 raw lines. The margin is for
-# maintenance of if-statement lowering only.
-check_raw_line_budget "$ir_if_statement_lowering" 180
+# Measured with typed plain-async branch ranges: 190 raw lines. The margin is
+# for if-statement lowering only; plan invariants remain in async_if.rs.
+check_raw_line_budget "$ir_if_statement_lowering" 210
 # T02's labelled-statement boundary owns nested label collection, target-kind
 # classification and final Labelled IR assembly. The active-label stack types
 # remain parent-owned because break/continue lowering also consumes them.
@@ -925,9 +939,9 @@ require_fixed_string_count \
   'unreachable constructor fallback in non-property calls'
 check_no_inline_legacy_includes "$ir_call_expression_lowering"
 check_no_inline_legacy_includes "$ir_non_property_call_lowering"
-# Measured after closing forwarded and conversion effects: 3,070 raw lines. The
-# margin is for maintenance of direct identifier/property recognition.
-check_raw_line_budget "$ir_call_expression_lowering" 3100
+# Measured after binding-query and observable coercion repairs: 3,112 raw lines.
+# Direct identifier/property recognition remains the only implementation owner.
+check_raw_line_budget "$ir_call_expression_lowering" 3112
 # Measured after extraction: 315 raw lines. This private child owns optional,
 # erased, multi-target and exact-target calls after callee-value lowering.
 check_raw_line_budget "$ir_non_property_call_lowering" 350
@@ -1044,11 +1058,11 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
   fail "$ir_invocation_effects_lowering must keep AccountedInvocationEffects nonduplicable"
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
-# Measured after moving indexed-receiver mutation into catalog metadata: 2,225
-# raw lines.
-# The margin is for maintenance of this exhaustive result table, not unrelated
-# lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2251
+# Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
+# likely-subtag entries, legacy accessor definers and five Instant methods:
+# 2,272 raw lines.
+# This exhaustive result table must not acquire unrelated lowering.
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2272
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -1134,7 +1148,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|36' 'ExprIr|84' 'SpecOperationIr|29'; do
+for source_call_flow_variant_spec in 'StatementIr|39' 'ExprIr|92' 'SpecOperationIr|30'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({
@@ -1170,10 +1184,9 @@ require_fixed_string_count \
   0 \
   'class-definition lowering body outside child module'
 check_no_inline_legacy_includes "$ir_class_definition_lowering"
-# Measured after constructor invocation-effect finalization: 1,458 raw lines.
-# The margin is for maintenance of this class-definition family, not unrelated
-# lowering.
-check_raw_line_budget "$ir_class_definition_lowering" 1500
+# Measured after computed static-name retention: 1,502 raw lines.
+# This boundary owns class definition, not unrelated lowering.
+check_raw_line_budget "$ir_class_definition_lowering" 1502
 # T02's ordinary-function boundary keeps the nested-lowerer lifecycle,
 # parameter/body lowering, capture transfer, signature updates and final
 # FunctionIr assembly together. The parent owns the seven orchestration calls
@@ -1193,9 +1206,9 @@ require_fixed_string_count \
   0 \
   'ordinary-function lowering outside child module'
 check_no_inline_legacy_includes "$ir_function_definition_lowering"
-# Measured after formatting the extraction: 721 raw lines. The margin is for
-# maintenance of this lifecycle, not unrelated lowering.
-check_raw_line_budget "$ir_function_definition_lowering" 780
+# Measured with the private ModuleActivation protocol: 789 raw lines. The
+# margin is for this function lifecycle, not unrelated lowering.
+check_raw_line_budget "$ir_function_definition_lowering" 810
 # T02's try-statement boundary owns catch-parameter environment construction,
 # resumable entry/exit planning and final TryCatch/TryFinally IR assembly. The
 # catch and finally lifecycle records are named so their generator and async
@@ -2161,10 +2174,18 @@ require_active_wasm_cli_rust_test \
 array_destructuring_cli_test="$(braced_rust_item_source "$array_destructuring_cli" '^fn[[:space:]]+run_wasm_backend_uses_iterators_for_array_destructuring[[:space:]]*[(]')"
 require_text_regex_count "$array_destructuring_cli_test" 'fixture_path\("wasm_array_destructuring_iterators\.js"\)' 1 'array-destructuring CLI fixture wiring'
 check_no_inline_legacy_includes "$ir_lowering"
-# Measured after formatting the static-JSON parse extraction: 20,748 raw lines.
-# This leaves modest orchestration headroom while preventing the former
-# 32k-line implementation store from regrowing.
-check_raw_line_budget "$ir_lowering" 21750
+# Measured after namespace, enumeration and binding-query repairs: 21,823 lines.
+# Further implementation growth needs a reviewed owner rather than restoring the
+# former 32k-line implementation store.
+check_raw_line_budget "$ir_lowering" 21823
+
+ir_module_graph_lowering="crates/lila-ir/src/lowering/module_graph.rs"
+require_file "$ir_module_graph_lowering"
+require_module_decl "$ir_lowering" "module_graph"
+require_fixed_string_count "$ir_module_graph_lowering" 'fn lower_graph(' 1 'module graph lowering owner'
+require_fixed_string_count "$ir_lowering" 'fn lower_graph(' 0 'module graph lowering outside child module'
+# Source-goal validation, linking and independent Script prelude orchestration.
+check_raw_line_budget "$ir_module_graph_lowering" 200
 
 # T02's StandardBuiltinId registry. One macro row owns declaration order,
 # function-index order, global installation order and every metadata field.
@@ -2276,12 +2297,10 @@ host_caller_flow_classifier="$(sed -n '/pub(crate) const fn may_invalidate_calle
 if grep -Eq '(^|[|,(])[[:space:]]*_[[:space:]]*=>' <<<"$host_caller_flow_classifier"; then
   fail "$ir_host_builtin_catalog must exhaust host caller-flow effects without a catch-all"
 fi
-# Measured after adding the catalog-owned indexed-receiver mutation contract:
-# 1,748 raw lines.
-# raw lines.
+# Measured after the Float16Array and Intl.Locale identities: 1,773 raw lines.
 # Metadata rows belong in their catalogs; shared machinery should shrink rather
 # than regrow.
-check_raw_line_budget "$ir_builtins" 1760
+check_raw_line_budget "$ir_builtins" 1780
 
 for module in abi arguments_protocol control_flow data emit environments expressions functions gc_types heap module modules objects operations planning; do
   require_file "crates/lila-aot-wasm/src/${module}.rs"
@@ -2356,7 +2375,7 @@ if [ "$async_function_for_of_iterator_owner_lines" -ne 429 ]; then
   fail "$wasm_async_function_for_of_iterator must retain the reviewed 429-line complete owner (found $async_function_for_of_iterator_owner_lines)"
 fi
 async_function_for_of_iterator_owner_sha256="$(printf '%s\n' "$async_function_for_of_iterator_owner" | sha256_stream)"
-if [ "$async_function_for_of_iterator_owner_sha256" != 'e471357da1e0d6071cbfdd38ce5c5e39b178bd70bfa131ba5762e2eeaa717f88' ]; then
+if [ "$async_function_for_of_iterator_owner_sha256" != 'cea1570169edf74278a09048a16b5ca4b2b443ee460d37fb5767666330ff6bcc' ]; then
   fail "$wasm_async_function_for_of_iterator complete owner changed from the reviewed synchronous-iterator consumer SHA-256 (found $async_function_for_of_iterator_owner_sha256)"
 fi
 if ! awk '
@@ -2367,7 +2386,7 @@ if ! awk '
   index($0, "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)") && !environment { environment = NR }
   index($0, "let (value_storage, value_is_entry_local) = match plan.value_storage()") && !value { value = NR }
   index($0, "self.finally_stack.push(close_frame);") && !close_frame { close_frame = NR }
-  index($0, "self.compile_statement(plan.await_statement(), function)?;") && !await_statement { await_statement = NR }
+  index($0, "self.compile_async_statement_sequence(") && !body_dispatch { body_dispatch = NR }
   index($0, "self.save_current_completion(") && !save { save = NR }
   index($0, "self.emit_leave_lexical_environment(function);") && !leave_environment { leave_environment = NR }
   index($0, "self.emit_iterator_close_preserving_current_throw(") && !close_throw { close_throw = NR }
@@ -2376,7 +2395,7 @@ if ! awk '
   END {
     exit !(activation < acquire && acquire < loop && loop < step \
       && step < environment && environment < value && value < close_frame \
-      && close_frame < await_statement && await_statement < save \
+      && close_frame < body_dispatch && body_dispatch < save \
       && save < leave_environment && leave_environment < close_throw \
       && close_throw < dispatch && dispatch < release)
   }
@@ -2484,7 +2503,7 @@ require_fixed_string_count \
   'module_types.finalize_globals(globals)' \
   1 \
   'complete module global-section finalization site'
-if ! grep -Fq "Main(&'a FinalizedModuleGlobals)" crates/lila-aot-wasm/src/emit.rs \
+if ! grep -Fq "Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy)" crates/lila-aot-wasm/src/emit.rs \
   || ! grep -Fq 'module_sections.compile_main(MainFunctionCompilation::new(' crates/lila-aot-wasm/src/emit.rs \
   || ! grep -Fq 'compilation.compile_into(&self.globals, &mut code)?' "$compiled_module_package" \
   || ! grep -Fq 'code.push(EmittedFunction::new(FunctionIdentity::Main, main));' crates/lila-aot-wasm/src/emit.rs \
@@ -2540,7 +2559,7 @@ fi
 
 for module in array atomics bigint binary_data boolean bootstrap date errors function \
               global_numeric host iterators json math number object proxy reflect \
-              standard string symbol uri; do
+              standard string symbol typed_array_set uri; do
   require_file "crates/lila-aot-wasm/src/builtins/${module}.rs"
   require_module_decl "$wasm_builtins_mod" "$module"
 done
@@ -2570,6 +2589,15 @@ check_no_inline_legacy_includes "$wasm_standard_builtins"
 # This margin is dispatch-maintenance headroom; substantive bodies belong in
 # family modules.
 check_raw_line_budget "$wasm_standard_builtins" 30800
+
+# TypedArray.set owns the complete witness/copy algorithm; the dispatcher and
+# constructor can invoke fixed entries but must not grow another implementation.
+wasm_typed_array_set="crates/lila-aot-wasm/src/builtins/typed_array_set.rs"
+check_raw_line_budget "$wasm_typed_array_set" 551
+require_fixed_string_count "$wasm_typed_array_set" '    pub(super) fn ' 2 'fixed TypedArray set and byte-copy entries'
+if grep -Eq 'fn (compile_typed_array_prototype_set_builtin|emit_typed_array_copy_bytes_in_order)\(' "$wasm_standard_builtins"; then
+  fail "$wasm_standard_builtins must delegate TypedArray set and ordered byte copies"
+fi
 
 wasm_atomics_builtins="crates/lila-aot-wasm/src/builtins/atomics.rs"
 check_no_inline_legacy_includes "$wasm_atomics_builtins"
@@ -2896,15 +2924,19 @@ for date_local_string_call in \
   'self.emit_date_to_time_string(function)?;' \
   'self.emit_date_to_string(function)?;'
 do
-  case "$date_local_string_call" in
-    *emit_date_function_call*) expected_calls=1 ;;
-    *) expected_calls=2 ;;
-  esac
   require_fixed_string_count \
     "$wasm_standard_builtins" \
     "$date_local_string_call" \
-    "$expected_calls" \
-    'unchanged Date local-string semantic delegates'
+    1 \
+    'Date local-string semantic delegate'
+done
+for date_locale_format in Date Time DateAndTime
+do
+  require_fixed_string_count \
+    "$wasm_standard_builtins" \
+    "self.emit_date_to_locale_string(DateLocaleFormat::$date_locale_format, function)?;" \
+    1 \
+    "$date_locale_format Date locale-method delegate"
 done
 # Measured immediately after the time-source extraction: 1,675 parent lines and 339 child
 # lines. The narrow margins are for maintenance of each owner.
@@ -2975,7 +3007,7 @@ if ! grep -q '^enum BigIntBuiltin' "$wasm_bigint_builtins" \
   || ! grep -q '^                match result_policy {' "$wasm_bigint_builtins"; then
   fail "$wasm_bigint_builtins must dispatch through the closed BigInt builtin/result domains"
 fi
-if grep -Eq '^pub(\([^)]*\))?[[:space:]]+(struct|enum)[[:space:]]+BigInt(ValueResult|RadixStringResult|LocaleStringFallbackResult|PrototypeResultPolicy|FixedWidthOperation|Builtin)' "$wasm_bigint_builtins"; then
+if grep -Eq '^pub(\([^)]*\))?[[:space:]]+(struct|enum)[[:space:]]+BigInt(ValueResult|RadixStringResult|LocaleStringResult|PrototypeResultPolicy|FixedWidthOperation|Builtin)' "$wasm_bigint_builtins"; then
   fail "$wasm_bigint_builtins must keep its BigInt policy and result-authority domains private"
 fi
 if grep -Eq 'BigIntBuiltin|BigIntFixedWidthOperation|emit_bigint_builtin\(' "$wasm_standard_builtins"; then
@@ -3102,10 +3134,14 @@ do
   if [ "$state_parent_count" -ne 0 ]; then
     fail "$wasm_intl_locale production owner must not name $lifecycle_state (found $state_parent_count)"
   fi
+  lifecycle_state_uses=4
+  if [ "$lifecycle_state" = ReservedIntlLocaleObjectLocal ]; then
+    lifecycle_state_uses=6
+  fi
   require_fixed_string_count \
     "$wasm_intl_locale_construction" \
     "$lifecycle_state" \
-    4 \
+    "$lifecycle_state_uses" \
     "$lifecycle_state child-only uses"
   require_regex_count \
     "$wasm_intl_locale_construction" \
@@ -3182,98 +3218,52 @@ intl_locale_production_lines="$(awk '/^#\[cfg\(test\)\]/ { exit } { lines += 1 }
 if [ "$intl_locale_production_lines" -gt 2226 ]; then
   fail "$wasm_intl_locale has $intl_locale_production_lines pre-test lines; expected at most 2226"
 fi
-# Measured after closing the five string-slot entries: 2,205 pre-test parent
-# lines and 117 child lines. The narrow margins are for maintenance of each
-# owner.
-check_raw_line_budget "$wasm_intl_locale_construction" 145
+# The constructor and likely-subtag methods reserve through separate prototype
+# rules, then share initialization and publication: 186 child lines.
+check_raw_line_budget "$wasm_intl_locale_construction" 195
 
 wasm_intl_date_time_format="crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs"
 wasm_intl_date_time_format_construction="crates/lila-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs"
+wasm_intl_date_time_format_initialization="crates/lila-aot-wasm/src/builtins/intl_datetimeformat/initialization.rs"
+require_file "$wasm_intl_date_time_format_initialization"
+require_module_decl "$wasm_intl_date_time_format" "initialization"
+check_no_inline_legacy_includes "$wasm_intl_date_time_format_initialization"
 require_file "$wasm_intl_date_time_format_construction"
 check_no_inline_legacy_includes "$wasm_intl_date_time_format"
 check_no_inline_legacy_includes "$wasm_intl_date_time_format_construction"
-require_exact_line_count \
-  "$wasm_intl_date_time_format" \
-  'enum DtfFormatMode {' \
-  1 \
-  'owner-private DateTimeFormat output-mode declaration'
-require_exact_line_count \
-  "$wasm_intl_date_time_format" \
-  'struct DtfFormatTimes {' \
-  1 \
-  'owner-private DateTimeFormat times declaration'
-require_regex_count \
-  "$wasm_intl_date_time_format" \
-  '^[[:space:]]{4}fn[[:space:]]+emit_intl_dtf_build_format_with_kind[[:space:]]*\(' \
-  1 \
-  'owner-private DateTimeFormat raw formatter'
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+(enum[[:space:]]+DtfFormatMode|struct[[:space:]]+DtfFormatTimes|fn[[:space:]]+emit_intl_dtf_build_format_with_kind)' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep the DateTimeFormat mode, times and raw formatter owner-private"
-fi
-require_fixed_string_count \
-  "$wasm_intl_date_time_format" \
-  'self.emit_intl_dtf_build_format_with_kind(' \
-  3 \
-  'fixed DateTimeFormat raw formatter calls'
-for intl_dtf_private_temporal_declaration in \
-  'struct IntlDtfTemporalKind {' \
-  'enum DtfTimeBasis {' \
-  'const INTL_DTF_TEMPORAL_KINDS: &[IntlDtfTemporalKind] = &[' \
-  'enum DtfBrandedKind {' \
-  'enum DtfValueKind {'
-do
-  require_exact_line_count \
-    "$wasm_intl_date_time_format" \
-    "$intl_dtf_private_temporal_declaration" \
-    1 \
-    'owner-private DateTimeFormat Temporal-kind declaration'
+# Pattern data and partition algorithms belong to lila-intl. The AOT shell
+# owns observation, exact primitive inputs and current-Realm result objects.
+for intl_dtf_leaf in provider_input provider_render provider_wire; do
+  require_module_decl "$wasm_intl_date_time_format" "$intl_dtf_leaf"
+  require_file "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/${intl_dtf_leaf}.rs"
+  check_no_inline_legacy_includes "crates/lila-aot-wasm/src/builtins/intl_datetimeformat/${intl_dtf_leaf}.rs"
 done
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+(struct[[:space:]]+IntlDtfTemporalKind|enum[[:space:]]+(DtfTimeBasis|DtfBrandedKind|DtfValueKind)|const[[:space:]]+INTL_DTF_TEMPORAL_KINDS)' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep the Temporal-kind family owner-private"
-fi
-intl_dtf_temporal_kind_record="$(sed -n '/^struct IntlDtfTemporalKind {$/,/^}$/p' "$wasm_intl_date_time_format")"
-if grep -Eq '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' <<<"$intl_dtf_temporal_kind_record"; then
-  fail "$wasm_intl_date_time_format must keep every IntlDtfTemporalKind field private"
-fi
-require_fixed_string_count \
-  "$wasm_intl_date_time_format" \
-  '    IntlDtfTemporalKind {' \
-  6 \
-  'DateTimeFormat Temporal-kind table rows'
-for intl_dtf_private_extension_declaration in \
-  'enum IntlDtfExtensionResolution {' \
-  'enum IntlDtfRelevantExtensionKey {'
-do
-  require_exact_line_count \
-    "$wasm_intl_date_time_format" \
-    "$intl_dtf_private_extension_declaration" \
-    1 \
-    'owner-private DateTimeFormat extension declaration'
-done
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+enum[[:space:]]+(IntlDtfExtensionResolution|IntlDtfRelevantExtensionKey)' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep the extension-key domains owner-private"
-fi
+require_module_decl "crates/lila-intl/src/lib.rs" "datetime"
+require_module_decl "crates/lila-intl/src/lib.rs" "datetime_protocol"
+require_module_decl "crates/lila-intl/src/provider.rs" "datetime"
+require_module_decl "crates/lila-engine/src/lib.rs" "intl_datetime_host"
+require_tree_regex_count \
+  crates/lila-aot-wasm/src \
+  '(struct[[:space:]]+DtfComponentLocals|enum[[:space:]]+DtfRangePattern|enum[[:space:]]+IntlDtfRelevantExtensionKey|const[[:space:]]+INTL_DTF_(MONTHS|WEEKDAYS)_)' \
+  0 \
+  'retired DateTimeFormat pattern and locale authority in the Wasm emitter'
+intl_time_zone_domain="crates/lila-intl/src/time_zone.rs"
+require_file "$intl_time_zone_domain"
+require_exact_line_count \
+  "$intl_time_zone_domain" \
+  'pub enum TimeZoneNameStyle {' \
+  1 \
+  'shared Intl time-zone-name style authority'
+require_tree_regex_count \
+  crates/lila-aot-wasm/src \
+  'enum[[:space:]]+TimeZoneNameStyle' \
+  0 \
+  'duplicate time-zone-name style domain in the Wasm backend'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
-  '    const ALL: [Self; 3] = [Self::Ca, Self::Hc, Self::Nu];' \
+  'const INTL_DTF_TIME_ZONE_NAME_CODES: &[(&str, i64)] = &TimeZoneNameStyle::OPTIONS;' \
   1 \
-  'owner-private DateTimeFormat relevant-extension key list'
-require_exact_line_count \
-  "$wasm_intl_date_time_format" \
-  'struct IntlDtfKeywordNeedle {' \
-  1 \
-  'owner-private DateTimeFormat keyword needle'
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+struct[[:space:]]+IntlDtfKeywordNeedle' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep IntlDtfKeywordNeedle owner-private"
-fi
-require_exact_line_count \
-  "$wasm_intl_date_time_format" \
-  'enum TimeZoneNameStyle {' \
-  1 \
-  'owner-private DateTimeFormat time-zone-name style declaration'
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+enum[[:space:]]+TimeZoneNameStyle' "$wasm_intl_date_time_format"; then
-  fail "$wasm_intl_date_time_format must keep TimeZoneNameStyle owner-private"
-fi
+  'DateTimeFormat option projection from the shared style domain'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
   'struct IntlDtfOption {' \
@@ -3287,9 +3277,6 @@ if grep -Eq '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' <<<"$intl_dtf_option_reco
   fail "$wasm_intl_date_time_format must keep every IntlDtfOption field private"
 fi
 for intl_dtf_private_time_zone_declaration in \
-  'struct TzOffsetMinutes(i16);' \
-  'struct IntlDtfNamedZone {' \
-  'const INTL_DTF_NAMED_ZONES: &[IntlDtfNamedZone] = &[' \
   'struct DtfCanonicalTimeZone {' \
   'struct DtfResolvedTimeZone(DtfCanonicalTimeZone);'
 do
@@ -3299,13 +3286,20 @@ do
     1 \
     'owner-private DateTimeFormat time-zone authority declaration'
 done
-if grep -Eq 'pub(\([^)]*\))?[[:space:]]+(struct[[:space:]]+(TzOffsetMinutes|IntlDtfNamedZone|DtfCanonicalTimeZone|DtfResolvedTimeZone)|const[[:space:]]+INTL_DTF_NAMED_ZONES)' "$wasm_intl_date_time_format"; then
+if grep -Eq 'pub(\([^)]*\))?[[:space:]]+struct[[:space:]]+(DtfCanonicalTimeZone|DtfResolvedTimeZone)' "$wasm_intl_date_time_format"; then
   fail "$wasm_intl_date_time_format must keep the DateTimeFormat time-zone authority owner-private"
 fi
-intl_dtf_named_zone_record="$(sed -n '/^struct IntlDtfNamedZone {$/,/^}$/p' "$wasm_intl_date_time_format")"
-if grep -Eq '^[[:space:]]*pub(\([^)]*\))?[[:space:]]+' <<<"$intl_dtf_named_zone_record"; then
-  fail "$wasm_intl_date_time_format must keep every IntlDtfNamedZone field private"
-fi
+require_tree_regex_count \
+  crates/lila-aot-wasm/src \
+  '(struct[[:space:]]+(TzOffsetMinutes|IntlDtfNamedZone)|const[[:space:]]+INTL_DTF_NAMED_ZONES)' \
+  0 \
+  'retired constant-offset named-zone authority'
+require_module_decl "$wasm_intl_date_time_format" "time_zone"
+require_exact_line_count \
+  "$intl_time_zone_domain" \
+  'pub struct FixedTimeZoneOffset(i32);' \
+  1 \
+  'validated fixed-offset domain with a private representation'
 require_exact_line_count \
   "$wasm_intl_date_time_format" \
   'mod construction_lifecycle;' \
@@ -3345,15 +3339,17 @@ do
     1 \
     "$lifecycle_transition private-child owner"
   require_fixed_string_count \
-    "$wasm_intl_date_time_format" \
+    "$wasm_intl_date_time_format_initialization" \
     ".${lifecycle_transition}(" \
     1 \
-    "$lifecycle_transition parent constructor call"
+    "$lifecycle_transition shared initialization call"
 done
-# Measured immediately after extraction: 7,093 parent lines and 94 child
-# lines. The narrow margins are for maintenance of each lifecycle owner.
-check_raw_line_budget "$wasm_intl_date_time_format" 7150
-check_raw_line_budget "$wasm_intl_date_time_format_construction" 125
+# The shared initialization owns constructor and Date method field policies.
+check_raw_line_budget "$wasm_intl_date_time_format" 1750
+check_raw_line_budget "$wasm_intl_date_time_format_initialization" 620
+require_module_decl "$wasm_date_builtins" "locale_string"
+check_raw_line_budget "crates/lila-aot-wasm/src/builtins/date/locale_string.rs" 115
+check_raw_line_budget "$wasm_intl_date_time_format_construction" 130
 
 wasm_global_numeric_builtins="crates/lila-aot-wasm/src/builtins/global_numeric.rs"
 check_no_inline_legacy_includes "$wasm_global_numeric_builtins"
@@ -3677,7 +3673,8 @@ check_no_inline_legacy_includes "$wasm_promise_try_callback_type_error"
 # Measured after extracting the Promise internal-function materialization
 # authority: 7,111 parent lines and 212 child lines. The narrow margins are for
 # maintenance of each owner, not adjacent Promise implementations.
-check_raw_line_budget "$wasm_promise_builtins" 7180
+# Canonical ModuleBody and ModuleJoin reactions add their raw intrinsic paths.
+check_raw_line_budget "$wasm_promise_builtins" 7380
 check_raw_line_budget "$wasm_promise_internal_function_materialization" 240
 check_raw_line_budget "$wasm_promise_try_callback_type_error" 80
 
@@ -4346,7 +4343,7 @@ require_exact_line_count \
   0 \
   'obsolete function-meta registry iterator'
 
-wasm_objects_property_read="$(sed -n '/    pub(crate) fn compile_property_read_from_locals(/,/    fn compile_dynamic_property_read_from_locals(/p' crates/lila-aot-wasm/src/objects.rs)"
+wasm_objects_property_read="$(sed -n '/    pub(crate) fn compile_property_read_from_locals(/,/    pub(crate) fn compile_dynamic_property_read_from_locals(/p' crates/lila-aot-wasm/src/objects.rs)"
 require_text_regex_count \
   "$wasm_objects_property_read" \
   '^[[:space:]]*ValueKind::Dynamic => \{$' \
@@ -4618,9 +4615,9 @@ require_fixed_string_count \
   'self.emit_regexp_unicode_property_mismatch(' \
   2 \
   'unchanged forward and reverse RegExp range-search calls'
-# Measured immediately after extraction: 3,661 parent lines and 120 child
-# lines. The narrow margins are for maintenance of each owner.
-check_raw_line_budget "$wasm_regexp_builtins" 3710
+# Measured after legacy pooled-class UTF-16 membership: 3,851 parent lines.
+# Range-search remains its separate 120-line owner with a narrow margin.
+check_raw_line_budget "$wasm_regexp_builtins" 3851
 check_raw_line_budget "$wasm_regexp_range_search" 145
 
 # T02's RegExp substitution owner. The String parent may request the semantic
@@ -5125,7 +5122,7 @@ require_fixed_string_count \
 require_fixed_string_count \
   "$intl_date_time_format_layout_file" \
   'record: "intl-date-time-format-record"' \
-  23 \
+  24 \
   'Intl.DateTimeFormat typed layout rows'
 if grep -Fq 'record: "intl-date-time-format-record"' "$intl_date_time_format_layout_heap" \
   || grep -Fq 'HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot]' "$intl_date_time_format_layout_heap"; then
@@ -5133,29 +5130,27 @@ if grep -Fq 'record: "intl-date-time-format-record"' "$intl_date_time_format_lay
 fi
 check_raw_line_budget "$intl_date_time_format_layout_file" 290
 
-# T16's named Array string-key selection is private to two raw consumers. The
-# Object builtins may call only four fixed count/write operations.
+# Object.getOwnPropertyNames uses two fixed all-string Array operations.
+# Enumerable selection belongs to the shared Object keys/entries/values path,
+# which observes descriptors lazily after collecting own keys.
 array_named_key_owner="crates/lila-aot-wasm/src/builtins/array.rs"
 array_named_key_caller="crates/lila-aot-wasm/src/builtins/object.rs"
-require_fixed_string_count "$array_named_key_owner" 'enum ArrayNamedStringKeySelection {' 1 'private Array named-key policy'
-if grep -Eq '^pub(\([^)]*\))?[[:space:]]+enum[[:space:]]+ArrayNamedStringKeySelection' "$array_named_key_owner"; then
-  fail "$array_named_key_owner must keep ArrayNamedStringKeySelection private"
-fi
-if grep -Eq 'ArrayNamedStringKeySelection|emit_array_named_string_props_(count|write_keys)\(' "$array_named_key_caller"; then
-  fail "$array_named_key_caller must use fixed Array named-key operations"
-fi
-require_fixed_string_count "$array_named_key_owner" 'fn emit_array_named_string_props_count(' 1 'private Array named-key count consumer'
-require_fixed_string_count "$array_named_key_owner" 'fn emit_array_named_string_props_write_keys(' 1 'private Array named-key write consumer'
-require_fixed_string_count "$array_named_key_owner" 'self.emit_array_named_string_props_count(' 2 'fixed Array named-key count wrappers'
-require_fixed_string_count "$array_named_key_owner" 'self.emit_array_named_string_props_write_keys(' 2 'fixed Array named-key write wrappers'
-for array_named_key_wrapper in \
-  emit_array_all_named_string_props_count \
+for retired_array_key_policy in \
+  ArrayNamedStringKeySelection \
+  emit_array_named_string_props_count \
+  emit_array_named_string_props_write_keys \
   emit_array_enumerable_named_string_props_count \
-  emit_array_all_named_string_props_write_keys \
   emit_array_enumerable_named_string_props_write_keys
 do
-  require_fixed_string_count "$array_named_key_owner" "pub(super) fn ${array_named_key_wrapper}(" 1 "fixed Array named-key wrapper $array_named_key_wrapper"
-  require_fixed_string_count "$array_named_key_caller" "self.${array_named_key_wrapper}(" 1 "Object call to fixed Array named-key wrapper $array_named_key_wrapper"
+  require_fixed_string_count "$array_named_key_owner" "$retired_array_key_policy" 0 'retired eager Array key selection'
+  require_fixed_string_count "$array_named_key_caller" "$retired_array_key_policy" 0 'retired eager Object key selection'
+done
+for array_named_key_wrapper in \
+  emit_array_all_named_string_props_count \
+  emit_array_all_named_string_props_write_keys
+do
+  require_fixed_string_count "$array_named_key_owner" "pub(super) fn ${array_named_key_wrapper}(" 1 "fixed Array named-key operation $array_named_key_wrapper"
+  require_fixed_string_count "$array_named_key_caller" "self.${array_named_key_wrapper}(" 1 "Object call to fixed Array named-key operation $array_named_key_wrapper"
 done
 
 # T16's raw sort output policy is private to fixed sort and toSorted entries.
@@ -5583,7 +5578,7 @@ if [ ! -f docs/rust-rewrite/contracts/own-descriptor-predicates.md ]; then
   fail 'own-descriptor-predicate contract must remain present'
 fi
 
-# T10's Object entries/values policy has one private owner. The parent and
+# T10's Object keys/entries/values policy has one private owner. The parent and
 # standard dispatcher may invoke fixed semantic operations, but cannot construct
 # or project the raw policy controlling diagnostics and result shape.
 enumerable_own_properties_parent="crates/lila-aot-wasm/src/builtins/object.rs"
@@ -5605,21 +5600,22 @@ do
   fi
 done
 require_fixed_string_count "$enumerable_own_properties_file" 'enum EnumerableOwnProperties {' 1 'closed enumerable-own-properties domain'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 8 'enumerable-own-properties policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 12 'enumerable-own-properties policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Keys' 4 'keys policy uses'
 require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Entries' 3 'entries policy uses'
 require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Values' 3 'values policy uses'
 require_fixed_string_count \
   "$enumerable_own_properties_file" \
   'compile_object_enumerable_own_properties_builtin(' \
-  3 \
+  4 \
   'private enumerable-own-properties compiler definition and wrapper calls'
 require_regex_count \
   "$enumerable_own_properties_file" \
-  '^[[:space:]]*pub\(in crate::builtins\)[[:space:]]+fn[[:space:]]+compile_object_(entries|values)_builtin[[:space:]]*\(' \
-  2 \
+  '^[[:space:]]*pub\(in crate::builtins\)[[:space:]]+fn[[:space:]]+compile_object_(keys|entries|values)_builtin[[:space:]]*\(' \
+  3 \
   'enumerable-own-properties semantic wrapper visibility'
 enumerable_own_properties_body="$(sed -n \
-  '/^    fn compile_object_enumerable_own_properties_builtin(/,/^    pub(in crate::builtins) fn compile_object_entries_builtin(/p' \
+  '/^    fn compile_object_enumerable_own_properties_builtin(/,/^    pub(in crate::builtins) fn compile_object_keys_builtin(/p' \
   "$enumerable_own_properties_file")"
 if [ "$(grep -Fc 'match &mode {' <<<"$enumerable_own_properties_body" || true)" -ne 2 ] \
   || grep -Eq 'match mode|mode[[:space:]]*[!=]=|^[[:space:]]*_ =>|unreachable!\(' <<<"$enumerable_own_properties_body"; then
@@ -5632,6 +5628,7 @@ do
   fi
 done
 for enumerable_own_properties_wrapper_spec in \
+  'compile_object_keys_builtin|compile_object_entries_builtin|EnumerableOwnProperties::Keys' \
   'compile_object_entries_builtin|compile_object_values_builtin|EnumerableOwnProperties::Entries' \
   'compile_object_values_builtin|END|EnumerableOwnProperties::Values'
 do
@@ -5854,7 +5851,7 @@ fi
 object_internal_method_order="$(sed -n \
   '/^object_internal_method_branches!(/,/^);/p' \
   crates/lila-aot-wasm/src/objects.rs | tr -d '[:space:]')"
-if [ "$object_internal_method_order" != 'object_internal_method_branches!(Proxy,IntegerIndexed,Array,Arguments,BoxedString,Ordinary,);' ]; then
+if [ "$object_internal_method_order" != 'object_internal_method_branches!(Proxy,Namespace,IntegerIndexed,Array,Arguments,BoxedString,Ordinary,);' ]; then
   fail 'object internal methods must retain the reviewed exotic-to-ordinary dispatch order'
 fi
 has_property_dispatch_body="$(sed -n \
@@ -6649,13 +6646,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  12 \
+  15 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat IntlNumberFormat; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \
@@ -6687,9 +6684,9 @@ do
 done
 
 for required_ordinary_prototype_call_census in \
-  'emit_load_required_resolved_realm_ordinary_prototype 5' \
-  'emit_install_resolved_realm_ordinary_prototype 5' \
-  'emit_required_new_target_realm_ordinary_prototype 3'
+  'emit_load_required_resolved_realm_ordinary_prototype 4' \
+  'emit_install_resolved_realm_ordinary_prototype 4' \
+  'emit_required_new_target_realm_ordinary_prototype 5'
 do
   set -- $required_ordinary_prototype_call_census
   require_tree_regex_count \
@@ -6703,9 +6700,9 @@ check_no_inline_legacy_includes "$wasm_required_resolved_realm_ordinary_prototyp
 check_raw_line_budget "$wasm_required_resolved_realm_ordinary_prototype" 180
 
 # The active function Realm's Array prototype is a one-shot proof: one private
-# child constructs it, and exactly two bounded consumers install it with an
-# Array payload. Iterator-toArray owns one consumer; Proxy dispatch owns the
-# other so trap-visible argument Arrays use the execution Realm.
+# child constructs it, and five consumers install it with an Array payload.
+# Iterator-toArray and Proxy dispatch retain their original consumers; Object
+# owns two key-array consumers and Reflect owns one.
 wasm_current_function_realm_array_prototype=crates/lila-aot-wasm/src/functions/current_function_realm_array_prototype.rs
 wasm_proxy_execution_realm=crates/lila-aot-wasm/src/functions/proxy_execution_realm.rs
 require_file "$wasm_current_function_realm_array_prototype"
@@ -6768,33 +6765,48 @@ done
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_load_current_function_realm_array_prototype[[:space:]]*\(' \
-  2 \
+  5 \
   'current-function Realm Array prototype load calls'
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_install_current_function_realm_array_prototype[[:space:]]*\(' \
-  2 \
+  5 \
   'current-function Realm Array prototype install calls'
-for current_realm_array_prototype_consumer in \
-  crates/lila-aot-wasm/src/builtins/array.rs \
-  "$wasm_proxy_execution_realm"
+for current_realm_array_prototype_consumer_spec in \
+  "crates/lila-aot-wasm/src/builtins/array.rs|1" \
+  "$wasm_proxy_execution_realm|1" \
+  "crates/lila-aot-wasm/src/builtins/object.rs|2" \
+  "crates/lila-aot-wasm/src/builtins/reflect.rs|1"
 do
+  current_realm_array_prototype_consumer="${current_realm_array_prototype_consumer_spec%%|*}"
+  current_realm_array_prototype_consumer_count="${current_realm_array_prototype_consumer_spec#*|}"
   require_fixed_string_count \
     "$current_realm_array_prototype_consumer" \
     'emit_load_current_function_realm_array_prototype(function)' \
-    1 \
+    "$current_realm_array_prototype_consumer_count" \
     'current-function Realm Array prototype load consumer'
   require_fixed_string_count \
     "$current_realm_array_prototype_consumer" \
     'emit_install_current_function_realm_array_prototype(' \
-    1 \
+    "$current_realm_array_prototype_consumer_count" \
     'current-function Realm Array prototype install consumer'
 done
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_alloc_array_payload_with_length_in_current_function_realm[[:space:]]*\(' \
-  2 \
+  6 \
   'current-function Realm Array allocator consumers'
+
+for number_format_array_consumer in \
+  crates/lila-aot-wasm/src/builtins/intl_numberformat/render.rs \
+  crates/lila-aot-wasm/src/builtins/intl_numberformat/resolved.rs
+do
+  require_fixed_string_count \
+    "$number_format_array_consumer" \
+    'emit_alloc_array_payload_with_length_in_current_function_realm(' \
+    1 \
+    'NumberFormat current-function Realm Array consumer'
+done
 
 check_no_inline_legacy_includes "$wasm_current_function_realm_array_prototype"
 check_raw_line_budget "$wasm_current_function_realm_array_prototype" 110

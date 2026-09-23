@@ -2,9 +2,10 @@
 
 ## Closed source identity
 
-The passive collector inventory names exactly seven `HeapRootSource` variants:
-Realm globals, active-frame locals, lexical environments, completion records,
-the function table, host-borrowed values and pending jobs. Each source selects
+The passive collector inventory names exactly nine `HeapRootSource` variants:
+Realm globals, active-frame locals, lexical environments, module records, Module
+entry evaluation, completion records, the function table, host-borrowed values
+and pending jobs. Each source selects
 one of three `HeapRootKind` variants:
 
 - `PersistentNonTagged`;
@@ -21,7 +22,12 @@ metadata arm.
 `HeapRootSource::HostBorrowedValues` identity. An arbitrary string can no longer
 silently misspell or drift away from the registered host root.
 
-The focused structure regression pins the two closed domains, all seven exact
+The Module entry evaluation source names its retained intrinsic Promise object
+as a persistent non-tagged root, separately from module-record globals and the
+unhandled-rejection FIFO. Its actual product lifetime is the module-instance
+global used by the [entry completion checkpoint](module-entry-completion.md).
+
+The focused structure regression pins the two closed domains, all nine exact
 metadata meanings, the exhaustive projection, one occurrence of every source
 in the registry and the typed host-boundary producer.
 
@@ -40,8 +46,7 @@ cargo check -p lila-aot-wasm --lib
 git diff --check
 ```
 
-The standalone root-source structure guard passes `4/4`, the adjusted
-named-slot structure guard remains green at `3/3`, and targeted formatting and
-diff checks pass. Package owner witnesses and compilation remain deferred to
-the shared batch checkpoint. Broad workspace, golden and Test262 verification
-remain batch-level work.
+The focused structure guard covers the complete nine-source inventory. Run its
+checks with the integrated batch; metadata alone is not evidence of executable
+collection or Module completion behavior. Broad workspace, golden and Test262
+verification remain batch-level work.

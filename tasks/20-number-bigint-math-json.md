@@ -48,12 +48,15 @@ controls pass all `4/4` sloppy/strict Wasm-AOT executions with every failure
 bucket at zero. The bounded contract is
 [`arithmetic-number-conversion-order.md`](../docs/rust-rewrite/contracts/arithmetic-number-conversion-order.md).
 The BigInt prototype result
-boundary now carries a closed exact-value, radix-string or locale-fallback
-policy from each existing builtin producer. After shared receiver extraction,
-marker-typed helpers make locale calls ineligible for the radix reader:
-`toLocaleString` uses the permitted decimal core fallback and leaves its two
-reserved arguments unused, while `toString` retains radix coercion/error order
-and `valueOf` retains the exact representation. One prepared-radix witness
+boundary carries a closed exact-value, radix-string or locale-string policy
+from each existing builtin producer. After shared receiver extraction,
+marker-typed helpers make locale calls ineligible for the radix reader.
+`toLocaleString` now delegates to the called builtin Realm's canonical
+`Intl.NumberFormat`, observes locales/options in ECMA-402 order, and preserves
+the exact BigInt value. `toString` retains radix coercion/error order and
+`valueOf` retains the exact representation. The coordinated NumberFormat
+integration and pending product verification are described in
+[`intl-numberformat-wasm.md`](../docs/rust-rewrite/contracts/intl-numberformat-wasm.md). One prepared-radix witness
 owns coercion and range validation before immediate-versus-heap formatting,
 and a closed builder body-domain lets only standard builtins and the
 `ValueToNumber`/`ValueToNumeric` helpers interpret their environment as

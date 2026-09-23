@@ -172,7 +172,7 @@ impl FunctionBuilder<'_> {
         }
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
-        self.emit_global_lexical_read(
+        self.emit_check_named_binding_initialized(
             entry_local,
             previous_payload_local,
             previous_tag_local,

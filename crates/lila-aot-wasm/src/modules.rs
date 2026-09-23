@@ -1,18 +1,21 @@
 //! Wasm emission for ES module graphs.
 //!
-//! A module graph is linked at compile time into the single `ScriptIr` the rest
-//! of the backend emits, so most module semantics need no code here at all: a
-//! cross-module binding read is an ordinary environment-slot read of the
-//! exporter's cell, and evaluation order is fixed statically.
+//! A validated Module-entry graph carries private activation, canonical cell and
+//! ordered phase-aware request operations. Allocation publishes every canonical
+//! environment before instantiation; runtime DFS owns cycle roots, cached
+//! Evaluate promises, async parents and exact rejection values. Source Await
+//! resumes the existing async ABI after a separate private instantiation phase.
 //!
-//! What does need emission is the part that is genuinely dynamic:
+//! Script-entry and source-phase graphs retain their explicit merged-driver
+//! admission boundary.
 //!
-//! * [`emit_module_unit_once`] — run a module's hoist or body block exactly
-//!   once, which is what makes cycles and repeated `import()` behave;
-//! * [`emit_import_meta`] — read the module's `import.meta` object.
+//! `synchronous` owns allocation/instantiation and canonical cells; `evaluation`
+//! and `completion` own runtime DFS and Promise completion; `traversal` owns
+//! pure readiness/gather walks. `entry_completion` projects the primary entry.
+//! The retained paths below emit `ModuleUnitOnce` and `import.meta` operations.
 //!
-//! `import()` is *not* on that list, in either goal. The linker desugars every
-//! call site of a graph — `import(`, `import.defer(` and `import.source(` alike
+//! The linker desugars every `import()` call, in either goal, from every
+//! graph call site — `import(`, `import.defer(` and `import.source(` alike
 //! — into an ordinary call to a generated dispatcher function that `ToString`s
 //! the specifier, compares it against the specifiers compiled into the artifact
 //! and resolves or rejects a promise, so no `ImportCall` node reaches this
@@ -23,18 +26,19 @@
 //! `lila_ir::modules::dynamic`, and [`emit_dynamic_import`] for the one case
 //! that still reaches this file.
 //!
-//! Module namespace objects are *not* on that list either. `import * as ns` is
-//! materialized by the linker as generated Script text — one `Object.create`,
-//! one `Object.defineProperty` per export whose getter names the exporter's own
-//! binding, and one `Object.preventExtensions` — so it reaches this backend as
-//! ordinary object code and needs no emitter. See
-//! `lila_ir::modules::namespace`, which owns that source and documents the
-//! single invariant the translation gives up (the properties are accessors, so
-//! `Object.getOwnPropertyDescriptor` reports `get` rather than `value`).
-//! [`emit_module_namespace`] is the seam where a real 10.4.6 exotic object would
-//! close that gap, and it stays a stub until there is one.
+//! Namespace constructors carry their private export-reader table directly in
+//! `ExprIr::ModuleNamespace`. The canonical runtime object implementation lives
+//! in `objects::module_namespace`, alongside the internal methods it dispatches.
 
 use super::*;
+mod completion;
+mod entry_completion;
+mod evaluation;
+mod runtime;
+mod synchronous;
+mod traversal;
+pub(crate) use runtime::ModuleRuntimeOperation;
+pub(crate) use synchronous::module_execution_record_count;
 
 /// Message every unimplemented module emission reports, so a module compile
 /// fails with one recognisable diagnostic rather than a generic backend error.
@@ -152,33 +156,5 @@ impl FunctionBuilder<'_> {
         _function: &mut Function,
     ) -> Result<(), EmitError> {
         Err(unsupported("import.meta"))
-    }
-
-    /// `ExprIr::ModuleNamespace`: leaves the identity-cached namespace exotic
-    /// object on the stack.
-    ///
-    /// Deliberately still a stub. Two things would have to change before a real
-    /// implementation could be anything but dead code:
-    ///
-    /// * nothing constructs `ExprIr::ModuleNamespace`. The linker materializes
-    ///   `import * as ns` as generated Script text (see the module docs), so a
-    ///   namespace object reaches this backend as ordinary object code and this
-    ///   arm is never taken;
-    /// * `emit` hands `emit_script` a bare [`ScriptIr`], never the `ProgramIr`,
-    ///   so `module` here cannot be turned into an export table at all —
-    ///   `ProgramIr::modules` is where the sorted export names and their target
-    ///   bindings live, and it does not reach this far.
-    ///
-    /// So the honest thing this arm can do is say which invariant a caller would
-    /// be reaching for, rather than emit an object that only looks like one.
-    pub(crate) fn emit_module_namespace(
-        &mut self,
-        _module: u32,
-        _function: &mut Function,
-    ) -> Result<(), EmitError> {
-        Err(unsupported(
-            "namespace object (10.4.6 exotic object; the linker emits an ordinary \
-             accessor object instead, so this arm means an IR producer got ahead of it)",
-        ))
     }
 }

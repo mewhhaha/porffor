@@ -37,14 +37,10 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 fn plain_date_time_component_is_a_non_copyable_two_variant_domain() {
     let domain = bounded(
         METHODS,
-        "    With,\n}\n\n",
+        "pub(super) enum TemporalPlainDateTimeComponent",
         "\n\nimpl TemporalDateTimeFieldKey",
     );
-    let declaration = bounded(
-        domain,
-        "pub(super) enum TemporalPlainDateTimeComponent {",
-        "\n}",
-    );
+    let declaration = bounded(domain, " {", "\n}");
     let variants = declaration
         .lines()
         .map(str::trim)

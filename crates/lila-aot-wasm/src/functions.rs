@@ -9,17 +9,21 @@ mod arguments_index_mapping;
 mod bound_function_allocation;
 mod class_definition;
 mod created_realm_array_prototype;
+mod current_builtin_realm_closure;
 mod current_function_realm_array_prototype;
 mod current_function_realm_async_disposable_stack;
 mod current_function_realm_disposable_stack;
 mod direct_eval;
 pub(crate) mod direct_eval_invocation;
 mod eval_intrinsic;
+mod function_name;
 mod function_realm;
+pub(crate) use function_name::FunctionNamePrefix;
 mod indirect_call;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
 mod required_resolved_realm_ordinary_prototype;
+mod throw_type_error;
 pub(crate) use function_realm::FunctionRealmRevokedRoute;
 use function_realm::ResolvedFunctionRealmLocal;
 pub(crate) use proxy_creation_execution_realm::ProxyCreationExecutionRealm;
@@ -96,14 +100,15 @@ pub(crate) struct RealmRecordLocal(u32);
 pub(crate) struct ReservedRealmFunctionPrototypeLocal(u32);
 
 /// The inseparable realm/default-function-prototype inputs for creating an
-/// ordinary builtin function in a synthetic realm.
+/// ordinary builtin function in a synthetic or active builtin realm.
 ///
 /// The context is deliberately non-`Copy` and its fields are private. This
 /// prevents a call site from attaching one realm as `[[Realm]]` while leaving
 /// the allocator's entry-realm `%Function.prototype%` in `[[Prototype]]` or
 /// pairing the realm with an arbitrary scratch local. The context can only be
-/// constructed by materializing the catalogued callable intrinsic, so callers
-/// cannot supply a payload with a different value kind.
+/// constructed by materializing the catalogued callable intrinsic or loading
+/// that intrinsic from a proven active builtin Realm, so callers cannot supply
+/// a payload with a different value kind.
 #[must_use]
 pub(crate) struct RealmFunctionMaterializationContext {
     realm: RealmRecordLocal,
@@ -165,8 +170,14 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     FinalizationRegistryPrototype,
     RegExpPrototype,
     DatePrototype,
+    TemporalInstantPrototype,
+    TemporalDurationPrototype,
+    IntlLocalePrototype,
+    IntlDateTimeFormatPrototype,
+    IntlNumberFormatPrototype,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
+    Float16ArrayPrototype,
     Int32ArrayPrototype,
     Int16ArrayPrototype,
     Int8ArrayPrototype,
@@ -390,8 +401,22 @@ impl NonArrayRealmIntrinsicSlot {
             }
             Self::RegExpPrototype => HEAP_REALM_INTRINSICS_REGEXP_PROTOTYPE_OFFSET,
             Self::DatePrototype => HEAP_REALM_INTRINSICS_DATE_PROTOTYPE_OFFSET,
+            Self::TemporalInstantPrototype => {
+                HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET
+            }
+            Self::TemporalDurationPrototype => {
+                HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET
+            }
+            Self::IntlLocalePrototype => HEAP_REALM_INTRINSICS_INTL_LOCALE_PROTOTYPE_OFFSET,
+            Self::IntlDateTimeFormatPrototype => {
+                HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
+            }
+            Self::IntlNumberFormatPrototype => {
+                HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET
+            }
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
+            Self::Float16ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int32ArrayPrototype => HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Int16ArrayPrototype => HEAP_REALM_INTRINSICS_INT16_ARRAY_PROTOTYPE_OFFSET,
             Self::Int8ArrayPrototype => HEAP_REALM_INTRINSICS_INT8_ARRAY_PROTOTYPE_OFFSET,
@@ -410,6 +435,7 @@ impl NonArrayRealmIntrinsicSlot {
         Some(match builtin {
             StandardBuiltinId::Float64ArrayConstructor => Self::Float64ArrayPrototype,
             StandardBuiltinId::Float32ArrayConstructor => Self::Float32ArrayPrototype,
+            StandardBuiltinId::Float16ArrayConstructor => Self::Float16ArrayPrototype,
             StandardBuiltinId::Int32ArrayConstructor => Self::Int32ArrayPrototype,
             StandardBuiltinId::Int16ArrayConstructor => Self::Int16ArrayPrototype,
             StandardBuiltinId::Int8ArrayConstructor => Self::Int8ArrayPrototype,
@@ -485,6 +511,7 @@ mod realm_function_materialization_tests {
         let created_realm_iterator_next =
             include_str!("builtins/host/created_realm_iterator_next.rs");
         let uint8_array_codecs = include_str!("builtins/uint8array_codecs.rs");
+        let throw_type_error = include_str!("functions/throw_type_error.rs");
         let objects = include_str!("objects.rs");
 
         let context_marker = concat!("pub(crate) struct RealmFunctionMaterialization", "Context");
@@ -571,6 +598,12 @@ mod realm_function_materialization_tests {
                 1,
                 "context",
             ),
+            (
+                "functions/throw_type_error.rs",
+                throw_type_error,
+                1,
+                "context",
+            ),
         ] {
             let mut remaining = realm_bootstrap_source;
             let mut source_sites = 0;
@@ -592,7 +625,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 91,
+            direct_sites, 92,
             "created-realm bootstrap site count drifted"
         );
 
@@ -1661,6 +1694,10 @@ pub(crate) fn emit_function_object_alloc_helper_function(
             HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
         ),
         (
+            FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+            HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET,
+        ),
+        (
             INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
             HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET,
         ),
@@ -2350,18 +2387,16 @@ impl<'a> FunctionBuilder<'a> {
             .functions
             .get(&StandardBuiltinId::NumberConstructor.function_id())
             .map(|meta| meta.table_index as i64);
-        let string_constructor_table_index = self
-            .functions
-            .get(&StandardBuiltinId::StringConstructor.function_id())
-            .map(|meta| meta.table_index as i64);
         let boolean_constructor_table_index = self
             .functions
             .get(&StandardBuiltinId::BooleanConstructor.function_id())
             .map(|meta| meta.table_index as i64);
         let direct_returning_constructor_table_indices: Vec<i64> = [
+            StandardBuiltinId::StringConstructor,
             StandardBuiltinId::FunctionConstructor,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,
@@ -2386,6 +2421,7 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::RegExpConstructor,
             StandardBuiltinId::IntlLocaleConstructor,
             StandardBuiltinId::IntlDateTimeFormatConstructor,
+            StandardBuiltinId::IntlNumberFormatConstructor,
         ]
         .into_iter()
         .chain(
@@ -2795,24 +2831,6 @@ impl<'a> FunctionBuilder<'a> {
             proto_tag_local,
             function,
         );
-        if let Some(string_constructor_table_index) = string_constructor_table_index {
-            function.instruction(&Instruction::LocalGet(table_index_local));
-            function.instruction(&Instruction::I64Const(string_constructor_table_index));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            let ordinary_prototype = self.emit_load_required_resolved_realm_ordinary_prototype(
-                prototype_realm,
-                OrdinaryDefaultPrototype::String,
-                function,
-            );
-            self.emit_install_resolved_realm_ordinary_prototype(
-                ordinary_prototype,
-                proto_payload_local,
-                proto_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
         if let Some(array_constructor_table_index) = array_constructor_table_index {
             function.instruction(&Instruction::LocalGet(table_index_local));
             function.instruction(&Instruction::I64Const(array_constructor_table_index));
@@ -2922,11 +2940,6 @@ impl<'a> FunctionBuilder<'a> {
                 number_constructor_table_index,
                 ValueKind::Number,
                 BOXED_PRIMITIVE_KIND_NUMBER,
-            ),
-            (
-                string_constructor_table_index,
-                ValueKind::String,
-                BOXED_PRIMITIVE_KIND_STRING,
             ),
             (
                 boolean_constructor_table_index,
@@ -3293,7 +3306,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Call(function_object_alloc_function_index));
         function.instruction(&Instruction::LocalSet(object_local));
         if meta.host_builtin == Some(HostBuiltinId::RealmEvalScript)
-            || meta.standard_builtin == Some(StandardBuiltinId::EvalFunction)
+            || matches!(
+                meta.standard_builtin,
+                Some(
+                    StandardBuiltinId::EvalFunction
+                        | StandardBuiltinId::ThrowTypeError
+                        | StandardBuiltinId::StringConstructor
+                )
+            )
             || meta
                 .standard_builtin
                 .and_then(ActiveStandardBuiltinFunction::from_builtin)
@@ -4246,50 +4266,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tag_local));
 
         self.release_temp_local(intrinsics_local);
-    }
-
-    pub(crate) fn emit_load_function_defining_realm_throw_type_error(
-        &mut self,
-        function_object_local: u32,
-        result_local: u32,
-        function: &mut Function,
-    ) {
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::GlobalGet(THROW_TYPE_ERROR_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(result_local));
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_THROW_TYPE_ERROR_OFFSET,
-            result_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
     }
 
     pub(crate) fn emit_load_function_defining_realm_array_iterator_prototype(
@@ -5850,6 +5826,12 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_const_at_offset(payload_local, HEAP_GENERATOR_ENV_OFFSET, 0, function);
             self.store_i64_const_at_offset(
                 payload_local,
+                HEAP_GENERATOR_LEXICAL_ENV_OFFSET,
+                0,
+                function,
+            );
+            self.store_i64_const_at_offset(
+                payload_local,
                 HEAP_GENERATOR_INITIALIZED_OFFSET,
                 0,
                 function,
@@ -6114,64 +6096,20 @@ impl<'a> FunctionBuilder<'a> {
             let async_body_payload_local = self.reserve_temp_local();
             let async_body_tag_local = self.reserve_temp_local();
 
-            let realm = self
-                .emit_async_execution_realm_context_from_function(callee_payload_local, function);
-            let promise_allocation_context =
-                self.emit_async_execution_promise_allocation_context(&realm, function);
-            self.emit_alloc_promise_with_prototype(
-                promise_allocation_context,
+            self.emit_allocate_async_activation(
+                callee_payload_local,
+                callee_env_local,
+                table_index_local,
+                call_this_payload_local,
+                call_this_tag_local,
+                argc_local,
+                argv_local,
+                AsyncModuleEntryMode::Execute,
+                async_activation_local,
                 async_promise_payload_local,
                 async_promise_record_local,
                 function,
             )?;
-            self.emit_heap_alloc_const(HEAP_ASYNC_ACTIVATION_RECORD_SIZE, function)?;
-            function.instruction(&Instruction::LocalSet(async_activation_local));
-            self.emit_store_async_function_execution_realm(
-                &realm,
-                async_activation_local,
-                function,
-            );
-            self.release_async_execution_realm_context(realm);
-            for (offset, source_local) in [
-                (HEAP_ASYNC_FUNCTION_ENV_OFFSET, callee_env_local),
-                (HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET, table_index_local),
-                (HEAP_ASYNC_THIS_PAYLOAD_OFFSET, call_this_payload_local),
-                (HEAP_ASYNC_THIS_TAG_OFFSET, call_this_tag_local),
-                (HEAP_ASYNC_ARGC_OFFSET, argc_local),
-                (HEAP_ASYNC_ARGV_OFFSET, argv_local),
-                (
-                    HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET,
-                    async_promise_payload_local,
-                ),
-                (HEAP_ASYNC_PROMISE_RECORD_OFFSET, async_promise_record_local),
-            ] {
-                self.store_i64_local_at_offset(
-                    async_activation_local,
-                    offset,
-                    source_local,
-                    function,
-                );
-            }
-            for (offset, value) in [
-                (HEAP_ASYNC_RESUME_STATE_OFFSET, 0),
-                (HEAP_ASYNC_RESUME_PAYLOAD_OFFSET, 0),
-                (
-                    HEAP_ASYNC_RESUME_TAG_OFFSET,
-                    ValueKind::Undefined.tag() as u64,
-                ),
-                (HEAP_ASYNC_ENV_OFFSET, 0),
-                (HEAP_ASYNC_INITIALIZED_OFFSET, 0),
-                (HEAP_ASYNC_COMPLETED_OFFSET, 0),
-                (HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET, 0),
-                (HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET, 0),
-            ] {
-                self.store_i64_const_at_offset(async_activation_local, offset, value, function);
-            }
-            self.emit_store_async_function_resume_completion(
-                async_activation_local,
-                AsyncFunctionResumeCompletion::Normal,
-                function,
-            );
 
             function.instruction(&Instruction::LocalGet(callee_env_local));
             function.instruction(&Instruction::LocalGet(call_this_payload_local));
@@ -6890,9 +6828,10 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
             PresentArgumentsObjectProtocol::Unmapped(_) => {
-                self.emit_load_function_defining_realm_throw_type_error(
+                let thrower_payload_local = self.reserve_temp_local();
+                self.emit_load_required_function_realm_throw_type_error(
                     iterator_payload_local,
-                    self.scratch_local,
+                    thrower_payload_local,
                     function,
                 );
                 self.store_i64_const_at_offset(
@@ -6904,7 +6843,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.store_i64_local_at_offset(
                     arguments_local,
                     HEAP_ARGUMENTS_CALLEE_VALUE_PAYLOAD_OFFSET,
-                    self.scratch_local,
+                    thrower_payload_local,
                     function,
                 );
                 self.store_i64_const_at_offset(
@@ -6916,7 +6855,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.store_i64_local_at_offset(
                     arguments_local,
                     HEAP_ARGUMENTS_CALLEE_SETTER_PAYLOAD_OFFSET,
-                    self.scratch_local,
+                    thrower_payload_local,
                     function,
                 );
                 self.store_i64_const_at_offset(
@@ -6925,6 +6864,7 @@ impl<'a> FunctionBuilder<'a> {
                     ValueKind::Function.tag() as u64,
                     function,
                 );
+                self.release_temp_local(thrower_payload_local);
             }
         }
 
@@ -7826,10 +7766,19 @@ impl<'a> FunctionBuilder<'a> {
             (HEAP_ARRAY_TAG_OFFSET, tag_local),
             (HEAP_ARRAY_SETTER_PAYLOAD_OFFSET, setter_payload_local),
             (HEAP_ARRAY_SETTER_TAG_OFFSET, setter_tag_local),
-            (HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET, descriptor_kind_local),
         ] {
             self.store_i64_local_at_offset(entry_local, offset, local, function);
         }
+        // Zero denotes absence, but a present data property may have no attributes
+        // or ParameterMap entry. Deletion uses the separate descriptor-clear path.
+        function.instruction(&Instruction::LocalGet(entry_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::LocalGet(descriptor_kind_local));
+        function.instruction(&Instruction::I64Const(ARRAY_DESCRIPTOR_OWN_PROPERTY as i64));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Store(Self::memarg64(
+            HEAP_ARRAY_DESCRIPTOR_KIND_OFFSET,
+        )));
 
         function.instruction(&Instruction::LocalGet(index_local));
         function.instruction(&Instruction::LocalGet(indexed_extent_local));
@@ -8749,12 +8698,46 @@ impl<'a> FunctionBuilder<'a> {
             meta.class_element_execution_kind,
             ClassElementExecutionKind::None
         );
+        let element_function_local = self.reserve_temp_local();
+        let element_context_local = self.reserve_temp_local();
+        let captured_value_local = self.reserve_temp_local();
+        self.emit_function_value_payload(meta, function)?;
+        function.instruction(&Instruction::LocalSet(element_function_local));
+        self.load_i64_to_local_from_offset(
+            element_function_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            element_context_local,
+            function,
+        );
+        // Generated element bodies use ordinary entry, including Arguments
+        // construction. Keep its active function distinct while retaining the
+        // class definition's lexical, home-object and private environments.
+        for offset in [
+            HEAP_CLASS_FUNCTION_CONTEXT_LEXICAL_ENV_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_PAYLOAD_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_HOME_OBJECT_TAG_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_FIELD_KEYS_OFFSET,
+            HEAP_CLASS_FUNCTION_CONTEXT_PRIVATE_ENV_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(
+                class_context_local,
+                offset,
+                captured_value_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                element_context_local,
+                offset,
+                captured_value_local,
+                function,
+            );
+        }
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
         self.emit_pre_evaluated_arg_vector(args, argc_local, argv_local, function)?;
         self.emit_direct_js_call_with_environment(
             meta,
-            Some(class_context_local),
+            Some(element_context_local),
             this_locals,
             argc_local,
             argv_local,
@@ -8764,6 +8747,9 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
+        self.release_temp_local(captured_value_local);
+        self.release_temp_local(element_context_local);
+        self.release_temp_local(element_function_local);
         Ok(())
     }
 
@@ -8889,8 +8875,9 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             } else {
-                self.emit_object_define_enumerable_data(
+                self.emit_define_public_class_field(
                     receiver_payload_local,
+                    receiver_tag_local,
                     key_local,
                     value_payload_local,
                     value_tag_local,
@@ -11395,5 +11382,111 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::End);
+    }
+}
+
+impl FunctionBuilder<'_> {
+    pub(crate) fn emit_allocate_async_activation(
+        &mut self,
+        callee_payload_local: u32,
+        callee_env_local: u32,
+        table_index_local: u32,
+        call_this_payload_local: u32,
+        call_this_tag_local: u32,
+        argc_local: u32,
+        argv_local: u32,
+        entry_mode: AsyncModuleEntryMode,
+        async_activation_local: u32,
+        async_promise_payload_local: u32,
+        async_promise_record_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let realm =
+            self.emit_async_execution_realm_context_from_function(callee_payload_local, function);
+        let promise_allocation_context =
+            self.emit_async_execution_promise_allocation_context(&realm, function);
+        self.emit_alloc_promise_with_prototype(
+            promise_allocation_context,
+            async_promise_payload_local,
+            async_promise_record_local,
+            function,
+        )?;
+        self.emit_heap_alloc_const(HEAP_ASYNC_ACTIVATION_RECORD_SIZE, function)?;
+        function.instruction(&Instruction::LocalSet(async_activation_local));
+        self.emit_store_async_function_execution_realm(&realm, async_activation_local, function);
+        self.release_async_execution_realm_context(realm);
+        for (offset, source_local) in [
+            (HEAP_ASYNC_FUNCTION_ENV_OFFSET, callee_env_local),
+            (HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET, table_index_local),
+            (HEAP_ASYNC_THIS_PAYLOAD_OFFSET, call_this_payload_local),
+            (HEAP_ASYNC_THIS_TAG_OFFSET, call_this_tag_local),
+            (HEAP_ASYNC_ARGC_OFFSET, argc_local),
+            (HEAP_ASYNC_ARGV_OFFSET, argv_local),
+            (
+                HEAP_ASYNC_PROMISE_PAYLOAD_OFFSET,
+                async_promise_payload_local,
+            ),
+            (HEAP_ASYNC_PROMISE_RECORD_OFFSET, async_promise_record_local),
+        ] {
+            self.store_i64_local_at_offset(async_activation_local, offset, source_local, function);
+        }
+        for (offset, value) in [
+            (HEAP_ASYNC_RESUME_STATE_OFFSET, 0),
+            (HEAP_ASYNC_RESUME_PAYLOAD_OFFSET, 0),
+            (
+                HEAP_ASYNC_RESUME_TAG_OFFSET,
+                ValueKind::Undefined.tag() as u64,
+            ),
+            (HEAP_ASYNC_ENV_OFFSET, 0),
+            (HEAP_ASYNC_INVOCATION_ENV_OFFSET, 0),
+            (HEAP_ASYNC_INITIALIZED_OFFSET, 0),
+            (HEAP_ASYNC_COMPLETED_OFFSET, 0),
+            (HEAP_ASYNC_PENDING_COMPLETION_HEAD_OFFSET, 0),
+            (HEAP_ASYNC_PENDING_COMPLETION_DEPTH_OFFSET, 0),
+        ] {
+            self.store_i64_const_at_offset(async_activation_local, offset, value, function);
+        }
+        self.emit_store_async_function_resume_completion(
+            async_activation_local,
+            AsyncFunctionResumeCompletion::Normal,
+            function,
+        );
+
+        self.emit_store_async_module_entry_mode(async_activation_local, entry_mode, function);
+        Ok(())
+    }
+
+    pub(crate) fn emit_invoke_async_activation(
+        &mut self,
+        activation: u32,
+        payload: u32,
+        tag: u32,
+        function: &mut Function,
+    ) {
+        for offset in [
+            HEAP_ASYNC_FUNCTION_ENV_OFFSET,
+            HEAP_ASYNC_THIS_PAYLOAD_OFFSET,
+            HEAP_ASYNC_THIS_TAG_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(activation, offset, self.scratch_local, function);
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+        }
+        function.instruction(&Instruction::LocalGet(activation));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        for offset in [
+            HEAP_ASYNC_ARGC_OFFSET,
+            HEAP_ASYNC_ARGV_OFFSET,
+            HEAP_ASYNC_FUNCTION_TABLE_INDEX_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(activation, offset, self.scratch_local, function);
+            function.instruction(&Instruction::LocalGet(self.scratch_local));
+        }
+        function.instruction(&Instruction::I32WrapI64);
+        self.set_completion_kind(CompletionKind::Normal, function);
+        function.instruction(&Instruction::CallIndirect {
+            type_index: JS_FUNCTION_TYPE_INDEX,
+            table_index: 0,
+        });
+        self.store_call_results(payload, tag, function);
     }
 }

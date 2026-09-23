@@ -1,4 +1,4 @@
-use crate::LocalName;
+use crate::{LocalName, ModuleNamespaceModeIr};
 
 use super::record::ModuleUnitId;
 
@@ -6,7 +6,7 @@ use super::record::ModuleUnitId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleBindingNameIr {
     /// `namespace`, produced by `export * as ns from "m"`.
-    Namespace,
+    Namespace(ModuleNamespaceModeIr),
     /// A concrete binding of the resolved module's environment.
     ///
     /// A `[[LocalName]]` **of the resolving module**, not of the module that

@@ -156,7 +156,7 @@ fn inner_state_is_closed_and_preserves_close_finalization_order() {
     let helper = bounded(
         CONTROL_FLOW_SOURCE,
         &format!("pub(crate) fn {CLOSE_HELPER}("),
-        "pub(crate) fn compile_for_in_array(",
+        "\n}",
     );
     let helper = without_whitespace(helper);
     assert!(!helper.contains("clear_inner_active"));

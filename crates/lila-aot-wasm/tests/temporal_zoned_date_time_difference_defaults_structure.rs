@@ -32,7 +32,14 @@ fn receiver_and_direction_jointly_own_difference_settings() {
     .collect::<Vec<_>>();
     assert_eq!(
         variants,
-        ["PlainUntil,", "PlainSince,", "ZonedUntil,", "ZonedSince,"]
+        [
+            "PlainUntil,",
+            "PlainSince,",
+            "ZonedUntil,",
+            "ZonedSince,",
+            "InstantUntil,",
+            "InstantSince,"
+        ]
     );
     let authority = bounded(
         PLAIN,
@@ -42,8 +49,9 @@ fn receiver_and_direction_jointly_own_difference_settings() {
     for arm in [
         "Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,",
         "Self::ZonedUntil | Self::ZonedSince => TemporalUnit::Hour,",
-        "Self::PlainUntil | Self::ZonedUntil => false,",
-        "Self::PlainSince | Self::ZonedSince => true,",
+        "Self::InstantUntil | Self::InstantSince => TemporalUnit::Second,",
+        "Self::PlainUntil | Self::ZonedUntil | Self::InstantUntil => false,",
+        "Self::PlainSince | Self::ZonedSince | Self::InstantSince => true,",
     ] {
         assert_eq!(authority.matches(arm).count(), 1);
     }
@@ -191,8 +199,8 @@ fn entrypoints_read_options_once_and_share_the_typed_arithmetic_boundary() {
     assert!(guard.contains("Instruction::I64LeS"));
     assert_before(
         zoned,
-        "emit_temporal_zoned_date_time_epoch_pair(",
-        "emit_temporal_zoned_date_time_to_plain_date_time(",
+        "emit_temporal_epoch_nanoseconds_pair(",
+        "emit_temporal_zoned_date_time_to_plain(",
     );
 }
 

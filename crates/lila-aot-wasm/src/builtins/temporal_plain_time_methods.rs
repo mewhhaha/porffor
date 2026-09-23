@@ -631,12 +631,7 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
         // Hours and below only: `AddDurationToTime` never consults the date

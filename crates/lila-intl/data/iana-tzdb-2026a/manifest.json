@@ -1,0 +1,327 @@
+{
+  "ianaRelease": "2026a",
+  "identifierCount": 598,
+  "primaryCount": 447,
+  "backzoneZonePrimaries": [
+    "Pacific/Johnston"
+  ],
+  "linkCountryTargets": {
+    "Africa/Asmera": "Africa/Asmara",
+    "America/Virgin": "America/St_Thomas",
+    "Asia/Chungking": "Asia/Chongqing",
+    "Australia/ACT": "Australia/Canberra",
+    "Brazil/Acre": "America/Porto_Acre",
+    "Iceland": "Atlantic/Reykjavik",
+    "Navajo": "America/Shiprock",
+    "Pacific/Ponape": "Pacific/Pohnpei",
+    "Pacific/Truk": "Pacific/Chuuk"
+  },
+  "annotatedCountryOverrides": [
+    {
+      "identifier": "Iceland",
+      "icuCountry": "CI",
+      "ianaCountry": "IS"
+    }
+  ],
+  "providerDataSha256": "b164416b5a1889c5419cbb96d444f386ea258c6717929415bf0535b3797f4082",
+  "recipe": {
+    "domain": "lila-intl-named-time-zones-v1",
+    "iana": "2026a",
+    "transitionFormat": "jiff rearguard slim TZif; exact selected is_dst",
+    "identifierRules": "ECMA-402 AvailableNamedTimeZoneIdentifiers; no pending rename",
+    "countryRole": "IANA2026a zone.tab and explicit unflattened Link targets; ICU77.1 Names/Regions fallback",
+    "inputs": [
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/jiff-tzdb-0.1.6.crate",
+        "bytes": 62478,
+        "sha256": "c900ef84826f1338a557697dc8fc601df9ca9af4ac137c7fb61d4c6f2dfd3076"
+      },
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/timezone_provider-0.1.2.crate",
+        "bytes": 125463,
+        "sha256": "df9ba0000e9e73862f3e7ca1ff159e2ddf915c9d8bb11e38a7874760f445d993"
+      },
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/tzdata2026a.tar.gz",
+        "bytes": 471812,
+        "sha256": "77b541725937bb53bd92bd484c0b43bec8545e2d3431ee01f04ef8f2203ba2b7"
+      },
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/icu-77-1-zoneinfo64.icu",
+        "bytes": 360734,
+        "sha256": "c0c34daadb59d2552252405b9be08894f83d2cd8145d0f6eb35e1557721dd55f"
+      },
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/icu-country-source.json",
+        "bytes": 421,
+        "sha256": "cb258ee45482069f5dbba397521a80ac33b7443771aa2ed6db54e55683a659fc"
+      },
+      {
+        "path": "crates/lila-intl/data/iana-tzdb-2026a/ICU-LICENSE",
+        "bytes": 26487,
+        "sha256": "451167c55c0fa447cc2d5632714f5e3c567fe4f1e1badefab2c1333852198aca"
+      },
+      {
+        "path": "scripts/generate-intl-named-time-zones.py",
+        "bytes": 15960,
+        "sha256": "b2f68e325f530febe1f3a7da8700522ebbf1dde8f093dcb8a6caf1a8538b74b4"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/named_time_zones.rs",
+        "bytes": 5551,
+        "sha256": "e615aea3bf8086e87af7e728d4910901cd4ca272cf9e2b943aebed99be4656b0"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/named_time_zones/catalogue.rs",
+        "bytes": 2870,
+        "sha256": "f40ea745e5fe9f04b075172766d071654cbf7e2c047807b8aca0d1f2df44d704"
+      },
+      {
+        "path": "crates/lila-intl/src/provider/named_time_zones/validation.rs",
+        "bytes": 3581,
+        "sha256": "64f451f05d32268211d3ccfe74d0775ac6006564873041045e65e886abb93b5f"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/Cargo.toml",
+        "bytes": 2307,
+        "sha256": "52c8c4ce4b2192d6843dde9e6686dbc42f25990c3bbc02d83f0227e25c88fee8"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/Cargo.toml.orig",
+        "bytes": 1873,
+        "sha256": "1214759b351b2d277887a18155d4b79c7ad1c2e05b1a920638684cef7c6f206f"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/LICENSE-Apache",
+        "bytes": 11333,
+        "sha256": "4e6bdc19db64d455dbddc0ee2f53ecba556f0226d4558954b5f02673c7358e59"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/LICENSE-MIT",
+        "bytes": 1060,
+        "sha256": "073d3574ac6389e263360572b331e045dda7ac5cdba239ce5bdb02f299ef47bb"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/LILA-PATCH.md",
+        "bytes": 1667,
+        "sha256": "65d82f56e18612f048c6b89e0be00d81da28815ef017e5ba1cb000e00f2c4206"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/README.md",
+        "bytes": 2967,
+        "sha256": "6b17093cbf255ae8c0f124d46d7b1e80d876c5616d505e0eb72375e7e0187ab2"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/data/compiled_zoneinfo_provider.rs.data",
+        "bytes": 527453,
+        "sha256": "db71a133c9da08e1e0762cd273e5cc1a5bef118ab0ecd43c969be68459caaf0a"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/data/iana_normalizer.rs.data",
+        "bytes": 26530,
+        "sha256": "4e2954f9b54e72603adc7c01339f9befb65228550a743994e3b588c0b3b59c4b"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/data/mod.rs",
+        "bytes": 86,
+        "sha256": "e65fc5cc9e254a3732eb4bdfb6374f26fa496782c69b0b33efd6d59ec1d3b377"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/epoch_nanoseconds.rs",
+        "bytes": 1759,
+        "sha256": "3a1795e9c3155cab8d874fd06c3c8290e3cedba4cf499def7642576cb66a241d"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/error.rs",
+        "bytes": 172,
+        "sha256": "444ac91a2ce997e2b4531718e6817a4c6dd5a9a39346c32f36cac8e51d734a54"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/experimental_tzif/datagen.rs",
+        "bytes": 3213,
+        "sha256": "9989f1d55d1a47a03e4ea0ae2bc0a8967b5a13925398f671d352d9dad0e66466"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/experimental_tzif/mod.rs",
+        "bytes": 2061,
+        "sha256": "7d7b4e6f554fbe3066f0e8d64acbecdbb04f1cf6740ed5e9fd72572dec3ba87f"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/experimental_tzif/posix.rs",
+        "bytes": 4205,
+        "sha256": "0df95943bc8dd087104ee004079facf2c4ea4c36d07325d08cef4d293afd3157"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/lib.rs",
+        "bytes": 4951,
+        "sha256": "b62036c09a7b54bc6ba26a28c2a2b25141f13ae3a6da1df8f47c16ea92d6961e"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/provider.rs",
+        "bytes": 16541,
+        "sha256": "019841a6263e9573184acb120ab44d92920285871824c2662aa01de476b20f39"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/tzdb/datagen.rs",
+        "bytes": 5415,
+        "sha256": "fc73e7cb0c6e539474a66a3f888d03be98a16d7d3c6d1bcb3c3489c577756c79"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/tzdb.rs",
+        "bytes": 3023,
+        "sha256": "5b44df3d333761b8da58fe5b30231dfe2b288a79b95253fe1f235db2ca83f867"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/tzif/snapshot.rs",
+        "bytes": 5547,
+        "sha256": "dfed5fa6afed0ac3dd6a2555655fb9c0973a36bccfc365aba0e8541a1c721fcf"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/tzif.rs",
+        "bytes": 74641,
+        "sha256": "e96d8f052f8b35e766cc736993a29534ff1274a79740c5917c3b5df9f3d1ec7a"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/utc.rs",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/utils/neri_schneider.rs",
+        "bytes": 9702,
+        "sha256": "0c024959dc59076e80448292d6309cff73434f7f9b7151e358ce988becaa7956"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/utils.rs",
+        "bytes": 3795,
+        "sha256": "bbe7e7d1905c1f206eec352f7929ccb1292c9d3decc6e70559575b5310f14023"
+      },
+      {
+        "path": "vendor/timezone_provider-0.1.2/src/zoneinfo64.rs",
+        "bytes": 6338,
+        "sha256": "ea7d490043e9dd7e624fbaa9b1bcf3566ebf9d904cf141e41e0059a7b4f6ce4c"
+      }
+    ],
+    "catalogue": {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/catalogue.tsv",
+      "bytes": 57469,
+      "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
+    }
+  },
+  "sourceExtracts": [
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/LICENSE",
+      "bytes": 252,
+      "sha256": "0613408568889f5739e5ae252b722a2659c02002839ad970a63dc5e9174b27cf"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/africa",
+      "bytes": 63623,
+      "sha256": "c19940072a9e79d57ad844fc9f676f2067e5fada6708f3bf9a1cd4de34c8eeb7"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/antarctica",
+      "bytes": 14080,
+      "sha256": "e410ad71c9450828c592d21419301d41ac79ce50159fd0ac2d6c5031cb6bdfe6"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/asia",
+      "bytes": 192871,
+      "sha256": "cd12fe2bd64a02d808fd34abb92f08f19e5da20133a1c6c347d11171c00d9e1c"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/australasia",
+      "bytes": 98594,
+      "sha256": "e60bee81387d105dc2a31eef7defd0d0061322abd65c7a21c3bbcbb96e7c2d6b"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/backward",
+      "bytes": 12039,
+      "sha256": "d2f4c8953f204982ddf4dc0c2debf41b2464de376dad7d546d0fc70f889fa706"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/backzone",
+      "bytes": 71276,
+      "sha256": "63fb39adae0b0d8b2179629725a9dfb694c7a386b99750b636a017d896d28dfa"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/etcetera",
+      "bytes": 3124,
+      "sha256": "7281f095b42c13c4ae36b8bcba884e81dbb38127221fc1d9805c4dbf852487db"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/europe",
+      "bytes": 186936,
+      "sha256": "b9c98254bed0773de5b523837cf996f3e88c93258d9c458ce51e69f77929a6c8"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/factory",
+      "bytes": 989,
+      "sha256": "ae2ec1d36dabf79a69cb7dd4fb6fd9168d05fc8cfd31aee2dd19e4f18beb9885"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/iso3166.tab",
+      "bytes": 4841,
+      "sha256": "837c80785080c8433fd9d4ea87e78f161ac7a40389301c5153d4f90198baeb2a"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/northamerica",
+      "bytes": 168527,
+      "sha256": "44706515a63546cde04a54f1dafcb254298f1a7c569ad1d106a88988d9c187cd"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/southamerica",
+      "bytes": 95320,
+      "sha256": "c6e17ee367c6d7c1ab613444641538bca6d11818d46feb96e565e98c45238a2b"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/version",
+      "bytes": 6,
+      "sha256": "7e364905f7ffd4cb7312daeb9ddbd640ccd21c707a35b193e9d90f0673b04997"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/zone.tab",
+      "bytes": 18822,
+      "sha256": "586b4207e6c76722de82adcda6bf49d761f668517f45a673f64da83b333eecc4"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/zone1970.tab",
+      "bytes": 17605,
+      "sha256": "e9d9fe30942a880f756b73f649667d8647a1ecf2131149445d9cc24c65e4ee8f"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/source/zonenow.tab",
+      "bytes": 7926,
+      "sha256": "a3c79f87a5a2b64748e106f994e2f979c04fd9416de7b92a1669c39d4ed84b0c"
+    }
+  ],
+  "jiffLicenses": [
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/jiff-license/COPYING",
+      "bytes": 126,
+      "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/jiff-license/LICENSE-MIT",
+      "bytes": 1081,
+      "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"
+    },
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/jiff-license/UNLICENSE",
+      "bytes": 1211,
+      "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    }
+  ],
+  "generated": [
+    {
+      "path": "crates/lila-intl/data/iana-tzdb-2026a/catalogue.tsv",
+      "bytes": 57469,
+      "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
+    },
+    {
+      "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
+      "bytes": 565,
+      "sha256": "405e063db482da6d010b78ec30ba470f6f32c9d14b2297d5ac2abe8c2b1e8f62"
+    }
+  ]
+}

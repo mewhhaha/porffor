@@ -21,7 +21,9 @@ mod created_realm_async_disposable_stack_intrinsics;
 mod created_realm_disposable_stack_intrinsics;
 mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
+mod created_realm_intl_intrinsics;
 mod created_realm_iterator_next;
+mod created_realm_temporal_intrinsics;
 mod created_realm_weak_collection_intrinsics;
 mod created_realm_weak_ref_intrinsics;
 mod detach_array_buffer;
@@ -1241,6 +1243,20 @@ impl<'a> FunctionBuilder<'a> {
                             "unsupported in lila wasm-aot first slice: missing builtin meta `Object.prototype.hasOwnProperty`",
                         )
                     })?,
+            ),
+            (
+                "__defineGetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeDefineGetter.function_id())
+                    .cloned()
+                    .expect("Object intrinsic installation roots accessor definers"),
+            ),
+            (
+                "__defineSetter__",
+                self.functions
+                    .get(&StandardBuiltinId::ObjectPrototypeDefineSetter.function_id())
+                    .cloned()
+                    .expect("Object intrinsic installation roots accessor definers"),
             ),
             (
                 "__lookupGetter__",
@@ -2688,7 +2704,7 @@ impl<'a> FunctionBuilder<'a> {
             (
                 "fill",
                 self.functions
-                    .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+                    .get(&StandardBuiltinId::TypedArrayPrototypeFill.function_id())
                     .cloned()
                     .ok_or_else(|| {
                         EmitError::unsupported(
@@ -4141,6 +4157,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_store_realm_function_prototype(&realm_functions, function);
+        self.emit_initialize_realm_throw_type_error(&realm_functions, function)?;
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(iterator_prototype_local));
         self.emit_alloc_plain_object_with_prototype(
@@ -6527,6 +6544,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.store_i64_local_at_offset(
             number_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            number_constructor_local,
+            function,
+        );
+        self.store_i64_local_at_offset(
+            number_constructor_local,
             HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,
             number_prototype_local,
             function,
@@ -7395,6 +7418,12 @@ impl<'a> FunctionBuilder<'a> {
             bigint_constructor_local,
             function,
         )?;
+        self.store_i64_local_at_offset(
+            bigint_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            bigint_constructor_local,
+            function,
+        );
         self.emit_set_function_prototype_data_with_flags(
             bigint_constructor_local,
             bigint_prototype_local,
@@ -7754,6 +7783,25 @@ impl<'a> FunctionBuilder<'a> {
                 type_error_prototype_local,
                 function,
             )?;
+        let intl_members = self
+            .runtime_bootstrap_plan
+            .intl_namespace_members()
+            .ok_or_else(|| {
+                EmitError::unsupported("created Realm requires the complete Intl namespace")
+            })?;
+        let created_realm_temporal = self.emit_materialize_created_realm_temporal_intrinsics(
+            realm_record,
+            &realm_functions,
+            object_prototype_local,
+            function,
+        )?;
+        let created_realm_intl = self.emit_materialize_created_realm_intl_intrinsics(
+            intl_members,
+            realm_record,
+            &realm_functions,
+            object_prototype_local,
+            function,
+        )?;
 
         self.emit_function_value_payload_in_realm(
             &regexp_meta,
@@ -8288,6 +8336,16 @@ impl<'a> FunctionBuilder<'a> {
             MAP_NAME,
             map_constructor_local,
             tag_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_intl_intrinsics(
+            created_realm_intl,
+            global_local,
+            function,
+        )?;
+        self.emit_publish_created_realm_temporal_intrinsics(
+            created_realm_temporal,
+            global_local,
             function,
         )?;
         self.emit_publish_created_realm_weak_collection_intrinsics(

@@ -45,7 +45,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::LocalGet(state_local));
-        function.instruction(&Instruction::I64Const(i64::from(plan.resume_state())));
+        function.instruction(&Instruction::I64Const(i64::from(plan.body().exit_state())));
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
@@ -200,31 +200,37 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32WrapI64);
         function.branch_if_to_label(break_frame.label);
 
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+
         let has_iteration_environment = match plan.iteration_environment() {
             ResumableLoopIterationEnvironmentIr::StorageOnly => false,
             ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment) => {
                 self.push_scope();
-                self.emit_enter_lexical_environment(environment, function)?;
-                self.store_i64_local_at_offset(
-                    activation_local,
-                    HEAP_ASYNC_ENV_OFFSET,
-                    self.current_env_local,
+                // The saved chain may end inside a body or catch block. Reattach
+                // this iteration's child before those owners restore theirs.
+                self.emit_enter_resumable_lexical_environment(
+                    environment,
+                    plan.entry_state(),
                     function,
-                );
+                )?;
                 true
             }
         };
-        self.initialize_direct_lexical_bindings(plan.before_await(), function);
-        self.initialize_direct_lexical_bindings(plan.after_await(), function);
-        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(state_local));
+        function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));
+        function.instruction(&Instruction::I64Eq);
+        self.open_frame(ControlFrameKind::If, function);
         if has_iteration_environment {
-            self.load_i64_to_local_from_offset(
+            self.store_i64_local_at_offset(
                 activation_local,
                 HEAP_ASYNC_ENV_OFFSET,
                 self.current_env_local,
                 function,
             );
         }
+        self.initialize_direct_lexical_bindings(plan.body().statements(), function);
+        function.instruction(&Instruction::Else);
         let resumed_iterator_storage = self
             .lookup_binding(plan.record().iterator().as_str())
             .expect("resumable for-of iterator slot must remain in scope");
@@ -302,17 +308,11 @@ impl<'a> FunctionBuilder<'a> {
         if !value_is_entry_local {
             self.mirror_binding_to_global_object(plan.value_name(), value_storage, function)?;
         }
-        for statement in plan.before_await() {
-            self.compile_statement(statement, function)?;
-        }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.compile_statement(plan.await_statement(), function)?;
-        let first_resume_state = Self::async_statement_exit_state(plan.await_statement())
-            .expect("the async for-of plan owns a direct first await");
         self.compile_async_statement_sequence(
-            plan.after_await(),
-            first_resume_state,
+            plan.body().statements(),
+            plan.entry_state(),
             HEAP_ASYNC_RESUME_STATE_OFFSET,
             function,
         )?;

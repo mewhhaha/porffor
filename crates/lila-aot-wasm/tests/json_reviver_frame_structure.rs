@@ -649,7 +649,6 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
     for operation in [
         "self.emit_array_delete(",
         "self.emit_object_delete(",
-        "self.emit_array_create_data_property_silent(",
         "self.emit_json_create_data_property(",
     ] {
         assert!(
@@ -657,6 +656,25 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
             "missing nested result operation `{operation}`"
         );
     }
+
+    assert_eq!(
+        result_owner
+            .matches("self.emit_json_create_data_property(")
+            .count(),
+        1
+    );
+    assert!(!result_owner.contains("emit_array_create_data_property_silent"));
+    let definition_owner = unique_bounded(
+        JSON_SOURCE,
+        "    fn emit_json_create_data_property(",
+        "    pub(crate) fn emit_json_quote_string_payload(",
+    );
+    assert!(definition_owner.contains("StandardBuiltinId::ReflectDefineProperty.function_id()"));
+    assert!(definition_owner.contains("self.emit_direct_js_call("));
+    assert!(definition_owner
+        .contains("self.emit_alloc_plain_object_with_prototype(None, None, function)?;"));
+    assert!(!definition_owner.contains("emit_create_data_property_or_throw("));
+    assert!(!definition_owner.contains("emit_object_create_data_property_silent("));
 
     let static_branch_owner = unique_bounded(
         JSON_STATIC_REVIVER_SOURCE,

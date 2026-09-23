@@ -21,8 +21,12 @@ The move keeps the existing `ZonedDateTimeOptionKey` authority and
 `emit_temporal_zoned_date_time_options` consumer intact. That helper reserves
 five scratch locals and releases them in reverse order before returning. The
 property-bag emitter keeps its non-copyable `TemporalEraLocals` alive across the
-option read, then moves it into `emit_temporal_resolve_era_to_year`, whose
-destructuring and reverse releases remain the only consuming path.
+option read, then moves it into `emit_temporal_resolve_era_to_iso_year`, whose
+destructuring and reverse releases remain the only consuming path. The
+resolver returns the private `TemporalResolvedIsoYear` witness after calendar
+year conversion. The shared option reader accepts a closed context; this
+property-bag caller selects `From`, preserving its Reject offset default, while
+the separate `With` context defaults to Prefer.
 
 ## Source invariant
 

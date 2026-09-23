@@ -34,9 +34,7 @@ impl<'a> ScriptLowerer<'a> {
             .with_environment_chain
             .select_preceding(fallback_reference.declarative_position())?;
         let strictness = self.reference_strictness();
-        let plan = objects.into_identifier_call_plan(name.clone(), strictness, || {
-            self.alloc_temp_binding_name("with.unscopables.")
-        });
+        let plan = objects.into_identifier_call_plan(name.clone(), strictness);
 
         // HasBinding and @@unscopables can invoke arbitrary user code before
         // the fallback GetValue. Construct the fallback from the prelocated

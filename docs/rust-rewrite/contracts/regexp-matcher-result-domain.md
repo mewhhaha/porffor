@@ -28,10 +28,12 @@ requires an explicit ABI projection before the crate compiles.
 
 ## Producer census
 
-The current matcher has exactly 50 result producers: one match, three normal
-misses, 44 corrupt-program failures and two resource-exhaustion failures. The
-14 eager validation failures use parameter 3 as their preserved position; the
-remaining exits use the candidate/match locals exactly as before. The private
+The matcher and its child modules have exactly 52 result producers: one match,
+three normal misses, 46 corrupt-program failures and two resource-exhaustion
+failures. These are source call sites: 49 in `regexp.rs`, one in
+`regexp/backreference.rs`, and two in `regexp/word_boundary.rs`. The
+10 eager validation failures use parameter 3 as their preserved position; the
+remaining exits preserve the position supplied by the matcher. The private
 writer is the sole consumer.
 
 The Rust-lexical structure guard ignores comments and all Rust string,
@@ -41,12 +43,14 @@ writer signature and complete projection.
 
 ## Nonclaims and verification
 
-This is source-equivalent ABI hardening. It changes no emitted status or found
-word, matcher program, backtracking order, scratch rewind, error route, Realm or
-`lastIndex` behavior. It adds no RegExp grammar, dynamic compilation or
-conformance claim.
+The original change was source-equivalent ABI hardening. It changed no emitted
+status or found word, matcher program, backtracking order, scratch rewind, error
+route, Realm or `lastIndex` behavior. Subsequent matcher features retain this
+result boundary; refreshing the producer census itself changes no runtime code.
 
-The focused structure target passes `4/4`. The neighboring nullable-quantifier
-matcher-frame structure target passes `5/5`, and its nullable-quantifier CLI
-witness passes `1/1`. No Test262, Wasm golden or broad workspace suite was run
-for this invariant-only batch.
+The original invariant-only batch's focused structure target passed `4/4`. Its
+neighboring nullable-quantifier matcher-frame target passed `5/5`, and its CLI
+witness passed `1/1`; no Test262, Wasm golden or broad workspace suite was run
+for that batch. After matcher changes, refresh this source census and rerun
+`cargo test -p lila-aot-wasm --test regexp_matcher_result_domain_structure`.
+The census is separate from native behavior and conformance verification.

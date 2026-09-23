@@ -53,6 +53,8 @@ pub(super) enum TemporalDateTimeDifferenceSettingsPlan {
     PlainSince,
     ZonedUntil,
     ZonedSince,
+    InstantUntil,
+    InstantSince,
 }
 
 impl TemporalDateTimeDifferenceSettingsPlan {
@@ -60,13 +62,32 @@ impl TemporalDateTimeDifferenceSettingsPlan {
         match self {
             Self::PlainUntil | Self::PlainSince => TemporalUnit::Day,
             Self::ZonedUntil | Self::ZonedSince => TemporalUnit::Hour,
+            Self::InstantUntil | Self::InstantSince => TemporalUnit::Second,
+        }
+    }
+
+    const fn largest_allowed_unit(self) -> TemporalUnit {
+        match self {
+            Self::PlainUntil | Self::PlainSince | Self::ZonedUntil | Self::ZonedSince => {
+                TemporalUnit::Year
+            }
+            Self::InstantUntil | Self::InstantSince => TemporalUnit::Hour,
+        }
+    }
+
+    const fn invalid_unit_message(self) -> &'static str {
+        match self {
+            Self::PlainUntil | Self::PlainSince | Self::ZonedUntil | Self::ZonedSince => {
+                "Invalid Temporal.PlainDateTime unit option"
+            }
+            Self::InstantUntil | Self::InstantSince => "Invalid Temporal.Instant unit option",
         }
     }
 
     const fn negates_rounding_mode(self) -> bool {
         match self {
-            Self::PlainUntil | Self::ZonedUntil => false,
-            Self::PlainSince | Self::ZonedSince => true,
+            Self::PlainUntil | Self::ZonedUntil | Self::InstantUntil => false,
+            Self::PlainSince | Self::ZonedSince | Self::InstantSince => true,
         }
     }
 }
@@ -107,6 +128,7 @@ enum TemporalDateTimeFieldKey {
     Month,
     MonthCode,
     Nanosecond,
+    Offset,
     Second,
     Year,
 }
@@ -127,6 +149,7 @@ enum TemporalDateTimeFieldRead {
     },
     /// The `monthCode` string, which has no numeric slot.
     MonthCode,
+    Offset,
     /// `era` and `eraYear` together. They are one row because the shared era
     /// emitter owns the order of the pair and the gate that decides whether
     /// either is read at all, and they fold into `year` in the resolver rather
@@ -134,9 +157,10 @@ enum TemporalDateTimeFieldRead {
     EraPair,
 }
 
-enum TemporalPlainDateTimeFieldReadMode {
+pub(super) enum TemporalDateTimeFieldReadMode {
     Conversion,
     With,
+    ZonedWith { offset_nanoseconds_local: u32 },
 }
 
 pub(super) enum TemporalPlainDateTimeComponent {
@@ -145,7 +169,7 @@ pub(super) enum TemporalPlainDateTimeComponent {
 }
 
 impl TemporalDateTimeFieldKey {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::Day,
         Self::EraPair,
         Self::Hour,
@@ -155,6 +179,7 @@ impl TemporalDateTimeFieldKey {
         Self::Month,
         Self::MonthCode,
         Self::Nanosecond,
+        Self::Offset,
         Self::Second,
         Self::Year,
     ];
@@ -191,6 +216,7 @@ impl TemporalDateTimeFieldKey {
                 property: "nanosecond",
                 index: 8,
             },
+            Self::Offset => TemporalDateTimeFieldRead::Offset,
             Self::Second => TemporalDateTimeFieldRead::Integer {
                 property: "second",
                 index: 5,
@@ -210,6 +236,7 @@ impl TemporalDateTimeFieldKey {
             TemporalDateTimeFieldRead::PositiveInteger { property, .. }
             | TemporalDateTimeFieldRead::Integer { property, .. } => (property, property),
             TemporalDateTimeFieldRead::MonthCode => ("monthCode", "monthCode"),
+            TemporalDateTimeFieldRead::Offset => ("offset", "offset"),
             TemporalDateTimeFieldRead::EraPair => ("era", "eraYear"),
         }
     }
@@ -247,7 +274,7 @@ const _: () = {
 };
 
 /// Exactly one row reads the era pair, which is what makes the `Option` dance
-/// in `emit_temporal_plain_date_time_read_fields` total.
+/// in `emit_temporal_date_time_read_fields` total.
 const _: () = {
     let mut count = 0;
     let mut index = 0;
@@ -709,10 +736,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
-    /// `PrepareCalendarFields` over the eleven date-and-time keys, in the
+    /// `PrepareCalendarFields` over the date-and-time keys, in the
     /// alphabetical order the reads are observable in.
     #[allow(clippy::too_many_arguments)]
-    fn emit_temporal_plain_date_time_read_fields(
+    pub(super) fn emit_temporal_date_time_read_fields(
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
@@ -723,7 +750,7 @@ impl<'a> FunctionBuilder<'a> {
         month_code_payload_local: u32,
         month_code_present_local: u32,
         any_present_local: u32,
-        mode: TemporalPlainDateTimeFieldReadMode,
+        mode: TemporalDateTimeFieldReadMode,
         function: &mut Function,
     ) -> Result<TemporalEraLocals, EmitError> {
         let mut era_slots = Some(self.reserve_temporal_era_slots());
@@ -736,8 +763,8 @@ impl<'a> FunctionBuilder<'a> {
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(any_present_local));
-        match mode {
-            TemporalPlainDateTimeFieldReadMode::Conversion => {
+        match &mode {
+            TemporalDateTimeFieldReadMode::Conversion => {
                 function.instruction(&Instruction::I64Const(self.strings.payload("calendar")));
                 function.instruction(&Instruction::LocalSet(property_key_local));
                 self.emit_object_read(
@@ -758,7 +785,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
-            TemporalPlainDateTimeFieldReadMode::With => {}
+            TemporalDateTimeFieldReadMode::With
+            | TemporalDateTimeFieldReadMode::ZonedWith { .. } => {}
         }
 
         for key in TemporalDateTimeFieldKey::ALL {
@@ -798,6 +826,53 @@ impl<'a> FunctionBuilder<'a> {
                     )?;
                     function.instruction(&Instruction::LocalGet(value_payload_local));
                     function.instruction(&Instruction::LocalSet(month_code_payload_local));
+                    continue;
+                }
+                TemporalDateTimeFieldRead::Offset => {
+                    match &mode {
+                        TemporalDateTimeFieldReadMode::Conversion
+                        | TemporalDateTimeFieldReadMode::With => {}
+                        TemporalDateTimeFieldReadMode::ZonedWith {
+                            offset_nanoseconds_local,
+                        } => {
+                            function.instruction(&Instruction::I64Const(
+                                self.strings.payload("offset"),
+                            ));
+                            function.instruction(&Instruction::LocalSet(property_key_local));
+                            self.emit_object_read(
+                                argument_payload_local,
+                                argument_tag_local,
+                                argument_payload_local,
+                                argument_tag_local,
+                                property_key_local,
+                                value_payload_local,
+                                value_tag_local,
+                                function,
+                            )?;
+                            self.emit_return_current_completion_if_throw(function);
+                            function.instruction(&Instruction::LocalGet(value_tag_local));
+                            function.instruction(&Instruction::I64Const(
+                                ValueKind::Undefined.tag() as i64,
+                            ));
+                            function.instruction(&Instruction::I64Ne);
+                            function.instruction(&Instruction::If(BlockType::Empty));
+                            self.emit_temporal_offset_string(
+                                value_payload_local,
+                                value_tag_local,
+                                "Temporal.ZonedDateTime offset must be a string",
+                                function,
+                            )?;
+                            // ToOffsetString validates the grammar before the next field Get.
+                            self.emit_temporal_utc_offset_nanoseconds(
+                                value_payload_local,
+                                *offset_nanoseconds_local,
+                                function,
+                            )?;
+                            function.instruction(&Instruction::I64Const(1));
+                            function.instruction(&Instruction::LocalSet(any_present_local));
+                            function.instruction(&Instruction::End);
+                        }
+                    }
                     continue;
                 }
                 TemporalDateTimeFieldRead::EraPair => {
@@ -1020,7 +1095,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let era = self.emit_temporal_plain_date_time_read_fields(
+        let era = self.emit_temporal_date_time_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -1030,7 +1105,7 @@ impl<'a> FunctionBuilder<'a> {
             month_code_payload_local,
             month_code_present_local,
             any_present_local,
-            TemporalPlainDateTimeFieldReadMode::Conversion,
+            TemporalDateTimeFieldReadMode::Conversion,
             function,
         )?;
         match overflow_options {
@@ -1045,7 +1120,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             field_locals[0],
@@ -1428,7 +1503,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(month_code_present_local));
-        let era = self.emit_temporal_plain_date_time_read_fields(
+        let era = self.emit_temporal_date_time_read_fields(
             argument_payload_local,
             argument_tag_local,
             calendar_payload_local,
@@ -1438,7 +1513,7 @@ impl<'a> FunctionBuilder<'a> {
             month_code_payload_local,
             month_code_present_local,
             any_present_local,
-            TemporalPlainDateTimeFieldReadMode::With,
+            TemporalDateTimeFieldReadMode::With,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(any_present_local));
@@ -1466,7 +1541,7 @@ impl<'a> FunctionBuilder<'a> {
         // bag actually supplied. `present_locals[0]` is therefore still 0 for
         // an era-only bag, so the era/year agreement check cannot fire against
         // a year the caller never wrote.
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             field_locals[0],
@@ -1477,7 +1552,7 @@ impl<'a> FunctionBuilder<'a> {
         // `CalendarMergeFields` drops the receiver's `monthCode` as soon as the
         // argument supplies either `month` or `monthCode`, so a lone `month` is
         // never a conflict; every other absent key keeps the receiver's value,
-        // which `emit_temporal_plain_date_time_read_fields` already left in
+        // which `emit_temporal_date_time_read_fields` already left in
         // place.
         function.instruction(&Instruction::LocalGet(present_locals[1]));
         function.instruction(&Instruction::LocalGet(month_code_present_local));
@@ -1726,14 +1801,11 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
+        let date_fields =
+            self.reserve_temporal_duration_date_field_locals(&duration_locals, function);
 
         // Hours and below fold into a nanosecond offset; the whole days that
         // fall out of it join the duration's own day count.
@@ -1768,7 +1840,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(day_delta_local));
         function.instruction(&Instruction::LocalGet(seconds_local));
         function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(duration_locals[3]));
+        function.instruction(&Instruction::LocalGet(date_fields[3]));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(day_delta_local));
         self.emit_temporal_plain_time_from_nanoseconds(total_local, &time_locals, function);
@@ -1780,9 +1852,9 @@ impl<'a> FunctionBuilder<'a> {
             field_locals[0],
             field_locals[1],
             field_locals[2],
-            duration_locals[0],
-            duration_locals[1],
-            duration_locals[2],
+            date_fields[0],
+            date_fields[1],
+            date_fields[2],
             day_delta_local,
             overflow_local,
             function,
@@ -1795,6 +1867,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for local in date_fields.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         self.release_temporal_plain_date_time_field_locals(field_locals);
         for local in [
@@ -2037,10 +2112,10 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// The shared `GetDifferenceSettings` boundary for PlainDateTime and
-    /// ZonedDateTime differences. `plan` is compile-time policy: no raw unit or
-    /// direction flag can cross this boundary independently of the consumer
-    /// that owns it.
+    /// The shared `GetDifferenceSettings` boundary for PlainDateTime,
+    /// ZonedDateTime and Instant differences. `plan` is compile-time policy:
+    /// no raw unit or direction flag can cross this boundary independently of
+    /// the consumer that owns it.
     pub(super) fn emit_temporal_date_time_difference_settings(
         &mut self,
         options_payload_local: u32,
@@ -2114,11 +2189,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
         function.instruction(&Instruction::LocalSet(smallest_unit_local));
         function.instruction(&Instruction::End);
+        // Recognized units are checked against the receiver's category only
+        // after all four options have been read and independently validated.
         self.emit_temporal_require_unit_range(
             smallest_unit_local,
-            TemporalUnit::Year,
+            plan.largest_allowed_unit(),
             TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
+            plan.invalid_unit_message(),
             function,
         )?;
 
@@ -2145,9 +2222,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.emit_temporal_require_unit_range(
             largest_unit_local,
-            TemporalUnit::Year,
+            plan.largest_allowed_unit(),
             TemporalUnit::Nanosecond,
-            "Invalid Temporal.PlainDateTime unit option",
+            plan.invalid_unit_message(),
             function,
         )?;
         self.emit_temporal_require_largest_not_smaller(

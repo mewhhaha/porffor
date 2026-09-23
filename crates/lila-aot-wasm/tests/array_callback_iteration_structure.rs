@@ -165,26 +165,26 @@ fn shared_temporary_lifecycle_is_complete_unique_and_lifo() {
 
 #[test]
 fn map_and_filter_root_descriptor_definition_even_in_minimal_programs() {
-    let dependency = PLANNING
-        .split_once("self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);")
-        .expect("definition dependency")
-        .0;
-    let dependency = dependency
-        .rsplit_once("if matches!(")
-        .expect("dependency condition")
-        .1;
-    for builtin in [
+    let producers = [
         "ArrayPrototypeMap",
         "ArrayPrototypeFilter",
         "ArrayPrototypeFlatMap",
         "ArrayPrototypeSlice",
         "ArrayPrototypeSplice",
-    ] {
-        assert!(
-            dependency.contains(&format!("StandardBuiltinId::{builtin}")),
-            "{builtin}"
-        );
-    }
+    ];
+    let mut conditions = PLANNING
+        .match_indices("self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);")
+        .filter_map(|(position, _)| {
+            PLANNING[..position]
+                .rsplit_once("if matches!(")
+                .map(|(_, condition)| condition)
+        });
+    assert!(
+        conditions.any(|condition| producers
+            .iter()
+            .all(|builtin| { condition.contains(&format!("StandardBuiltinId::{builtin}")) })),
+        "Array result producers must require descriptor definition in their own dependency arm"
+    );
 }
 
 #[test]

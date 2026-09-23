@@ -54,6 +54,10 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
 
 mod analysis;
+mod async_for_of_body;
+mod async_if;
+mod synchronous_loop_body;
+pub use synchronous_loop_body::{SynchronousLoopBodyError, SynchronousLoopBodyIr};
 /// Environment Record binding lifecycle (ECMA-262 9.1.1.1): the `Initialization`
 /// state that lives on `BindingInfo`, and the `$tdz.` name domain. See
 /// `docs/rust-rewrite/contracts/environment-record-tdz.md`.
@@ -97,6 +101,9 @@ mod source_call_flow_proof;
 mod task;
 mod well_known;
 pub(crate) use analysis::*;
+pub(crate) use async_for_of_body::AsyncFunctionForOfBodyError;
+pub use async_for_of_body::AsyncFunctionForOfBodyIr;
+pub use async_if::AsyncFunctionIfPlanIr;
 pub(crate) use binding_lifecycle::*;
 pub use builtins::{
     CallableToStringRepresentation, HostBuiltinExposure, HostBuiltinId, HostBuiltinSurface,
@@ -125,8 +132,8 @@ pub use iterator_obligations::{
 };
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub use lowering::{
-    lower_module_graph_with_host_surface_policy, lower_script_graph_with_host_surface_policy,
-    lower_with_host_surface_policy,
+    lower_module_graph_with_host_surface_policy, lower_module_graph_with_prelude,
+    lower_script_graph_with_host_surface_policy, lower_with_host_surface_policy,
 };
 pub(crate) use lowering_helpers::*;
 pub use modules::{
@@ -140,6 +147,11 @@ pub use modules::{
     ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
     ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr, SourceTextModuleRecordIr,
     StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
+};
+pub use modules::{
+    DeferredModuleEvaluationIr, ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr,
+    ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr, ModuleEvaluationIr,
+    ModuleExecutionGraphIr, ModuleExecutionRequestIr, ModuleImportBindingIr, ModuleRequestPhaseIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
@@ -161,19 +173,25 @@ pub use prepared_script::{
 };
 pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use regexp::{
-    RegExpCompileError, RegExpCompileErrorKind, RegExpFlags, RegExpInstruction,
-    RegExpModifierOverride, RegExpNamedGroup, RegExpProgram, RegExpUnicodeMode,
-    REGEXP_INSTRUCTION_WIDTH, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
+    regexp_character_escape, regexp_hex_digit_value, CaseFolding as RegExpCaseFolding,
+    RegExpCompileError, RegExpCompileErrorKind, RegExpControlFlow, RegExpFlags,
+    RegExpInputProgress, RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpOpcode,
+    RegExpOperandRule, RegExpProgram, RegExpProgramValidationError, RegExpProgramWord,
+    RegExpScopedModifier, RegExpUnicodeMode, ValidatedRegExpProgram,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_CHARACTER_ESCAPES,
+    REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_LEGACY_THREE_DIGIT_OCTAL_LAST, REGEXP_MAX_INSTRUCTIONS, REGEXP_MAX_RANGE_ENTRIES,
+    REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
     REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
     REGEXP_OPCODE_CLEAR_CAPTURE_RANGE, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKBEHIND_END,
-    REGEXP_OPCODE_LOOKBEHIND_FAILURE, REGEXP_OPCODE_LOOKBEHIND_START,
+    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT, REGEXP_OPCODE_LOOKAROUND_END,
+    REGEXP_OPCODE_LOOKAROUND_FAILURE, REGEXP_OPCODE_LOOKAROUND_START,
     REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NEGATIVE_ASCII_CLASS,
-    REGEXP_OPCODE_NEGATIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_POSITIVE_ASCII_LOOKAHEAD, REGEXP_OPCODE_PROGRESS_CHECK,
-    REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY,
-    REGEXP_OPCODE_WHITESPACE, REGEXP_RANGE_ENTRY_WIDTH,
+    REGEXP_OPCODE_NOT_WHITESPACE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    REGEXP_OPCODE_POSITIVE_ASCII_CLASS, REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT,
+    REGEXP_OPCODE_SPLIT, REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_PROGRAM_HEADER_SIZE, REGEXP_PROGRAM_MAGIC_VERSION,
+    REGEXP_RANGE_ENTRY_WIDTH, REGEXP_WHITESPACE_RANGES, REGEXP_WORD_RANGES,
 };
 pub use task::{ParseTaskIdError, TaskId};
 
@@ -367,6 +385,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     collect(then_branch, copies);
                     if let Some(else_branch) = else_branch {
@@ -384,12 +408,7 @@ mod tests {
                     statement: body, ..
                 } => collect(body, copies),
                 StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
-                    for statement in plan
-                        .before_await()
-                        .iter()
-                        .chain(std::iter::once(plan.await_statement()))
-                        .chain(plan.after_await())
-                    {
+                    for statement in plan.body().statements() {
                         collect(statement, copies);
                     }
                 }
@@ -473,6 +492,9 @@ mod tests {
                         collect(statement, names);
                     }
                 }
+                StatementIr::ModuleImportBinding(import) => {
+                    names.insert(import.name.clone());
+                }
                 StatementIr::Lexical { name, .. } => {
                     names.insert(name.clone());
                 }
@@ -494,6 +516,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     collect(then_branch, names);
                     if let Some(else_branch) = else_branch {
@@ -648,12 +676,7 @@ mod tests {
                 }
                 StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
                     names.insert(plan.value_name().to_string());
-                    for statement in plan
-                        .before_await()
-                        .iter()
-                        .chain(std::iter::once(plan.await_statement()))
-                        .chain(plan.after_await())
-                    {
+                    for statement in plan.body().statements() {
                         collect(statement, names);
                     }
                 }
@@ -739,7 +762,8 @@ mod tests {
                         names.insert(name.to_string());
                     });
                 }
-                StatementIr::Empty
+                StatementIr::AsyncModuleInstantiation
+                | StatementIr::Empty
                 | StatementIr::AnnexBFunctionCopy { .. }
                 | StatementIr::DeclarationEvaluation(_)
                 | StatementIr::Expression(_)
@@ -796,6 +820,12 @@ mod tests {
                     then_branch,
                     else_branch,
                     ..
+                }
+                | StatementIr::AsyncFunctionIf {
+                    condition: _,
+                    then_branch,
+                    else_branch,
+                    plan: _,
                 } => {
                     statement_owns_binding(then_branch, name, slot)
                         || else_branch
@@ -870,10 +900,9 @@ mod tests {
                         });
                     environment_owns_binding
                         || plan
-                            .before_await()
+                            .body()
+                            .statements()
                             .iter()
-                            .chain(std::iter::once(plan.await_statement()))
-                            .chain(plan.after_await())
                             .any(|statement| statement_owns_binding(statement, name, slot))
                 }
                 StatementIr::Switch {
@@ -1218,20 +1247,12 @@ mod tests {
         let ExprIr::Conditional { condition, .. } = &assignment.expr else {
             unreachable!()
         };
-        let ExprIr::LogicalShortCircuit {
-            op: LogicalBinaryOp::And,
-            lhs,
-            ..
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
         } = &condition.expr
         else {
             panic!("Object Environment HasBinding must guard the selected write");
-        };
-        let ExprIr::SpecOperation {
-            operation: SpecOperationIr::HasProperty,
-            operands,
-        } = &lhs.expr
-        else {
-            panic!("initial Object Environment resolution must call HasProperty");
         };
         assert!(matches!(
             &operands[0].expr,
@@ -1588,7 +1609,7 @@ mod tests {
         let program = lower_module("export const value = 1; value;");
         assert!(program.is_wasm_supported());
         let script = program.script.as_ref().expect("script ir should exist");
-        assert_eq!(script.result_kind(), ValueKind::Number);
+        assert_eq!(script.result_kind(), ValueKind::Undefined);
     }
 
     #[test]
@@ -1597,10 +1618,17 @@ mod tests {
             lower_module("const direct = () => this; const nested = () => () => this; this;");
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let script = program.script.as_ref().expect("script ir should exist");
-        let StatementIr::Expression(root_this) = script
+        let owner = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::ModuleActivation)
+            .expect("private Module lexical owner");
+        let StatementIr::Expression(root_this) = owner
             .body
             .statements
-            .last()
+            .iter()
+            .rev()
+            .find(|statement| !matches!(statement, StatementIr::Empty))
             .expect("module root this should remain an expression")
         else {
             panic!("expected module root this expression");
@@ -1611,7 +1639,9 @@ mod tests {
         let arrows = script
             .functions
             .iter()
-            .filter(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .filter(|function| {
+                function.is_nested && function.protocol.flavor() == FunctionFlavor::Arrow
+            })
             .collect::<Vec<_>>();
         assert_eq!(arrows.len(), 3);
         assert_eq!(
@@ -1649,7 +1679,10 @@ mod tests {
         let arrow = script
             .functions
             .iter()
-            .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+            .find(|function| {
+                function.protocol.flavor() == FunctionFlavor::Arrow
+                    && function.captures_lexical_this
+            })
             .expect("lexical arrow should be lowered");
         assert!(arrow.captures_lexical_this);
         assert!(matches!(
@@ -3172,7 +3205,7 @@ mod tests {
         let StatementIr::Block(block) = body.as_ref() else {
             panic!("expected assignment prefix block");
         };
-        let StatementIr::Expression(TypedExpr {
+        let StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     value,
@@ -3284,7 +3317,7 @@ mod tests {
             };
             assert!(matches!(
                 block.statements.first(),
-                Some(StatementIr::Expression(TypedExpr {
+                Some(StatementIr::DeclarationEvaluation(TypedExpr {
                     expr: ExprIr::PrivateWrite { .. },
                     ..
                 }))
@@ -4142,7 +4175,14 @@ with ({
         let StatementIr::Block(with_scope) = &with_block[1] else {
             panic!("with lexical block should contain its body block");
         };
-        let StatementIr::Block(with_body) = &with_scope.statements[1] else {
+        assert!(matches!(
+            &with_scope.statements[1],
+            StatementIr::Expression(TypedExpr {
+                expr: ExprIr::Undefined,
+                ..
+            })
+        ));
+        let StatementIr::Block(with_body) = &with_scope.statements[2] else {
             panic!("with scope should contain its statement body");
         };
         let expr = with_body
@@ -7993,6 +8033,21 @@ target[Symbol.iterator];"#,
         );
     }
 
+    fn direct_async_for_of_segments(
+        plan: &AsyncFunctionForOfIteratorPlanIr,
+    ) -> (&[StatementIr], &StatementIr, &[StatementIr]) {
+        let statements = plan.body().statements();
+        let first = statements
+            .iter()
+            .position(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
+            .expect("this fixture owns a direct await");
+        (
+            &statements[..first],
+            &statements[first],
+            &statements[first + 1..],
+        )
+    }
+
     #[test]
     fn plain_async_for_of_body_await_owns_a_synchronous_iterator_record() {
         let program =
@@ -8017,7 +8072,7 @@ target[Symbol.iterator];"#,
             );
         };
         assert_eq!(plan.entry_state(), 0);
-        assert_eq!(plan.resume_state(), 1);
+        assert_eq!(plan.body().exit_state(), 1);
         assert_eq!(plan.exit_state(), 2);
         assert!(matches!(
             plan.value_storage(),
@@ -8025,7 +8080,7 @@ target[Symbol.iterator];"#,
                 if binding.mode == BindingMode::Const && binding.name == plan.value_name()
         ));
         assert!(matches!(
-            plan.await_statement(),
+            direct_async_for_of_segments(plan).1,
             StatementIr::AsyncAwait {
                 suspend_state: 0,
                 resume_state: 1,
@@ -8051,8 +8106,8 @@ target[Symbol.iterator];"#,
                 function.owned_env_bindings
             );
         }
-        let yielded_value_use = plan
-            .after_await()
+        let yielded_value_use = direct_async_for_of_segments(plan)
+            .2
             .iter()
             .find_map(|statement| match statement {
                 StatementIr::Expression(value) => match &value.expr {
@@ -8097,14 +8152,14 @@ target[Symbol.iterator];"#,
                 if name == plan.value_name()
         ));
         assert!(matches!(
-            plan.before_await(),
-            [StatementIr::Expression(TypedExpr {
+            direct_async_for_of_segments(plan).0,
+            [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::AssignIdentifier { value, .. },
                 ..
             })] if matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name())
         ));
         assert!(matches!(
-            plan.await_statement(),
+            direct_async_for_of_segments(plan).1,
             StatementIr::AsyncAwait { .. }
         ));
     }
@@ -8131,16 +8186,16 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("static member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "static member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8188,16 +8243,16 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("computed member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::PropertyWrite {
                 target, key, value, ..
             },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "computed member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8238,7 +8293,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("private member head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::PrivateWrite {
                     target,
@@ -8246,11 +8301,11 @@ target[Symbol.iterator];"#,
                     value,
                 },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "private member head should be the sole pre-await write: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8298,7 +8353,7 @@ target[Symbol.iterator];"#,
             &ResumableLoopIterationEnvironmentIr::StorageOnly
         );
         assert!(matches!(
-            plan.before_await(),
+            direct_async_for_of_segments(plan).0,
             [StatementIr::DeclarationEvaluation(TypedExpr {
                 expr: ExprIr::ArrayDestructure {
                     evaluation: ArrayDestructuringEvaluationIr::BindingInitialization,
@@ -8325,24 +8380,30 @@ target[Symbol.iterator];"#,
             "the pre-await iterator value sink must remain entry-local: {:?}",
             function.owned_env_bindings
         );
-        assert!(plan.after_await().iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::Identifier(name),
-                    ..
-                }) if name == "selected"
-            )
-        }));
-        assert!(plan.after_await().iter().any(|statement| {
-            matches!(
-                statement,
-                StatementIr::Expression(TypedExpr {
-                    expr: ExprIr::Identifier(name),
-                    ..
-                }) if name == "remaining"
-            )
-        }));
+        assert!(direct_async_for_of_segments(plan)
+            .2
+            .iter()
+            .any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Identifier(name),
+                        ..
+                    }) if name == "selected"
+                )
+            }));
+        assert!(direct_async_for_of_segments(plan)
+            .2
+            .iter()
+            .any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::Expression(TypedExpr {
+                        expr: ExprIr::Identifier(name),
+                        ..
+                    }) if name == "remaining"
+                )
+            }));
     }
 
     #[test]
@@ -8425,11 +8486,11 @@ target[Symbol.iterator];"#,
         let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr: ExprIr::ObjectDestructure { value, pattern },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "nested object pattern must initialize before the body await: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
         assert!(matches!(
@@ -8481,11 +8542,11 @@ target[Symbol.iterator];"#,
             mode: BindingMode::Let,
             name: second,
             ..
-        }] = plan.before_await()
+        }] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "object BindingInitialization must precede the body await: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
         assert!(first.ends_with(".first"));
@@ -8547,10 +8608,12 @@ target[Symbol.iterator];"#,
             assert!(head_environment.tdz_environment.is_none());
             assert!(head_environment.iteration_environment.is_none());
 
-            let [StatementIr::DeclarationEvaluation(initialization)] = plan.before_await() else {
+            let [StatementIr::DeclarationEvaluation(initialization)] =
+                direct_async_for_of_segments(plan).0
+            else {
                 panic!(
                     "`{function_name}` must preserve one semantic initialization: {:?}",
-                    plan.before_await()
+                    direct_async_for_of_segments(plan).0
                 );
             };
             match (function_name, &initialization.expr) {
@@ -8615,7 +8678,7 @@ target[Symbol.iterator];"#,
                 _ => None,
             })
             .expect("assignment pattern head should use the resumable iterator plan");
-        let [StatementIr::Expression(TypedExpr {
+        let [StatementIr::DeclarationEvaluation(TypedExpr {
             expr:
                 ExprIr::ArrayDestructure {
                     pattern,
@@ -8623,11 +8686,11 @@ target[Symbol.iterator];"#,
                     ..
                 },
             ..
-        })] = plan.before_await()
+        })] = direct_async_for_of_segments(plan).0
         else {
             panic!(
                 "assignment pattern should be the sole pre-await prefix: {:?}",
-                plan.before_await()
+                direct_async_for_of_segments(plan).0
             );
         };
 
@@ -8820,10 +8883,10 @@ target[Symbol.iterator];"#,
                         *exit_state,
                     )),
                     StatementIr::AsyncFunctionForOfIterator { plan, .. } => Some((
-                        plan.await_statement(),
-                        plan.after_await(),
+                        direct_async_for_of_segments(plan).1,
+                        direct_async_for_of_segments(plan).2,
                         plan.entry_state(),
-                        plan.resume_state(),
+                        plan.body().exit_state(),
                         plan.exit_state(),
                     )),
                     _ => None,
@@ -10350,7 +10413,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, value },
                         ..
                     })) if name == outer_storage
@@ -10395,7 +10458,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::AssignIdentifier { name, .. },
                         ..
                     })) if name == &capture.name
@@ -10436,7 +10499,7 @@ target[Symbol.iterator];"#,
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::Comma { lhs, rhs },
                         ..
                     })) if matches!(&lhs.expr, ExprIr::Identifier(name) if name == &binding.name)
@@ -11311,7 +11374,7 @@ target[Symbol.iterator];"#,
                         | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             has_reference_error_throw(value)
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             has_reference_error_throw(key) || has_reference_error_throw(value)
                         }
                         ObjectPropertyIr::ComputedMethod { key, .. }
@@ -18741,7 +18804,7 @@ eval(1);
             StatementIr::Block(BlockIr { statements, .. })
                 if matches!(
                     statements.first(),
-                    Some(StatementIr::Expression(TypedExpr {
+                    Some(StatementIr::DeclarationEvaluation(TypedExpr {
                         expr: ExprIr::PropertyWrite { .. },
                         ..
                     }))

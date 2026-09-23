@@ -516,13 +516,12 @@ impl ScriptLowerer<'_> {
         {
             self.function_signatures.insert(
                 intrinsic.function_id().to_string(),
-                self.dynamic_source_intrinsic_signature(intrinsic),
+                Self::dynamic_source_intrinsic_signature(intrinsic),
             );
         }
     }
 
     pub(super) fn dynamic_source_intrinsic_signature(
-        &self,
         intrinsic: DynamicSourceIntrinsic,
     ) -> FunctionSignature {
         let return_info = match intrinsic {
@@ -552,7 +551,7 @@ impl ScriptLowerer<'_> {
             return_shape: FunctionReturnShape::flow_sensitive(return_info.heap_shape.clone()),
             return_targets: return_info.function_targets.clone(),
             constructor_instance: return_info,
-            this_info: self.global_this_info(),
+            this_info: ValueInfo::undefined(),
             this_observed: false,
             source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }

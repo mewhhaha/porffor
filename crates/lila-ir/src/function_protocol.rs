@@ -24,6 +24,11 @@ pub enum FunctionProtocolIr {
     Async,
     AsyncArrow,
     AsyncGenerator,
+    /// Compiler-private module environment, resumed through the generator ABI.
+    /// It owns no function `this`, `arguments`, or `new.target` binding.
+    ModuleActivation,
+    /// Compiler-private async module owner; allocation and instantiation do not execute source.
+    AsyncModuleActivation,
     ObjectMethod(FunctionExecutionKind),
     ObjectGetter,
     ObjectSetter,
@@ -50,6 +55,8 @@ impl FunctionProtocolIr {
             | Self::Async
             | Self::AsyncArrow
             | Self::AsyncGenerator
+            | Self::ModuleActivation
+            | Self::AsyncModuleActivation
             | Self::ClassConstructor => LexicalSuperOwnerRole::None,
         }
     }
@@ -57,7 +64,10 @@ impl FunctionProtocolIr {
     #[must_use]
     pub const fn flavor(self) -> FunctionFlavor {
         match self {
-            Self::Arrow | Self::AsyncArrow => FunctionFlavor::Arrow,
+            Self::Arrow
+            | Self::AsyncArrow
+            | Self::ModuleActivation
+            | Self::AsyncModuleActivation => FunctionFlavor::Arrow,
             Self::OrdinaryCallOnly
             | Self::OrdinaryCallAndConstruct
             | Self::Generator
@@ -84,11 +94,35 @@ impl FunctionProtocolIr {
             | Self::ObjectSetter
             | Self::ClassGetter
             | Self::ClassSetter => FunctionExecutionKind::Ordinary,
-            Self::Generator => FunctionExecutionKind::Generator,
-            Self::Async | Self::AsyncArrow => FunctionExecutionKind::Async,
+            Self::Generator | Self::ModuleActivation => FunctionExecutionKind::Generator,
+            Self::Async | Self::AsyncArrow | Self::AsyncModuleActivation => {
+                FunctionExecutionKind::Async
+            }
             Self::AsyncGenerator => FunctionExecutionKind::AsyncGenerator,
             Self::ObjectMethod(kind) => kind,
             Self::ClassMethod(kind) => kind,
+        }
+    }
+
+    /// Execution of the original source body, excluding a private module
+    /// instantiation suspension. The module's call ABI still uses a generator.
+    pub const fn source_execution_kind(self) -> FunctionExecutionKind {
+        match self {
+            Self::OrdinaryCallOnly
+            | Self::OrdinaryCallAndConstruct
+            | Self::Arrow
+            | Self::ModuleActivation
+            | Self::ClassConstructor
+            | Self::ObjectGetter
+            | Self::ObjectSetter
+            | Self::ClassGetter
+            | Self::ClassSetter => FunctionExecutionKind::Ordinary,
+            Self::Generator => FunctionExecutionKind::Generator,
+            Self::Async | Self::AsyncArrow | Self::AsyncModuleActivation => {
+                FunctionExecutionKind::Async
+            }
+            Self::AsyncGenerator => FunctionExecutionKind::AsyncGenerator,
+            Self::ObjectMethod(kind) | Self::ClassMethod(kind) => kind,
         }
     }
 
@@ -114,6 +148,8 @@ impl FunctionProtocolIr {
             | Self::Async
             | Self::AsyncArrow
             | Self::AsyncGenerator
+            | Self::ModuleActivation
+            | Self::AsyncModuleActivation
             | Self::ObjectMethod(_)
             | Self::ObjectGetter
             | Self::ObjectSetter => ClassFunctionKind::None,

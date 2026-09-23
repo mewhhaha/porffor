@@ -34,11 +34,19 @@ mod function_environment;
 mod if_statement;
 mod invocation_effects;
 mod labelled_statement;
+mod module_graph;
+pub use module_graph::{
+    lower_module_graph, lower_module_graph_with_host_surface_policy,
+    lower_module_graph_with_prelude, lower_script_graph,
+    lower_script_graph_with_host_surface_policy,
+};
+mod module_execution;
 mod new_expression;
 mod object_environment_logical;
 mod ordinary_property_compound;
 mod ordinary_property_logical;
 mod ordinary_property_update;
+mod private_numeric_update;
 mod promise_caller_flow;
 mod property_access;
 mod proxy_traps;
@@ -47,6 +55,7 @@ mod static_json_parse;
 mod static_string_binding_facts;
 mod super_property_mutation;
 mod switch_statement;
+mod synchronous_resource_loop;
 mod throw_inference;
 mod try_statement;
 mod while_loop;
@@ -892,7 +901,7 @@ pub fn lower_with_host_surface_policy(
             source.source_text.len(),
             vec![LoweringStage::ParsedSource],
             None,
-            &modules::DefaultExportDefinitions::default(),
+            &modules::LinkedScriptDefinitions::default(),
             host_surface_policy,
         ),
         ParsedSource::Module(source) => lower_module_graph_with_host_surface_policy(
@@ -900,159 +909,6 @@ pub fn lower_with_host_surface_policy(
             host_surface_policy,
         ),
     }
-}
-
-/// Lowers an already-loaded module graph into one `ProgramIr`.
-///
-/// `lila-ir` performs no IO: the host resolves and reads every source and
-/// passes the closure in. The graph is linked at compile time and merged into
-/// the single `ScriptIr` the backend emits, while the spec records stay
-/// addressable on `ProgramIr::modules`.
-pub fn lower_module_graph(sources: &ModuleGraphSources) -> ProgramIr {
-    lower_module_graph_with_host_surface_policy(sources, HostSurfacePolicy::default())
-}
-
-pub fn lower_module_graph_with_host_surface_policy(
-    sources: &ModuleGraphSources,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    lower_graph(sources, false, host_surface_policy)
-}
-
-/// Lowers a Script entry together with the modules its `import()` calls reach.
-///
-/// `import()` is legal in Script goal and names a module, so serving it needs
-/// the same compiled targets a module's `import()` needs — but the entry itself
-/// stays Script code: it is not made strict, its top-level `this` is
-/// `globalThis`, and its declarations stay in the Script's own scope. See
-/// [`ModuleGraphIr::entry_is_script`].
-///
-/// A Script that writes no `import()` has nothing to gain here and should be
-/// lowered with [`lower`].
-pub fn lower_script_graph(sources: &ModuleGraphSources) -> ProgramIr {
-    lower_script_graph_with_host_surface_policy(sources, HostSurfacePolicy::default())
-}
-
-pub fn lower_script_graph_with_host_surface_policy(
-    sources: &ModuleGraphSources,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    lower_graph(sources, true, host_surface_policy)
-}
-
-fn lower_graph(
-    sources: &ModuleGraphSources,
-    entry_is_script: bool,
-    host_surface_policy: HostSurfacePolicy,
-) -> ProgramIr {
-    let goal = if entry_is_script {
-        ParseGoal::Script
-    } else {
-        ParseGoal::Module
-    };
-    let source_len = sources
-        .modules
-        .get(sources.entry as usize)
-        .map_or(0, |module| module.source_text().len());
-    let mut stages = vec![LoweringStage::ParsedSource];
-
-    let invalid_goal = sources.modules.iter().enumerate().find(|(index, source)| {
-        let expected = if *index == sources.entry as usize && entry_is_script {
-            ParseGoal::Script
-        } else {
-            ParseGoal::Module
-        };
-        source.goal() != expected
-    });
-    if let Some((index, source)) = invalid_goal {
-        let expected = if index == sources.entry as usize && entry_is_script {
-            ParseGoal::Script
-        } else {
-            ParseGoal::Module
-        };
-        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(goal, source_len, stages);
-        program.diagnostics.push(IrDiagnostic::lowering(format!(
-            "module graph source {} has {:?} syntax in a {:?} slot",
-            source.key().as_str(),
-            source.goal(),
-            expected,
-        )));
-        return program;
-    }
-
-    let mut graph = match modules::build_graph(sources) {
-        Ok(graph) => graph,
-        Err(diagnostics) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics = diagnostics;
-            return program;
-        }
-    };
-    graph.entry_is_script = entry_is_script;
-    stages.push(LoweringStage::ModuleGraphLoaded);
-
-    modules::link(&mut graph);
-    stages.push(LoweringStage::ModuleGraphLinked);
-    if !graph.link_errors.is_empty() {
-        stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-        let mut program = new_program(goal, source_len, stages);
-        program.diagnostics = graph
-            .link_errors
-            .iter()
-            .map(ModuleLinkErrorIr::to_diagnostic)
-            .collect();
-        program.modules = Some(graph);
-        return program;
-    }
-
-    // The whole graph is merged into one Script-goal source, in evaluation
-    // order, and lowered once. See `modules::link` for why the merge happens on
-    // source text and what it still declines to link.
-    let linked = match modules::linked_script_source(sources, &mut graph) {
-        Ok(linked) => linked,
-        Err(diagnostics) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics = diagnostics;
-            program.modules = Some(graph);
-            return program;
-        }
-    };
-
-    let default_export_definitions = linked.default_export_definitions;
-    let linked = match lila_front::parse(
-        linked.source.source_text,
-        lila_front::ParseOptions {
-            goal: ParseGoal::Script,
-            filename: linked.source.filename,
-        },
-    ) {
-        Ok(ParsedSource::Script(linked)) => linked,
-        Ok(ParsedSource::Module(_)) => {
-            unreachable!("Script parse options cannot produce a Module parsed product")
-        }
-        Err(error) => {
-            stages.push(LoweringStage::UnsupportedFeaturesRecorded);
-            let mut program = new_program(goal, source_len, stages);
-            program.diagnostics.push(IrDiagnostic::lowering(format!(
-                "linked module source did not parse as Script: {error}"
-            )));
-            program.modules = Some(graph);
-            return program;
-        }
-    };
-
-    lower_script_program(
-        &linked,
-        goal,
-        source_len,
-        stages,
-        Some(graph),
-        &default_export_definitions,
-        host_surface_policy,
-    )
 }
 
 fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -> ProgramIr {
@@ -1077,7 +933,7 @@ fn lower_script_program(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
-    default_export_definitions: &modules::DefaultExportDefinitions,
+    definitions: &modules::LinkedScriptDefinitions,
     host_surface_policy: HostSurfacePolicy,
 ) -> ProgramIr {
     lower_script_program_with_allocations(
@@ -1086,7 +942,7 @@ fn lower_script_program(
         source_len,
         stages,
         modules,
-        default_export_definitions,
+        definitions,
         host_surface_policy,
         &mut AnalysisAllocationState::default(),
         ScriptInstantiation::FreshEntry,
@@ -1099,7 +955,7 @@ fn lower_script_program_with_allocations(
     source_len: usize,
     stages: Vec<LoweringStage>,
     modules: Option<ModuleGraphIr>,
-    default_export_definitions: &modules::DefaultExportDefinitions,
+    definitions: &modules::LinkedScriptDefinitions,
     host_surface_policy: HostSurfacePolicy,
     allocations: &mut AnalysisAllocationState,
     instantiation: ScriptInstantiation,
@@ -1120,7 +976,7 @@ fn lower_script_program_with_allocations(
         let t0 = std::time::Instant::now();
         let mut analysis = AnalysisBuilder::with_allocations(*allocations, instantiation.clone())
             .finish(script, interner, script_source.source_text.as_str());
-        default_export_definitions.apply(script, &mut analysis);
+        definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations;
         if trace_phases {
@@ -1141,6 +997,7 @@ fn lower_script_program_with_allocations(
         }
         program.script = Some(ScriptIr {
             eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),
+            module_prelude: None,
             prepared_scripts: Vec::new(),
             runtime_declarations: lowered.runtime_declarations,
             prepared_dynamic_functions: Vec::new(),
@@ -1339,17 +1196,16 @@ impl<'a> ScriptLowerer<'a> {
         let with_environments = with_positions
             .into_iter()
             .map(|(binding_name, position)| {
-                let capture = function
+                function
                     .captures
                     .get(binding_name.as_str())
                     .expect("surrounding WithObject environment must be captured");
                 PositionedWithEnvironment::captured(
                     ObjectEnvironmentBindingObject::materialized(
                         &binding_name,
-                        self.capture_value_info(
-                            capture.owner_id.as_str(),
-                            capture.source_name.as_str(),
-                        ),
+                        // The hidden slot contains the once-boxed With entry
+                        // value, independent of the original head's type.
+                        Self::unknown_construct_result_info(),
                     ),
                     position,
                 )
@@ -1628,7 +1484,7 @@ impl<'a> ScriptLowerer<'a> {
             .owner_plans
             .get(&current_owner_id)
             .and_then(|owner| owner.private_environment_id);
-        Self {
+        let mut lowerer = Self {
             interner,
             analysis,
             source_text,
@@ -1838,7 +1694,13 @@ impl<'a> ScriptLowerer<'a> {
             with_environment_chain: OrderedWithEnvironmentChain::default(),
             captured_binding_positions: BTreeMap::new(),
             error_proto_to_strings: 0,
+        };
+        if analysis.script_instantiation == ScriptInstantiation::ModuleAfterGlobalScript {
+            // The earlier Script can replace globals and intrinsic properties.
+            // Every analysis prepass must start from the same runtime boundary.
+            lowerer.invalidate_unknown_user_code_effect_facts();
         }
+        lowerer
     }
 
     fn lower(mut self, script: &Script) -> LoweredScript {
@@ -1858,7 +1720,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -1879,7 +1741,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -1900,7 +1762,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -1921,7 +1783,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -1942,7 +1804,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2005,7 +1867,7 @@ impl<'a> ScriptLowerer<'a> {
                     return_shape: FunctionReturnShape::Absent,
                     return_targets: FunctionTargetKnowledge::none(),
                     constructor_instance: ValueInfo::undefined(),
-                    this_info: self.global_this_info(),
+                    this_info: ValueInfo::undefined(),
                     this_observed: false,
                     source_call_flow_effects: SourceCallFlowEffects::unobserved(),
                 },
@@ -2027,7 +1889,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2048,7 +1910,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2071,7 +1933,7 @@ impl<'a> ScriptLowerer<'a> {
                 ),
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2095,7 +1957,7 @@ impl<'a> ScriptLowerer<'a> {
                 ))),
                 return_targets: FunctionTargetKnowledge::unknown(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2116,7 +1978,7 @@ impl<'a> ScriptLowerer<'a> {
                 return_shape: FunctionReturnShape::Absent,
                 return_targets: FunctionTargetKnowledge::none(),
                 constructor_instance: ValueInfo::undefined(),
-                this_info: self.global_this_info(),
+                this_info: ValueInfo::undefined(),
                 this_observed: false,
                 source_call_flow_effects: SourceCallFlowEffects::unobserved(),
             },
@@ -2124,7 +1986,7 @@ impl<'a> ScriptLowerer<'a> {
         for builtin in StandardBuiltinId::all_functions() {
             self.function_signatures.insert(
                 builtin.function_id(),
-                self.standard_builtin_signature(*builtin, self.global_this_info()),
+                Self::standard_builtin_signature(*builtin),
             );
         }
         for function_id in &self.analysis.function_order {
@@ -2337,8 +2199,10 @@ impl<'a> ScriptLowerer<'a> {
         functions.append(&mut self.generated_functions);
         let (global_bindings, restricted_global_functions) =
             self.script_global_bindings(self.analysis.script_root_functions.as_slice());
-        let rejects_fresh_entry_declarations =
-            self.analysis.script_instantiation == ScriptInstantiation::FreshEntry;
+        let rejects_fresh_entry_declarations = matches!(
+            self.analysis.script_instantiation,
+            ScriptInstantiation::FreshEntry | ScriptInstantiation::ModuleAfterGlobalScript
+        );
         for name in restricted_global_functions
             .into_iter()
             .filter(|_| rejects_fresh_entry_declarations)
@@ -4707,17 +4571,6 @@ impl<'a> ScriptLowerer<'a> {
         &mut self,
         list: &[Variable],
     ) -> Option<SyncDisposableResourcesIr> {
-        if self.root_this_binding == RootThisBinding::Undefined {
-            self.unsupported("using declaration in a module");
-            return None;
-        }
-        if self.current_generator_resume_state.is_some()
-            || self.current_async_resume_state.is_some()
-            || self.current_resumable_plan.is_some()
-        {
-            self.unsupported("using declaration in a generator or async function");
-            return None;
-        }
         if list.is_empty() {
             self.unsupported("empty using declaration");
             return None;
@@ -4994,6 +4847,26 @@ impl<'a> ScriptLowerer<'a> {
                     );
                     statements.push(yield_statement);
                 }
+                Binding::Identifier(identifier)
+                    if !self.with_environment_chain.is_empty() && variable.init().is_some() =>
+                {
+                    if !declarators.is_empty() {
+                        statements.push(StatementIr::Var(std::mem::take(&mut declarators)));
+                    }
+                    let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                    if !self.borrows_direct_eval_variable_environment() {
+                        statements
+                            .push(StatementIr::Var(vec![VarDeclaratorIr { name, init: None }]));
+                    }
+                    // VariableDeclaration resolves its reference before evaluating
+                    // the initializer, just as an identifier assignment does.
+                    let initializer = self.lower_assign(
+                        AssignOp::Assign,
+                        &AssignTarget::Identifier(*identifier),
+                        variable.init().expect("guarded var initializer must exist"),
+                    );
+                    statements.push(StatementIr::DeclarationEvaluation(initializer));
+                }
                 Binding::Identifier(_) => {
                     if let Some(declarator) = self.lower_var_declarator(variable) {
                         if self.borrows_direct_eval_variable_environment() {
@@ -5037,15 +4910,16 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_var_init(&mut self, declaration: &VarDeclaration) -> Option<ForInitIr> {
-        // `for (var { x } = o; …)`. `VarDeclaratorIr` is a name/initialiser
-        // pair, so a pattern head reuses the statement lowering. The `var`
-        // names are hoisted to the enclosing function either way, so the scope
-        // the statement form opens does not hide them from the loop.
-        if declaration
-            .0
-            .as_ref()
-            .iter()
-            .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
+        // Borrowed eval variables, patterns and with-environment references
+        // need declaration lowering: VarDeclaratorIr only writes owned storage.
+        // Hoisting still belongs to the enclosing variable environment.
+        if self.borrows_direct_eval_variable_environment()
+            || !self.with_environment_chain.is_empty()
+            || declaration
+                .0
+                .as_ref()
+                .iter()
+                .any(|variable| matches!(variable.binding(), Binding::Pattern(_)))
         {
             let (statement, _) = self.lower_var_statement(declaration);
             return Some(ForInitIr::Statements(vec![statement]));
@@ -6339,6 +6213,35 @@ impl<'a> ScriptLowerer<'a> {
                     // name. Every arm below either discharges it or drops it
                     // (`unsupported`), and none can discharge it twice.
                     let pending = scope.take(&name);
+                    if let Some(target) = variable
+                        .init()
+                        .and_then(|init| {
+                            self.analysis
+                                .module_execution
+                                .imports
+                                .get(&(std::ptr::from_ref(init) as usize))
+                        })
+                        .cloned()
+                    {
+                        let statement = self.lower_lexical_binding_value(
+                            BindingMode::Const,
+                            name,
+                            identifier.span(),
+                            LoweredInitializer::evaluated(TypedExpr::from_info(
+                                unknown_runtime_value_info(),
+                                ExprIr::Undefined,
+                            )),
+                            pending,
+                            None,
+                        );
+                        let StatementIr::Lexical { name, .. } = statement else {
+                            panic!("module import creates one immutable lexical binding");
+                        };
+                        statements.push(StatementIr::ModuleImportBinding(
+                            crate::ModuleImportBindingIr { name, target },
+                        ));
+                        continue;
+                    }
                     if self.current_async_resume_state.is_some()
                         && matches!(variable.init(), Some(Expression::Await(_)))
                     {
@@ -6637,10 +6540,7 @@ impl<'a> ScriptLowerer<'a> {
         list: &[Variable],
         scope: &mut LexicalScopeInstantiation,
     ) -> Option<(SyncDisposableScopeExecutionIr, SyncDisposableResourcesIr)> {
-        if self.root_this_binding == RootThisBinding::Undefined {
-            self.unsupported("using declaration in a module");
-            return None;
-        }
+        let owner = self.admit_sync_disposable_scope_owner()?;
         if list.is_empty() {
             self.unsupported("empty using declaration");
             return None;
@@ -6658,7 +6558,6 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         }
 
-        let owner = self.sync_disposable_scope_owner();
         if owner == SyncDisposableScopeOwnerPlan::AsyncGenerator
             && list.iter().filter_map(Variable::init).any(|initializer| {
                 contains(initializer, ContainsSymbol::AwaitExpression)
@@ -6716,21 +6615,6 @@ impl<'a> ScriptLowerer<'a> {
             execution,
             SyncDisposableResourcesIr::new(first, resources.collect()),
         ))
-    }
-
-    /// Selects the only legal lifetime for an ordinary statement-list `using`.
-    ///
-    /// This consumes the analyzed function protocol exhaustively. In
-    /// particular, resumable capabilities can only be minted through the
-    /// suspension-owned allocator below; an async generator cannot fall
-    /// through to the immediate representation.
-    fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
-        self.current_function_id
-            .as_ref()
-            .and_then(|function_id| self.analysis.function_plans.get(function_id))
-            .map_or(SyncDisposableScopeOwnerPlan::Immediate, |function| {
-                function.sync_disposable_scope_owner()
-            })
     }
 
     fn sync_disposable_scope_execution(
@@ -6861,14 +6745,14 @@ impl<'a> ScriptLowerer<'a> {
                 self.hoist_statement(for_of.body());
             }
             Statement::Var(var) => self.hoist_var_declaration(var),
+            Statement::With(with) => self.hoist_statement(with.statement()),
             Statement::Expression(_)
             | Statement::Empty
             | Statement::Break(_)
             | Statement::Continue(_)
             | Statement::Debugger
             | Statement::Return(_)
-            | Statement::Throw(_)
-            | Statement::With(_) => {}
+            | Statement::Throw(_) => {}
         }
     }
 
@@ -7773,9 +7657,7 @@ impl<'a> ScriptLowerer<'a> {
         objects: SelectedWithEnvironmentObjects,
     ) -> WithEnvironmentReferencePlan {
         let strictness = self.reference_strictness();
-        objects.into_reference_plan(name, strictness, || {
-            self.alloc_temp_binding_name("with.unscopables.")
-        })
+        objects.into_reference_plan(name, strictness)
     }
 
     fn script_global_var_binding_info(&self, name: &str) -> Option<BindingInfo> {
@@ -7801,6 +7683,24 @@ impl<'a> ScriptLowerer<'a> {
     /// specific paths that each lower their arguments themselves, and there is
     /// no later choke point they all share.
     fn lower_expression(&mut self, expression: &Expression) -> TypedExpr {
+        if let Some(entry) = self
+            .analysis
+            .module_entry_evaluation
+            .filter(|entry| entry.owns(expression))
+        {
+            let evaluation = match entry.source() {
+                modules::LinkedModuleEntry::CanonicalGraph(_) => self
+                    .lower_synchronous_module_expression(entry.operand())
+                    .expect("trusted entry has a synchronous evaluation operation"),
+                modules::LinkedModuleEntry::RetainedDriver(_) => {
+                    self.lower_expression(entry.operand())
+                }
+            };
+            return entry.lower(evaluation);
+        }
+        if let Some(module) = self.lower_synchronous_module_expression(expression) {
+            return module;
+        }
         if let Some(pinned) = self
             .pinned_async_operands
             .get(&(std::ptr::from_ref(expression) as usize))
@@ -8361,6 +8261,7 @@ impl<'a> ScriptLowerer<'a> {
             class.super_ref(),
             class.constructor(),
             class.elements(),
+            None,
         );
         let mut statements = std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
             .expect("class declaration owns its evaluation prefix");
@@ -8388,6 +8289,14 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_class_expression(&mut self, class: &ClassExpression) -> TypedExpr {
+        self.lower_class_expression_with_inferred_name(class, None)
+    }
+
+    fn lower_class_expression_with_inferred_name(
+        &mut self,
+        class: &ClassExpression,
+        inferred_name_binding: Option<String>,
+    ) -> TypedExpr {
         let name = class
             .name()
             .map(|identifier| self.interner.resolve_expect(identifier.sym()).to_string());
@@ -8402,6 +8311,7 @@ impl<'a> ScriptLowerer<'a> {
             class.super_ref(),
             class.constructor(),
             class.elements(),
+            inferred_name_binding,
         )
     }
 
@@ -8440,6 +8350,7 @@ impl<'a> ScriptLowerer<'a> {
         heritage: Option<&Expression>,
         constructor: Option<&FunctionExpression>,
         elements: &[ClassElement],
+        inferred_name_binding: Option<String>,
     ) -> TypedExpr {
         let name_binding = class_name.as_ref().map(|_| {
             let environment_id = self
@@ -8490,6 +8401,7 @@ impl<'a> ScriptLowerer<'a> {
             constructor,
             elements,
             name_binding,
+            inferred_name_binding,
         );
         if has_name_binding {
             self.pop_scope();
@@ -12035,7 +11947,9 @@ impl<'a> ScriptLowerer<'a> {
                     return self.unsupported_expr("object literal shorthand");
                 }
                 PropertyDefinition::Property(PropertyName::Computed(expr), value) => {
-                    if let Some(key) = self.try_static_ordinary_property_key(expr) {
+                    let anonymous = value.is_anonymous_function_definition();
+                    let static_key = self.try_static_ordinary_property_key(expr);
+                    if let Some(key) = static_key.as_ref().filter(|_| !anonymous) {
                         self.observe_proxy_trap_value_hint(&key, value);
                         let lowered = self.lower_expression(value);
                         Self::insert_string_keyed_shape_property(
@@ -12044,39 +11958,98 @@ impl<'a> ScriptLowerer<'a> {
                             ObjectShapeProperty::Data(lowered.value_info()),
                         );
                         properties.push(ObjectPropertyIr::Data {
-                            key,
+                            key: key.clone(),
                             value: lowered,
                             is_shorthand: false,
                         });
                         continue;
                     }
                     let well_known_key = self.try_well_known_symbol_key_name(expr);
-                    let key = self.lower_expression(expr);
+                    let mut key = match &static_key {
+                        Some(key) => TypedExpr::from_info(
+                            ValueInfo::new(ValueKind::String),
+                            ExprIr::String(key.clone()),
+                        ),
+                        None => self.lower_expression(expr),
+                    };
                     if !key
                         .possible_kinds
                         .is_subset_of(KindSet::PROPERTY_KEY_COERCIBLE)
                     {
                         return self.unsupported_expr("computed object key");
                     }
-                    let lowered = self.lower_expression(value);
+                    let (lowered, name_inference) = if anonymous {
+                        if let Expression::ClassExpression(class) =
+                            Self::unwrap_parenthesized_expr(value)
+                        {
+                            let suspends = self.class_evaluation_state().is_some()
+                                && (contains(value, ContainsSymbol::AwaitExpression)
+                                    || contains(value, ContainsSymbol::YieldExpression));
+                            let key_binding = if suspends {
+                                let normalized = TypedExpr::spec_to_property_key(key);
+                                let binding = self.alloc_suspension_owned_binding(
+                                    "class.inferred.name.",
+                                    normalized.value_info(),
+                                );
+                                self.async_expression_prefix
+                                    .as_mut()
+                                    .expect("suspending class owns an evaluation prefix")
+                                    .push(StatementIr::Lexical {
+                                        mode: BindingMode::Let,
+                                        name: binding.clone(),
+                                        init: normalized,
+                                    });
+                                key = self.lower_identifier_name(binding.clone(), false);
+                                binding
+                            } else {
+                                self.alloc_temp_binding_name("class.inferred.name.")
+                            };
+                            let lowered = self.lower_class_expression_with_inferred_name(
+                                class,
+                                Some(key_binding.clone()),
+                            );
+                            let inference = if suspends {
+                                ComputedPropertyNameInferenceIr::None
+                            } else {
+                                ComputedPropertyNameInferenceIr::Class { key_binding }
+                            };
+                            (lowered, inference)
+                        } else {
+                            (
+                                self.lower_expression(value),
+                                ComputedPropertyNameInferenceIr::Function,
+                            )
+                        }
+                    } else {
+                        (
+                            self.lower_expression(value),
+                            ComputedPropertyNameInferenceIr::None,
+                        )
+                    };
                     // A well-known-symbol key (`{ [Symbol.toPrimitive]: fn }`) is
                     // still a computed key at runtime, but its identity is known
                     // statically. Record it in the tracked shape — under the
                     // symbol namespace, so no string-keyed read can reach it —
                     // so ToPrimitive inference sees the hook instead of
                     // concluding the object has no hooks and always stringifies.
-                    match well_known_key {
-                        Some(symbol) => {
+                    match (static_key, well_known_key) {
+                        (Some(key), _) => Self::insert_string_keyed_shape_property(
+                            &mut shape,
+                            &key,
+                            ObjectShapeProperty::Data(lowered.value_info()),
+                        ),
+                        (None, Some(symbol)) => {
                             shape.properties.insert(
                                 shape_namespace_key(symbol),
                                 ObjectShapeProperty::Data(lowered.value_info()),
                             );
                         }
-                        None => has_unknown_key |= Self::computed_key_may_be_string(&key),
+                        (None, None) => has_unknown_key |= Self::computed_key_may_be_string(&key),
                     }
                     properties.push(ObjectPropertyIr::ComputedData {
                         key,
                         value: lowered,
+                        name_inference,
                     });
                 }
                 PropertyDefinition::SpreadObject(source) => {
@@ -16209,7 +16182,7 @@ impl<'a> ScriptLowerer<'a> {
                 self.lower_ordinary_property_numeric_update(op, access)
             }
             PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access),
-            PropertyAccess::Private(_) => self.unsupported_expr("private field update target"),
+            PropertyAccess::Private(access) => self.lower_private_numeric_update(op, access),
         }
     }
 
@@ -16984,8 +16957,27 @@ impl<'a> ScriptLowerer<'a> {
                             .possible_kinds
                             .is_subset_of(KindSet::PRIMITIVE_ONLY)
                     {
+                        let (lhs_number, lhs_bigint) = numeric_domain(Some(lhs_primitive));
+                        let (rhs_number, rhs_bigint) = numeric_domain(Some(rhs_primitive));
+                        let mut possible_kinds = KindSet::EMPTY;
+                        if lhs_number && rhs_number {
+                            possible_kinds =
+                                possible_kinds.union(KindSet::from_kind(ValueKind::Number));
+                        }
+                        if lhs_bigint && rhs_bigint {
+                            possible_kinds =
+                                possible_kinds.union(KindSet::from_kind(ValueKind::BigInt));
+                        }
+                        if possible_kinds == KindSet::EMPTY {
+                            possible_kinds = KindSet::from_kind(ValueKind::Number);
+                        }
                         return TypedExpr::from_info(
-                            ValueInfo::new(ValueKind::Number),
+                            ValueInfo {
+                                kind: possible_kinds.as_value_kind(),
+                                possible_kinds,
+                                heap_shape: None,
+                                function_targets: FunctionTargetKnowledge::none(),
+                            },
                             ExprIr::CoerciveBinaryNumber {
                                 op: ArithmeticBinaryOp::Add,
                                 lhs: Box::new(lhs),
@@ -17595,8 +17587,10 @@ impl<'a> ScriptLowerer<'a> {
                 ValueKind::Object | ValueKind::Function => {
                     self.object_to_primitive_kinds(info.heap_shape.as_deref(), hint)?
                 }
-                ValueKind::Array => self.array_to_primitive_kinds(info.heap_shape.as_deref())?,
-                ValueKind::Arguments => KindSet::from_kind(ValueKind::String),
+                // Indexed contents do not prove a conversion result: own or
+                // inherited hooks, including Array.prototype.toString's live
+                // join lookup, can return any primitive kind.
+                ValueKind::Array | ValueKind::Arguments => KindSet::PRIMITIVE_ONLY,
                 ValueKind::Dynamic => return None,
             };
             possible_kinds = possible_kinds.union(next);
@@ -17686,45 +17680,6 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
-        Some(KindSet::from_kind(ValueKind::String))
-    }
-
-    fn array_to_primitive_kinds(&mut self, shape: Option<&HeapShape>) -> Option<KindSet> {
-        let Some(HeapShape::Array(shape)) = shape else {
-            return Some(KindSet::from_kind(ValueKind::String));
-        };
-        for element in &shape.elements {
-            if !element
-                .possible_kinds
-                .is_subset_of(KindSet::PRIMITIVE_OR_HEAP_COERCIBLE)
-            {
-                return None;
-            }
-            if element.possible_kinds.contains(ValueKind::Function) {
-                return None;
-            }
-            match element.kind {
-                ValueKind::Object => {
-                    self.object_to_primitive_kinds(
-                        element.heap_shape.as_deref(),
-                        ToPrimitiveHint::String,
-                    )?;
-                }
-                ValueKind::Array => {
-                    self.array_to_primitive_kinds(element.heap_shape.as_deref())?;
-                }
-                ValueKind::Arguments
-                | ValueKind::Undefined
-                | ValueKind::Null
-                | ValueKind::Boolean
-                | ValueKind::Number
-                | ValueKind::String
-                | ValueKind::Symbol
-                | ValueKind::BigInt
-                | ValueKind::Dynamic => {}
-                ValueKind::Function => return None,
-            }
-        }
         Some(KindSet::from_kind(ValueKind::String))
     }
 
@@ -20649,6 +20604,16 @@ impl<'a> ScriptLowerer<'a> {
 
     fn static_initializer_value_info(&self, expression: &Expression) -> Option<ValueInfo> {
         let expression = Self::unwrap_parenthesized_expr(expression);
+        if self
+            .analysis
+            .module_execution
+            .imports
+            .contains_key(&(std::ptr::from_ref(expression) as usize))
+        {
+            // The linked source placeholder denotes an indirect live binding;
+            // its literal spelling is not a value that a closure can capture.
+            return Some(unknown_runtime_value_info());
+        }
         match expression {
             Expression::Literal(literal) => match literal.kind() {
                 LiteralKind::Num(_) | LiteralKind::Int(_) => {

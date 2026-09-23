@@ -1,8 +1,21 @@
 use core::{fmt, marker::PhantomData};
 
+use crate::number_format::{
+    NumberLocaleRequest, NumberSupportedLocalesRequest, RangeNumberPartition, ResolvedNumberLocale,
+    ScalarNumberPartition,
+};
 use crate::{
-    CanonicalLocaleId, CanonicalTimeZoneId, IntlCapabilitySet, IntlDataCapability,
-    IntlDataIdentity, InvalidCanonicalLocaleId, LocaleId, TimeZoneId,
+    NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
+    NumberSupportedLocalesResult,
+};
+
+use crate::{
+    CanonicalLocaleId, DateTimeFormatError, DateTimeFormatRequest, DateTimeLocaleRequest,
+    DateTimeLocaleResult, DateTimeParts, DateTimePlanRequest, DateTimePlanResult,
+    DateTimeRangeParts, DateTimeRangeRequest, DateTimeSupportedLocalesRequest,
+    DateTimeSupportedLocalesResult, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
+    InvalidCanonicalLocaleId, LocaleId, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TimeZoneId, TimeZoneResolveError,
 };
 
 /// Packed offset/length span read by an Intl host operation.
@@ -75,11 +88,13 @@ impl IntlHostWriteSpan {
 /// Closed result domain for the shared `(op, request_span, result_span) -> i64`
 /// host ABI.
 ///
-/// Expected provider rejection is the sole negative value. All non-negative
-/// `u32` values are successful byte counts; every other `i64` is an ABI fault.
+/// Non-negative `u32` values are successful byte counts. `-1` rejects the
+/// request; `-2 - required_capacity` requests a larger output span without
+/// writing any bytes. Every other `i64` is an ABI fault.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntlHostCallOutcome {
     Written(u32),
+    RequiredCapacity(u32),
     Rejected,
 }
 
@@ -90,6 +105,7 @@ impl IntlHostCallOutcome {
     pub const fn wire(self) -> i64 {
         match self {
             Self::Written(length) => length as i64,
+            Self::RequiredCapacity(capacity) => -2 - capacity as i64,
             Self::Rejected => Self::REJECTED_WIRE,
         }
     }
@@ -98,6 +114,8 @@ impl IntlHostCallOutcome {
     pub const fn from_wire(wire: i64) -> Option<Self> {
         if wire == Self::REJECTED_WIRE {
             Some(Self::Rejected)
+        } else if wire <= -2 && wire >= -2 - u32::MAX as i64 {
+            Some(Self::RequiredCapacity((-2 - wire) as u32))
         } else if wire >= 0 && wire <= u32::MAX as i64 {
             Some(Self::Written(wire as u32))
         } else {
@@ -215,35 +233,142 @@ intl_operations! {
     CanonicalizeLocale {
         code: 0,
         name: "canonicalize-locale",
-        request: CanonicalizeLocaleRequest,
-        response: CanonicalizeLocaleResult,
-        error: CanonicalizeLocaleError,
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
         capabilities: [IntlDataCapability::LocaleAliases],
     }
-    CanonicalizeTimeZone {
+    LookupNamedTimeZone {
         code: 1,
-        name: "canonicalize-time-zone",
-        request: CanonicalizeTimeZoneRequest,
-        response: CanonicalizeTimeZoneResult,
+        name: "lookup-named-time-zone",
+        request: LookupNamedTimeZoneRequest,
+        response: LookupNamedTimeZoneResult,
         error: UnknownTimeZone,
         capabilities: [IntlDataCapability::TimeZoneTransitions],
+    }
+    MaximizeLocale {
+        code: 2,
+        name: "maximize-locale",
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags],
+    }
+    MinimizeLocale {
+        code: 3,
+        name: "minimize-locale",
+        request: LocaleTransformRequest,
+        response: LocaleTransformResult,
+        error: LocaleTransformError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags],
+    }
+    ResolveTimeZone {
+        code: 4,
+        name: "resolve-time-zone",
+        request: ResolveTimeZoneRequest,
+        response: ResolvedTimeZoneSnapshot,
+        error: TimeZoneResolveError,
+        capabilities: [IntlDataCapability::TimeZoneTransitions, IntlDataCapability::TimeZoneNames],
+    }
+    ResolveDateTimeLocale {
+        code: 5,
+        name: "resolve-date-time-locale",
+        request: DateTimeLocaleRequest,
+        response: DateTimeLocaleResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns],
+    }
+    SupportedDateTimeLocales {
+        code: 6,
+        name: "supported-date-time-locales",
+        request: DateTimeSupportedLocalesRequest,
+        response: DateTimeSupportedLocalesResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::DateTimePatterns],
+    }
+    SelectDateTimeFormat {
+        code: 7,
+        name: "select-date-time-format",
+        request: DateTimePlanRequest,
+        response: DateTimePlanResult,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns],
+    }
+    FormatDateTimeParts {
+        code: 8,
+        name: "format-date-time-parts",
+        request: DateTimeFormatRequest,
+        response: DateTimeParts,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns,
+            IntlDataCapability::TimeZoneNames, IntlDataCapability::TimeZoneTransitions],
+    }
+    FormatDateTimeRangeParts {
+        code: 9,
+        name: "format-date-time-range-parts",
+        request: DateTimeRangeRequest,
+        response: DateTimeRangeParts,
+        error: DateTimeFormatError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DateTimePatterns,
+            IntlDataCapability::TimeZoneNames, IntlDataCapability::TimeZoneTransitions],
+    }
+    ResolveNumberLocale {
+        code: 10,
+        name: "resolve-number-locale",
+        request: NumberLocaleRequest,
+        response: ResolvedNumberLocale,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns],
+    }
+    SupportedNumberLocales {
+        code: 11,
+        name: "supported-number-locales",
+        request: NumberSupportedLocalesRequest,
+        response: NumberSupportedLocalesResult,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::DecimalPatterns],
+    }
+    FormatNumberParts {
+        code: 12,
+        name: "format-number-parts",
+        request: NumberFormatRequest,
+        response: ScalarNumberPartition,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules,
+            IntlDataCapability::UnitsAndCurrencies],
+    }
+    FormatNumberRangeParts {
+        code: 13,
+        name: "format-number-range-parts",
+        request: NumberRangeFormatRequest,
+        response: RangeNumberPartition,
+        error: NumberFormatOperationError,
+        capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules,
+            IntlDataCapability::UnitsAndCurrencies],
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeLocaleRequest {
+pub struct LocaleTransformRequest {
     locale: LocaleId,
 }
 
-impl CanonicalizeLocaleRequest {
+impl LocaleTransformRequest {
     /// Creates a request from a structurally validated locale identifier.
     ///
     /// Raw strings cannot cross the kernel boundary.
     ///
     /// ```compile_fail
-    /// use lila_intl::CanonicalizeLocaleRequest;
+    /// use lila_intl::LocaleTransformRequest;
     ///
-    /// let _ = CanonicalizeLocaleRequest::new("en-US");
+    /// let _ = LocaleTransformRequest::new("en-US");
     /// ```
     #[must_use]
     pub const fn new(locale: LocaleId) -> Self {
@@ -262,11 +387,11 @@ impl CanonicalizeLocaleRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeLocaleResult {
+pub struct LocaleTransformResult {
     locale: CanonicalLocaleId,
 }
 
-impl CanonicalizeLocaleResult {
+impl LocaleTransformResult {
     #[must_use]
     pub const fn new(locale: CanonicalLocaleId) -> Self {
         Self { locale }
@@ -280,45 +405,6 @@ impl CanonicalizeLocaleResult {
     #[must_use]
     pub fn into_locale(self) -> CanonicalLocaleId {
         self.locale
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeTimeZoneRequest {
-    time_zone: TimeZoneId,
-}
-
-impl CanonicalizeTimeZoneRequest {
-    #[must_use]
-    pub const fn new(time_zone: TimeZoneId) -> Self {
-        Self { time_zone }
-    }
-
-    #[must_use]
-    pub const fn time_zone(&self) -> &TimeZoneId {
-        &self.time_zone
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanonicalizeTimeZoneResult {
-    time_zone: CanonicalTimeZoneId,
-}
-
-impl CanonicalizeTimeZoneResult {
-    #[must_use]
-    pub const fn new(time_zone: CanonicalTimeZoneId) -> Self {
-        Self { time_zone }
-    }
-
-    #[must_use]
-    pub const fn time_zone(&self) -> &CanonicalTimeZoneId {
-        &self.time_zone
-    }
-
-    #[must_use]
-    pub fn into_time_zone(self) -> CanonicalTimeZoneId {
-        self.time_zone
     }
 }
 
@@ -351,15 +437,15 @@ impl fmt::Display for UnsupportedLocale {
 
 impl std::error::Error for UnsupportedLocale {}
 
-/// Provider result for locale canonicalization, separating an expected
+/// Provider failure for locale transforms, separating an expected
 /// unsupported input from corrupt/non-canonical provider output.
 #[derive(Debug)]
-pub enum CanonicalizeLocaleError {
+pub enum LocaleTransformError {
     Unsupported(UnsupportedLocale),
     InvalidProviderResult(InvalidCanonicalLocaleId),
 }
 
-impl fmt::Display for CanonicalizeLocaleError {
+impl fmt::Display for LocaleTransformError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unsupported(error) => error.fmt(f),
@@ -373,7 +459,7 @@ impl fmt::Display for CanonicalizeLocaleError {
     }
 }
 
-impl std::error::Error for CanonicalizeLocaleError {
+impl std::error::Error for LocaleTransformError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Unsupported(error) => Some(error),
@@ -382,13 +468,13 @@ impl std::error::Error for CanonicalizeLocaleError {
     }
 }
 
-impl From<UnsupportedLocale> for CanonicalizeLocaleError {
+impl From<UnsupportedLocale> for LocaleTransformError {
     fn from(error: UnsupportedLocale) -> Self {
         Self::Unsupported(error)
     }
 }
 
-impl From<InvalidCanonicalLocaleId> for CanonicalizeLocaleError {
+impl From<InvalidCanonicalLocaleId> for LocaleTransformError {
     fn from(error: InvalidCanonicalLocaleId) -> Self {
         Self::InvalidProviderResult(error)
     }
@@ -512,7 +598,7 @@ where
     ///
     /// ```compile_fail
     /// use lila_intl::{
-    ///     CanonicalizeLocale, CanonicalizeTimeZoneRequest, IntlOperationHandle,
+    ///     CanonicalizeLocale, LookupNamedTimeZoneRequest, IntlOperationHandle,
     ///     IntlOperationProvider, TimeZoneId,
     /// };
     ///
@@ -521,7 +607,7 @@ where
     ///     P: IntlOperationProvider<CanonicalizeLocale>,
     /// {
     ///     let zone = TimeZoneId::parse("UTC").unwrap();
-    ///     let _ = handle.execute(CanonicalizeTimeZoneRequest::new(zone));
+    ///     let _ = handle.execute(LookupNamedTimeZoneRequest::new(zone));
     /// }
     /// ```
     pub fn execute(&self, request: O::Request) -> Result<O::Response, O::Error> {
@@ -604,28 +690,31 @@ mod tests {
     impl IntlOperationProvider<CanonicalizeLocale> for FixtureProvider {
         fn execute(
             &self,
-            request: CanonicalizeLocaleRequest,
-        ) -> Result<CanonicalizeLocaleResult, CanonicalizeLocaleError> {
+            request: LocaleTransformRequest,
+        ) -> Result<LocaleTransformResult, LocaleTransformError> {
             let locale = match request.locale().as_str() {
                 "EN-us" => CanonicalLocaleId::from_data("en-US").unwrap(),
                 "iw-IL" => CanonicalLocaleId::from_data("he-IL").unwrap(),
                 _ => return Err(UnsupportedLocale::new(request.locale).into()),
             };
-            Ok(CanonicalizeLocaleResult::new(locale))
+            Ok(LocaleTransformResult::new(locale))
         }
     }
 
-    impl IntlOperationProvider<CanonicalizeTimeZone> for FixtureProvider {
+    impl IntlOperationProvider<LookupNamedTimeZone> for FixtureProvider {
         fn execute(
             &self,
-            request: CanonicalizeTimeZoneRequest,
-        ) -> Result<CanonicalizeTimeZoneResult, UnknownTimeZone> {
-            let time_zone = match request.time_zone().as_str() {
-                "europe/stockholm" => CanonicalTimeZoneId::from_data("Europe/Stockholm").unwrap(),
-                "Etc/UTC" => CanonicalTimeZoneId::from_data("UTC").unwrap(),
-                _ => return Err(UnknownTimeZone::new(request.time_zone)),
+            request: LookupNamedTimeZoneRequest,
+        ) -> Result<LookupNamedTimeZoneResult, UnknownTimeZone> {
+            let identity = match request.identifier().as_str() {
+                "europe/stockholm" => {
+                    crate::NamedTimeZoneIdentity::from_data("Europe/Stockholm", "Europe/Stockholm")
+                        .unwrap()
+                }
+                "Etc/UTC" => crate::NamedTimeZoneIdentity::from_data("Etc/UTC", "UTC").unwrap(),
+                _ => return Err(UnknownTimeZone::new(request.into_identifier())),
             };
-            Ok(CanonicalizeTimeZoneResult::new(time_zone))
+            Ok(LookupNamedTimeZoneResult::new(identity))
         }
     }
 
@@ -654,20 +743,20 @@ mod tests {
         let locale = kernel
             .operation::<CanonicalizeLocale>()
             .unwrap()
-            .execute(CanonicalizeLocaleRequest::new(
+            .execute(LocaleTransformRequest::new(
                 LocaleId::parse("iw-IL").unwrap(),
             ))
             .unwrap();
         assert_eq!(locale.locale().as_str(), "he-IL");
 
         let time_zone = kernel
-            .operation::<CanonicalizeTimeZone>()
+            .operation::<LookupNamedTimeZone>()
             .unwrap()
-            .execute(CanonicalizeTimeZoneRequest::new(
+            .execute(LookupNamedTimeZoneRequest::new(
                 TimeZoneId::parse("europe/stockholm").unwrap(),
             ))
             .unwrap();
-        assert_eq!(time_zone.time_zone().as_str(), "Europe/Stockholm");
+        assert_eq!(time_zone.identity().identifier(), "Europe/Stockholm");
     }
 
     #[test]
@@ -680,8 +769,8 @@ mod tests {
         let kernel = IntlKernel::new(identity, provider).unwrap();
 
         assert!(kernel.operation::<CanonicalizeLocale>().is_ok());
-        let error = kernel.operation::<CanonicalizeTimeZone>().unwrap_err();
-        assert_eq!(error.operation(), IntlHostOp::CanonicalizeTimeZone);
+        let error = kernel.operation::<LookupNamedTimeZone>().unwrap_err();
+        assert_eq!(error.operation(), IntlHostOp::LookupNamedTimeZone);
         assert!(error
             .missing()
             .contains(IntlDataCapability::TimeZoneTransitions));
@@ -701,17 +790,26 @@ mod tests {
     #[test]
     fn intl_host_wire_domain_is_closed_and_stable() {
         assert_eq!(IntlHostOp::CanonicalizeLocale.wire(), 0);
-        assert_eq!(IntlHostOp::CanonicalizeTimeZone.wire(), 1);
+        assert_eq!(IntlHostOp::LookupNamedTimeZone.wire(), 1);
         assert_eq!(
             IntlHostOp::from_wire(0),
             Some(IntlHostOp::CanonicalizeLocale)
         );
         assert_eq!(
             IntlHostOp::from_wire(1),
-            Some(IntlHostOp::CanonicalizeTimeZone)
+            Some(IntlHostOp::LookupNamedTimeZone)
         );
         assert_eq!(IntlHostOp::from_wire(-1), None);
-        assert_eq!(IntlHostOp::from_wire(2), None);
+        assert_eq!(IntlHostOp::MaximizeLocale.wire(), 2);
+        assert_eq!(IntlHostOp::MinimizeLocale.wire(), 3);
+        assert_eq!(IntlHostOp::from_wire(2), Some(IntlHostOp::MaximizeLocale));
+        assert_eq!(IntlHostOp::from_wire(3), Some(IntlHostOp::MinimizeLocale));
+        assert_eq!(IntlHostOp::ResolveTimeZone.wire(), 4);
+        assert_eq!(IntlHostOp::from_wire(4), Some(IntlHostOp::ResolveTimeZone));
+        for operation in IntlHostOp::ALL {
+            assert_eq!(IntlHostOp::from_wire(operation.wire()), Some(*operation));
+        }
+        assert_eq!(IntlHostOp::from_wire(14), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);
@@ -727,13 +825,15 @@ mod tests {
             IntlHostCallOutcome::Rejected,
             IntlHostCallOutcome::Written(0),
             IntlHostCallOutcome::Written(u32::MAX),
+            IntlHostCallOutcome::RequiredCapacity(0),
+            IntlHostCallOutcome::RequiredCapacity(u32::MAX),
         ] {
             assert_eq!(
                 IntlHostCallOutcome::from_wire(outcome.wire()),
                 Some(outcome)
             );
         }
-        assert_eq!(IntlHostCallOutcome::from_wire(-2), None);
+        assert_eq!(IntlHostCallOutcome::from_wire(-3 - u32::MAX as i64), None);
         assert_eq!(IntlHostCallOutcome::from_wire(u32::MAX as i64 + 1), None);
     }
 }

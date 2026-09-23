@@ -18,7 +18,20 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                 expr_contains_this_before_super(operand, state);
             }
         }
-        ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+        ExprIr::ModuleEntryEvaluation(entry) => {
+            expr_contains_this_before_super(entry.evaluation(), state)
+        }
+        ExprIr::ModuleExecutionGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => {}
+        ExprIr::ModuleNamespacePublish { namespace, .. } => {
+            expr_contains_this_before_super(namespace, state)
+        }
+        ExprIr::ImportMeta { .. } => {}
+        ExprIr::ModuleNamespace { exports, .. } => expr_contains_this_before_super(exports, state),
         ExprIr::DynamicImport {
             specifier, options, ..
         } => {
@@ -242,7 +255,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
                     | ObjectPropertyIr::NonEnumerableData { value, .. } => {
                         expr_contains_this_before_super(value, state);
                     }
-                    ObjectPropertyIr::ComputedData { key, value } => {
+                    ObjectPropertyIr::ComputedData { key, value, .. } => {
                         expr_contains_this_before_super(key, state);
                         expr_contains_this_before_super(value, state);
                     }
@@ -353,7 +366,9 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(statement, state);
             }
         }
-        StatementIr::Empty
+        StatementIr::ModuleImportBinding(_) => {}
+        StatementIr::AsyncModuleInstantiation
+        | StatementIr::Empty
         | StatementIr::AnnexBFunctionCopy { .. }
         | StatementIr::Debugger
         | StatementIr::Break { .. }
@@ -452,6 +467,12 @@ fn statement_contains_this_before_super(
             condition,
             then_branch,
             else_branch,
+        }
+        | StatementIr::AsyncFunctionIf {
+            condition,
+            then_branch,
+            else_branch,
+            plan: _,
         } => {
             expr_contains_this_before_super(condition, state);
             statement_contains_this_before_super(then_branch, state);
@@ -597,12 +618,7 @@ fn statement_contains_this_before_super(
         }
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             expr_contains_this_before_super(iterable, state);
-            for statement in plan
-                .before_await()
-                .iter()
-                .chain(std::iter::once(plan.await_statement()))
-                .chain(plan.after_await())
-            {
+            for statement in plan.body().statements() {
                 if state.saw_super {
                     break;
                 }

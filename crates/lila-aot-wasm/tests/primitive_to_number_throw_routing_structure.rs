@@ -137,3 +137,45 @@ fn raw_emitter_preserves_both_throw_sites_and_instruction_order() {
         assert!(throw < route && route < placeholder);
     }
 }
+
+#[test]
+fn primitive_to_numeric_routes_abrupt_completion_before_writing_either_destination() {
+    assert!(!OPERATIONS_SOURCE.contains("emit_primitive_to_numeric_locals_without_throw_return"));
+    assert_eq!(
+        OPERATIONS_SOURCE
+            .matches("self.emit_primitive_to_numeric_locals(")
+            .count(),
+        3,
+    );
+    let owner = between(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn emit_primitive_to_numeric_locals(",
+        "pub(crate) fn emit_nan_payload(",
+    );
+    let number_branch = owner
+        .split_once("function.instruction(&Instruction::Else);")
+        .expect("BigInt payloads keep their existing branch")
+        .1;
+    let normalized = number_branch
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    assert!(normalized.starts_with(concat!(
+        "self.emit_primitive_to_number_payload_without_throw_return(",
+        "primitive_tag_local,primitive_payload_local,function,)?;",
+    )));
+    let propagation = normalized
+        .find("self.emit_propagate_current_completion_if_throw(function);")
+        .expect("the primitive numeric owner must route the current throw");
+    let payload_write = normalized
+        .find("function.instruction(&Instruction::LocalSet(payload_local));")
+        .expect("normal Number payload publication");
+    let number_tag = normalized
+        .find("function.instruction(&Instruction::I64Const(ValueKind::Number.tag()asi64));")
+        .expect("normal Number tag");
+    let tag_write = normalized
+        .find("function.instruction(&Instruction::LocalSet(tag_local));")
+        .expect("normal Number tag publication");
+    assert!(propagation < payload_write && payload_write < number_tag && number_tag < tag_write);
+    assert!(!owner.contains("self.reserve_temp_local()"));
+}

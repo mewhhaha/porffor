@@ -1,202 +1,417 @@
-// Portions of this file are adapted from Test262 (https://github.com/tc39/test262)
-// Test262 is BSD-3-Clause licensed; see the upstream LICENSE file
+// Named Test262 harness sections match the pinned upstream sources.
+// The typed isConstructor bridge is owned by the Wasm-AOT host surface.
 
 /// assert.js
-function __lilaAssertIsSameValue(a, b) {
-  if (a === b) {
-    return a !== 0 || 1 / a === 1 / b;
-  }
-  return a !== a && b !== b;
-}
+// Copyright (C) 2017 Ecma International.  All rights reserved.
+// This code is governed by the BSD license found in the LICENSE file.
+/*---
+description: |
+    Collection of assertion functions used throughout test262
+defines: [assert]
+---*/
 
-function __lilaAssertToString(value) {
-  if (value === undefined) {
-    return 'undefined';
-  }
-  if (value === null) {
-    return 'null';
-  }
-  return String(value);
-}
-
-function __lilaAssertUnsupported(name) {
-  throw name + ' unsupported in wasm-aot assert harness';
-}
 
 function assert(mustBeTrue, message) {
-  if (mustBeTrue) {
+  if (mustBeTrue === true) {
+    return;
+  }
+
+  if (message === undefined) {
+    message = 'Expected true but got ' + assert._toString(mustBeTrue);
+  }
+  throw new Test262Error(message);
+}
+
+assert._isSameValue = function (a, b) {
+  if (a === b) {
+    // Handle +/-0 vs. -/+0
+    return a !== 0 || 1 / a === 1 / b;
+  }
+
+  // Handle NaN vs. NaN
+  return a !== a && b !== b;
+};
+
+assert.sameValue = function (actual, expected, message) {
+  try {
+    if (assert._isSameValue(actual, expected)) {
+      return;
+    }
+  } catch (error) {
+    throw new Test262Error(message + ' (_isSameValue operation threw) ' + error);
+    return;
+  }
+
+  if (message === undefined) {
+    message = '';
+  } else {
+    message += ' ';
+  }
+
+  message += 'Expected SameValue(«' + assert._toString(actual) + '», «' + assert._toString(expected) + '») to be true';
+
+  throw new Test262Error(message);
+};
+
+assert.notSameValue = function (actual, unexpected, message) {
+  if (!assert._isSameValue(actual, unexpected)) {
+    return;
+  }
+
+  if (message === undefined) {
+    message = '';
+  } else {
+    message += ' ';
+  }
+
+  message += 'Expected SameValue(«' + assert._toString(actual) + '», «' + assert._toString(unexpected) + '») to be false';
+
+  throw new Test262Error(message);
+};
+
+assert.throws = function (expectedErrorConstructor, func, message) {
+  var expectedName, actualName;
+  if (typeof func !== "function") {
+    throw new Test262Error('assert.throws requires two arguments: the error constructor ' +
+      'and a function to run');
     return;
   }
   if (message === undefined) {
-    message = 'Expected true but got false';
-  }
-  throw message;
-}
-
-assert._isSameValue = __lilaAssertIsSameValue;
-assert._toString = __lilaAssertToString;
-assert.sameValue = function (actual, expected, message) {
-    if (__lilaAssertIsSameValue(actual, expected)) {
-      return;
-    }
-
-    if (message === undefined) {
-      message = '';
-    } else {
-      message = message + ' ';
-    }
-
-    message = message + 'Expected SameValue(' + __lilaAssertToString(actual) + ', ' + __lilaAssertToString(expected) + ') to be true';
-    throw message;
-  };
-assert.notSameValue = function (actual, unexpected, message) {
-    if (!__lilaAssertIsSameValue(actual, unexpected)) {
-      return;
-    }
-
-    if (message === undefined) {
-      message = '';
-    } else {
-      message = message + ' ';
-    }
-
-    message = message + 'Expected SameValue(' + __lilaAssertToString(actual) + ', ' + __lilaAssertToString(unexpected) + ') to be false';
-    throw message;
-  };
-assert.throws = function (expectedErrorConstructor, func, message) {
-  return __lilaAssertThrows(expectedErrorConstructor, func, message);
-};
-
-function __lilaCompareArrayMismatchIndex(actual, expected) {
-  if (actual.length !== expected.length) {
-    return -2;
+    message = '';
+  } else {
+    message += ' ';
   }
 
-  var index = 0;
-  while (index < actual.length) {
-    if (!__lilaAssertIsSameValue(actual[index], expected[index])) {
-      return index;
+  try {
+    func();
+  } catch (thrown) {
+    if (typeof thrown !== 'object' || thrown === null) {
+      message += 'Thrown value was not an object!';
+      throw new Test262Error(message);
+    } else if (thrown.constructor !== expectedErrorConstructor) {
+      expectedName = expectedErrorConstructor.name;
+      actualName = thrown.constructor.name;
+      if (expectedName === actualName) {
+        message += 'Expected a ' + expectedName + ' but got a different error constructor with the same name';
+      } else {
+        message += 'Expected a ' + expectedName + ' but got a ' + actualName;
+      }
+      throw new Test262Error(message);
     }
-    index = index + 1;
-  }
-  return -1;
-}
-
-function __lilaAssertCompareArray(actual, expected, message) {
-  var mismatchIndex = __lilaCompareArrayMismatchIndex(actual, expected);
-  if (mismatchIndex === -1) {
     return;
   }
-  if (message) {
-    throw message;
-  }
-  if (mismatchIndex === -2) {
-    throw 'Expected arrays to have the same length';
+
+  message += 'Expected a ' + expectedErrorConstructor.name + ' to be thrown but no exception was thrown at all';
+  throw new Test262Error(message);
+};
+
+function isPrimitive(value) {
+  return !value || (typeof value !== 'object' && typeof value !== 'function');
+}
+
+assert.compareArray = function (actual, expected, message) {
+  message = message === undefined ? '' : message;
+
+  if (typeof message === 'symbol') {
+    message = message.toString();
   }
 
-  throw 'Expected arrays to contain the same values at ' + mismatchIndex + ': ' +
-    __lilaAssertToString(actual[mismatchIndex]) + ' !== ' +
-    __lilaAssertToString(expected[mismatchIndex]);
-}
-assert.compareArray = __lilaAssertCompareArray;
+  if (isPrimitive(actual)) {
+    assert(false, `Actual argument [${actual}] shouldn't be primitive. ${message}`);
+  } else if (isPrimitive(expected)) {
+    assert(false, `Expected argument [${expected}] shouldn't be primitive. ${message}`);
+  }
+  var result = compareArray(actual, expected);
+  if (result) return;
 
-function compareArray(actual, expected) {
-  return __lilaCompareArrayMismatchIndex(actual, expected) === -1;
+  var format = compareArray.format;
+  assert(false, `Actual ${format(actual)} and expected ${format(expected)} should have the same contents. ${message}`);
+};
+
+function compareArray(a, b) {
+  if (b.length !== a.length) {
+    return false;
+  }
+  for (var i = 0; i < a.length; i++) {
+    if (!assert._isSameValue(b[i], a[i])) {
+      return false;
+    }
+  }
+  return true;
 }
+
+compareArray.format = function (arrayLike) {
+  return `[${Array.prototype.map.call(arrayLike, String).join(', ')}]`;
+};
+
+assert._formatIdentityFreeValue = function formatIdentityFreeValue(value) {
+  switch (value === null ? 'null' : typeof value) {
+    case 'string':
+      return typeof JSON !== "undefined" ? JSON.stringify(value) : `"${value}"`;
+    case 'bigint':
+      return `${value}n`;
+    case 'number':
+      if (value === 0 && 1 / value === -Infinity) return '-0';
+      // falls through
+    case 'boolean':
+    case 'undefined':
+    case 'null':
+      return String(value);
+  }
+};
+
+assert._toString = function (value) {
+  var basic = assert._formatIdentityFreeValue(value);
+  if (basic) return basic;
+  try {
+    return String(value);
+  } catch (err) {
+    if (err.name === 'TypeError') {
+      return Object.prototype.toString.call(value);
+    }
+    throw err;
+  }
+};
 
 /// sta-preamble.js
+// Copyright (c) 2012 Ecma International.  All rights reserved.
+// This code is governed by the BSD license found in the LICENSE file.
+/*---
+description: |
+    Provides both:
+
+    - An error class to avoid false positives when testing for thrown exceptions
+    - A function to explicitly throw an exception using the Test262Error class
+defines: [Test262Error, $DONOTEVALUATE]
+---*/
+
+
 function Test262Error(message) {
+  this.message = message || "";
 }
+
+Test262Error.prototype.toString = function () {
+  return "Test262Error: " + this.message;
+};
 
 Test262Error.thrower = function (message) {
   throw new Test262Error(message);
 };
 
 function $DONOTEVALUATE() {
-  throw 'Test262: This statement should not be evaluated.';
+  throw "Test262: This statement should not be evaluated.";
 }
-
-/// isConstructor.js
-var isConstructor = __lilaIsConstructor;
 
 /// sta.js
+// Copyright (c) 2012 Ecma International.  All rights reserved.
+// This code is governed by the BSD license found in the LICENSE file.
+/*---
+description: |
+    Provides both:
+
+    - An error class to avoid false positives when testing for thrown exceptions
+    - A function to explicitly throw an exception using the Test262Error class
+defines: [Test262Error, $DONOTEVALUATE]
+---*/
+
+
 function Test262Error(message) {
+  this.message = message || "";
 }
+
+Test262Error.prototype.toString = function () {
+  return "Test262Error: " + this.message;
+};
 
 Test262Error.thrower = function (message) {
   throw new Test262Error(message);
 };
 
 function $DONOTEVALUATE() {
-  throw 'Test262: This statement should not be evaluated.';
+  throw "Test262: This statement should not be evaluated.";
 }
 
 /// propertyHelper.js
-function verifyProperty(obj, name, desc) {
-  var originalDesc = Object.getOwnPropertyDescriptor(obj, name);
+// Copyright (C) 2017 Ecma International.  All rights reserved.
+// This code is governed by the BSD license found in the LICENSE file.
+/*---
+description: |
+    Collection of functions used to safely verify the correctness of
+    property descriptors.
+defines:
+  - verifyProperty
+  - verifyCallableProperty
+  - verifyEqualTo # deprecated
+  - verifyWritable # deprecated
+  - verifyNotWritable # deprecated
+  - verifyEnumerable # deprecated
+  - verifyNotEnumerable # deprecated
+  - verifyConfigurable # deprecated
+  - verifyNotConfigurable # deprecated
+  - verifyPrimordialProperty
+  - verifyPrimordialCallableProperty
+---*/
 
+// @ts-check
+
+// Capture primordial functions and receiver-uncurried primordial methods that
+// are used in verification but might be destroyed *by* that process itself.
+var __isArray = Array.isArray;
+var __defineProperty = Object.defineProperty;
+var __getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+var __getOwnPropertyNames = Object.getOwnPropertyNames;
+var __join = Function.prototype.call.bind(Array.prototype.join);
+var __push = Function.prototype.call.bind(Array.prototype.push);
+var __hasOwnProperty = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
+var __propertyIsEnumerable = Function.prototype.call.bind(Object.prototype.propertyIsEnumerable);
+var nonIndexNumericPropertyName = Math.pow(2, 32) - 1;
+
+/**
+ * @param {object} obj
+ * @param {string|symbol} name
+ * @param {PropertyDescriptor|undefined} desc
+ * @param {object} [options]
+ * @param {boolean} [options.restore] revert mutations from verifying writable/configurable
+ */
+function verifyProperty(obj, name, desc, options) {
+  assert(
+    arguments.length > 2,
+    'verifyProperty should receive at least 3 arguments: obj, name, and descriptor'
+  );
+
+  var originalDesc = __getOwnPropertyDescriptor(obj, name);
+  var nameStr = String(name);
+
+  // Allows checking for undefined descriptor if it's explicitly given.
   if (desc === undefined) {
-    if (originalDesc !== undefined) {
-      throw "Expected descriptor to be undefined";
-    }
+    assert.sameValue(
+      originalDesc,
+      undefined,
+      "obj['" + nameStr + "'] descriptor should be undefined"
+    );
+
+    // desc and originalDesc are both undefined, problem solved;
     return true;
   }
 
-  if (originalDesc === undefined) {
-    throw "Expected descriptor to exist";
-  }
-  if (typeof desc !== "object") {
-    throw "Expected descriptor object";
+  assert(
+    __hasOwnProperty(obj, name),
+    "obj should have an own property " + nameStr
+  );
+
+  assert.notSameValue(
+    desc,
+    null,
+    "The desc argument should be an object or undefined, null"
+  );
+
+  assert.sameValue(
+    typeof desc,
+    "object",
+    "The desc argument should be an object or undefined, " + String(desc)
+  );
+
+  var names = __getOwnPropertyNames(desc);
+  for (var i = 0; i < names.length; i++) {
+    assert(
+      names[i] === "value" ||
+        names[i] === "writable" ||
+        names[i] === "enumerable" ||
+        names[i] === "configurable" ||
+        names[i] === "get" ||
+        names[i] === "set",
+      "Invalid descriptor field: " + names[i],
+    );
   }
 
-  if (desc.value !== undefined) {
-    if (!__lilaAssertIsSameValue(originalDesc.value, desc.value)) {
-      throw "Expected descriptor value";
+  var failures = [];
+
+  if (__hasOwnProperty(desc, 'value')) {
+    if (!isSameValue(desc.value, originalDesc.value)) {
+      __push(failures, "obj['" + nameStr + "'] descriptor value should be " + desc.value);
     }
-    if (!__lilaAssertIsSameValue(obj[name], desc.value)) {
-      throw "Expected property value";
+    if (!isSameValue(desc.value, obj[name])) {
+      __push(failures, "obj['" + nameStr + "'] value should be " + desc.value);
     }
   }
 
-  if (desc.get !== undefined) {
-    if (originalDesc.get !== desc.get) {
-      throw "Expected descriptor getter";
+  if (__hasOwnProperty(desc, 'enumerable') && desc.enumerable !== undefined) {
+    if (desc.enumerable !== originalDesc.enumerable ||
+        desc.enumerable !== isEnumerable(obj, name)) {
+      __push(failures, "obj['" + nameStr + "'] descriptor should " + (desc.enumerable ? '' : 'not ') + "be enumerable");
     }
   }
 
-  if (desc.set !== undefined) {
-    if (originalDesc.set !== desc.set) {
-      throw "Expected descriptor setter";
+  // Operations past this point are potentially destructive!
+
+  if (__hasOwnProperty(desc, 'writable') && desc.writable !== undefined) {
+    if (desc.writable !== originalDesc.writable ||
+        desc.writable !== isWritable(obj, name)) {
+      __push(failures, "obj['" + nameStr + "'] descriptor should " + (desc.writable ? '' : 'not ') + "be writable");
     }
   }
 
-  if (desc.writable !== undefined) {
-    if (originalDesc.writable !== desc.writable) {
-      throw "Expected descriptor writable flag";
+  if (__hasOwnProperty(desc, 'configurable') && desc.configurable !== undefined) {
+    if (desc.configurable !== originalDesc.configurable ||
+        desc.configurable !== isConfigurable(obj, name)) {
+      __push(failures, "obj['" + nameStr + "'] descriptor should " + (desc.configurable ? '' : 'not ') + "be configurable");
     }
   }
 
-  if (desc.enumerable !== undefined) {
-    if (originalDesc.enumerable !== desc.enumerable) {
-      throw "Expected descriptor enumerable flag";
-    }
+  if (failures.length) {
+    assert(false, __join(failures, '; '));
   }
 
-  if (desc.configurable !== undefined) {
-    if (originalDesc.configurable !== desc.configurable) {
-      throw "Expected descriptor configurable flag";
-    }
+  if (options && options.restore) {
+    __defineProperty(obj, name, originalDesc);
   }
 
   return true;
 }
 
-var verifyPrimordialProperty = verifyProperty;
+function isConfigurable(obj, name) {
+  try {
+    delete obj[name];
+  } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
+  }
+  return !__hasOwnProperty(obj, name);
+}
 
-function __lilaIsWritable(obj, name, verifyProp, value) {
-  var newValue = value || "unlikelyValue";
+function isEnumerable(obj, name) {
+  var stringCheck = false;
+
+  if (typeof name === "string") {
+    for (var x in obj) {
+      if (x === name) {
+        stringCheck = true;
+        break;
+      }
+    }
+  } else {
+    // skip it if name is not string, works for Symbol names.
+    stringCheck = true;
+  }
+
+  return stringCheck && __hasOwnProperty(obj, name) && __propertyIsEnumerable(obj, name);
+}
+
+function isSameValue(a, b) {
+  if (a === 0 && b === 0) return 1 / a === 1 / b;
+  if (a !== a && b !== b) return true;
+
+  return a === b;
+}
+
+function isWritable(obj, name, verifyProp, value) {
+  var unlikelyValue = __isArray(obj) && name === "length" ?
+    nonIndexNumericPropertyName :
+    "unlikelyValue";
+  var newValue = value || unlikelyValue;
+  var hadValue = __hasOwnProperty(obj, name);
   var oldValue = obj[name];
-  var hadValue = Object.prototype.hasOwnProperty.call(obj, name);
   var writeSucceeded;
 
   if (arguments.length < 4 && newValue === oldValue) {
@@ -206,10 +421,16 @@ function __lilaIsWritable(obj, name, verifyProp, value) {
   try {
     obj[name] = newValue;
   } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
   }
 
-  writeSucceeded = obj[verifyProp || name] === newValue;
+  writeSucceeded = isSameValue(obj[verifyProp || name], newValue);
 
+  // Revert the change only if it was successful (in other cases, reverting
+  // is unnecessary and may trigger exceptions for certain property
+  // configurations)
   if (writeSucceeded) {
     if (hadValue) {
       obj[name] = oldValue;
@@ -221,100 +442,165 @@ function __lilaIsWritable(obj, name, verifyProp, value) {
   return writeSucceeded;
 }
 
-function verifyNotWritable(obj, name, verifyProp, value) {
-  var desc;
-  if (verifyProp === undefined) {
-    desc = Object.getOwnPropertyDescriptor(obj, name);
-    if (desc === undefined) {
-      throw "Expected descriptor to exist";
-    }
-    if (desc.set !== undefined) {
-      throw "Expected obj[" + String(name) + "] NOT to be writable, but setter exists.";
-    }
-    if (desc.writable !== undefined) {
-      if (desc.writable !== false) {
-        throw "Expected obj[" + String(name) + "] NOT to be writable.";
-      }
-    }
-  }
-  if (__lilaIsWritable(obj, name, verifyProp, value)) {
-    throw "Expected obj[" + String(name) + "] NOT to be writable.";
-  }
-  return true;
-}
-
-function verifyWritable(obj, name, verifyProp, value) {
-  var desc;
-  if (verifyProp === undefined) {
-    desc = Object.getOwnPropertyDescriptor(obj, name);
-    if (desc === undefined) {
-      throw "Expected obj[" + String(name) + "] to be writable.";
-    }
-    if (desc.writable !== true) {
-      throw "Expected obj[" + String(name) + "] to be writable.";
-    }
-  }
-  if (!__lilaIsWritable(obj, name, verifyProp, value)) {
-    throw "Expected obj[" + String(name) + "] to be writable.";
-  }
-  return true;
-}
-
-function verifyNotEnumerable(obj, name) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined || desc.enumerable !== false) {
-    throw "Expected obj[" + String(name) + "] NOT to be enumerable.";
-  }
-  return true;
-}
-
-function verifyEnumerable(obj, name) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined || desc.enumerable !== true) {
-    throw "Expected obj[" + String(name) + "] to be enumerable.";
-  }
-  return true;
-}
-
-function verifyConfigurable(obj, name) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined || desc.configurable !== true) {
-    throw "Expected obj[" + String(name) + "] to be configurable.";
-  }
-  return true;
-}
-
-function verifyNotConfigurable(obj, name) {
-  var desc = Object.getOwnPropertyDescriptor(obj, name);
-  if (desc === undefined || desc.configurable !== false) {
-    throw "Expected obj[" + String(name) + "] NOT to be configurable.";
-  }
-  return true;
-}
-
-function verifyEqualTo(obj, name, value) {
-  if (obj[name] !== value) {
-    throw "Expected obj[" + String(name) + "] to equal value.";
-  }
-}
-
-function verifyCallableProperty(obj, name, functionName, functionLength, desc) {
+/**
+ * Verify that there is a function of specified name, length, and containing
+ * descriptor associated with `obj[name]` and following the conventions for
+ * built-in objects.
+ *
+ * @param {object} obj
+ * @param {string|symbol} name
+ * @param {string} [functionName] defaults to name for strings, `[${name.description}]` for symbols
+ * @param {number} functionLength
+ * @param {PropertyDescriptor} [desc] defaults to data property conventions (writable, non-enumerable, configurable)
+ * @param {object} [options]
+ * @param {boolean} [options.restore] revert mutations from verifying writable/configurable
+ */
+function verifyCallableProperty(obj, name, functionName, functionLength, desc, options) {
   var value = obj[name];
-  if (typeof value !== "function") {
-    throw "Expected callable property";
+
+  assert.sameValue(typeof value, "function",
+    "obj['" + String(name) + "'] descriptor should be a function");
+
+  // Every other data property described in clauses 19 through 28 and in
+  // Annex B.2 has the attributes { [[Writable]]: true, [[Enumerable]]: false,
+  // [[Configurable]]: true } unless otherwise specified.
+  // https://tc39.es/ecma262/multipage/ecmascript-standard-built-in-objects.html
+  if (desc === undefined) {
+    desc = {
+      writable: true,
+      enumerable: false,
+      configurable: true,
+      value: value
+    };
+  } else if (!__hasOwnProperty(desc, "value") && !__hasOwnProperty(desc, "get")) {
+    desc.value = value;
   }
-  verifyProperty(obj, name, desc || {
-    value: value,
-    writable: true,
+
+  verifyProperty(obj, name, desc, options);
+
+  if (functionName === undefined) {
+    if (typeof name === "symbol") {
+      functionName = "[" + name.description + "]";
+    } else {
+      functionName = name;
+    }
+  }
+  // Unless otherwise specified, the "name" property of a built-in function
+  // object has the attributes { [[Writable]]: false, [[Enumerable]]: false,
+  // [[Configurable]]: true }.
+  // https://tc39.es/ecma262/multipage/ecmascript-standard-built-in-objects.html#sec-ecmascript-standard-built-in-objects
+  // https://tc39.es/ecma262/multipage/ordinary-and-exotic-objects-behaviours.html#sec-setfunctionname
+  verifyProperty(value, "name", {
+    value: functionName,
+    writable: false,
     enumerable: false,
-    configurable: true
-  });
+    configurable: desc.configurable
+  }, options);
+
+  // Unless otherwise specified, the "length" property of a built-in function
+  // object has the attributes { [[Writable]]: false, [[Enumerable]]: false,
+  // [[Configurable]]: true }.
+  // https://tc39.es/ecma262/multipage/ecmascript-standard-built-in-objects.html#sec-ecmascript-standard-built-in-objects
+  // https://tc39.es/ecma262/multipage/ordinary-and-exotic-objects-behaviours.html#sec-setfunctionlength
   verifyProperty(value, "length", {
     value: functionLength,
     writable: false,
     enumerable: false,
-    configurable: true
-  });
+    configurable: desc.configurable
+  }, options);
 }
 
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyEqualTo(obj, name, value) {
+  if (!isSameValue(obj[name], value)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to equal " + value +
+           ", actually " + obj[name]);
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyWritable(obj, name, verifyProp, value) {
+  if (!verifyProp) {
+    assert(__getOwnPropertyDescriptor(obj, name).writable,
+         "Expected obj[" + String(name) + "] to have writable:true.");
+  }
+  if (!isWritable(obj, name, verifyProp, value)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be writable, but was not.");
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyNotWritable(obj, name, verifyProp, value) {
+  if (!verifyProp) {
+    assert(!__getOwnPropertyDescriptor(obj, name).writable,
+         "Expected obj[" + String(name) + "] to have writable:false.");
+  }
+  if (isWritable(obj, name, verifyProp)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be writable, but was.");
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyEnumerable(obj, name) {
+  assert(__getOwnPropertyDescriptor(obj, name).enumerable,
+       "Expected obj[" + String(name) + "] to have enumerable:true.");
+  if (!isEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be enumerable, but was not.");
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyNotEnumerable(obj, name) {
+  assert(!__getOwnPropertyDescriptor(obj, name).enumerable,
+       "Expected obj[" + String(name) + "] to have enumerable:false.");
+  if (isEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be enumerable, but was.");
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyConfigurable(obj, name) {
+  assert(__getOwnPropertyDescriptor(obj, name).configurable,
+       "Expected obj[" + String(name) + "] to have configurable:true.");
+  if (!isConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be configurable, but was not.");
+  }
+}
+
+/**
+ * Deprecated; please use `verifyProperty` in new tests.
+ */
+function verifyNotConfigurable(obj, name) {
+  assert(!__getOwnPropertyDescriptor(obj, name).configurable,
+       "Expected obj[" + String(name) + "] to have configurable:false.");
+  if (isConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be configurable, but was.");
+  }
+}
+
+/**
+ * Use this function to verify the properties of a primordial object.
+ * For non-primordial objects, use verifyProperty.
+ * See: https://github.com/tc39/how-we-work/blob/main/terminology.md#primordial
+ */
+var verifyPrimordialProperty = verifyProperty;
+
+/**
+ * Use this function to verify the primordial function-valued properties.
+ * For non-primordial functions, use verifyCallableProperty.
+ * See: https://github.com/tc39/how-we-work/blob/main/terminology.md#primordial
+ */
 var verifyPrimordialCallableProperty = verifyCallableProperty;
+

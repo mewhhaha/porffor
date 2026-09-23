@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::objects::TaggedLocals;
 use crate::operations::BigIntNumberPolicy;
 
 mod radix_formatting;
@@ -7,12 +8,12 @@ struct BigIntValueResult(());
 
 struct BigIntRadixStringResult(());
 
-struct BigIntLocaleStringFallbackResult(());
+struct BigIntLocaleStringResult(());
 
 enum BigIntPrototypeResultPolicy {
     ExactValue(BigIntValueResult),
     RadixString(BigIntRadixStringResult),
-    LocaleStringFallback(BigIntLocaleStringFallbackResult),
+    LocaleString(BigIntLocaleStringResult),
 }
 
 enum BigIntFixedWidthOperation {
@@ -34,7 +35,7 @@ impl BigIntBuiltin {
         BigIntRadixStringResult(()),
     ));
     const PrototypeToLocaleString: Self = Self::Prototype(
-        BigIntPrototypeResultPolicy::LocaleStringFallback(BigIntLocaleStringFallbackResult(())),
+        BigIntPrototypeResultPolicy::LocaleString(BigIntLocaleStringResult(())),
     );
     const PrototypeValueOf: Self = Self::Prototype(BigIntPrototypeResultPolicy::ExactValue(
         BigIntValueResult(()),
@@ -787,8 +788,8 @@ impl<'a> FunctionBuilder<'a> {
                             function,
                         )?;
                     }
-                    BigIntPrototypeResultPolicy::LocaleStringFallback(result) => {
-                        self.emit_bigint_locale_string_fallback_result(
+                    BigIntPrototypeResultPolicy::LocaleString(result) => {
+                        self.emit_bigint_locale_string_result(
                             result,
                             bigint_payload_local,
                             bigint_tag_local,
@@ -818,18 +819,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
     }
 
-    fn emit_bigint_locale_string_fallback_result(
+    fn emit_bigint_locale_string_result(
         &mut self,
-        _result: BigIntLocaleStringFallbackResult,
+        _result: BigIntLocaleStringResult,
         bigint_payload_local: u32,
         bigint_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_bigint_value_to_string_payload(bigint_payload_local, bigint_tag_local, function)?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        Ok(())
+        self.emit_intrinsic_number_locale_format(
+            TaggedLocals::new(bigint_payload_local, bigint_tag_local),
+            function,
+        )
     }
 }
 
@@ -849,7 +849,7 @@ mod tests {
         ));
         assert!(matches!(
             BigIntBuiltin::PrototypeToLocaleString,
-            BigIntBuiltin::Prototype(BigIntPrototypeResultPolicy::LocaleStringFallback(_))
+            BigIntBuiltin::Prototype(BigIntPrototypeResultPolicy::LocaleString(_))
         ));
     }
 }

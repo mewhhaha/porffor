@@ -2,6 +2,10 @@ const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const SUPER_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/super_property_mutation.rs");
+const FUNCTION_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/function_definition.rs");
 const LOWERING_HELPERS_SOURCE: &str = include_str!("../../lila-ir/src/lowering_helpers.rs");
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
@@ -232,7 +236,7 @@ fn super_references_carry_receiver_and_parameter_initializers_gain_context_first
     assert!(read_write.contains("receiver: Box::new(receiver)"));
 
     let function_lowering = bounded(
-        LOWERING_SOURCE,
+        FUNCTION_LOWERING_SOURCE,
         "        let lexical_derived_activation =",
         "        if let Some(self_binding_name) = function.self_binding_name.as_ref() {",
     );
@@ -247,8 +251,23 @@ fn super_references_carry_receiver_and_parameter_initializers_gain_context_first
         "    fn lower_super_property_access(",
         "    fn lower_private_property_access(",
     );
-    assert_before(super_read, "lower_super_property_key", "lower_current_this");
-    assert!(super_read.contains("receiver: Box::new(receiver)"));
+    assert_before(
+        super_read,
+        "self.lower_super_property_reference_parts(access)",
+        "ExprIr::SuperPropertyRead { key, receiver }",
+    );
+    let reference_parts = bounded(
+        SUPER_LOWERING_SOURCE,
+        "    pub(super) fn lower_super_property_reference_parts(",
+        "    fn lower_super_property_reference_plan(",
+    );
+    assert_before(
+        reference_parts,
+        "lower_current_this",
+        "lower_super_property_key",
+    );
+    assert!(reference_parts.contains("let receiver = Box::new(self.lower_current_this());"));
+    assert!(reference_parts.contains("Some((key, receiver, info))"));
 
     let super_write = bounded(
         LOWERING_SOURCE,
@@ -311,7 +330,7 @@ fn durable_fixture_and_exact_current_failure_inventory_bound_the_claim() {
         "The existing Wasm binary reports `0/10`",
         "unsupported in lila wasm-aot first slice: object literal method",
         "Generator, async, and async-generator object methods remain explicit protocol",
-        "nested arrows using an enclosing object method's `super`",
+        "Nested arrows using an enclosing object method's\n`super`",
         "keys share the closed IR carrier",
     ] {
         assert!(
@@ -329,17 +348,21 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
     let request = bounded(
         OBJECTS_SOURCE,
         "struct ObjectMethodHomeObjectMaterialization<'a> {",
-        "impl PrivateElementEntryLocals {",
+        "/// Wasm blocks opened by the **runtime** strictness guard",
     );
     for marker in [
         "method: &'a ObjectMethodFunctionIr",
         "home_object_local: u32",
-        "fn new(method: &'a ObjectMethodFunctionIr, home_object_local: u32) -> Self",
+        "property_key_local: u32",
     ] {
         assert!(request.contains(marker), "missing request marker: {marker}");
     }
     assert!(!request.contains("Clone"));
     assert!(!request.contains("Copy"));
+    let compact_request: String = request.chars().filter(|ch| !ch.is_whitespace()).collect();
+    assert!(compact_request.contains(
+        "fnnew(method:&'aObjectMethodFunctionIr,home_object_local:u32,property_key_local:u32,)->Self"
+    ));
 
     let materialize = bounded(
         OBJECTS_SOURCE,
@@ -354,6 +377,8 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         "self.store_function_home_object(",
         "request.home_object_local",
         "ValueKind::Object",
+        "self.emit_set_function_name(",
+        "request.property_key_local",
     ] {
         assert!(
             materialize.contains(marker),
@@ -364,6 +389,11 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         materialize,
         "self.emit_function_value_payload",
         "self.store_function_home_object",
+    );
+    assert_before(
+        materialize,
+        "self.store_function_home_object",
+        "self.emit_set_function_name",
     );
 
     let literal = bounded(
@@ -420,7 +450,7 @@ fn backend_home_object_lifecycle_is_typed_and_ordered() {
         "ObjectPropertyIr::Method { .. }",
         "ObjectPropertyIr::Getter { .. }",
         "ObjectPropertyIr::Setter { .. }",
-        "child.max(13)",
+        "child.saturating_add(8).max(64)",
     ] {
         assert!(planner.contains(marker), "missing planner marker: {marker}");
     }
@@ -443,9 +473,11 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     );
     for marker in [
         "receiver: &TypedExpr",
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
         "self.compile_expr_to_locals(\n            receiver,",
         "self.emit_load_super_base(",
+        "self.emit_throw_if_null_super_base(",
+        "self.emit_value_to_property_key_locals(",
         "self.emit_object_read_with_key_tag(",
         "receiver_payload_local",
         "receiver_tag_local",
@@ -455,16 +487,26 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     assert_before(
         read,
         "self.compile_expr_to_locals(\n            receiver,",
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
     );
     assert_before(
         read,
-        "compile_super_property_key_expression_to_locals",
+        "compile_raw_property_key_expression_to_locals",
         "self.emit_load_super_base(",
     );
     assert_before(
         read,
         "self.emit_load_super_base(",
+        "self.emit_throw_if_null_super_base(",
+    );
+    assert_before(
+        read,
+        "self.emit_throw_if_null_super_base(",
+        "self.emit_value_to_property_key_locals(",
+    );
+    assert_before(
+        read,
+        "self.emit_value_to_property_key_locals(",
         "self.emit_object_read_with_key_tag(",
     );
 
@@ -479,7 +521,7 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
         "strictness: Strictness",
         "let key_local = self.reserve_temp_local()",
         "self.compile_expr_to_locals(\n            receiver,",
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
         "self.emit_load_super_base(",
         "self.compile_expr_to_locals(value, payload_local, tag_local, function)?",
         "self.emit_value_to_property_key_locals(key_local, key_tag_local, function)?",
@@ -496,11 +538,11 @@ fn super_emission_preserves_receiver_base_and_rhs_order() {
     assert_before(
         write,
         "self.compile_expr_to_locals(\n            receiver,",
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
     );
     assert_before(
         write,
-        "self.compile_super_property_key_expression_to_locals(",
+        "self.compile_raw_property_key_expression_to_locals(",
         "self.emit_load_super_base(",
     );
     assert_before(

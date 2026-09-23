@@ -141,6 +141,27 @@ fn resume_attaches_the_saved_record_then_restores_parent_before_update() {
         1
     );
     assert!(!resume.contains("emit_enter_lexical_environment(environment"));
+    let restore = concat!(
+        "self.load_i64_to_local_from_offset(\n",
+        "                activation_local,\n",
+        "                activation_environment_offset,\n",
+        "                self.current_env_local,\n",
+        "                function,\n",
+        "            );",
+    );
+    let publish = concat!(
+        "self.store_i64_local_at_offset(\n",
+        "                activation_local,\n",
+        "                activation_environment_offset,\n",
+        "                self.current_env_local,\n",
+        "                function,\n",
+        "            );",
+    );
+    assert_before(
+        resume,
+        restore,
+        "begin_existing_lexical_environment_scope(environment)",
+    );
     assert_eq!(
         resume
             .matches("self.emit_leave_lexical_environment(function);")
@@ -180,11 +201,11 @@ fn resume_attaches_the_saved_record_then_restores_parent_before_update() {
     assert_before(
         resume,
         "self.emit_leave_lexical_environment(function);",
-        "activation_environment_offset",
+        publish,
     );
     assert_before(
         resume,
-        "activation_environment_offset",
+        publish,
         "self.emit_dispatch_async_completion(function)?",
     );
 

@@ -509,10 +509,16 @@ fn main_checkpoint_wraps_source_and_routes_abrupt_completion_before_return() {
     assert_eq!(
         normalized_code(main_body),
         concat!(
+            "letmodule_entry_kind=ifself.is_main(){",
+            "lila_ir::ModuleEntryEvaluationIr::in_root_block(self.body).map(|entry|entry.kind())",
+            "}else{None};ifmodule_entry_kind.is_some(){",
+            "self.initialize_module_entry_completion(&mutfunction);}",
             "letmain_job_checkpoint=ifself.is_main()&&self.uses_heap{",
             "lettarget=self.open_frame(ControlFrameKind::Block,&mutfunction);",
             "self.completion_exit.enter_main_job_checkpoint(target);Some(target)",
-            "}else{None};self.compile_block_contents(self.body,&mutfunction)?;",
+            "}else{None};ifletSome(id)=self.module_prelude_id{",
+            "self.emit_module_prelude(id,&mutfunction)?;}",
+            "self.compile_block_contents(self.body,&mutfunction)?;",
             "ifletSome(target)=main_job_checkpoint{",
             "self.completion_exit.leave_main_job_checkpoint(target);",
             "self.pop_control(ControlFrameKind::Block);",

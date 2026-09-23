@@ -126,22 +126,19 @@ target passes `4/4`; the exact Number builtin-family and abrupt Iterator-helper
 dispatch CLI witnesses each pass `1/1`; and the shared `cargo xc` checkpoint
 and repository hygiene gates are green.
 
-The ordinary-object ToPrimitive emitter now requires the private,
-capability-free `OrdinaryToPrimitiveReceiverKind::{Object, Function}` domain
+The shared ToPrimitive emitter requires the private, capability-free
+`OrdinaryToPrimitiveReceiverKind::{Object, Function, Array, Arguments}` domain
 instead of an arbitrary `ValueKind`. Its exhaustive projection owns the exact
-runtime tag, so another heap-record family cannot enter this algorithm without
-an explicit tag. Primitive wrappers use observable conversion hooks; the later
-observed-failure repair removed direct-payload shortcuts that bypassed them. The unused public
-Function-only wrapper and its private pending twin are deleted; the live tagged
-path already selects Function directly, and the ordinary Object wrapper remains
-the other entry. Invalid receiver kinds and a second Function producer are now
-unrepresentable. The focused boundary is recorded in
-`docs/rust-rewrite/contracts/ordinary-to-primitive-receiver-kind.md`. The later
-wrapper correction preserves the shared completion route and error realm.
-The receiver-kind target passes `4/4`; the neighboring pending-completion and
-conversion-Realm targets pass `3/3` and `4/4`. The existing Wasm-backend
-ToNumber and Error ToPrimitive CLI controls pass `2/2`, and the shared
-`cargo xc`, formatting, diff, module-boundary and task-plan checks are green.
+runtime tag, making invalid receiver kinds unrepresentable. Primitive wrappers,
+arrays and arguments objects use observable conversion hooks. Array conversion
+reaches the actual prototype `toString` and its live `join` lookup; the obsolete
+bespoke array string loop and its element/Function bridges are removed. The
+ordinary Object/Function fallback cannot read object-only offsets for the newly
+admitted indexed families. All paths retain the shared pending completion and
+conversion error realm. Lowering retains every possible primitive result for
+mutable Array/Arguments hooks, then infers the operator's numeric result domain.
+The boundary and focused verification commands are recorded in
+`docs/rust-rewrite/contracts/ordinary-to-primitive-receiver-kind.md`.
 
 Numeric-update IR now carries the closed
 `NumericUpdateValueKind::{Number, BigInt, Dynamic}` domain instead of arbitrary

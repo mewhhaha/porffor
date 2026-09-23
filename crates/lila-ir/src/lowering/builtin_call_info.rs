@@ -691,7 +691,9 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::unknown(),
             }),
-            StandardBuiltinId::ObjectPrototypeProtoSetter => Some(ValueInfo::undefined()),
+            StandardBuiltinId::ObjectPrototypeDefineGetter
+            | StandardBuiltinId::ObjectPrototypeDefineSetter
+            | StandardBuiltinId::ObjectPrototypeProtoSetter => Some(ValueInfo::undefined()),
             StandardBuiltinId::ObjectPrototypePropertyIsEnumerable => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
@@ -1004,7 +1006,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayPrototypeConcat
             | StandardBuiltinId::ArrayPrototypeSlice
             | StandardBuiltinId::ArrayPrototypeSplice => Some(Self::unshaped_array_result_info()),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
             | StandardBuiltinId::TypedArrayPrototypeSlice
@@ -1461,6 +1464,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor
@@ -1770,7 +1774,9 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalPlainTimePrototypeRound => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            StandardBuiltinId::TemporalInstantPrototypeUntil
+            | StandardBuiltinId::TemporalInstantPrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
             | StandardBuiltinId::TemporalPlainTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
             ),
@@ -1907,14 +1913,8 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalPlainDateTimePrototypeValueOf => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
-            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter => Some(ValueInfo {
-                kind: ValueKind::Dynamic,
-                possible_kinds: KindSet::from_kind(ValueKind::Number)
-                    .union(KindSet::from_kind(ValueKind::Undefined)),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
-            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => Some(ValueInfo {
+            StandardBuiltinId::TemporalPlainDateTimePrototypeEraYearGetter
+            | StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::from_kind(ValueKind::Number)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -1926,44 +1926,66 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
             | StandardBuiltinId::TemporalInstantFrom
             | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantPrototypeAdd
+            | StandardBuiltinId::TemporalInstantPrototypeSubtract
+            | StandardBuiltinId::TemporalInstantPrototypeRound
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => Some(
                 Self::value_info_from_shape(Some(Self::temporal_instant_instance_shape())),
             ),
             StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
             | StandardBuiltinId::TemporalInstantPrototypeToJson => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 Some(ValueInfo::new(ValueKind::Undefined))
             }
-            StandardBuiltinId::IntlGetCanonicalLocales => Some(ValueInfo::new(ValueKind::Array)),
-            StandardBuiltinId::IntlLocaleConstructor => Some(Self::value_info_from_shape(Some(
-                Self::intl_locale_instance_shape(),
-            ))),
-            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
-            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
-            | StandardBuiltinId::IntlLocalePrototypeToString => {
-                Some(ValueInfo::new(ValueKind::String))
-            }
+            StandardBuiltinId::IntlLocaleConstructor
+            | StandardBuiltinId::IntlLocalePrototypeMaximize
+            | StandardBuiltinId::IntlLocalePrototypeMinimize => Some(Self::value_info_from_shape(
+                Some(Self::intl_locale_instance_shape()),
+            )),
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => None,
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => None,
             StandardBuiltinId::IntlDateTimeFormatConstructor
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions => Some(ValueInfo {
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlNumberFormatConstructor
+            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
+            StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => {
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
+            | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => {
                 Some(ValueInfo::new(ValueKind::Array))
             }
-            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter => {
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => {
                 Some(ValueInfo::new(ValueKind::Function))
             }
-            StandardBuiltinId::IntlDateTimeFormatBoundFormat
-            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => {
+            StandardBuiltinId::IntlLocalePrototypeLanguageGetter
+            | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+            | StandardBuiltinId::IntlLocalePrototypeToString
+            | StandardBuiltinId::IntlDateTimeFormatBoundFormat
+            | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlNumberFormatBoundFormat
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {
@@ -1977,6 +1999,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StandardBuiltinId::TemporalNowZonedDateTimeIso
             | StandardBuiltinId::TemporalZonedDateTimeConstructor
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -2048,6 +2071,9 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => Some(
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),

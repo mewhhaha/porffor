@@ -84,7 +84,13 @@ impl ScriptLowerer<'_> {
             shape.elements.push(lowered.value_info());
             elements.push(lowered);
         }
-        TypedExpr::from_info(
+        let initializer_pointer = std::ptr::from_ref(array) as usize;
+        let namespace = self
+            .analysis
+            .namespace_initializers
+            .get(&(std::ptr::from_ref(array) as usize))
+            .copied();
+        let array = TypedExpr::from_info(
             ValueInfo {
                 kind: ValueKind::Array,
                 possible_kinds: KindSet::from_kind(ValueKind::Array),
@@ -92,7 +98,40 @@ impl ScriptLowerer<'_> {
                 function_targets: FunctionTargetKnowledge::none(),
             },
             ExprIr::ArrayLiteral(elements),
-        )
+        );
+        if let Some(mode) = namespace {
+            let namespace = TypedExpr::from_info(
+                ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: None,
+                    function_targets: FunctionTargetKnowledge::none(),
+                },
+                ExprIr::ModuleNamespace {
+                    mode,
+                    exports: Box::new(array),
+                },
+            );
+            if let Some(&(module, mode)) = self
+                .analysis
+                .module_execution
+                .publishers
+                .get(&initializer_pointer)
+            {
+                TypedExpr::from_info(
+                    ValueInfo::undefined(),
+                    ExprIr::ModuleNamespacePublish {
+                        module,
+                        mode,
+                        namespace: Box::new(namespace),
+                    },
+                )
+            } else {
+                namespace
+            }
+        } else {
+            array
+        }
     }
 
     fn alloc_array_accumulator_array_slot(&mut self) -> ArrayAccumulatorArraySlot {

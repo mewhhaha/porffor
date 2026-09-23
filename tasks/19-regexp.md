@@ -184,13 +184,15 @@ The ordered matcher result writer now consumes one private, non-capability
 independent raw found word and status. Its sole exhaustive projection admits
 only `(1, Complete)`, `(0, Complete)` and `(0, Failed(reason))`, so a found
 failure or an arbitrary found ABI word cannot compile. The Rust-lexical guard
-pins the exact 50 producers—one match, three normal misses, 44 corrupt-program
-failures and two resource failures—together with the attribute-free domain and
-sole consuming writer. This is source-equivalent ABI hardening and adds no
-runtime or conformance claim. The focused structure target passes `4/4`, and
-the neighboring nullable-quantifier matcher-frame target passes `5/5`; its
-focused CLI witness passes `1/1`. Test262, golden and broad workspace
-verification remain deferred. The boundary is recorded in
+pins the exact 52 producers—one match, three normal misses, 46 corrupt-program
+failures and two resource failures—across the matcher and its child modules,
+together with the attribute-free domain and sole consuming writer. The original
+source-equivalent ABI hardening added no runtime or conformance claim; its
+focused structure target passed `4/4`, the neighboring nullable-quantifier
+matcher-frame target passed `5/5`, and its CLI witness passed `1/1`. Test262,
+golden and broad workspace verification were deferred for that invariant-only
+batch. The current producer census must be rechecked when matcher source
+changes, separately from behavior verification. The boundary is recorded in
 [`regexp-matcher-result-domain.md`](../docs/rust-rewrite/contracts/regexp-matcher-result-domain.md).
 
 This closes the raw status/current scratch-failure seam only. There is still no
@@ -249,15 +251,18 @@ and IR/Wasm witnesses distinguish that code-unit behavior from the whole-scalar
 case folding, the restricted lookbehind subset, or arbitrary runtime pattern
 compilation.
 
-Lookbehind polarity now remains the private, non-derived
-`LookbehindPolarity::{Positive, Negative}` domain from its sole syntax-marker
-producer, `from_syntax_marker`, through `ParsedAtom` ownership and the four
-borrowed lowering uses. Only one exhaustive `operand_bit` projection emits the
-unchanged positive-zero and negative-one matcher ABI, so end and failure
-instructions cannot receive independently spelled Booleans. The focused invariant and evidence live in
+Lookahead and lookbehind share the private, non-derived
+`LookaroundPolarity::{Positive, Negative}` domain from `from_syntax_marker`
+through typed `ParsedAtom` ownership and borrowed instruction construction.
+The exhaustive `operand_bit` projection retains positive-zero and negative-one;
+a separate closed matching direction records both the assertion and its caller.
+Shared sentinels preserve captures, restore the input cursor, and discard private
+alternatives after an assertion completes. Full lookahead Disjunction grammar
+replaces the literal-byte shortcut, including nested assertions. The contract is
 [`regexp-lookbehind-polarity.md`](../docs/rust-rewrite/contracts/regexp-lookbehind-polarity.md).
-This source-equivalent boundary adds no grammar, reverse matcher or broader
-RegExp conformance claim.
+Reverse scalar/range/pair atoms now reach the existing matcher. The ASCII class
+membership primitive rejects non-ASCII code points instead of aliasing their
+low bits. Reverse backreferences and whitespace atoms remain explicit gaps.
 
 The `v`-mode class parser now commits to one closed expression shape after its
 first typed operand: union, homogeneous intersection, or homogeneous

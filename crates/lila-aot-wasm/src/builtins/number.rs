@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::objects::TaggedLocals;
 
 enum NumberBuiltin {
     Constructor,
@@ -161,10 +162,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_number_to_string_with_radix_result(number_payload_local, function)?;
             }
             NumberPrototypeOperation::ToLocaleString => {
-                self.emit_number_to_string_payload(number_payload_local, function)?;
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                let tag = self.reserve_temp_local();
+                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                function.instruction(&Instruction::LocalSet(tag));
+                self.emit_intrinsic_number_locale_format(
+                    TaggedLocals::new(number_payload_local, tag),
+                    function,
+                )?;
+                self.release_temp_local(tag);
             }
         }
 

@@ -8,6 +8,15 @@
 // function IDs; the mandatory installer field makes bootstrap participation a
 // compile-time choice rather than an append-only backend catch-all.
 use super::*;
+use crate::names::{
+    BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID, BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID, INTL_NUMBER_FORMAT_NAME,
+};
 
 /// The family-specific realm installer, if any, run after a builtin's common
 /// function/prototype initialization.
@@ -42,6 +51,7 @@ pub enum StandardBuiltinInstaller {
     TemporalPlainMonthDay,
     IntlLocale,
     IntlDateTimeFormat,
+    IntlNumberFormat,
     Date,
     Error,
     BigInt,
@@ -273,6 +283,20 @@ standard_builtin_catalog! {
         flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "hasOwnProperty",
+    }
+    ObjectPrototypeDefineGetter {
+        function: FunctionOrdinal(826) => "$builtin.Object.prototype.__defineGetter__",
+        debug: "Object.prototype.__defineGetter__",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "__defineGetter__",
+    }
+    ObjectPrototypeDefineSetter {
+        function: FunctionOrdinal(827) => "$builtin.Object.prototype.__defineSetter__",
+        debug: "Object.prototype.__defineSetter__",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "__defineSetter__",
     }
     ObjectPrototypeLookupGetter {
         function: FunctionOrdinal(31) => BUILTIN_OBJECT_PROTOTYPE_LOOKUP_GETTER_FUNCTION_ID,
@@ -2027,21 +2051,21 @@ standard_builtin_catalog! {
     DatePrototypeToLocaleDateString {
         function: FunctionOrdinal(279) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_DATE_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleDateString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleDateString",
     }
     DatePrototypeToLocaleString {
         function: FunctionOrdinal(280) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
     DatePrototypeToLocaleTimeString {
         function: FunctionOrdinal(281) => BUILTIN_DATE_PROTOTYPE_TO_LOCALE_TIME_STRING_FUNCTION_ID,
         debug: "Date.prototype.toLocaleTimeString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleTimeString",
     }
@@ -2244,7 +2268,7 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeToLocaleString {
         function: FunctionOrdinal(310) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2433,7 +2457,7 @@ standard_builtin_catalog! {
     TemporalPlainTimePrototypeToLocaleString {
         function: FunctionOrdinal(373) => BUILTIN_TEMPORAL_PLAIN_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainTime.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2594,7 +2618,7 @@ standard_builtin_catalog! {
     TemporalPlainYearMonthPrototypeToLocaleString {
         function: FunctionOrdinal(340) => BUILTIN_TEMPORAL_PLAIN_YEAR_MONTH_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainYearMonth.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2678,7 +2702,7 @@ standard_builtin_catalog! {
     TemporalPlainMonthDayPrototypeToLocaleString {
         function: FunctionOrdinal(352) => BUILTIN_TEMPORAL_PLAIN_MONTH_DAY_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainMonthDay.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -2951,7 +2975,7 @@ standard_builtin_catalog! {
     TemporalPlainDateTimePrototypeToLocaleString {
         function: FunctionOrdinal(411) => BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         debug: "Temporal.PlainDateTime.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -3235,6 +3259,41 @@ standard_builtin_catalog! {
         installer: None,
         native: "get epochNanoseconds",
     }
+    TemporalInstantPrototypeAdd {
+        function: FunctionOrdinal(828) => "$builtin.Temporal.Instant.prototype.add",
+        debug: "Temporal.Instant.prototype.add",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "add",
+    }
+    TemporalInstantPrototypeSubtract {
+        function: FunctionOrdinal(829) => "$builtin.Temporal.Instant.prototype.subtract",
+        debug: "Temporal.Instant.prototype.subtract",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "subtract",
+    }
+    TemporalInstantPrototypeRound {
+        function: FunctionOrdinal(830) => "$builtin.Temporal.Instant.prototype.round",
+        debug: "Temporal.Instant.prototype.round",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "round",
+    }
+    TemporalInstantPrototypeUntil {
+        function: FunctionOrdinal(831) => "$builtin.Temporal.Instant.prototype.until",
+        debug: "Temporal.Instant.prototype.until",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "until",
+    }
+    TemporalInstantPrototypeSince {
+        function: FunctionOrdinal(832) => "$builtin.Temporal.Instant.prototype.since",
+        debug: "Temporal.Instant.prototype.since",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "since",
+    }
     TemporalInstantPrototypeEquals {
         function: FunctionOrdinal(452) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_EQUALS_FUNCTION_ID,
         debug: "Temporal.Instant.prototype.equals",
@@ -3248,6 +3307,13 @@ standard_builtin_catalog! {
         flags: [],
         installer: None,
         native: "toString",
+    }
+    TemporalInstantPrototypeToLocaleString {
+        function: FunctionOrdinal(841) => "$builtin.Temporal.Instant.prototype.toLocaleString",
+        debug: "Temporal.Instant.prototype.toLocaleString",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "toLocaleString",
     }
     TemporalInstantPrototypeToJson {
         function: FunctionOrdinal(454) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_JSON_FUNCTION_ID,
@@ -3469,14 +3535,14 @@ standard_builtin_catalog! {
     IntlGetCanonicalLocales {
         function: FunctionOrdinal(485) => BUILTIN_INTL_GET_CANONICAL_LOCALES_FUNCTION_ID,
         debug: "Intl.getCanonicalLocales",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "getCanonicalLocales",
     }
     IntlLocaleConstructor {
         function: FunctionOrdinal(486) => BUILTIN_INTL_LOCALE_FUNCTION_ID,
         debug: "Intl.Locale",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: IntlLocale,
         native: INTL_LOCALE_NAME,
     }
@@ -3508,6 +3574,76 @@ standard_builtin_catalog! {
         installer: None,
         native: "get baseName",
     }
+    IntlLocalePrototypeCalendarGetter {
+        function: FunctionOrdinal(815) => BUILTIN_INTL_LOCALE_PROTOTYPE_CALENDAR_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.calendar",
+        flags: [],
+        installer: None,
+        native: "get calendar",
+    }
+    IntlLocalePrototypeCollationGetter {
+        function: FunctionOrdinal(816) => BUILTIN_INTL_LOCALE_PROTOTYPE_COLLATION_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.collation",
+        flags: [],
+        installer: None,
+        native: "get collation",
+    }
+    IntlLocalePrototypeFirstDayOfWeekGetter {
+        function: FunctionOrdinal(817) => BUILTIN_INTL_LOCALE_PROTOTYPE_FIRST_DAY_OF_WEEK_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.firstDayOfWeek",
+        flags: [],
+        installer: None,
+        native: "get firstDayOfWeek",
+    }
+    IntlLocalePrototypeHourCycleGetter {
+        function: FunctionOrdinal(818) => BUILTIN_INTL_LOCALE_PROTOTYPE_HOUR_CYCLE_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.hourCycle",
+        flags: [],
+        installer: None,
+        native: "get hourCycle",
+    }
+    IntlLocalePrototypeCaseFirstGetter {
+        function: FunctionOrdinal(819) => BUILTIN_INTL_LOCALE_PROTOTYPE_CASE_FIRST_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.caseFirst",
+        flags: [],
+        installer: None,
+        native: "get caseFirst",
+    }
+    IntlLocalePrototypeNumericGetter {
+        function: FunctionOrdinal(820) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMERIC_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numeric",
+        flags: [],
+        installer: None,
+        native: "get numeric",
+    }
+    IntlLocalePrototypeNumberingSystemGetter {
+        function: FunctionOrdinal(821) => BUILTIN_INTL_LOCALE_PROTOTYPE_NUMBERING_SYSTEM_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.numberingSystem",
+        flags: [],
+        installer: None,
+        native: "get numberingSystem",
+    }
+    IntlLocalePrototypeVariantsGetter {
+        function: FunctionOrdinal(822) => BUILTIN_INTL_LOCALE_PROTOTYPE_VARIANTS_GETTER_FUNCTION_ID,
+        debug: "get Intl.Locale.prototype.variants",
+        flags: [],
+        installer: None,
+        native: "get variants",
+    }
+    IntlLocalePrototypeMaximize {
+        function: FunctionOrdinal(824) => "$builtin.Intl.Locale.prototype.maximize",
+        debug: "Intl.Locale.prototype.maximize",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "maximize",
+    }
+    IntlLocalePrototypeMinimize {
+        function: FunctionOrdinal(825) => "$builtin.Intl.Locale.prototype.minimize",
+        debug: "Intl.Locale.prototype.minimize",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "minimize",
+    }
     IntlLocalePrototypeToString {
         function: FunctionOrdinal(491) => BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Intl.Locale.prototype.toString",
@@ -3518,14 +3654,14 @@ standard_builtin_catalog! {
     IntlDateTimeFormatConstructor {
         function: FunctionOrdinal(492) => BUILTIN_INTL_DATE_TIME_FORMAT_FUNCTION_ID,
         debug: "Intl.DateTimeFormat",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: IntlDateTimeFormat,
         native: INTL_DATE_TIME_FORMAT_NAME,
     }
     IntlDateTimeFormatSupportedLocalesOf {
         function: FunctionOrdinal(493) => BUILTIN_INTL_DATE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.supportedLocalesOf",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "supportedLocalesOf",
     }
@@ -3546,28 +3682,84 @@ standard_builtin_catalog! {
     IntlDateTimeFormatPrototypeFormatToParts {
         function: FunctionOrdinal(496) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatToParts",
-        flags: [WALL_CLOCK],
+        flags: [WALL_CLOCK, INTL_HOST],
         installer: None,
         native: "formatToParts",
     }
     IntlDateTimeFormatPrototypeFormatRange {
         function: FunctionOrdinal(497) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatRange",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "formatRange",
     }
     IntlDateTimeFormatPrototypeFormatRangeToParts {
         function: FunctionOrdinal(498) => BUILTIN_INTL_DATE_TIME_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
         debug: "Intl.DateTimeFormat.prototype.formatRangeToParts",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "formatRangeToParts",
     }
     IntlDateTimeFormatBoundFormat {
         function: FunctionOrdinal(499) => BUILTIN_INTL_DATE_TIME_FORMAT_BOUND_FORMAT_FUNCTION_ID,
         debug: "Intl.DateTimeFormat Format Function",
-        flags: [WALL_CLOCK],
+        flags: [WALL_CLOCK, INTL_HOST],
+        installer: None,
+        native: "",
+    }
+    IntlNumberFormatConstructor {
+        function: FunctionOrdinal(833) => BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
+        debug: "Intl.NumberFormat",
+        flags: [CONSTRUCTABLE, INTL_HOST],
+        installer: IntlNumberFormat,
+        native: INTL_NUMBER_FORMAT_NAME,
+    }
+    IntlNumberFormatSupportedLocalesOf {
+        function: FunctionOrdinal(834) => BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+        debug: "Intl.NumberFormat.supportedLocalesOf",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "supportedLocalesOf",
+    }
+    IntlNumberFormatPrototypeResolvedOptions {
+        function: FunctionOrdinal(835) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.resolvedOptions",
+        flags: [],
+        installer: None,
+        native: "resolvedOptions",
+    }
+    IntlNumberFormatPrototypeFormatGetter {
+        function: FunctionOrdinal(836) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
+        debug: "get Intl.NumberFormat.prototype.format",
+        flags: [],
+        installer: None,
+        native: "get format",
+    }
+    IntlNumberFormatPrototypeFormatToParts {
+        function: FunctionOrdinal(837) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatToParts",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatToParts",
+    }
+    IntlNumberFormatPrototypeFormatRange {
+        function: FunctionOrdinal(838) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatRange",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatRange",
+    }
+    IntlNumberFormatPrototypeFormatRangeToParts {
+        function: FunctionOrdinal(839) => BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
+        debug: "Intl.NumberFormat.prototype.formatRangeToParts",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "formatRangeToParts",
+    }
+    IntlNumberFormatBoundFormat {
+        function: FunctionOrdinal(840) => BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID,
+        debug: "Intl.NumberFormat Format Function",
+        flags: [INTL_HOST],
         installer: None,
         native: "",
     }
@@ -4003,7 +4195,7 @@ standard_builtin_catalog! {
         function: FunctionOrdinal(557) => BUILTIN_BIGINT_PROTOTYPE_TO_LOCALE_STRING_FUNCTION_ID,
         global_name: BIGINT_NAME,
         debug: "BigInt.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -4083,7 +4275,7 @@ standard_builtin_catalog! {
     NumberPrototypeToLocaleString {
         function: FunctionOrdinal(568) => "$builtin.Number.prototype.toLocaleString",
         debug: "Number.prototype.toLocaleString",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toLocaleString",
     }
@@ -5907,9 +6099,45 @@ standard_builtin_catalog! {
         installer: None,
         native: "toHex",
     }
+    TemporalZonedDateTimePrototypeWith {
+        function: FunctionOrdinal(812) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.with",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "with",
+    }
+    TemporalZonedDateTimePrototypeToPlainDate {
+        function: FunctionOrdinal(813) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
+        debug: "Temporal.ZonedDateTime.prototype.toPlainDate",
+        flags: [],
+        installer: None,
+        native: "toPlainDate",
+    }
+    TypedArrayPrototypeFill {
+        function: FunctionOrdinal(814) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID,
+        debug: "TypedArray.prototype.fill",
+        flags: [INDEXED_RECEIVER_MUTATION, SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "fill",
+    }
+    Float16ArrayConstructor {
+        function: FunctionOrdinal(823) => BUILTIN_FLOAT16_ARRAY_FUNCTION_ID,
+        global: GlobalOrdinal(53),
+        global_name: FLOAT16_ARRAY_NAME,
+        debug: FLOAT16_ARRAY_NAME,
+        flags: [CONSTRUCTABLE],
+        installer: None,
+        native: FLOAT16_ARRAY_NAME,
+    }
 }
 
 impl StandardBuiltinId {
+    /// Whether this builtin body calls the pinned Intl provider. Import planning
+    /// uses compiled bodies, including dependencies discovered during emission.
+    pub const fn requires_intl_host(self) -> bool {
+        self.flags().contains(BuiltinFlags::INTL_HOST)
+    }
+
     /// Whether this builtin reads the realm's host randomness provider. This
     /// catalog bit is the sole authority for importing `lila_host.random_f64`.
     pub const fn requires_random(self) -> bool {
@@ -5920,6 +6148,47 @@ impl StandardBuiltinId {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intl_provider_callers_declare_the_host_import() {
+        let callers = StandardBuiltinId::all_functions()
+            .iter()
+            .copied()
+            .filter(|builtin| builtin.requires_intl_host())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            callers,
+            [
+                StandardBuiltinId::DatePrototypeToLocaleDateString,
+                StandardBuiltinId::DatePrototypeToLocaleString,
+                StandardBuiltinId::DatePrototypeToLocaleTimeString,
+                StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
+                StandardBuiltinId::IntlGetCanonicalLocales,
+                StandardBuiltinId::IntlLocaleConstructor,
+                StandardBuiltinId::IntlDateTimeFormatConstructor,
+                StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange,
+                StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts,
+                StandardBuiltinId::IntlDateTimeFormatBoundFormat,
+                StandardBuiltinId::BigIntPrototypeToLocaleString,
+                StandardBuiltinId::NumberPrototypeToLocaleString,
+                StandardBuiltinId::IntlLocalePrototypeMaximize,
+                StandardBuiltinId::IntlLocalePrototypeMinimize,
+                StandardBuiltinId::IntlNumberFormatConstructor,
+                StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
+                StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
+                StandardBuiltinId::IntlNumberFormatBoundFormat,
+                StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
+            ]
+        );
+    }
 
     #[test]
     fn uint8_array_codecs_preserve_ordinals_and_observable_effects() {
@@ -6004,6 +6273,29 @@ mod tests {
     }
 
     #[test]
+    fn object_accessor_definers_have_call_only_catalog_identities() {
+        for (builtin, name) in [
+            (
+                StandardBuiltinId::ObjectPrototypeDefineGetter,
+                "__defineGetter__",
+            ),
+            (
+                StandardBuiltinId::ObjectPrototypeDefineSetter,
+                "__defineSetter__",
+            ),
+        ] {
+            assert_eq!(
+                StandardBuiltinId::from_function_id(&builtin.function_id()),
+                Some(builtin)
+            );
+            assert_eq!(builtin.native_function_name(), Some(name));
+            assert!(!builtin.constructable());
+            assert!(!builtin.is_static_method());
+            assert!(builtin.may_run_user_code_synchronously());
+        }
+    }
+
+    #[test]
     fn object_and_reflect_proxy_capable_builtins_declare_synchronous_user_code() {
         for builtin in [
             StandardBuiltinId::ObjectAssign,
@@ -6027,6 +6319,8 @@ mod tests {
             StandardBuiltinId::ObjectIsExtensible,
             StandardBuiltinId::ObjectPreventExtensions,
             StandardBuiltinId::ObjectPrototypeHasOwnProperty,
+            StandardBuiltinId::ObjectPrototypeDefineGetter,
+            StandardBuiltinId::ObjectPrototypeDefineSetter,
             StandardBuiltinId::ObjectPrototypeLookupGetter,
             StandardBuiltinId::ObjectPrototypeLookupSetter,
             StandardBuiltinId::ObjectPrototypeProtoGetter,
@@ -6230,6 +6524,10 @@ mod tests {
                 (
                     Builtin::DisposableStackConstructor,
                     Installer::DisposableStack,
+                ),
+                (
+                    Builtin::IntlNumberFormatConstructor,
+                    Installer::IntlNumberFormat,
                 ),
             ]
         );

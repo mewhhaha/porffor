@@ -6,24 +6,16 @@ use icu_normalizer::{
     DecomposingNormalizerBorrowed,
 };
 use icu_properties::{props, CodePointSetData};
-use lila_ir::ArrayAccumulationElementIr;
+use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCompileErrorKind, RegExpProgram,
-    ResumableLoopIterationEnvironmentIr, StaticRegExpCompilation, TemplateObjectIr,
-    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
-    REALM_EVAL_SCRIPT_METHOD_NAME, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_DOT, REGEXP_OPCODE_JUMP,
-    REGEXP_OPCODE_LITERAL_ASCII, REGEXP_OPCODE_LITERAL_CODE_POINT,
-    REGEXP_OPCODE_NEGATIVE_ASCII_CLASS, REGEXP_OPCODE_NOT_WHITESPACE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE, REGEXP_OPCODE_POSITIVE_ASCII_CLASS,
-    REGEXP_OPCODE_PROGRESS_CHECK, REGEXP_OPCODE_PROGRESS_SPLIT, REGEXP_OPCODE_SPLIT,
-    REGEXP_OPCODE_UNICODE_PROPERTY, REGEXP_OPCODE_WHITESPACE,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
+    RegExpCompileErrorKind, RegExpProgram, ResumableLoopIterationEnvironmentIr,
+    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
+    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
+    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_OPCODE_NAMED_BACKREFERENCE,
+    REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
 };
 use std::sync::OnceLock;
-
-/// Packed magic/version word at the start of an immutable named-group table.
-/// The high 32 bits are the format version and the low 32 bits are `NRGT`.
-pub(crate) const REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION: u64 =
-    (1_u64 << 32) | u32::from_le_bytes(*b"NRGT") as u64;
 
 pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
     "unhandled rejection diagnostic ToString threw";
@@ -99,6 +91,7 @@ pub(crate) const RUNTIME_ERROR_MESSAGE_LITERALS: &[&str] = &[
     "Cannot change non-writable arguments.callee",
     "Cannot change value of non-writable arguments property",
     "Cannot define arguments index on a non-extensible object",
+    "Cannot define array index beyond non-writable length",
     "Cannot define array length",
     "Cannot make non-configurable arguments property writable",
     "Cannot make non-configurable arguments.callee writable",
@@ -222,25 +215,29 @@ struct StringRef {
     len: u32,
 }
 
+/// Pointer/byte-length ownership of one immutable descriptor allocation.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RegExpProgramRef {
-    pub(crate) ptr: u32,
-    pub(crate) instruction_count: u32,
-    pub(crate) capture_count: u32,
-    pub(crate) split_count: u32,
-    pub(crate) repeatable_split_count: u32,
-    pub(crate) named_group_table_ptr: u32,
+    payload: u64,
 }
 
-/// Semantic identity for immutable static RegExp programs. The bytecode blob
-/// contains instructions only, so capture metadata must participate here
-/// instead of being appended to the static program bytes.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct RegExpProgramStaticKey {
-    encoded_instructions: Vec<u8>,
-    capture_count: u32,
-    named_groups: Vec<(String, Vec<u32>)>,
+impl RegExpProgramRef {
+    fn new(pointer: u32, program: &ValidatedRegExpProgram) -> Self {
+        let length = u32::try_from(program.bytes().len()).expect("validated program length");
+        pointer
+            .checked_add(length)
+            .expect("RegExp descriptor must fit linear memory");
+        Self {
+            payload: ((pointer as u64) << 32) | length as u64,
+        }
+    }
+    pub(crate) const fn payload(self) -> u64 {
+        self.payload
+    }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RegExpProgramStaticKey(ValidatedRegExpProgram);
 
 struct LowercaseTables {
     mappings: Vec<u8>,
@@ -277,15 +274,12 @@ static NORMALIZATION_TABLES: OnceLock<NormalizationTables> = OnceLock::new();
 
 impl RegExpProgramStaticKey {
     pub(crate) fn from_program(program: &RegExpProgram) -> Self {
-        Self {
-            encoded_instructions: program.encode(),
-            capture_count: program.capture_count,
-            named_groups: program
-                .named_groups
-                .iter()
-                .map(|group| (group.name.clone(), group.capture_ids.clone()))
-                .collect(),
-        }
+        let descriptor = ValidatedRegExpProgram::from_program(program)
+            .expect("compiler-created RegExp program must validate");
+        Self(
+            ValidatedRegExpProgram::from_bytes(descriptor.bytes().to_vec())
+                .expect("serialized RegExp descriptor must validate"),
+        )
     }
 }
 
@@ -316,22 +310,10 @@ impl RegExpProgramStaticKey {
 pub(crate) const RUNTIME_REGEXP_RECORD_SOURCE_WORD: usize = 0;
 /// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' interned payload.
 pub(crate) const RUNTIME_REGEXP_RECORD_FLAGS_WORD: usize = 1;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. Static pointer to the compiled
-/// program's instructions, or 0 for a non-`Program` row.
-pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD: usize = 2;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
-pub(crate) const RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD: usize = 3;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
-pub(crate) const RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD: usize = 4;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
-pub(crate) const RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD: usize = 5;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
-pub(crate) const RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD: usize = 6;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
-pub(crate) const RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD: usize = 7;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. The `RUNTIME_REGEXP_ENTRY_KIND_*`
-/// discriminant, i.e. which [`RuntimeRegExpEntry`] this row is.
-pub(crate) const RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD: usize = 8;
+/// The immutable descriptor's packed allocation pointer/byte length.
+pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD: usize = 2;
+/// The closed runtime-entry discriminant.
+pub(crate) const RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD: usize = 3;
 
 /// Number of `u64` words in one runtime RegExp program table record.
 ///
@@ -349,14 +331,9 @@ pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
     (word * 8) as u64
 }
 
-/// The `entry_kind` word of a runtime RegExp program table record.
-///
-/// The record is [`RUNTIME_REGEXP_RECORD_SIZE`] bytes: the eight words the
-/// emitter already read, plus this discriminant at
-/// [`RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD`]. It is a word rather than a
-/// sentinel (`ptr == 0`, `instruction_count == 0`) on purpose — a sentinel is
-/// what the emitter used to be forced into, and it cannot tell "the compiler
-/// rejected this pattern" apart from "this row was never written".
+/// The closed outcome word in a four-word static candidate-cache record.
+/// Program handles carry validated immutable descriptors; a separate outcome
+/// distinguishes syntax rejection from a cache miss or unsupported capability.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
 /// compile-time `RegExpProgram::compile` answered
@@ -394,18 +371,9 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
 /// landed, and read any new failure whose detail names SyntaxError as a
 /// false-`InvalidSyntax` candidate rather than as unrelated noise.**
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_REJECTED: u64 = 1;
-/// See [`RUNTIME_REGEXP_ENTRY_KIND_PROGRAM`]. A row with this kind means the
-/// compile-time compiler answered [`RegExpCompileErrorKind::UnsupportedFeature`]
-/// — the pattern **is** legal ECMAScript and Lila simply cannot compile it yet.
-///
-/// This is the distinction that makes the table worth having and the one a
-/// bare "compile failed, so throw" would destroy: a `SyntaxError` here would be
-/// a *new* wrong answer, thrown for a pattern the spec says is fine. Such a row
-/// deliberately behaves exactly like a total miss — zeroed program slots, and
-/// the runtime's own fallback matcher gets its turn. `lila-ir`'s
-/// `try_lower_static_regexp_compilation` draws the same line at its
-/// `Err(error) if error.kind == RegExpCompileErrorKind::InvalidSyntax` arm, and
-/// the two must not drift apart.
+/// A static compiler capability gap. Like a cache miss, this enters the
+/// emitted compiler. Only its explicit Unsupported status retains the old
+/// fallback matcher; a capability gap alone never invents a SyntaxError.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 
 mod runtime_regexp_entry_kind;
@@ -445,8 +413,8 @@ enum RuntimeRegExpEntry {
     /// into a SyntaxError.
     Rejected,
     /// `RegExpProgram::compile` answered `UnsupportedFeature`: the pattern is
-    /// legal and Lila cannot compile it yet. A hit on this row must **not**
-    /// throw — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
+    /// outside the static compiler's capability. A hit enters runtime
+    /// compilation — see [`RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED`].
     Unsupported,
 }
 
@@ -461,6 +429,13 @@ enum CandidateOutcome {
     Program(RegExpProgramStaticKey),
     Rejected,
     Unsupported,
+}
+
+/// Eight-byte rows contain a source code point and its canonical code point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RegExpCaseFoldingTable {
+    pub(crate) ptr: u32,
+    pub(crate) count: u32,
 }
 
 #[derive(Debug, Default)]
@@ -490,7 +465,9 @@ pub(crate) struct StringPool {
     /// test is *about* was never offered to the compiler at all.
     runtime_regexp_argument_literals: BTreeSet<String>,
     regexp_programs: BTreeMap<RegExpProgramStaticKey, RegExpProgramRef>,
-    pending_regexp_programs: Vec<(RegExpProgramStaticKey, u32, u32, u32)>,
+    pending_regexp_programs: Vec<RegExpProgramStaticKey>,
+    needed_regexp_case_folding: BTreeSet<RegExpCaseFolding>,
+    regexp_case_folding_tables: BTreeMap<RegExpCaseFolding, RegExpCaseFoldingTable>,
     runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
     pub(crate) runtime_regexp_program_table_ptr: u32,
@@ -658,7 +635,6 @@ impl StringPool {
             "\\d+",
             "[a-z]",
             "RegExp legacy static accessor receiver must be RegExp",
-            "%ThrowTypeError%",
             "constructor",
             "withResolvers",
             "try",
@@ -707,6 +683,7 @@ impl StringPool {
             JSON_NAME,
             FLOAT64_ARRAY_NAME,
             FLOAT32_ARRAY_NAME,
+            FLOAT16_ARRAY_NAME,
             INT32_ARRAY_NAME,
             INT16_ARRAY_NAME,
             INT8_ARRAY_NAME,
@@ -718,6 +695,7 @@ impl StringPool {
             "BigUint64Array",
             "$Realm.Float64Array.prototype",
             "$Realm.Float32Array.prototype",
+            "$Realm.Float16Array.prototype",
             "$Realm.Int32Array.prototype",
             "$Realm.Int16Array.prototype",
             "$Realm.Int8Array.prototype",
@@ -1192,6 +1170,7 @@ impl StringPool {
             "TypedArray.from constructed target is too small",
             "TypedArray.of receiver is not a constructor",
             "TypedArray constructor requires new",
+            "TypedArray constructor source and target content types differ",
             "TypedArray byteOffset out of range",
             "TypedArray byteOffset must be aligned",
             "TypedArray byteLength out of range",
@@ -1374,6 +1353,9 @@ impl StringPool {
             "Symbol.search",
             "Symbol.split",
             "Symbol.toStringTag",
+            "Module",
+            "Deferred Module",
+            "then",
             "anonymous",
             "function anonymous(\n) {\n\n}",
             "GeneratorFunction",
@@ -1570,7 +1552,6 @@ impl StringPool {
             "Proxy defineProperty trap result is incompatible with target descriptor",
             "Proxy defineProperty trap cannot define non-writable target property",
             "Proxy defineProperty trap cannot report a writable target property as non-writable",
-            "Cannot define invalid TypedArray index",
             "Cannot define incompatible TypedArray index descriptor",
             "TypedArray.prototype.subarray requires TypedArray",
             "TypedArray.prototype.subarray has unknown element type",
@@ -1588,6 +1569,8 @@ impl StringPool {
             "TypedArray.prototype.set source is too large",
             "TypedArray.prototype.reverse requires TypedArray",
             "TypedArray.prototype.copyWithin requires TypedArray",
+            "TypedArray.prototype.fill requires TypedArray",
+            "TypedArray.prototype.fill backing buffer is immutable",
             "TypedArray.prototype.sort requires TypedArray",
             "TypedArray.prototype.toReversed requires TypedArray",
             "TypedArray.prototype.toReversed has unknown element type",
@@ -1598,6 +1581,7 @@ impl StringPool {
             "TypedArray.prototype.with has unknown element type",
             "Reflect.defineProperty target must be object",
             "Reflect.defineProperty attributes must be object",
+            "Accessor must be callable",
             "Property descriptor getter/setter must be callable or undefined",
             "Property descriptor cannot be both accessor and data",
             "Reflect.get target must be object",
@@ -1740,6 +1724,7 @@ impl StringPool {
             "Object.values requires object",
             "Object.assign called on null or undefined",
             "Object.entries called on null or undefined",
+            "Object.keys called on null or undefined",
             "Object.getOwnPropertyDescriptors called on null or undefined",
             "Object.values called on null or undefined",
             "String.prototype method requires a String receiver",
@@ -1757,6 +1742,8 @@ impl StringPool {
             "Array.prototype.push length exceeds safe integer",
             "Array.prototype.push length is not writable",
             "Cannot assign to read only property",
+            "Cannot assign to module namespace property",
+            "Cannot redefine module namespace property",
             "Cannot delete property",
             "Cannot add property to non-extensible object",
             "Array.prototype.push index write failed",
@@ -1863,7 +1850,54 @@ impl StringPool {
             "Invalid Intl.Locale language option",
             "Invalid Intl.Locale script option",
             "Invalid Intl.Locale region option",
-            "Invalid language tag after Intl.Locale options",
+            "calendar",
+            "Invalid Intl.Locale calendar option",
+            "collation",
+            "Invalid Intl.Locale collation option",
+            "firstDayOfWeek",
+            "Invalid Intl.Locale firstDayOfWeek option",
+            "hourCycle",
+            "Invalid Intl.Locale hourCycle option",
+            "caseFirst",
+            "Invalid Intl.Locale caseFirst option",
+            "numeric",
+            "Invalid Intl.Locale numeric option",
+            "numberingSystem",
+            "Invalid Intl.Locale numberingSystem option",
+            "variants",
+            "Invalid Intl.Locale variants option",
+            "und-",
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "-u",
+            "ca",
+            "co",
+            "fw",
+            "hc",
+            "kf",
+            "kn",
+            "nu",
+            "mon",
+            "tue",
+            "wed",
+            "thu",
+            "fri",
+            "sat",
+            "sun",
+            "h11",
+            "h12",
+            "h23",
+            "h24",
+            "upper",
+            "lower",
+            "false",
+            "true",
             "Intl.getCanonicalLocales argument must be an object",
             "Intl.getCanonicalLocales locale must be a string or an object",
             "Invalid language tag",
@@ -1911,6 +1945,11 @@ impl StringPool {
             "Temporal.Instant epoch nanoseconds are outside the supported range",
             "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
             "Temporal.Instant does not support implicit conversion; use compare() or equals()",
+            "Temporal.Instant arithmetic does not accept date units",
+            "Temporal.Instant.prototype.round requires a roundTo argument",
+            "Temporal.Instant.prototype.round requires smallestUnit",
+            "Invalid Temporal.Instant unit option",
+            "Invalid Temporal.Instant rounding increment",
             "RegExp.escape input must be a string",
             "RegExp.prototype.compile receiver is not a direct RegExp instance",
             "RegExp.prototype.compile flags must be undefined when pattern is RegExp",
@@ -2064,8 +2103,10 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
-        // Keep diagnostics after the fixed literal seed: inserting them into
+        // Keep additional literals after the fixed seed: inserting them into
         // its prefix changes every following packed string offset.
+        pool.intern_string("get ");
+        pool.intern_string("set ");
         pool.intern_string(UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE);
         // Unconditional, and it must stay unconditional: these are the messages
         // `emit_runtime_error_object` now reads out of the pool, and the paths
@@ -2120,7 +2161,10 @@ impl StringPool {
                 }
             }
         }
-        for value in crate::builtins::intl_date_time_format_pool_strings() {
+        for value in crate::builtins::intl_date_time_format_pool_strings()
+            .into_iter()
+            .chain(crate::builtins::intl_number_format_pool_strings())
+        {
             pool.intern_string(&value);
         }
         for index in 0..=31 {
@@ -2208,18 +2252,19 @@ impl StringPool {
                 PreparedScriptOutcome::DeferredSyntaxError { message } => {
                     pool.intern_string(message)
                 }
-                PreparedScriptOutcome::Executable(unit) => {
-                    pool.collect_eval_environment(unit.eval_environment.as_ref());
-                    for binding in &unit.owned_env_bindings {
-                        pool.intern_string(&binding.name);
-                    }
-                    for binding in &unit.global_bindings {
-                        pool.intern_string(&binding.name);
-                    }
-                    for name in unit.global_bindings.lexical_names() {
-                        pool.intern_string(name);
-                    }
-                }
+                PreparedScriptOutcome::Executable(_) => {}
+            }
+        }
+        for unit in script.prepared_script_units() {
+            pool.collect_eval_environment(unit.eval_environment.as_ref());
+            for binding in &unit.owned_env_bindings {
+                pool.intern_string(&binding.name);
+            }
+            for binding in &unit.global_bindings {
+                pool.intern_string(&binding.name);
+            }
+            for name in unit.global_bindings.lexical_names() {
+                pool.intern_string(name);
             }
         }
         if compiled_standard_builtins.iter().any(|builtin| {
@@ -2234,7 +2279,19 @@ impl StringPool {
         if pool.needs_runtime_regexp_programs {
             pool.queue_runtime_regexp_programs();
         }
+        for message in [
+            "RegExp runtime compiler exceeded its addressable resource limit",
+            "RegExp runtime compiler produced an invalid program",
+        ] {
+            pool.intern_string(message);
+        }
         pool.append_regexp_programs();
+        // The emitted compiler can encounter an i flag absent from every
+        // statically compiled pattern. Its literals/classes and references
+        // must all use the same retained legacy canonicalization table.
+        pool.needed_regexp_case_folding
+            .insert(RegExpCaseFolding::Legacy);
+        pool.append_regexp_case_folding_tables();
         if compiled_standard_builtins.iter().any(|builtin| {
             matches!(
                 builtin,
@@ -2272,6 +2329,9 @@ impl StringPool {
                 StandardBuiltinId::TemporalPlainDateConstructor
                     | StandardBuiltinId::TemporalPlainDateFrom
                     | StandardBuiltinId::TemporalPlainDateCompare
+                    // Zoned field replacement shares the PlainDate field
+                    // reader and resolver, including their diagnostics.
+                    | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             ) || builtin
                 .debug_name()
                 .starts_with("Temporal.PlainDate.prototype.")
@@ -2820,10 +2880,18 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom) {
+        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
+            || compiled_standard_builtins
+                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWith)
+        {
             for value in [
                 "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
                 "Temporal.ZonedDateTime.from options must be an object or undefined",
+                "Temporal.ZonedDateTime.prototype.with requires an object",
+                "Temporal.ZonedDateTime.prototype.with does not accept a Temporal object",
+                "Temporal.ZonedDateTime.prototype.with does not accept calendar or timeZone",
+                "Temporal.ZonedDateTime.prototype.with requires at least one date, time, or offset field",
+                "Temporal.ZonedDateTime.prototype.with options must be an object or undefined",
                 "calendar",
                 "day",
                 "hour",
@@ -3240,8 +3308,10 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
+            StatementIr::ModuleImportBinding(_) => self.uses_heap = true,
             StatementIr::ModuleUnitOnce { block, .. } => self.collect_block(block),
-            StatementIr::Empty
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
             | StatementIr::Debugger
             | StatementIr::Break { .. }
             | StatementIr::Continue { .. } => {}
@@ -3406,6 +3476,12 @@ impl StringPool {
                 condition,
                 then_branch,
                 else_branch,
+            }
+            | StatementIr::AsyncFunctionIf {
+                condition,
+                then_branch,
+                else_branch,
+                plan: _,
             } => {
                 self.collect_expr(condition);
                 self.collect_statement(then_branch);
@@ -3474,12 +3550,7 @@ impl StringPool {
                 self.collect_for_in_of_environment(plan.head_environment());
                 self.collect_resumable_iteration_environment(plan.iteration_environment());
                 self.collect_expr(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     self.collect_statement(statement);
                 }
             }
@@ -3684,10 +3755,28 @@ impl StringPool {
                     self.collect_expr(operand);
                 }
             }
-            // A namespace object and `import.meta` are allocated from static
-            // tables the module graph owns, not from expression operands.
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {
+            ExprIr::ModuleEntryEvaluation(entry) => {
                 self.uses_heap = true;
+                self.collect_expr(entry.evaluation());
+            }
+            ExprIr::ModuleExecutionGraph(_)
+            | ExprIr::ModuleBindingRead(_)
+            | ExprIr::ModuleEvaluate(_)
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => {
+                self.uses_heap = true;
+                self.intern_string("module binding accessed before initialization");
+                self.intern_string("deferred module is not ready for synchronous evaluation");
+            }
+            ExprIr::ModuleNamespacePublish { namespace, .. } => self.collect_expr(namespace),
+            ExprIr::ImportMeta { .. } => self.uses_heap = true,
+            ExprIr::ModuleNamespace { exports, .. } => {
+                self.uses_heap = true;
+                self.collect_expr(exports);
+                self.intern_string("Module");
+                self.intern_string("then");
+                self.intern_string("Symbol.toStringTag");
             }
             ExprIr::DynamicImport {
                 specifier, options, ..
@@ -3752,7 +3841,7 @@ impl StringPool {
                             self.intern_string(key);
                             self.collect_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.collect_expr(key);
                             self.collect_expr(value);
                         }
@@ -4594,40 +4683,32 @@ impl StringPool {
     }
 
     fn queue_regexp_program(&mut self, program: &RegExpProgram) {
-        assert!(
-            !has_non_consuming_cycle(program),
-            "compiler-created RegExp program contains a non-consuming control-flow cycle"
-        );
-        // Names are part of the immutable metadata table and must be present
-        // in the string pool before any program blobs are appended.
-        for group in &program.named_groups {
-            self.intern_string(&group.name);
+        // The program key omits flags: identical instruction streams may be
+        // shared by legacy and Unicode regexps, which need different tables.
+        if program.instructions.iter().any(|instruction| {
+            matches!(
+                instruction.opcode,
+                REGEXP_OPCODE_NAMED_BACKREFERENCE | REGEXP_OPCODE_NUMBERED_BACKREFERENCE
+            ) && instruction.operand1 & REGEXP_BACKREFERENCE_IGNORE_CASE != 0
+        }) {
+            self.needed_regexp_case_folding.insert(
+                if program.flags.unicode_mode.is_unicode_mode() {
+                    RegExpCaseFolding::Unicode
+                } else {
+                    RegExpCaseFolding::Legacy
+                },
+            );
         }
         let key = RegExpProgramStaticKey::from_program(program);
         if self.regexp_programs.contains_key(&key)
             || self
                 .pending_regexp_programs
                 .iter()
-                .any(|(pending, _, _, _)| pending == &key)
+                .any(|pending| pending == &key)
         {
             return;
         }
-        let split_count = program
-            .instructions
-            .iter()
-            .filter(|instruction| {
-                matches!(
-                    instruction.opcode,
-                    REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
-                )
-            })
-            .count() as u32;
-        self.pending_regexp_programs.push((
-            key,
-            program.instructions.len() as u32,
-            split_count,
-            repeatable_split_count(program),
-        ));
+        self.pending_regexp_programs.push(key);
     }
 
     fn queue_runtime_regexp_programs(&mut self) {
@@ -4753,9 +4834,8 @@ impl StringPool {
             // Assigned through the shared word indices rather than as a
             // positional array literal, so the writer's layout and the
             // emitter's `i64.load` offsets are the same facts rather than two
-            // agreeing transcriptions. A non-`Program` row leaves the six
-            // program words at their zeroed initial value, which is exactly
-            // what a total miss leaves in the object's slots.
+            // agreeing transcriptions. A non-`Program` row leaves the program
+            // handle zeroed, as does a total miss in the object's slot.
             let mut record = [0u64; RUNTIME_REGEXP_RECORD_WORDS];
             record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = self.payload(source) as u64;
             record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = self.payload(flags) as u64;
@@ -4764,15 +4844,7 @@ impl StringPool {
             // here, or this stops compiling.
             record[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD] = match entry {
                 RuntimeRegExpEntry::Program(program) => {
-                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD] = program.ptr as u64;
-                    record[RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD] =
-                        program.instruction_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD] = program.capture_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD] = program.split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD] =
-                        program.repeatable_split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
-                        program.named_group_table_ptr as u64;
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] = program.payload();
                     RuntimeRegExpEntryKind::Program.word()
                 }
                 RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),
@@ -4788,68 +4860,45 @@ impl StringPool {
         if self.pending_regexp_programs.is_empty() {
             return;
         }
-        let padding = (8 - self.bytes.len() % 8) % 8;
-        self.bytes.resize(self.bytes.len() + padding, 0);
         let pending = std::mem::take(&mut self.pending_regexp_programs);
-        for (key, instruction_count, split_count, repeatable_split_count) in pending {
+        for key in pending {
+            self.align_bytes(8);
+            let ptr = STATIC_DATA_OFFSET
+                .checked_add(u32::try_from(self.bytes.len()).expect("static data length"))
+                .expect("RegExp descriptor address");
+            let reference = RegExpProgramRef::new(ptr, &key.0);
+            self.bytes.extend_from_slice(key.0.bytes());
+            self.regexp_programs.insert(key, reference);
+        }
+    }
+
+    fn append_regexp_case_folding_tables(&mut self) {
+        for folding in self.needed_regexp_case_folding.clone() {
+            if self.regexp_case_folding_tables.contains_key(&folding) {
+                continue;
+            }
+            let mappings = folding.mappings();
+            self.align_bytes(8);
             let ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-            let capture_count = key.capture_count;
-            self.bytes.extend_from_slice(&key.encoded_instructions);
-            let named_group_table_ptr = self.append_named_group_table(&key.named_groups);
-            self.regexp_programs.insert(
-                key,
-                RegExpProgramRef {
+            for &(source, canonical) in mappings {
+                self.bytes.extend_from_slice(&source.to_le_bytes());
+                self.bytes.extend_from_slice(&canonical.to_le_bytes());
+            }
+            self.regexp_case_folding_tables.insert(
+                folding,
+                RegExpCaseFoldingTable {
                     ptr,
-                    instruction_count,
-                    capture_count,
-                    split_count,
-                    repeatable_split_count,
-                    named_group_table_ptr,
+                    count: mappings.len() as u32,
                 },
             );
         }
     }
 
-    fn append_named_group_table(&mut self, named_groups: &[(String, Vec<u32>)]) -> u32 {
-        if named_groups.is_empty() {
-            return 0;
-        }
-
-        let padding = (8 - self.bytes.len() % 8) % 8;
-        self.bytes.resize(self.bytes.len() + padding, 0);
-        let table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-        let records_ptr = table_ptr + 32;
-        let total_candidate_count: usize = named_groups
-            .iter()
-            .map(|(_, candidates)| candidates.len())
-            .sum();
-        let candidates_base = records_ptr + (named_groups.len() as u32 * 24);
-
-        for value in [
-            REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION,
-            named_groups.len() as u64,
-            total_candidate_count as u64,
-            records_ptr as u64,
-        ] {
-            self.bytes.extend_from_slice(&value.to_le_bytes());
-        }
-
-        let mut candidate_offset = 0_u32;
-        for (name, candidates) in named_groups {
-            let name_payload = self.payload(name) as u64;
-            let candidates_ptr = candidates_base + candidate_offset;
-            for value in [name_payload, candidates_ptr as u64, candidates.len() as u64] {
-                self.bytes.extend_from_slice(&value.to_le_bytes());
-            }
-            candidate_offset += (candidates.len() * 8) as u32;
-        }
-        for (_, candidates) in named_groups {
-            for &capture_id in candidates {
-                self.bytes
-                    .extend_from_slice(&(capture_id as u64).to_le_bytes());
-            }
-        }
-        table_ptr
+    pub(crate) fn regexp_case_folding_table(
+        &self,
+        folding: RegExpCaseFolding,
+    ) -> Option<RegExpCaseFoldingTable> {
+        self.regexp_case_folding_tables.get(&folding).copied()
     }
 
     pub(crate) fn runtime_bytes_for_string(value: &str) -> Vec<u8> {
@@ -4983,40 +5032,11 @@ fn callee_names_regexp_compile(callee: &TypedExpr) -> bool {
     }
 }
 
-/// Every string this expression can *statically* evaluate to, when that set is
-/// finite and readable off the IR shape alone.
-///
-/// # The catch-all is deliberate, and it is the safe direction
-///
-/// The trailing `_ => {}` is not an oversight and must not be replaced by an
-/// exhaustive match over [`ExprIr`]. This is a heuristic over an open,
-/// hundreds-of-variants expression domain, and the two directions are not
-/// symmetric:
-///
-/// * a shape this function **does not** recognise contributes no candidate, the
-///   `(source, flags)` pair gets no row, and the runtime lookup falls through to
-///   exactly the behaviour it had before the table existed — the fallback
-///   matcher, and `TypeError: RegExp.prototype.exec unsupported pattern` if it
-///   declines. Missing a shape costs coverage, never correctness;
-/// * a shape it **does** recognise reaches `RegExpProgram::compile`, and an
-///   `InvalidSyntax` verdict there becomes a
-///   [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`] row, which **throws SyntaxError** at
-///   every one of the seven `emit_runtime_regexp_program_slots` call sites for
-///   any runtime pattern whose bytes equal that literal.
-///
-/// So adding an arm here is not "collect a few more literals": it widens the set
-/// of patterns this compiler will refuse at run time, keyed by string value
-/// rather than by syntactic origin. Read
-/// [`RUNTIME_REGEXP_ENTRY_KIND_REJECTED`]'s doc — which records that
-/// `lila-ir/src/regexp.rs`'s ~20 `invalid_syntax(` sites have never been
-/// audited against the grammar — before widening, and measure
-/// `built-ins/RegExp/prototype` as a delta afterwards.
-///
-/// Concatenation is the arm most obviously "missing": `new RegExp(a + b)` where
-/// both halves are literals is a known open case (RE-RT probe 6, no throw
-/// today). It is left out on purpose rather than by oversight, because closing
-/// it is the widening this doc is warning about and it needs its own measured
-/// gate.
+/// Finite string choices recognized directly from IR are an AOT optimization.
+/// Unrecognized shapes contribute no table row and use the emitted Pattern
+/// compiler at runtime. Recognized invalid patterns retain a rejected row, whose
+/// exact byte match throws SyntaxError before publication. Keep this collector
+/// conservative; extending it changes which static parser verdicts are cached.
 fn collect_finite_string_choices(expr: &TypedExpr, choices: &mut BTreeSet<String>) {
     match &expr.expr {
         ExprIr::String(value) => {
@@ -5076,135 +5096,6 @@ fn is_regexp_flags_literal(value: &str) -> bool {
     value.chars().all(|flag| {
         matches!(flag, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v' | 'y') && seen.insert(flag)
     }) && !(seen.contains(&'u') && seen.contains(&'v'))
-}
-
-/// Counts `Split`s that can execute again through a control-flow cycle.
-///
-/// RegExp programs are capped at 4096 instructions, so a small, precise DFS
-/// per split is clearer than maintaining a separate SCC representation here.
-fn repeatable_split_count(program: &RegExpProgram) -> u32 {
-    let instructions = &program.instructions;
-    let successors = |pc: usize| -> Vec<usize> {
-        let Some(instruction) = instructions.get(pc) else {
-            return Vec::new();
-        };
-        let valid = |target: u64| {
-            usize::try_from(target)
-                .ok()
-                .filter(|target| *target < instructions.len())
-        };
-        match instruction.opcode {
-            REGEXP_OPCODE_SPLIT => [valid(instruction.operand0), valid(instruction.operand1)]
-                .into_iter()
-                .flatten()
-                .collect(),
-            REGEXP_OPCODE_PROGRESS_SPLIT => [
-                valid(instruction.operand0),
-                valid(instruction.operand1 >> 1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-            REGEXP_OPCODE_PROGRESS_CHECK => valid(instruction.operand1).into_iter().collect(),
-            REGEXP_OPCODE_JUMP => valid(instruction.operand0).into_iter().collect(),
-            REGEXP_OPCODE_ACCEPT => Vec::new(),
-            _ if pc + 1 < instructions.len() => vec![pc + 1],
-            _ => Vec::new(),
-        }
-    };
-
-    instructions
-        .iter()
-        .enumerate()
-        .filter(|(_, instruction)| {
-            matches!(
-                instruction.opcode,
-                REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT
-            )
-        })
-        .filter(|(split_pc, _)| {
-            let mut visited = vec![false; instructions.len()];
-            let mut stack = successors(*split_pc);
-            while let Some(pc) = stack.pop() {
-                if pc == *split_pc {
-                    return true;
-                }
-                if visited[pc] {
-                    continue;
-                }
-                visited[pc] = true;
-                stack.extend(successors(pc));
-            }
-            false
-        })
-        .count() as u32
-}
-
-fn has_non_consuming_cycle(program: &RegExpProgram) -> bool {
-    fn is_consuming(instruction: &lila_ir::RegExpInstruction) -> bool {
-        matches!(
-            instruction.opcode,
-            REGEXP_OPCODE_LITERAL_ASCII
-                | REGEXP_OPCODE_LITERAL_CODE_POINT
-                | REGEXP_OPCODE_NEGATIVE_ASCII_CLASS
-                | REGEXP_OPCODE_NOT_WHITESPACE
-                | REGEXP_OPCODE_POSITIVE_ASCII_CLASS
-                | REGEXP_OPCODE_WHITESPACE
-                | REGEXP_OPCODE_DOT
-                | REGEXP_OPCODE_UNICODE_PROPERTY
-        ) || (instruction.opcode == REGEXP_OPCODE_NUMBERED_BACKREFERENCE
-            && instruction.operand1 != 0)
-    }
-
-    fn visit(pc: usize, instructions: &[lila_ir::RegExpInstruction], state: &mut [u8]) -> bool {
-        if state[pc] == 1 {
-            return true;
-        }
-        if state[pc] == 2
-            || is_consuming(&instructions[pc])
-            || instructions[pc].opcode == REGEXP_OPCODE_PROGRESS_CHECK
-        {
-            return false;
-        }
-        state[pc] = 1;
-        let instruction = instructions[pc];
-        let valid_target = |target: u64| {
-            usize::try_from(target)
-                .ok()
-                .filter(|target| *target < instructions.len())
-        };
-        let successors = match instruction.opcode {
-            REGEXP_OPCODE_SPLIT => [
-                valid_target(instruction.operand0),
-                valid_target(instruction.operand1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>(),
-            REGEXP_OPCODE_PROGRESS_SPLIT => [
-                valid_target(instruction.operand0),
-                valid_target(instruction.operand1 >> 1),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>(),
-            REGEXP_OPCODE_JUMP => valid_target(instruction.operand0).into_iter().collect(),
-            REGEXP_OPCODE_ACCEPT => Vec::new(),
-            _ if pc + 1 < instructions.len() => vec![pc + 1],
-            _ => Vec::new(),
-        };
-        if successors
-            .into_iter()
-            .any(|successor| visit(successor, instructions, state))
-        {
-            return true;
-        }
-        state[pc] = 2;
-        false
-    }
-
-    let mut state = vec![0; program.instructions.len()];
-    (0..program.instructions.len()).any(|pc| visit(pc, &program.instructions, &mut state))
 }
 
 #[cfg(test)]
@@ -5304,6 +5195,33 @@ mod runtime_error_message_pool_tests {
     }
 
     #[test]
+    fn zoned_field_replacement_pools_shared_date_field_diagnostics() {
+        let parsed = parse(";", ParseOptions::script()).expect("empty script should parse");
+        let script = lower(&parsed).script.expect("empty script should lower");
+        let pool = StringPool::collect(
+            &script,
+            &BTreeMap::new(),
+            &[StandardBuiltinId::TemporalZonedDateTimePrototypeWith],
+        );
+        for message in [
+            "Temporal.PlainDate monthCode must be a string",
+            "Invalid Temporal.PlainDate monthCode",
+            "Temporal.PlainDate fields require year",
+            "Temporal.PlainDate fields require day",
+            "Temporal.PlainDate fields require month or monthCode",
+            "Temporal.PlainDate month and monthCode must agree",
+            "Temporal.PlainDate month and day must be positive",
+            "Temporal.PlainDateTime fields must be finite",
+            "Temporal.PlainDateTime month and day must be positive",
+        ] {
+            let payload = pool.payload(message) as u64;
+            let offset = (payload >> 32) as usize - STATIC_DATA_OFFSET as usize;
+            let len = (payload & 0xFFFF_FFFF) as usize;
+            assert_eq!(&pool.bytes[offset..offset + len], message.as_bytes());
+        }
+    }
+
+    #[test]
     fn rejection_diagnostic_is_interned_without_moving_fixed_literals() {
         let pool = production_pool_for_an_empty_script();
         assert_eq!(
@@ -5389,17 +5307,7 @@ mod runtime_error_message_pool_tests {
 #[cfg(test)]
 mod regexp_program_validation_tests {
     use super::*;
-    use lila_ir::{RegExpFlags, RegExpInstruction};
-
-    fn program(instructions: Vec<RegExpInstruction>) -> RegExpProgram {
-        RegExpProgram {
-            flags: RegExpFlags::default(),
-            capture_count: 0,
-            named_groups: Vec::new(),
-            instructions,
-            ranges: Vec::new(),
-        }
-    }
+    use lila_ir::{RegExpProgramWord, REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION};
 
     #[test]
     fn static_program_named_group_table_is_serialized_and_no_names_use_zero() {
@@ -5409,30 +5317,36 @@ mod regexp_program_validation_tests {
         let unnamed_ref = pool.collect_regexp_program_for_test(&unnamed);
         let named_ref = pool.collect_regexp_program_for_test(&named);
 
-        assert_eq!(unnamed_ref.named_group_table_ptr, 0);
-        assert_ne!(named_ref.named_group_table_ptr, 0);
-        let offset = (named_ref.named_group_table_ptr - STATIC_DATA_OFFSET) as usize;
-        let read = |at: usize| u64::from_le_bytes(pool.bytes[at..at + 8].try_into().unwrap());
+        let descriptor = |reference: RegExpProgramRef| {
+            let offset = ((reference.payload() >> 32) as u32 - STATIC_DATA_OFFSET) as usize;
+            let length = reference.payload() as u32 as usize;
+            ValidatedRegExpProgram::from_bytes(pool.bytes[offset..offset + length].to_vec())
+                .unwrap()
+        };
+        let unnamed = descriptor(unnamed_ref);
+        let named = descriptor(named_ref);
+        assert_eq!(unnamed.word(RegExpProgramWord::NamedGroupTableOffset), 0);
+        let offset = named.word(RegExpProgramWord::NamedGroupTableOffset) as usize;
+        let read = |at: usize| u64::from_le_bytes(named.bytes()[at..at + 8].try_into().unwrap());
         assert_eq!(read(offset), REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION);
         assert_eq!(read(offset + 8), 2);
         assert_eq!(read(offset + 16), 2);
-        assert_eq!(
-            read(offset + 24),
-            (named_ref.named_group_table_ptr + 32) as u64
-        );
+        assert_eq!(read(offset + 24), 32);
         let records = offset + 32;
-        assert_eq!(read(records + 16), 1);
-        assert_eq!(read(records + 40), 1);
-        let candidates = (read(records + 8) - STATIC_DATA_OFFSET as u64) as usize;
+        let candidates = offset + read(records + 8) as usize;
         assert_eq!(read(candidates), 1);
         assert_eq!(read(candidates + 8), 2);
-        assert_eq!(read(records), pool.payload("x") as u64);
-        assert_eq!(read(records + 24), pool.payload("y") as u64);
+        for (record, expected) in [(records, "x"), (records + 24, "y")] {
+            let payload = read(record);
+            let start = offset + (payload >> 32) as usize;
+            let end = start + payload as u32 as usize;
+            assert_eq!(&named.bytes()[start..end], expected.as_bytes());
+        }
     }
 
     #[test]
     fn static_program_dedup_key_includes_named_group_mappings() {
-        let base = RegExpProgram::compile("a", "").expect("program should compile");
+        let base = RegExpProgram::compile("(a)(b)", "").expect("program should compile");
         let mut first = base.clone();
         first.named_groups.push(lila_ir::RegExpNamedGroup {
             name: "x".into(),
@@ -5443,32 +5357,80 @@ mod regexp_program_validation_tests {
         let mut pool = StringPool::default();
         let first_ref = pool.collect_regexp_program_for_test(&first);
         let second_ref = pool.collect_regexp_program_for_test(&second);
-        assert_ne!(first_ref.ptr, second_ref.ptr);
+        assert_ne!(first_ref.payload(), second_ref.payload());
+        for reference in [first_ref, second_ref] {
+            assert_eq!((reference.payload() >> 32) % 8, 0);
+        }
     }
 
     #[test]
-    fn rejects_non_consuming_program_cycles_without_rejecting_valid_repetition() {
-        let self_jump = program(vec![RegExpInstruction::jump(0)]);
-        assert!(has_non_consuming_cycle(&self_jump));
-
-        let failed_consuming_loop = program(vec![
-            RegExpInstruction::split(1, 2),
-            RegExpInstruction::literal_ascii(b'a'),
-            RegExpInstruction::jump(0),
-        ]);
-        assert!(has_non_consuming_cycle(&failed_consuming_loop));
-
-        let valid_star = RegExpProgram::compile("a*", "").expect("star should compile");
-        assert!(!has_non_consuming_cycle(&valid_star));
-        let valid_lazy_star = RegExpProgram::compile("a*?b", "").expect("lazy star should compile");
-        assert!(!has_non_consuming_cycle(&valid_lazy_star));
+    fn shared_programs_collect_both_case_folding_modes_before_deduplication() {
+        let legacy = RegExpProgram::compile(r"^(.)\1$", "i").unwrap();
+        let unicode = RegExpProgram::compile(r"^(.)\1$", "ui").unwrap();
+        assert_eq!(
+            RegExpProgramStaticKey::from_program(&legacy),
+            RegExpProgramStaticKey::from_program(&unicode)
+        );
+        for append_between in [false, true] {
+            for (first, second) in [(&legacy, &unicode), (&unicode, &legacy)] {
+                let mut pool = StringPool::default();
+                pool.queue_regexp_program(first);
+                if append_between {
+                    pool.append_regexp_programs();
+                }
+                pool.queue_regexp_program(second);
+                pool.append_regexp_programs();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(
+                    pool.regexp_program(first).payload(),
+                    pool.regexp_program(second).payload()
+                );
+                assert_eq!(pool.regexp_case_folding_tables.len(), 2);
+                for folding in [RegExpCaseFolding::Legacy, RegExpCaseFolding::Unicode] {
+                    let table = pool
+                        .regexp_case_folding_table(folding)
+                        .expect("required mapping table");
+                    assert_eq!(table.ptr % 8, 0);
+                    assert_eq!(table.count as usize, folding.mappings().len());
+                    let start = (table.ptr - STATIC_DATA_OFFSET) as usize;
+                    let rows = pool.bytes[start..start + table.count as usize * 8]
+                        .chunks_exact(8)
+                        .map(|row| {
+                            (
+                                u32::from_le_bytes(row[..4].try_into().unwrap()),
+                                u32::from_le_bytes(row[4..].try_into().unwrap()),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(rows, folding.mappings());
+                }
+                let bytes = pool.bytes.clone();
+                pool.append_regexp_case_folding_tables();
+                assert_eq!(pool.bytes, bytes);
+            }
+        }
     }
 
     #[test]
-    fn counts_repeatable_splits_inside_lookbehind() {
-        let program =
-            RegExpProgram::compile(r"(?<=\w+)f", "").expect("lookbehind repetition should compile");
-        assert_eq!(repeatable_split_count(&program), 1);
+    fn backreference_tables_follow_scoped_references_instead_of_global_flags() {
+        let mut sensitive = StringPool::default();
+        sensitive.queue_regexp_program(&RegExpProgram::compile(r"(a)(?-i:\1)", "i").unwrap());
+        sensitive.append_regexp_case_folding_tables();
+        assert!(sensitive.regexp_case_folding_tables.is_empty());
+        let mut scoped = StringPool::default();
+        scoped.queue_regexp_program(&RegExpProgram::compile(r"(a)(?i:\1)", "u").unwrap());
+        scoped.append_regexp_case_folding_tables();
+        assert_eq!(scoped.regexp_case_folding_tables.len(), 1);
+        assert!(scoped
+            .regexp_case_folding_table(RegExpCaseFolding::Legacy)
+            .is_none());
+        assert_eq!(
+            scoped
+                .regexp_case_folding_table(RegExpCaseFolding::Unicode)
+                .unwrap()
+                .count,
+            1512
+        );
     }
 }
 

@@ -30,16 +30,22 @@ use super::record::ModuleUnitId;
 ///
 /// # Deviation
 ///
-/// The import-defer proposal defers a deferred module's whole dependency
-/// subgraph. Here a deferred module's own evaluation-phase dependencies are
-/// eager, because the merged scope binds an import to the *exporter's* cell and
-/// a thunked exporter's cell is not in the merged scope at all. The deferred
-/// module itself still evaluates only on first touch; what runs early is the
-/// side effects of the modules it imports.
+/// Eligible Module-entry graphs allocate and instantiate private
+/// module environments first, so a deferred module's evaluation dependencies
+/// can stay deferred with it. The typed eligibility witness is shared with
+/// source assembly: classification cannot select that behavior for a graph
+/// emitted through the existing driver.
+///
+/// Outside that boundary, a deferred module's evaluation-phase dependencies
+/// remain eager because the merged-scope driver cannot share cells belonging
+/// to a deferred thunk. Script entries and source-phase graphs still retain
+/// that explicit implementation gap.
 pub(super) fn classify_evaluation_modes(
     graph: &mut ModuleGraphIr,
     components: &[DynamicComponentIr],
 ) {
+    let instantiate =
+        super::synchronous_source::ModuleInstantiationGraph::new(graph, components).is_some();
     let count = graph.units.len();
     // `(referrer, phase, target)` once, so the fixed point below is a walk over
     // an edge list rather than a repeated resolve of every request.
@@ -95,6 +101,12 @@ pub(super) fn classify_evaluation_modes(
                 continue;
             }
             match phase {
+                ImportPhaseIr::Evaluation if instantiate && !eager[*module] => {
+                    if !eager[*target] && !deferred[*target] {
+                        deferred[*target] = true;
+                        changed = true;
+                    }
+                }
                 ImportPhaseIr::Evaluation => {
                     if !eager[*target] {
                         eager[*target] = true;
@@ -133,10 +145,13 @@ pub(super) fn classify_evaluation_modes(
 
 /// Reports the phased requests the source-text linker still cannot express.
 ///
-/// Both remaining cases are about a deferred body becoming a *function* body:
-/// a top-level `await` in it has nothing to suspend, and a cycle through it
-/// would need every member of the component thunked together.
-pub(super) fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
+/// The retained driver cannot suspend a deferred TLA body or share completion
+/// across an evaluation cycle. The canonical execution path owns that cycle
+/// lifecycle and must use the same complete request set as classification.
+pub(super) fn report_unlinkable_phases(graph: &mut ModuleGraphIr, requests: &[DynamicComponentIr]) {
+    if super::synchronous_source::ModuleInstantiationGraph::new(graph, requests).is_some() {
+        return;
+    }
     let components = graph.component_of_unit();
     let mut component_sizes = vec![0usize; components.iter().copied().max().map_or(0, |m| m + 1)];
     for component in &components {

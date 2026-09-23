@@ -1,21 +1,17 @@
-# Intl.DateTimeFormat time-zone-name style privacy
+# Intl.DateTimeFormat time-zone-name style authority
 
-Status: implemented as a source-equivalent T23 invariant closure.
+`lila-intl::TimeZoneNameStyle` owns the six accepted `timeZoneName` styles,
+their option spellings and their wire and heap codes. Its derived `OPTIONS`
+table supplies the AOT constructor and `resolvedOptions`; the provider matches
+the same enum exhaustively when selecting localized names. Invalid external
+codes are rejected at the protocol boundary.
 
-The owner-private `TimeZoneNameStyle` is the sole six-style authority for
-DateTimeFormat's `timeZoneName` option. Its complete list, resolved spelling,
-UTC-family name, and heap code projections remain exhaustive and have no
-fallback arm. Other backend modules cannot construct a style or select one of
-those projections independently.
+The backend has no second style enum or hand-maintained option table. This
+shared domain replaces the former backend-private authority because emitted
+formatters and the host provider must agree on each selection.
 
-Restoring only the former enum visibility reproduces the exact original
-66-line domain and projection source with SHA-256
-`ee5ac6a3396cdf58e102796ca82dbc6c75bf2799fe8c93bc3c42f17d091ea117`.
-
-This source-equivalent hardening has no new Intl behavior and does not close T23.
-It changes no accepted style, spelling, localized name, heap code, emitted
-instruction, Test262 materialization, or published count.
-
-At the Batch BJ checkpoint, `cargo xc` is green, the recursive style target
-passes `3/3`, and the exact six-style constructor leaf passes both Wasm-AOT
-executions with every failure bucket at zero.
+The `intl_dtf_time_zone_name_style_privacy_structure` target and
+`scripts/check-module-boundaries.sh` enforce that ownership. Native style,
+transition and range coverage is in `aot_intl_named_time_zones`. See the
+[named-zone implementation](../intl-named-time-zones.md) for the pinned data
+and supported locale boundary.

@@ -12,22 +12,18 @@ an argument or result policy:
 - `valueOf` returns the extracted BigInt payload and tag unchanged;
 - `toString` reads its optional radix, performs the required numeric coercion,
   rejects values outside 2 through 36, and formats in that radix; and
-- the current core-language `toLocaleString` fallback formats the extracted
-  BigInt in decimal and does not use either reserved argument position.
+- `toLocaleString` constructs the current builtin Realm's intrinsic
+  `Intl.NumberFormat` from `locales` and `options`, then formats the extracted
+  exact BigInt through its intrinsic bound-format path.
 
-[ECMA-262 section 21.2.3.2](https://tc39.es/ecma262/#sec-bigint.prototype.tolocalestring)
-permits an implementation without ECMA-402 to return the same result as the
-parameterless `toString` operation, while requiring the two reserved parameter
-positions not to be repurposed. Consequently, treating `locales` as a radix is
-not an implementation-defined locale choice: it is a different operation and
-can turn a valid locale string into a spurious `RangeError`.
-
-[ECMA-402 section 20.3.1](https://tc39.es/ecma402/#sup-bigint.prototype.tolocalestring)
-supersedes that fallback when the Internationalization API is present. Lila
-does not yet have the `Intl.NumberFormat` integration owned by T23, so this
-contract closes only the honest ECMA-262 fallback. It does not describe
-locale-aware grouping, numbering systems, option processing or their abrupt
-completions.
+[ECMA-402 BigInt locale formatting](https://tc39.es/ecma402/#sup-bigint.prototype.tolocalestring)
+requires receiver extraction before constructing the NumberFormat. The locale
+operation shares the canonical NumberFormat option observation and exact
+numeric provider boundary described in
+[`intl-numberformat-wasm.md`](intl-numberformat-wasm.md). Neither public
+`Intl.NumberFormat` mutation nor a replaced prototype `format` accessor changes
+this intrinsic operation. Locale and option abrupt completions propagate with
+their original values; generated errors use the called builtin's Realm.
 
 ## Closed protocol
 
@@ -36,7 +32,7 @@ completions.
 
 - `ExactValue(BigIntValueResult)`;
 - `RadixString(BigIntRadixStringResult)`; and
-- `LocaleStringFallback(BigIntLocaleStringFallbackResult)`.
+- `LocaleString(BigIntLocaleStringResult)`.
 
 The existing builtin producer names are associated constants that construct
 the corresponding typed variant, so their callers remain narrow while the
@@ -90,9 +86,10 @@ foreign-Realm BigInt builtin fall back to the main-Realm constructors.
 Representation-specific formatting cannot rerun, skip or replace the
 coercion/range stage.
 
-The locale fallback validates `this` but does not read, coerce or access any
-property of `locales` or `options`. The exact-value path preserves the
-extracted representation rather than converting it.
+The locale path validates `this` before any locale or option hook, then passes
+the retained BigInt payload and tag to the canonical intrinsic formatter.
+The exact-value path preserves the extracted representation rather than
+converting it.
 
 ## Durable witness
 
@@ -100,10 +97,9 @@ extracted representation rather than converting it.
 
 - immediate and heap BigInt radix formatting;
 - valid `en-US` locale calls that previously entered radix coercion, including
-  an ungrouped heap-sized value whose fallback and future ECMA-402 spelling
-  agree;
-- throwing Proxy hooks in both reserved locale/options positions, proving that
-  the core fallback observes neither argument;
+  an ungrouped heap-sized value whose exact digits are preserved;
+- throwing Proxy hooks in both locale/options positions, proving one locale
+  observation precedes options and both abrupt values propagate unchanged;
 - primitive and boxed exact `valueOf` results;
 - invalid receiver rejection;
 - radix abrupt-completion identity and range rejection; and
@@ -114,20 +110,17 @@ extracted representation rather than converting it.
 - foreign-Realm immediate and heap radix failures, including BigInt, Symbol
   and object-to-BigInt conversion, whose errors use the builtin's Realm.
 
-The ordinary locale text cases deliberately agree with likely future ECMA-402
-output. The throwing reserved-argument hooks specifically pin the current
-ECMA-262 fallback, however: T23 must replace those assertions when it replaces
-the fallback helper with conforming locale/options processing.
+The NumberFormat native suite adds grouping, exact large integers, locale and
+option order, boxed receivers, and borrowed foreign-Realm method controls.
+The radix and exact-value assertions in the retained fixture stay unchanged.
 
-## Nonclaims and deferred gates
+## Verification boundary
 
-This seam does not implement or claim `Intl.NumberFormat`, locale-aware BigInt
-formatting, the ECMA-402 BigInt tree, `Number.prototype.toLocaleString`, full
-BigInt formatting correctness, numeric closure, or changed conformance counts.
-
-Static freeze gates are `rustfmt --check` for the touched Rust files,
-`node --check` for the fixture, the focused result-ownership structure target,
-focused source searches, `git diff --check`, and manual local-lifetime review.
+This integration adds locale-aware BigInt and Number formatting through the
+canonical NumberFormat consumer. Product native, CLI, source, and pinned
+Test262 verification remains required after the coordinated provider/consumer
+batch is integrated; the source stage alone claims no new conformance result
+or published-count change.
 
 ## Batch AX dispatcher boundary
 

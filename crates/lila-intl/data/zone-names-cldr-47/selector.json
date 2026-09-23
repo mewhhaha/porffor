@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "locales": [
+    "en",
+    "en-US"
+  ],
+  "locale_fallback": [
+    "root",
+    "en",
+    "en_US"
+  ],
+  "canonicalization": "CLDR BCP47 aliases after ECMA primary identifier selection",
+  "metazone_intervals": "half-open exact UTC epoch seconds; absent from/to unbounded; gaps remain gaps",
+  "non_location_selection": "LDML47 §4: direct zone, active metazone, preferred-zone country/city qualification for generic and specific",
+  "type_fallback": "effective zone+metazone daylight availability; missing generic permits standard with same-snapshot StandardTimeStability::Stable closed ±184-day proof",
+  "missing_generic": "generic location, then localized offset",
+  "missing_specific": "localized offset",
+  "offsets": "Latin digit skeletons; short H[:mm[:ss]], long HH:mm[:ss], zero gmtZeroFormat",
+  "country_authority": "ICU77.1 Names+Regions only, never ICU transitions",
+  "differences_from_icu77": "LDML47 unconditional nonpreferred qualification for generic and specific; no ICU same-wall-time optimization or generic-to-standard preference when generic exists",
+  "unsupported_locale": "UnsupportedNameLocale; no arbitrary English fallback"
+}

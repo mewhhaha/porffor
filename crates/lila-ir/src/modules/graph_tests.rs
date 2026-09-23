@@ -1446,24 +1446,18 @@ fn a_source_phase_import_resolves_to_a_module_source() {
     );
 }
 
-/// A deferred body becomes a function body, and a top-level `await` in a
-/// function body has nothing to suspend. Reported rather than mislinked.
 #[test]
-fn deferring_a_top_level_await_module_is_reported() {
+fn deferred_top_level_await_modules_keep_their_linked_evaluation_mode() {
     let graph = linked(&[
         ("/root/entry.js", "import defer * as ns from './a.js';\nns;"),
         ("/root/a.js", "export const x = await 1;"),
     ]);
-    assert!(
-        graph.link_errors.iter().any(|error| matches!(
-            error,
-            ModuleLinkErrorIr::UnsupportedPhase {
-                phase: ImportPhaseIr::Defer,
-                ..
-            }
-        )),
-        "{:?}",
-        graph.link_errors
+    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    let target = unit_of(&graph, "/root/a.js");
+    assert!(graph.unit(target).record.has_top_level_await);
+    assert_eq!(
+        graph.evaluation_mode(target),
+        ModuleEvaluationModeIr::Deferred
     );
 }
 
@@ -2048,7 +2042,7 @@ fn a_namespace_import_resolves_to_the_namespace_cell() {
     let a = unit_of(&graph, "/root/a.js");
     let binding = ResolvedBindingIr::Resolved {
         module: a,
-        binding: ModuleBindingNameIr::Namespace,
+        binding: ModuleBindingNameIr::Namespace(ModuleNamespaceModeIr::Eager),
     };
     assert_eq!(graph.units[0].resolved_imports, vec![binding.clone()]);
     assert_eq!(

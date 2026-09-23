@@ -94,7 +94,7 @@ impl DefaultExportDefinitions {
         };
         let span = parsed.with_compiler_session(|module_ast, interner| {
             let binding = MergedName::anonymous_default(module);
-            let deferred = MergedName::minted(module, UnitCellRole::DeferEvaluate);
+            let deferred = MergedName::minted(module, UnitCellRole::DeferExecute);
             let mut initializer = None;
             for item in module_ast.items().items() {
                 let ModuleItem::StatementListItem(statement) = item else {
@@ -211,6 +211,53 @@ impl DefaultExportDefinitions {
             definitions.remaining.is_empty(),
             "linked default export definition spans must survive Script parsing"
         );
+    }
+}
+
+/// The owner came from an exact trusted graph span, so inspect its actual AST
+/// rather than reparsing a source-function wrapper with different lexical rules.
+pub(super) fn apply_synchronous_default<'a>(
+    body: &'a FunctionBody,
+    module: ModuleUnitId,
+    form: DefaultExportFormIr,
+    analysis: &mut Analysis<'a>,
+    interner: &Interner,
+) {
+    let DefaultExportFormIr::Anonymous { hoisted } = form else {
+        return;
+    };
+    let binding_name = MergedName::anonymous_default(module);
+    let (binding, expression) = body
+        .statements()
+        .iter()
+        .find_map(|statement| default_initializer(statement, binding_name.as_str(), interner))
+        .expect("anonymous default retains its binding in the private module owner");
+    let Some((name, _, key)) = definition(expression) else {
+        assert!(!hoisted);
+        return;
+    };
+    if name != Some(*binding) {
+        assert!(!hoisted);
+        return;
+    }
+    match key {
+        DefinitionKey::Function(key) => {
+            let id = analysis.function_expr_ids[&key].clone();
+            analysis
+                .function_plans
+                .get_mut(&id)
+                .expect("default function is analyzed")
+                .name = "default".into();
+            if hoisted {
+                analysis.hoist_default_export_function(id, binding_name.as_str().to_string());
+            }
+        }
+        DefinitionKey::Class(key) => {
+            assert!(!hoisted);
+            analysis
+                .default_export_class_ids
+                .insert(analysis.class_execution_ids[&key].clone());
+        }
     }
 }
 

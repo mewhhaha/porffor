@@ -38,6 +38,8 @@ fn root_source_and_kind_are_exact_closed_domains() {
             "RealmGlobals,",
             "ActiveFrameLocals,",
             "LexicalEnvironments,",
+            "ModuleRecords,",
+            "ModuleEntryEvaluation,",
             "CompletionRecords,",
             "FunctionTable,",
             "HostBorrowedValues,",
@@ -81,6 +83,18 @@ fn one_exhaustive_metadata_projection_owns_every_root_meaning() {
             "lexical-environments",
             "environment-chain",
             "PersistentTaggedValues",
+        ),
+        (
+            "ModuleRecords",
+            "module-records",
+            "module-record-globals",
+            "PersistentNonTagged",
+        ),
+        (
+            "ModuleEntryEvaluation",
+            "module-entry-evaluation",
+            "module-evaluation-promise-global",
+            "PersistentNonTagged",
         ),
         (
             "CompletionRecords",
@@ -133,11 +147,13 @@ fn root_registry_contains_each_typed_source_once() {
         "pub(crate) const HEAP_ROOT_SOURCES: &[HeapRootSource] = &[",
         "];",
     );
-    assert_eq!(registry.matches("HeapRootSource::").count(), 7);
+    assert_eq!(registry.matches("HeapRootSource::").count(), 9);
     for variant in [
         "RealmGlobals",
         "ActiveFrameLocals",
         "LexicalEnvironments",
+        "ModuleRecords",
+        "ModuleEntryEvaluation",
         "CompletionRecords",
         "FunctionTable",
         "HostBorrowedValues",

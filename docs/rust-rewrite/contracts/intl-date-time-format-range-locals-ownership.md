@@ -1,5 +1,9 @@
 # DateTimeFormat range locals have one release owner
 
+This records the earlier AOT formatter refactor. Its implementation-specific
+source census is superseded by the [DateTimeFormat provider boundary](../intl-datetime-provider.md).
+The historical evidence below is retained; it is not a current verification command.
+
 `PartitionDateTimeRangePattern` reserves two complete component sets plus its
 loop, practical-equality and selected-pattern locals. `DtfComponentLocals` and
 `DtfRangeLocals` are private non-`Clone`, non-`Copy` carriers for that local
@@ -25,7 +29,7 @@ handoff is therefore a Rust move error instead of a latent Wasm-local stack
 defect.
 
 The structure regression pins the private attribute-free declarations, exact
-11/4/8 production identifier census, three produced component values, sole
+12/4/8 production identifier census, three produced component values, sole
 range producer, borrowed helper signatures, eight shared range routes, one
 consuming route and the complete release tail. It also prevents `Clone`, `Copy`,
 manual capabilities or an alternate release route from reopening the
@@ -51,3 +55,11 @@ WasmBackend, HostHarness and Unsupported bucket is zero; all eight outcomes are
 `Success`, with `NotImplemented`, `Crash` and `Bug` also zero. This focused
 checkpoint does not claim ownership of the separately named single-date locals
 or broader DateTimeFormat/Intl conformance.
+
+The named-zone extension adds a tenth component local, the endpoint name. The
+shared component projection copies that name with its matching date fields;
+the existing reverse release owns it once. Each exact endpoint borrows the
+component carrier for a separate provider snapshot. Practical equality still
+uses the specification's nine range-field codes, which exclude timeZoneName.
+The historical 8/8 checkpoint above predates this extension; its new regression
+coverage is recorded in [the named-zone boundary](../intl-named-time-zones.md).

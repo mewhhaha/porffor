@@ -66,6 +66,12 @@ use icu_provider::prelude::*;
 /// * _The Mathematics of the Chinese Calendar_ by Helmer Aslaksen <https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.139.9311&rep=rep1&type=pdf>
 /// * Wikipedia: <https://en.wikipedia.org/wiki/Chinese_calendar>
 ///
+/// This calendar retains astronomical calculations for related ISO years
+/// -3653 through 4703, including all bundled modern data. Outside that interval,
+/// it uses an integer mean-lunar/Gregorian-solar-term approximation adapted from
+/// ICU4X 2.1. The models meet at identical New Year boundaries; ISO conversion
+/// remains reversible across the full Temporal date domain.
+///
 /// # Month codes
 ///
 /// This calendar is a lunisolar calendar. It supports regular month codes `"M01" - "M12"` as well
@@ -138,8 +144,16 @@ impl Chinese {
     pub fn try_new_unstable<D: DataProvider<CalendarChineseV1> + ?Sized>(
         provider: &D,
     ) -> Result<Self, DataError> {
+        let payload = provider.load(Default::default())?.payload;
+        payload
+            .get()
+            .validate::<chinese_based::Chinese>()
+            .map_err(|error| {
+                DataError::custom("invalid chinese calendar year cache")
+                    .with_display_context(&error)
+            })?;
         Ok(Self {
-            data: Some(provider.load(Default::default())?.payload),
+            data: Some(payload),
         })
     }
 
@@ -248,13 +262,13 @@ impl Calendar for Chinese {
     fn year_info(&self, date: &Self::DateInner) -> Self::Year {
         let year = date.0.year;
         types::CyclicYear {
-            year: (year.related_iso - 4).rem_euclid(60) as u8 + 1,
-            related_iso: year.related_iso,
+            year: (i64::from(year.related_iso()) - 4).rem_euclid(60) as u8 + 1,
+            related_iso: year.related_iso(),
         }
     }
 
     fn extended_year(&self, date: &Self::DateInner) -> i32 {
-        chinese_based::extended_from_iso::<chinese_based::Chinese>(date.0.year.related_iso)
+        chinese_based::extended_from_iso::<chinese_based::Chinese>(date.0.year.related_iso())
     }
 
     fn is_in_leap_year(&self, date: &Self::DateInner) -> bool {
@@ -852,7 +866,7 @@ mod test {
                 ordinal,
                 Some(ordinal_code_pair.0),
                 "Code to ordinal failed for year: {}, code: {code}",
-                year.related_iso
+                year.related_iso()
             );
         }
     }
@@ -880,9 +894,10 @@ mod test {
             let code = MonthCode(code);
             let ordinal = year.parse_month_code(code);
             assert_eq!(
-                ordinal, None,
+                ordinal,
+                None,
                 "Invalid month code failed for year: {}, code: {code}",
-                year.related_iso
+                year.related_iso()
             );
         }
     }

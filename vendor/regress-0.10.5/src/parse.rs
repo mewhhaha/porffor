@@ -44,6 +44,12 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UnicodeEscapeMode {
+    CodeUnit,
+    CodePoint,
+}
+
 enum ClassAtom {
     CodePoint(u32),
     CharacterClass {
@@ -1541,7 +1547,12 @@ where
             }
             // CharacterEscape :: RegExpUnicodeEscapeSequence
             'u' => {
-                if let Some(c) = self.try_escape_unicode_sequence() {
+                let mode = if self.flags.unicode || self.flags.unicode_sets {
+                    UnicodeEscapeMode::CodePoint
+                } else {
+                    UnicodeEscapeMode::CodeUnit
+                };
+                if let Some(c) = self.try_escape_unicode_sequence(mode) {
                     Ok(c)
                 } else if !self.flags.unicode {
                     // CharacterEscape :: IdentityEscape :: SourceCharacterIdentityEscape
@@ -1742,11 +1753,12 @@ where
     }
 
     #[allow(clippy::branches_sharing_code)]
-    fn try_escape_unicode_sequence(&mut self) -> Option<u32> {
-        let mut orig_input = self.input.clone();
+    fn try_escape_unicode_sequence(&mut self, mode: UnicodeEscapeMode) -> Option<u32> {
+        let orig_input = self.input.clone();
 
-        // Support \u{X..X} (Unicode CodePoint)
-        if self.try_consume('{') {
+        // Code point escapes and surrogate-pair composition belong to Unicode
+        // grammar; legacy character escapes each produce one UTF-16 code unit.
+        if mode == UnicodeEscapeMode::CodePoint && self.try_consume('{') {
             let mut s = String::new();
             loop {
                 match self.next().and_then(char::from_u32) {
@@ -1788,14 +1800,14 @@ where
             }
             match u16::from_str_radix(&s, 16) {
                 Ok(u) => {
-                    if (0xD800..=0xDBFF).contains(&u) {
+                    if mode == UnicodeEscapeMode::CodePoint && (0xD800..=0xDBFF).contains(&u) {
                         // Found a high surrogate. Try to parse a low surrogate next
                         // to see if we can rebuild the original `char`
 
+                        let after_high_surrogate = self.input.clone();
                         if !self.try_consume_str("\\u") {
                             return Some(u as u32);
                         }
-                        orig_input = self.input.clone();
 
                         // A poor man's try block to handle the backtracking
                         // in a single place instead of every time we want to return.
@@ -1814,7 +1826,7 @@ where
                         })();
 
                         result.or_else(|| {
-                            self.input = orig_input;
+                            self.input = after_high_surrogate;
                             Some(u as u32)
                         })
                     } else {
@@ -1840,7 +1852,8 @@ where
                 return None;
             }
 
-            let cp = self.try_escape_unicode_sequence()?;
+            // RegExpIdentifierName uses Unicode grammar even without u or v.
+            let cp = self.try_escape_unicode_sequence(UnicodeEscapeMode::CodePoint)?;
             return char::from_u32(cp).map(u32::from).or_else(|| {
                 self.input = orig_input;
                 None

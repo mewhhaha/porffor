@@ -8,7 +8,9 @@ use super::temporal_options::{
     ShowCalendarName, StringValuedOption, TemporalConversionOverflowOptions, TemporalOverflow,
     TemporalRoundingMode, TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
-use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
+use super::temporal_plain_date::{
+    TemporalEraLocals, TemporalResolvedIsoYear, TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
+};
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDifferenceOperation,
 };
@@ -21,13 +23,6 @@ pub(super) enum TemporalDateFieldReadMode {
     MonthDayConversion,
     MonthDayWith,
 }
-
-/// `ISO_REFERENCE_YEAR`, the year every `Temporal.PlainMonthDay` stores. 1972
-/// is a leap year, so `--02-29` is representable and `toPlainMonthDay` needs no
-/// range check of its own. `temporal_plain_month_day.rs` names the same value
-/// for its own constructors; it is private there, and this file must not edit
-/// a sibling module.
-const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
 
 impl<'a> FunctionBuilder<'a> {
     /// `GetOptionsObject` followed by a single string-valued option lookup.
@@ -161,7 +156,7 @@ impl<'a> FunctionBuilder<'a> {
     /// preparation. Month-code suitability remains in the resolve step,
     /// after the observable `GetTemporalOverflowOption`. Era and
     /// calendar-specific resolution remains in
-    /// `emit_temporal_resolve_era_to_year` and the two callers' resolve steps.
+    /// `emit_temporal_resolve_era_to_iso_year` and the two callers' resolve steps.
     ///
     /// The era slots are reserved *before* this emitter's own scratch locals
     /// and handed back to the caller, because `reserve_temp_local` is a strict
@@ -322,15 +317,15 @@ impl<'a> FunctionBuilder<'a> {
     /// `from/calendarresolvefields-error-ordering.js` asserts exactly that
     /// split.
     ///
-    /// The year arrives as a [`TemporalResolvedYear`] rather than as a bare
+    /// The year arrives as a [`TemporalResolvedIsoYear`] rather than as a bare
     /// `(year, year-present)` pair, so a bag path that never ran
-    /// [`FunctionBuilder::emit_temporal_resolve_era_to_year`] cannot reach here
+    /// [`FunctionBuilder::emit_temporal_resolve_era_to_iso_year`] cannot reach here
     /// — it would answer "fields require year" for a perfectly good
     /// `{ era, eraYear }` bag, which is the exact defect this replaces.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_plain_date_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedYear,
+        resolved_year: &TemporalResolvedIsoYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -617,7 +612,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -1068,7 +1063,7 @@ impl<'a> FunctionBuilder<'a> {
 
         // Era resolution runs before the receiver merge, so `{ era, eraYear }`
         // *excludes* the receiver's year rather than being checked against it.
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             new_year_local,
@@ -1536,14 +1531,11 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
+        let date_fields =
+            self.reserve_temporal_duration_date_field_locals(&duration_locals, function);
 
         // `ToDateDurationRecordWithoutTime`. `emit_temporal_duration_normalize_seconds`
         // leaves a whole-second count and a `|subsecond| < 1e9` of the same
@@ -1559,7 +1551,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(86_400));
         function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::LocalGet(
-            duration_locals[TemporalUnit::Day.duration_field_index()],
+            date_fields[TemporalUnit::Day.duration_field_index()],
         ));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(day_delta_local));
@@ -1568,9 +1560,9 @@ impl<'a> FunctionBuilder<'a> {
             year_local,
             month_local,
             day_local,
-            duration_locals[TemporalUnit::Year.duration_field_index()],
-            duration_locals[TemporalUnit::Month.duration_field_index()],
-            duration_locals[TemporalUnit::Week.duration_field_index()],
+            date_fields[TemporalUnit::Year.duration_field_index()],
+            date_fields[TemporalUnit::Month.duration_field_index()],
+            date_fields[TemporalUnit::Week.duration_field_index()],
             day_delta_local,
             overflow_local,
             function,
@@ -1588,6 +1580,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for local in date_fields.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         for local in [
             prototype_payload_local,
@@ -2156,10 +2151,7 @@ impl<'a> FunctionBuilder<'a> {
             (weeks_local, TemporalUnit::Week),
             (days_local, TemporalUnit::Day),
         ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::LocalSet(
-                duration_locals[unit.duration_field_index()],
-            ));
+            self.emit_temporal_duration_set_integer_field(&duration_locals, unit, source, function);
         }
         self.emit_create_temporal_duration(&duration_locals, function)?;
 
@@ -2324,7 +2316,7 @@ impl<'a> FunctionBuilder<'a> {
                 // 1972 is a leap year, so every month-day the receiver can hold
                 // is representable and no range check is needed.
                 function.instruction(&Instruction::I64Const(
-                    TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+                    TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
                 ));
                 function.instruction(&Instruction::LocalSet(year_local));
             }

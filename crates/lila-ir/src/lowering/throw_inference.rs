@@ -28,7 +28,9 @@ impl<'a> ScriptLowerer<'a> {
             // A module unit body can throw anything; the link stage fills these
             // blocks in, and until then no unit block exists to inspect.
             StatementIr::ModuleUnitOnce { .. } => Some(ValueInfo::new(ValueKind::Dynamic)),
-            StatementIr::Empty
+            StatementIr::ModuleImportBinding(_) => None,
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
             | StatementIr::AnnexBFunctionCopy { .. }
             | StatementIr::Debugger
             | StatementIr::Break { .. }
@@ -133,6 +135,12 @@ impl<'a> ScriptLowerer<'a> {
                 condition,
                 then_branch,
                 else_branch,
+            }
+            | StatementIr::AsyncFunctionIf {
+                condition,
+                then_branch,
+                else_branch,
+                plan: _,
             } => {
                 let mut info = self.infer_expr_throw_info(condition);
                 info = self
@@ -330,12 +338,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 let mut info = self.infer_expr_throw_info(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     info = self.merge_optional_value_info(
                         info,
                         self.infer_statement_throw_info(statement),
@@ -459,6 +462,16 @@ impl<'a> ScriptLowerer<'a> {
         match &expr.expr {
             // `import()` rejects rather than throws, and reading `import.meta`
             // or a namespace object cannot throw.
+            ExprIr::ModuleEntryEvaluation(entry) => self.infer_expr_throw_info(entry.evaluation()),
+            ExprIr::ModuleExecutionGraph(_)
+            | ExprIr::ModuleBindingRead(_)
+            | ExprIr::ModuleEvaluate(_)
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => Some(unknown_runtime_value_info()),
+            ExprIr::ModuleNamespacePublish { namespace, .. } => {
+                self.infer_expr_throw_info(namespace)
+            }
             ExprIr::DynamicImport { .. }
             | ExprIr::ImportMeta { .. }
             | ExprIr::ModuleNamespace { .. } => None,
@@ -523,7 +536,7 @@ impl<'a> ScriptLowerer<'a> {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(value));
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             info = self
                                 .merge_optional_value_info(info, self.infer_expr_throw_info(key));
                             info = self
@@ -606,6 +619,9 @@ impl<'a> ScriptLowerer<'a> {
                 for operand in operands {
                     info =
                         self.merge_optional_value_info(info, self.infer_expr_throw_info(operand));
+                }
+                if *operation == SpecOperationIr::WithEnvironmentHasBinding {
+                    info = self.merge_optional_value_info(info, Some(unknown_runtime_value_info()));
                 }
                 if *operation == SpecOperationIr::HasProperty {
                     if let Some(target) = operands.first() {
@@ -827,13 +843,12 @@ impl<'a> ScriptLowerer<'a> {
                 info = self.merge_optional_value_info(info, self.infer_expr_throw_info(input));
                 self.merge_optional_value_info(info, self.infer_expr_throw_info(reviver))
             }
-            ExprIr::Construct { callee, args, .. } => {
-                let mut info = self.infer_expr_throw_info(callee);
-                for arg in args {
-                    info = self.merge_optional_value_info(info, self.infer_expr_throw_info(arg));
-                }
-                info
-            }
+            // [[Construct]] can throw any language value independently of
+            // callee/argument evaluation: the constructor body, prototype
+            // lookup, or a Proxy construct trap can all complete abruptly.
+            // A later explicit throw must not narrow the catch binding to
+            // that value and specialize reads of an earlier constructor throw.
+            ExprIr::Construct { .. } => Some(unknown_runtime_value_info()),
             ExprIr::CallMethod {
                 receiver,
                 key,
@@ -867,11 +882,11 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
-            ExprIr::PrivateRead { target, .. } => self.infer_expr_throw_info(target),
-            ExprIr::PrivateWrite { target, value, .. } => self.merge_optional_value_info(
-                self.infer_expr_throw_info(target),
-                self.infer_expr_throw_info(value),
-            ),
+            // PrivateGet/PrivateSet perform brand checks and may invoke an
+            // accessor that throws any value, independently of their operands.
+            ExprIr::PrivateRead { .. } | ExprIr::PrivateWrite { .. } => {
+                Some(unknown_runtime_value_info())
+            }
             ExprIr::PrivateIn { rhs, .. } => {
                 let mut info = self.infer_expr_throw_info(rhs);
                 if !matches!(rhs.expr, ExprIr::RuntimeThrow { .. })

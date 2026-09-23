@@ -63,3 +63,10 @@ after; observationally equivalent because the overlap is an early error).
 Written blind — no `cargo` or `rustc` was run. The integrator owns the compile
 gate; `target/lane-notes/environment-record-tdz-theory-integration.md` carries the
 hub edits, the `lowering.rs` region list and the aot-wasm premise.
+
+
+The namespace constructor now enters IR through trusted linker metadata and no
+longer resolves observable Object/Symbol globals. The historical P1 namespace
+prelude guard remains only where source-phase object construction or renamed
+binding aliases actually use those globals. See
+[module namespace internal methods](module-namespace-internal-methods.md).

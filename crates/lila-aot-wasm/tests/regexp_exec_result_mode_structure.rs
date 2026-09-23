@@ -297,7 +297,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     let consumers = bounded(
         SOURCE,
         "    fn emit_regexp_prototype_exec_from_locals(",
-        "    pub(crate) fn emit_array_to_string_locals(",
+        "    pub(crate) fn emit_concat_string_payloads_local(",
     );
     let wrapper = bounded(
         SOURCE,
@@ -312,7 +312,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     let simple = bounded(
         SOURCE,
         "    fn emit_regexp_exec_simple_from_locals(",
-        "    pub(crate) fn emit_array_to_string_locals(",
+        "    pub(crate) fn emit_concat_string_payloads_local(",
     );
 
     for (function, expected_signature) in [
@@ -329,7 +329,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
             program,
             concat!(
                 "&mutself,receiver_payload_local:u32,receiver_tag_local:u32,",
-                "input_payload_local:u32,result_mode:&RegExpExecResultMode,",
+                "input_payload_local:u32,last_index_local:u32,result_mode:&RegExpExecResultMode,",
                 "handled_local:u32,payload_local:u32,tag_local:u32,function:&mutFunction,"
             ),
         ),
@@ -337,7 +337,7 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
             simple,
             concat!(
                 "&mutself,receiver_payload_local:u32,receiver_tag_local:u32,",
-                "input_payload_local:u32,result_mode:&RegExpExecResultMode,",
+                "input_payload_local:u32,last_index_local:u32,result_mode:&RegExpExecResultMode,",
                 "handled_local:u32,payload_local:u32,tag_local:u32,function:&mutFunction,"
             ),
         ),
@@ -416,12 +416,12 @@ fn regexp_exec_result_mode_is_projected_directly_in_all_three_consumers() {
     );
     let program_call = concat!(
         "self.emit_regexp_exec_program_from_locals(receiver_payload_local,",
-        "receiver_tag_local,input_payload_local,&result_mode,program_handled_local,",
+        "receiver_tag_local,input_payload_local,last_index_local,&result_mode,program_handled_local,",
         "payload_local,tag_local,function,)?;"
     );
     let simple_call = concat!(
         "self.emit_regexp_exec_simple_from_locals(receiver_payload_local,",
-        "receiver_tag_local,input_payload_local,&result_mode,sticky_handled_local,",
+        "receiver_tag_local,input_payload_local,last_index_local,&result_mode,sticky_handled_local,",
         "payload_local,tag_local,function,)?;"
     );
     assert_eq!(wrapper.matches(program_call).count(), 1);

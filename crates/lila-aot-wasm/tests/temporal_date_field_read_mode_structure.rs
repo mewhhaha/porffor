@@ -16,12 +16,12 @@ fn temporal_date_field_read_mode_is_a_closed_four_variant_domain() {
     let type_declaration = bounded(
         DATE_METHODS_SOURCE,
         "#[derive(",
-        "\n\n/// `ISO_REFERENCE_YEAR`",
+        "\n\nimpl<'a> FunctionBuilder<'a> {",
     );
     let declaration = bounded(
         DATE_METHODS_SOURCE,
         "pub(super) enum TemporalDateFieldReadMode {",
-        "\n}\n\n/// `ISO_REFERENCE_YEAR`",
+        "\n}\n\nimpl<'a> FunctionBuilder<'a> {",
     );
     let variants = declaration
         .lines()

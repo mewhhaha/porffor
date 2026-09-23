@@ -93,6 +93,18 @@ impl FunctionBuilder<'_> {
             environment.initialization,
             lila_ir::LexicalEnvironmentInitializationIr::Uninitialized
         ) {
+            if self.current_function_meta().is_some_and(|meta| {
+                matches!(
+                    meta.protocol.execution_kind(),
+                    FunctionExecutionKind::Async | FunctionExecutionKind::Generator
+                )
+            }) {
+                return self.emit_enter_resumable_lexical_environment(
+                    environment,
+                    entry_state,
+                    function,
+                );
+            }
             return self.emit_enter_lexical_environment(environment, function);
         }
         let parameter_environment = self.reserve_temp_local();

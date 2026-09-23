@@ -40,6 +40,34 @@ fn prepared_functions_parse_each_execution_grammar_without_a_name_binding() {
 }
 
 #[test]
+fn final_binding_patterns_parse_without_a_following_initializer_or_delimiter() {
+    for kind in [
+        FunctionParseKind::Ordinary,
+        FunctionParseKind::Generator,
+        FunctionParseKind::Async,
+        FunctionParseKind::AsyncGenerator,
+    ] {
+        for parameters in [
+            "{value}",
+            "[value]",
+            "first, {value}",
+            "first, [value]",
+            "{outer: {value = 9}} // parameter",
+            "[[value = 9]] /* parameter */",
+            "{}",
+            "[]",
+            "{value},",
+            "[value],",
+            "{value} = {value: 7}",
+            "[value] = [7]",
+        ] {
+            prepare_dynamic_function(kind, &[parameters.into(), "return value;".into()])
+                .unwrap_or_else(|error| panic!("{kind:?}({parameters}): {error:?}"));
+        }
+    }
+}
+
+#[test]
 fn constructor_parameters_and_body_cannot_complete_each_others_tokens() {
     for kind in [
         FunctionParseKind::Ordinary,
@@ -52,6 +80,10 @@ fn constructor_parameters_and_body_cannot_complete_each_others_tokens() {
             ["a) {", "return 1; } //"],
             ["a", "} function injected() {} //"],
             ["a", "/*"],
+            ["{value", "return value; }"],
+            ["[value", "return value; ]"],
+            ["{value} =", "return value;"],
+            ["[value] =", "return value;"],
         ] {
             let arguments = arguments.map(str::to_string);
             let error = prepare_dynamic_function(kind, &arguments)
@@ -70,6 +102,8 @@ fn combined_constructor_early_errors_follow_the_body_strictness() {
     for arguments in [
         ["a,a", "'use strict'; return a;"],
         ["a = 1", "'use strict'; return a;"],
+        ["{value}", "'use strict'; return value;"],
+        ["[value]", "'use strict'; return value;"],
         ["eval", "'use strict'; return eval;"],
         ["a", "let a;"],
         ["a", "return super.value;"],

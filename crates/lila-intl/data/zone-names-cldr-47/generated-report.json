@@ -1,0 +1,30 @@
+{
+  "cldr_release": "47.0.0",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "country_icu_commit": "457157a92aa053e632cc7fcfd0e12f8a943b2d11",
+  "source_manifest_sha256": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd",
+  "generator_sha256": "5c4c71683c3ec140c18488d1e5c2395ed3bb8be89f72d8e9390c71a4abaa2520",
+  "normalized_rows_sha256": "1bfd5a0bd3b367f42f68aa616e8946bd73536351130d24162dad840e89134cec",
+  "provider_data_sha256": "9b41b0aa307cdc894b421a6c62ac26cce6af160eda9e82de826fc3d68c7a1919",
+  "generated_sha256": "e18d2512c5406ffdbb96c4f2d86614aa4c9949c0ea5249450a01d184aeb59633",
+  "generated_bytes": 443685,
+  "source_bytes": 1235981,
+  "zones": 446,
+  "aliases": 600,
+  "metazones": 190,
+  "periods": 669,
+  "supported_locales": [
+    "en",
+    "en-US"
+  ],
+  "fallback_chain": [
+    "root",
+    "en",
+    "en_US"
+  ],
+  "consumed_icu_fields": [
+    "Names",
+    "Regions:array"
+  ],
+  "epoch_boundaries": "half-open UTC seconds; omitted boundaries unbounded"
+}

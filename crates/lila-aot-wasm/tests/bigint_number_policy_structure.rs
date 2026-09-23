@@ -2,8 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const BIGINT_ARITHMETIC_SOURCE: &str = include_str!("../src/bigint.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const BIGINT_SOURCE: &str = include_str!("../src/builtins/bigint.rs");
+const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const TEMPORAL_SOURCE: &str = include_str!("../src/builtins/temporal.rs");
 const TEMPORAL_INSTANT_SOURCE: &str = include_str!("../src/builtins/temporal_instant.rs");
 
@@ -234,25 +236,41 @@ fn bigint_number_policy_is_closed_and_projects_only_at_the_number_branch() {
         "BigIntNumberPolicy::NumberToBigInt => {",
         "BigIntNumberPolicy::RejectNumber => {",
     );
-    assert_eq!(number_to_bigint.matches("RANGE_ERROR_NAME").count(), 3);
     assert_eq!(
         number_to_bigint
-            .matches("Instruction::I64TruncF64S")
+            .matches("emit_number_to_bigint_locals(")
             .count(),
         1
     );
-    let nan_check = number_to_bigint
+    let number_conversion = bounded(
+        BIGINT_ARITHMETIC_SOURCE,
+        "pub(crate) fn emit_number_to_bigint_locals(",
+        "pub(crate) fn emit_bigint_binary_op_to_locals(",
+    );
+    assert_eq!(
+        number_conversion
+            .matches("emit_throw_current_function_realm_range_error(")
+            .count(),
+        3
+    );
+    assert!(!number_conversion.contains("emit_throw_runtime_error("));
+    assert!(!number_conversion.contains("Instruction::I64TruncF64S"));
+    let nan_check = number_conversion
         .find("Instruction::F64Ne")
         .expect("missing NaN rejection");
-    let infinity_checks = number_to_bigint
+    let infinity_checks = number_conversion
         .find("for infinite in [f64::INFINITY, f64::NEG_INFINITY]")
         .expect("missing infinity rejection");
-    let integral_check = number_to_bigint
+    let integral_check = number_conversion
         .find("Instruction::F64Trunc)")
         .expect("missing integral check");
-    let conversion = number_to_bigint
-        .find("Instruction::I64TruncF64S")
-        .expect("missing integral Number conversion");
+    let conversion = number_conversion
+        .find("emit_bigint_decode_number_operand(")
+        .expect("missing exact Number digit decoding");
+    let packing = number_conversion
+        .find("emit_bigint_pack_result(")
+        .expect("missing shared BigInt representation packing");
+    assert!(conversion < packing);
     assert!(
         nan_check < infinity_checks
             && infinity_checks < integral_check
@@ -340,6 +358,7 @@ fn bigint_number_policy_has_exactly_six_rejections_and_one_admission() {
 
     let mut total_value_mentions = 0;
     let mut total_primitive_mentions = 0;
+    let mut total_number_mentions = 0;
     for (path, source) in sources {
         let relative = path
             .strip_prefix(&source_root)
@@ -374,6 +393,17 @@ fn bigint_number_policy_has_exactly_six_rejections_and_one_admission() {
             "the primitive helper must have only its definition and unique forwarding caller"
         );
         total_primitive_mentions += primitive_mentions;
+
+        let expected_number_mentions = match relative.as_ref() {
+            "operations.rs" | "bigint.rs" => 1,
+            _ => 0,
+        };
+        let number_mentions = source.matches("emit_number_to_bigint_locals(").count();
+        assert_eq!(
+            number_mentions, expected_number_mentions,
+            "NumberToBigInt must retain one exact conversion entry and its policy-selected caller"
+        );
+        total_number_mentions += number_mentions;
     }
 
     assert_eq!(
@@ -383,5 +413,33 @@ fn bigint_number_policy_has_exactly_six_rejections_and_one_admission() {
     assert_eq!(
         total_primitive_mentions, 2,
         "one primitive-helper definition plus one forwarding call must remain"
+    );
+    assert_eq!(total_number_mentions, 2);
+}
+
+#[test]
+fn created_realm_bigint_retains_its_defining_realm_at_the_call_boundary() {
+    let constructor = bounded(
+        HOST_SOURCE,
+        "        self.emit_function_value_payload_in_realm(\n            &bigint_meta,",
+        "        for (name, meta) in &bigint_static_method_metas {",
+    );
+    let realm_then_environment = without_whitespace(
+        r#"
+            &realm_functions,
+            bigint_constructor_local,
+            function,
+        )?;
+        self.store_i64_local_at_offset(
+            bigint_constructor_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            bigint_constructor_local,
+            function,
+        );
+        "#,
+    );
+    assert!(
+        without_whitespace(constructor).starts_with(&realm_then_environment),
+        "created-realm BigInt must carry its defining function through ENV before publication"
     );
 }

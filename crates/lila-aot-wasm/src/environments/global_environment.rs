@@ -480,13 +480,18 @@ impl FunctionBuilder<'_> {
             cell_local,
             function,
         );
-        self.load_i64_to_local_from_offset(
-            cell_local,
-            ENV_SLOT_PAYLOAD_OFFSET,
-            payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(cell_local, ENV_SLOT_TAG_OFFSET, tag_local, function);
+        self.emit_read_environment_cell(cell_local, payload_local, tag_local, function);
+        self.emit_check_environment_cell_initialized(payload_local, tag_local, function)?;
+        self.release_temp_local(cell_local);
+        Ok(())
+    }
+
+    pub(crate) fn emit_check_environment_cell_initialized(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ENV_SLOT_UNINITIALIZED_TAG));
         function.instruction(&Instruction::I64Eq);
@@ -499,8 +504,31 @@ impl FunctionBuilder<'_> {
         )?;
         self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::End);
-        self.release_temp_local(cell_local);
         Ok(())
+    }
+
+    /// SetMutableBinding checks this binding's initialization before mutability.
+    /// An initialized import must not read an uninitialized exporter during a write.
+    pub(crate) fn emit_check_named_binding_initialized(
+        &mut self,
+        entry_local: u32,
+        error_payload_local: u32,
+        error_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.load_i64_to_local_from_offset(
+            entry_local,
+            GLOBAL_LEXICAL_CELL_OFFSET,
+            error_tag_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            error_tag_local,
+            ENV_SLOT_TAG_OFFSET,
+            error_tag_local,
+            function,
+        );
+        self.emit_check_environment_cell_initialized(error_payload_local, error_tag_local, function)
     }
 
     pub(crate) fn emit_global_lexical_write(
@@ -513,7 +541,7 @@ impl FunctionBuilder<'_> {
         let cell_local = self.reserve_temp_local();
         let previous_payload_local = self.reserve_temp_local();
         let previous_tag_local = self.reserve_temp_local();
-        self.emit_global_lexical_read(
+        self.emit_check_named_binding_initialized(
             entry_local,
             previous_payload_local,
             previous_tag_local,

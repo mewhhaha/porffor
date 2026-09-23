@@ -308,6 +308,8 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinInstaller::IntlNumberFormat => self
+                .install_intl_number_format_constructor_intrinsics(&intrinsic_context, function)?,
             StandardBuiltinInstaller::Date => {
                 self.install_date_constructor_intrinsics(&intrinsic_context, function)?
             }
@@ -1331,7 +1333,7 @@ impl<'a> FunctionBuilder<'a> {
 
         let fill_meta = self
             .functions
-            .get(&StandardBuiltinId::ArrayPrototypeFill.function_id())
+            .get(&StandardBuiltinId::TypedArrayPrototypeFill.function_id())
             .ok_or_else(|| {
                 EmitError::unsupported(
                     "unsupported in lila wasm-aot first slice: missing builtin meta `TypedArray.prototype.fill`",
@@ -3209,6 +3211,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            TEMPORAL_INSTANT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::TemporalInstantPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3233,6 +3240,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            TEMPORAL_DURATION_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::TemporalDurationPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3271,6 +3283,11 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::GlobalSet(INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_LOCALE_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlLocalePrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3279,6 +3296,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::GlobalSet(
             INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
         ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlDateTimeFormatPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlNumberFormatPrototype,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(
             None,
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
@@ -3604,6 +3639,16 @@ impl<'a> FunctionBuilder<'a> {
         }
         if self
             .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlNumberFormatConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlNumberFormatConstructor,
+                INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::RegExpConstructor)
         {
             self.init_builtin_constructor_object(
@@ -3618,6 +3663,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,
@@ -3642,6 +3688,7 @@ impl<'a> FunctionBuilder<'a> {
         for builtin in [
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
+            StandardBuiltinId::Float16ArrayConstructor,
             StandardBuiltinId::Int32ArrayConstructor,
             StandardBuiltinId::Int16ArrayConstructor,
             StandardBuiltinId::Int8ArrayConstructor,

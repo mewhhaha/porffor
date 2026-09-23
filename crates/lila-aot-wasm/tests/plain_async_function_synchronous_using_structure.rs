@@ -88,7 +88,7 @@ fn analysis_and_lowering_mint_one_suspension_owned_async_capability() {
     let lower = bounded(
         LOWERING_SOURCE,
         "    fn lower_using_declaration(",
-        "    /// Selects the only legal lifetime for an ordinary statement-list `using`.",
+        "    fn sync_disposable_scope_execution(",
     );
     assert_before(
         lower,
@@ -189,7 +189,7 @@ fn async_state_traversal_enters_only_the_async_owned_scope_body() {
     let async_entry = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn async_statement_entry_state(statement: &StatementIr) -> Option<u32> {",
-        "    fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
+        "    pub(crate) fn async_statement_exit_state(statement: &StatementIr) -> Option<u32> {",
     );
     assert!(async_entry.contains("SyncDisposableScopeExecutionIr::AsyncFunction(_)"));
     assert!(async_entry.contains("| SyncDisposableScopeExecutionIr::AsyncGenerator(_)"));
@@ -223,9 +223,8 @@ fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispa
     for marker in [
         "owner.execution_kind()",
         "owner.binding_name()",
-        "owned_env_slot(owner.binding_name())",
+        "activation_owned_binding_storage(owner.binding_name())",
         "activation-backed synchronous DisposeCapability is missing its owned binding",
-        "BindingStorage::EnvSlot { slot, hops: 0 }",
         "ActivationSyncDisposeCapabilityStorage { binding }",
         "ActivationSyncDisposeOwner::AsyncFunction(_) =>",
         "Self::async_statement_entry_state",
@@ -250,6 +249,7 @@ fn async_scope_initializes_once_retains_through_await_then_disposes_before_dispa
         "ActivationSyncDisposeCapabilityStorage { binding }",
     );
     assert!(!scope.contains("self.allocate_binding("));
+    assert!(!scope.contains("BindingStorage::EnvSlot { slot, hops: 0 }"));
     assert_before(
         scope,
         "emit_state_in_inclusive_range_i32(",

@@ -8,7 +8,8 @@ const GRAPH_BUILD_SOURCE: &str = include_str!("../src/modules/graph_build.rs");
 const GRAPH_RESOLUTION_SOURCE: &str = include_str!("../src/modules/graph_resolution.rs");
 const EARLY_SOURCE: &str = include_str!("../src/modules/early.rs");
 const RECORD_SOURCE: &str = include_str!("../src/modules/record.rs");
-const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const LOWERING_SOURCE: &str = include_str!("../src/lowering/module_graph.rs");
+const ADMISSION_SOURCE: &str = include_str!("../src/modules/admission.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -115,7 +116,7 @@ fn module_link_error_keeps_exhaustive_code_message_and_diagnostic_projections() 
 fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     assert_eq!(OWNER_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
     assert_eq!(GRAPH_SOURCE.matches("ModuleLinkErrorIr").count(), 9);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 7);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 6);
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE
             .matches("ModuleLinkErrorIr")
@@ -132,7 +133,8 @@ fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
         1
     );
     assert_eq!(RECORD_SOURCE.matches("module_early_errors(").count(), 1);
-    assert_eq!(LOWERING_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
+    assert_eq!(LOWERING_SOURCE.matches("ModuleLinkErrorIr").count(), 0);
+    assert_eq!(ADMISSION_SOURCE.matches("ModuleLinkErrorIr").count(), 1);
     assert_eq!(
         GRAPH_RESOLUTION_SOURCE
             .matches("pub fn resolve_export(")
@@ -149,5 +151,7 @@ fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     assert!(!GRAPH_TESTS_SOURCE.contains("fn resolve_export"));
     assert!(EARLY_SOURCE.contains("let error = ModuleLinkErrorIr::DuplicateExport {"));
     assert!(EARLY_SOURCE.contains("error.message(),"));
-    assert!(LOWERING_SOURCE.contains(".map(ModuleLinkErrorIr::to_diagnostic)"));
+    assert!(ADMISSION_SOURCE.contains(".map(ModuleLinkErrorIr::to_diagnostic)"));
+    assert!(LOWERING_SOURCE.contains("modules::link_loaded_graph(sources, entry_is_script)"));
+    assert!(LOWERING_SOURCE.contains("program.diagnostics = rejection.diagnostics;"));
 }

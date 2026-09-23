@@ -25,15 +25,15 @@ pub(crate) enum IntlNamespacePlan {
     Absent,
     /// The namespace object is emitted, and every [`INTL_NAMESPACE_ROOTS`]
     /// id is in `standard_roots`.
-    RootedWithDateTimeFormatFamily(IntlRootsSeeded),
+    RootedFamilies(IntlRootsSeeded),
 }
 
 impl IntlNamespacePlan {
     /// The only constructor of
-    /// [`IntlNamespacePlan::RootedWithDateTimeFormatFamily`].
+    /// [`IntlNamespacePlan::RootedFamilies`].
     pub(crate) fn rooted(standard_roots: &mut BTreeSet<StandardBuiltinId>) -> Self {
         standard_roots.extend(INTL_NAMESPACE_ROOTS);
-        Self::RootedWithDateTimeFormatFamily(IntlRootsSeeded(()))
+        Self::RootedFamilies(IntlRootsSeeded(()))
     }
 
     /// The member list, or `None` when no `Intl` object is emitted.
@@ -45,7 +45,7 @@ impl IntlNamespacePlan {
     /// is what leaves [`IntlNamespaceMembers`] with no reachable
     /// constructor.
     pub(crate) fn members(self, full_standard_globals: bool) -> Option<IntlNamespaceMembers> {
-        if full_standard_globals || matches!(self, Self::RootedWithDateTimeFormatFamily(_)) {
+        if full_standard_globals || matches!(self, Self::RootedFamilies(_)) {
             Some(IntlNamespaceMembers {
                 members: INTL_NAMESPACE_CONSTRUCTORS,
             })

@@ -1,11 +1,14 @@
 #[test]
 fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
     let parent_source = include_str!("../src/builtins/intl_datetimeformat.rs");
+    let initialization_source =
+        include_str!("../src/builtins/intl_datetimeformat/initialization.rs");
     let lifecycle_source =
         include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs");
     let source = concat!(
         include_str!("../src/builtins/intl_datetimeformat.rs"),
-        include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs")
+        include_str!("../src/builtins/intl_datetimeformat/construction_lifecycle.rs"),
+        include_str!("../src/builtins/intl_datetimeformat/initialization.rs")
     );
     let functions = include_str!("../src/functions.rs");
 
@@ -68,11 +71,11 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
         .split_once("\n    }\n}")
         .expect("DateTimeFormat publish transition should be bounded")
         .0;
-    let constructor = parent_source
-        .split_once("pub(crate) fn emit_intl_date_time_format_constructor(")
+    let constructor = initialization_source
+        .split_once("pub(crate) fn emit_intl_create_date_time_format(")
         .expect("DateTimeFormat constructor should exist")
         .1
-        .split_once("fn emit_intl_dtf_note_component_present(")
+        .split_once("pub(super) fn emit_dtf_requested_locales(")
         .expect("DateTimeFormat constructor should be bounded")
         .0;
 
@@ -99,9 +102,9 @@ fn date_time_format_reservation_is_tagged_ordered_and_one_way() {
     );
     assert_eq!(
         reserve
-            .matches("NewTargetPrototypeFallback::CurrentGlobal")
+            .matches("OrdinaryDefaultPrototype::IntlDateTimeFormat")
             .count(),
-        1
+        2
     );
     assert_eq!(
         reserve

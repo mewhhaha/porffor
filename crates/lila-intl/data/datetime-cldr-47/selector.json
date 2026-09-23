@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "locales": [
+    "en",
+    "en-US",
+    "ar",
+    "ar-EG",
+    "zh",
+    "zh-Hans",
+    "zh-Hans-CN"
+  ],
+  "calendars": [
+    "gregory",
+    "iso8601",
+    "chinese"
+  ],
+  "default_locale": "en-US",
+  "minimum_draft": "contributed",
+  "alt_selection": "ascii date/time patterns when supplied; default names; short territory for generic location names",
+  "calendar_identifiers": {
+    "gregory": "gregorian",
+    "iso8601": "gregorian",
+    "chinese": "chinese"
+  },
+  "release": "47.0.0",
+  "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
+}

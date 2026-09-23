@@ -17,6 +17,9 @@ fn reporter() -> &'static str {
         .split_once("    pub(crate) fn emit_promise_constructor(")
         .expect("unhandled-rejection reporter should remain bounded")
         .0
+        .split_once("let value_to_string_helper =")
+        .expect("FailRun diagnostics should follow the host-policy selection")
+        .1
 }
 
 #[test]
@@ -166,7 +169,9 @@ fn heap_modules_own_the_unhandled_diagnostic_print_import() {
 fn main_export_routes_the_checkpoint_after_drain_and_registers_public_cli_tests() {
     assert_eq!(
         EMIT_SOURCE
-            .matches("self.emit_report_unhandled_rejection(&mut function)?;")
+            .matches(
+                "self.emit_report_unhandled_rejection(promise_rejection_policy, &mut function)?;"
+            )
             .count(),
         1,
         "the product main export must retain one rejection checkpoint call"
@@ -182,7 +187,7 @@ fn main_export_routes_the_checkpoint_after_drain_and_registers_public_cli_tests(
         .rfind("self.emit_drain_promise_jobs(&mut function)?;")
         .expect("Promise jobs must drain before rejection reporting");
     let rejection_report = main_checkpoint
-        .find("self.emit_report_unhandled_rejection(&mut function)?;")
+        .find("self.emit_report_unhandled_rejection(promise_rejection_policy, &mut function)?;")
         .expect("the main export must route through rejection reporting");
     assert!(final_job_drain < rejection_report);
 

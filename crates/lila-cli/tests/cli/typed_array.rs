@@ -356,7 +356,11 @@ fn run_wasm_backend_succeeds_for_typedarray_from_nan_conversion_fixture() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(262"));

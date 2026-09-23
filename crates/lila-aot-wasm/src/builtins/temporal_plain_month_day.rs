@@ -12,22 +12,14 @@ use super::super::*;
 use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow,
 };
-use super::temporal_plain_date::{MonthDayYearUse, TemporalCalendarId, TemporalResolvedYear};
+use super::temporal_plain_date::{
+    MonthDayYearUse, TemporalCalendarId, TemporalResolvedIsoYear,
+    TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
+};
 use super::temporal_plain_date_methods::TemporalDateFieldReadMode;
 use super::temporal_plain_year_month::{TemporalPartialDatePrototype, TemporalPartialDateType};
 
-/// `ISO_REFERENCE_YEAR` from the proposal.
-const TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR: i64 = 1972;
-
-/// The `ISOYearMonthWithinLimits` year bounds, which
-/// [`MonthDayYearUse::RangeChecked`] applies to a supplied `year`.
-///
-/// `temporal_plain_year_month.rs` names the same two values privately for its
-/// own limit check. They are restated rather than shared because this file must
-/// not edit a sibling module — the same reason
-/// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR` is restated in
-/// `temporal_plain_date_methods.rs`. A lane that owns both files should collapse
-/// the three copies.
+/// ISO year bounds applied to a supplied non-ISO calendar year after conversion.
 const TEMPORAL_MONTH_DAY_MINIMUM_YEAR: i64 = -271_821;
 const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 
@@ -45,7 +37,7 @@ const TEMPORAL_MONTH_DAY_MAXIMUM_YEAR: i64 = 275_760;
 ///   which is what rejects `"±999999-01-01[u-ca=gregory]"`.
 ///
 /// Only then is the year replaced with
-/// `TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR`. Both facts were previously
+/// `TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR`. Both facts were previously
 /// unrecoverable by the time the reference year was stored, and both checks were
 /// simply absent; naming the pair is what stops them being droppable again.
 ///
@@ -174,7 +166,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
         ));
         function.instruction(&Instruction::LocalSet(year_local));
         self.emit_builtin_arg_to_locals(3, argument_payload_local, argument_tag_local, function);
@@ -353,7 +345,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_month_day_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedYear,
+        resolved_year: &TemporalResolvedIsoYear,
         calendar_payload_local: u32,
         month_local: u32,
         month_present_local: u32,
@@ -449,7 +441,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
         ));
         function.instruction(&Instruction::LocalSet(year_local));
         function.instruction(&Instruction::End);
@@ -532,7 +524,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
         ));
         function.instruction(&Instruction::LocalSet(year_local));
 
@@ -650,7 +642,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -889,23 +881,13 @@ impl<'a> FunctionBuilder<'a> {
     ///   `"±999999-10-01[u-ca=iso8601]"` is explicitly *valid* and is the proof
     ///   that this bound must stay behind the same ISO gate.
     /// * **reference-year store** — the stored `[[ISOYear]]` becomes
-    ///   [`TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR`].
+    ///   [`TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR`].
     ///
-    /// **The unconditional 1972 store is a shortcut, valid only while
-    /// [`TemporalCalendarId::ALL`] contains no calendar with a leap month.** The
-    /// literal 1972 is the `iso8601` branch's reference year; on the non-ISO
-    /// branch the reference year is whatever `CalendarMonthDayFromFields`
-    /// returns, and the spec does not promise 1972 there.
-    /// `intl402/Temporal/PlainMonthDay/from/reference-year-1972.js` pins exactly
-    /// that: `result4` (`{monthCode:"M05L", day:1, calendar:"hebrew"}`) asserts
-    /// **1970** and `result7` asserts 1971, checked through
-    /// `TemporalHelpers.assertPlainMonthDay`'s fifth parameter
-    /// (`harness/temporalHelpers.js:302-308`, which reads the year back out of
-    /// `toString({calendarName:"always"})`). `ALL` is `[Iso8601, Gregory]` and
-    /// every gregory month-day exists in the leap year 1972, so the shortcut is
-    /// correct today and only today. A lunisolar calendar added to `ALL` must
-    /// derive this year from `CalendarMonthDayFromFields` instead — see the note
-    /// on `ALL` itself.
+    /// The shared reference-year constant requires every supported calendar to
+    /// use Gregorian month/day arithmetic. This includes Buddhist dates. A
+    /// calendar with different months needs CalendarMonthDayFromFields here:
+    /// `intl402/Temporal/PlainMonthDay/from/reference-year-1972.js` requires
+    /// ISO 1970 for Hebrew M05L and ISO 1971 for a 30-day Cheshvan.
     ///
     /// Both checks are outside the caller's overflow-options match, because
     /// `equals` reaches `ToTemporalMonthDay` with no options at all and
@@ -971,7 +953,7 @@ impl<'a> FunctionBuilder<'a> {
         // comment: the unconditional literal is a shortcut that holds only while
         // no calendar in `TemporalCalendarId::ALL` has a leap month.
         function.instruction(&Instruction::I64Const(
-            TEMPORAL_PLAIN_MONTH_DAY_REFERENCE_YEAR,
+            TEMPORAL_GREGORIAN_MONTH_DAY_REFERENCE_YEAR,
         ));
         function.instruction(&Instruction::LocalSet(year_local));
         Ok(())
@@ -1195,7 +1177,7 @@ impl<'a> FunctionBuilder<'a> {
         // No receiver-year merge here: a `Temporal.PlainMonthDay` has no
         // observable year, so the reference year stands in when the bag
         // supplies neither `year` nor an era pair.
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             new_year_local,
@@ -1478,7 +1460,7 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.PlainMonthDay year must be finite",
             function,
         )?;
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,

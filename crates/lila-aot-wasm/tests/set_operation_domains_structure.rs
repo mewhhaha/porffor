@@ -202,17 +202,29 @@ fn set_algebra_policies_are_exhaustive_and_other_iteration_stays_complete() {
         "    pub(crate) fn emit_set_prototype_difference(",
     );
     assert!(other_iteration.contains("operation: SetAlgebraOperation,"));
-    assert_eq!(other_iteration.matches("match operation").count(), 1);
+    assert_eq!(other_iteration.matches("match operation").count(), 2);
     for operation in ["Difference", "Intersection", "SymmetricDifference", "Union"] {
         assert_eq!(
             other_iteration
                 .matches(&format!("SetAlgebraOperation::{operation}"))
                 .count(),
-            1,
-            "other algebra operation `{operation}`"
+            2,
+            "copy phase and other algebra operation `{operation}`"
         );
     }
     assert!(!other_iteration.contains("_ =>"));
+    let iterator_copy = bounded(
+        other_iteration,
+        "        match operation {",
+        "        function.instruction(&Instruction::Block(BlockType::Empty));",
+    );
+    assert!(iterator_copy
+        .contains("SetAlgebraOperation::SymmetricDifference | SetAlgebraOperation::Union => {"));
+    assert_eq!(iterator_copy.matches("emit_copy_set_record(").count(), 1);
+    assert!(
+        other_iteration.find("self.emit_object_read(").unwrap()
+            < other_iteration.find("        match operation {").unwrap()
+    );
 
     let wrappers = bounded(
         COLLECTIONS_SOURCE,
@@ -250,6 +262,11 @@ fn set_algebra_policies_are_exhaustive_and_other_iteration_stays_complete() {
         );
     }
     assert_eq!(initialization.matches("emit_copy_set_record(").count(), 1);
+    assert!(initialization.contains("SetAlgebraOperation::Difference => {"));
+    assert!(algebra
+        .contains("SetAlgebraReceiverIterationOperation::Difference => result_record_local,"));
+    assert!(algebra
+        .contains("SetAlgebraReceiverIterationOperation::Intersection => receiver_record_local,"));
     let receiver_projection = bounded(
         algebra,
         "        let receiver_iteration = match operation {",

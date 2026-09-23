@@ -1,41 +1,22 @@
-//! ECMA-402 `Intl` service layer — the smallest genuinely working slice.
+//! `Intl.Locale` construction and canonical locale lists on the Wasm AOT path.
 //!
-//! What is here: the `Intl` namespace object, `Intl.getCanonicalLocales`
-//! (ECMA-402 8.2.1) and `Intl.Locale` (ECMA-402 14) with the `language`,
-//! `script`, `region` and `baseName` getters plus `toString`.
-//!
-//! The observable shell rests on
-//! [`FunctionBuilder::emit_intl_canonicalize_locale_tag`], which implements
-//! *structural* `CanonicalizeUnicodeLocaleId`: it validates a string against
-//! the `unicode_locale_id` grammar of UTS 35 and re-cases and re-orders it into
-//! canonical form. `Intl.getCanonicalLocales` then sends that validated byte
-//! span through the typed `lila_host.intl_call` boundary for pinned ICU4X alias
-//! resolution before it performs list deduplication.
-//!
-//! The provider-backed alias pass is deliberately limited to
-//! `Intl.getCanonicalLocales`; `Intl.Locale` still carries only the structural
-//! result so its tag and component slots cannot disagree. General locale
-//! matching, complete extension handling, and the other data-backed Intl
-//! services remain open.
-//!
-//! `Intl.Locale` applies its `language`, `script` and `region` options in
-//! observable order, including object coercion, inherited/Proxy reads and
-//! abrupt completion. It retains variants, extensions and private use while
-//! replacing those fields. Provider aliases, the `variants` option and the
-//! Unicode-extension options remain separate, unfinished work.
-//!
-//! Strings are UTF-8 byte spans in linear memory and a well-formed language tag
-//! is ASCII, so every structural pass below is a plain byte loop. That pass
-//! preserves the input length; the later provider result has its own bounded
-//! output buffer because alias replacement may change the length.
+//! JavaScript argument and option observation stays in the ordinary object and
+//! coercion emitters. The structural pass validates Unicode locale identifiers;
+//! the typed host provider applies its pinned ICU4X language alias data before
+//! core options and after extension replacement. All cached components are
+//! refreshed from the final tag. The provider resolves complete keyword values
+//! against generated, hash-pinned CLDR BCP47 aliases in its pure data layer.
 
 use super::super::*;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
-use lila_intl::{IntlHostCallOutcome, IntlHostOp, MAX_INTL_IDENTIFIER_BYTES};
+use lila_intl::IntlHostCallOutcome;
 
 mod construction_lifecycle;
+mod extension_options;
 mod language_options;
+mod likely_subtags;
+mod provider;
 
 mod canonical_locale_tag_invocation {
     pub(in crate::builtins) struct CanonicalLocaleTagInputPayloadLocal(u32);
@@ -179,7 +160,7 @@ impl IntlLocaleStringSlot {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
+    pub(super) fn intl_call_import_function_index(&self) -> Result<u32, EmitError> {
         self.functions
             .intl_call_import_function_index()
             .ok_or_else(|| {
@@ -1650,13 +1631,41 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
+        self.emit_intl_locale_canonicalize_components(
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_payload_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_payload_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_payload_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_payload_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
+            function,
+        )?;
+
         self.emit_intl_locale_language_options(
-            options,
+            &options,
             tag_payload_local,
             language_payload_local,
             script_payload_local,
             region_payload_local,
             base_name_payload_local,
+            function,
+        )?;
+
+        self.emit_intl_locale_extension_options(&options, tag_payload_local, function)?;
+
+        self.emit_intl_locale_canonicalize_components(
+            CanonicalLocaleTagInvocationLocals::new(
+                CanonicalLocaleTagInputPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleTagPayloadLocal::new(tag_payload_local),
+                CanonicalLocaleLanguagePayloadLocal::new(language_payload_local),
+                CanonicalLocaleScriptPayloadLocal::new(script_payload_local),
+                CanonicalLocaleRegionPayloadLocal::new(region_payload_local),
+                CanonicalLocaleBaseNamePayloadLocal::new(base_name_payload_local),
+                CanonicalLocaleValidityLocal::new(ok_local),
+            ),
             function,
         )?;
 
@@ -1797,9 +1806,6 @@ impl<'a> FunctionBuilder<'a> {
         let region_payload_local = self.reserve_temp_local();
         let base_name_payload_local = self.reserve_temp_local();
         let ok_local = self.reserve_temp_local();
-        let provider_output_local = self.reserve_temp_local();
-        let provider_output_len_local = self.reserve_temp_local();
-        let provider_output_capacity_local = self.reserve_temp_local();
         let duplicate_local = self.reserve_temp_local();
         let entry_local = self.reserve_temp_local();
         let existing_local = self.reserve_temp_local();
@@ -2041,60 +2047,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        // Structural validation and every observable element read/coercion are
-        // complete before the pure provider call. Reserve a fresh maximum-size
-        // buffer for each candidate because a retained result string may
-        // outlive this iteration and CLDR aliases can change the tag length.
-        self.emit_intl_set_const(
-            provider_output_capacity_local,
-            MAX_INTL_IDENTIFIER_BYTES as i64,
-            function,
-        );
-        self.emit_heap_alloc_from_local(provider_output_capacity_local, function)?;
-        function.instruction(&Instruction::LocalSet(provider_output_local));
-        function.instruction(&Instruction::I64Const(
-            IntlHostOp::CanonicalizeLocale.wire(),
-        ));
-        function.instruction(&Instruction::LocalGet(tag_payload_local));
-        self.emit_pack_string_payload(
-            provider_output_local,
-            provider_output_capacity_local,
-            function,
-        );
-        function.instruction(&Instruction::Call(self.intl_call_import_function_index()?));
-        function.instruction(&Instruction::LocalSet(provider_output_len_local));
-
-        function.instruction(&Instruction::LocalGet(provider_output_len_local));
-        function.instruction(&Instruction::I64Const(IntlHostCallOutcome::Rejected.wire()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Invalid language tag",
-            self.result_local,
-            self.result_tag_local,
+        self.emit_intl_provider_locale_transform::<lila_intl::CanonicalizeLocale>(
+            tag_payload_local,
             function,
         )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        // Any negative value other than `Rejected`, or a length beyond the
-        // supplied capacity, is a host ABI fault rather than a JavaScript
-        // RangeError. The closed Rust outcome type prevents Lila's engine from
-        // producing one; `unreachable` rejects a non-conforming embedder.
-        function.instruction(&Instruction::LocalGet(provider_output_len_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(provider_output_len_local));
-        function.instruction(&Instruction::LocalGet(provider_output_capacity_local));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Unreachable);
-        function.instruction(&Instruction::End);
-        self.emit_pack_string_payload(provider_output_local, provider_output_len_local, function);
-        function.instruction(&Instruction::LocalSet(tag_payload_local));
 
         self.emit_intl_set_const(duplicate_local, 0, function);
         self.emit_intl_set_const(inner_index_local, 0, function);
@@ -2190,9 +2146,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(existing_local);
         self.release_temp_local(entry_local);
         self.release_temp_local(duplicate_local);
-        self.release_temp_local(provider_output_capacity_local);
-        self.release_temp_local(provider_output_len_local);
-        self.release_temp_local(provider_output_local);
         self.release_temp_local(ok_local);
         self.release_temp_local(base_name_payload_local);
         self.release_temp_local(region_payload_local);
@@ -2235,11 +2188,13 @@ mod intl_locale_construction_order_tests {
             .0;
         let lifecycle_source = include_str!("intl/construction_lifecycle.rs");
         let functions_source = include_str!("../functions.rs");
-        let recursive_source = format!("{production_parent}{lifecycle_source}");
+        let likely_subtags_source = include_str!("intl/likely_subtags.rs");
+        let recursive_source =
+            format!("{production_parent}{lifecycle_source}{likely_subtags_source}");
 
-        for state in [
-            ["ReservedIntl", "LocaleObjectLocal"].concat(),
-            ["InitializedIntl", "LocaleObjectLocal"].concat(),
+        for (state, expected_references) in [
+            (["ReservedIntl", "LocaleObjectLocal"].concat(), 6),
+            (["InitializedIntl", "LocaleObjectLocal"].concat(), 4),
         ] {
             let declaration = format!("pub(super) struct {state}(u32);");
             assert_eq!(recursive_source.matches(&declaration).count(), 1);
@@ -2257,7 +2212,10 @@ mod intl_locale_construction_order_tests {
                 "{state} must remain non-Copy"
             );
             assert!(!production_parent.contains(&state));
-            assert_eq!(recursive_source.matches(&state).count(), 4);
+            assert_eq!(
+                recursive_source.matches(&state).count(),
+                expected_references
+            );
         }
         assert_eq!(
             production_parent
@@ -2272,15 +2230,47 @@ mod intl_locale_construction_order_tests {
                 && (line.contains(" for ReservedIntlLocaleObjectLocal")
                     || line.contains(" for InitializedIntlLocaleObjectLocal"))
         }));
-        for transition in [
-            "emit_reserve_intl_locale_object(",
-            "emit_initialize_intl_locale_object(",
-            "emit_publish_intl_locale_object(",
+        for (transition, expected_references) in [
+            ("emit_reserve_intl_locale_object(", 2),
+            ("emit_reserve_intrinsic_intl_locale_object(", 2),
+            ("emit_initialize_intl_locale_object(", 3),
+            ("emit_publish_intl_locale_object(", 3),
         ] {
-            assert_eq!(recursive_source.matches(transition).count(), 2);
+            assert_eq!(
+                recursive_source.matches(transition).count(),
+                expected_references
+            );
         }
         assert_eq!(lifecycle_source.matches("reserved.0").count(), 1);
         assert_eq!(lifecycle_source.matches("initialized.0").count(), 2);
+        let intrinsic_reserve = lifecycle_source
+            .split_once("pub(super) fn emit_reserve_intrinsic_intl_locale_object(")
+            .expect("method intrinsic allocation must exist")
+            .1
+            .split_once("/// Consume the unreachable reserved result")
+            .expect("method intrinsic allocation must be bounded")
+            .0;
+        assert!(intrinsic_reserve.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
+        assert!(
+            intrinsic_reserve.contains("NonArrayRealmIntrinsicSlot::IntlLocalePrototype.offset()")
+        );
+        assert!(!intrinsic_reserve.contains("emit_new_target_prototype_to_locals"));
+        assert!(
+            likely_subtags_source
+                .find("emit_intl_locale_record_from_receiver")
+                .unwrap()
+                < likely_subtags_source
+                    .find("emit_intl_provider_locale_transform")
+                    .unwrap()
+        );
+        assert!(
+            likely_subtags_source
+                .find("emit_initialize_intl_locale_object")
+                .unwrap()
+                < likely_subtags_source
+                    .find("emit_publish_intl_locale_object")
+                    .unwrap()
+        );
 
         let direct_returning_constructors = functions_source
             .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
@@ -2301,7 +2291,7 @@ mod intl_locale_construction_order_tests {
             .split_once("pub(super) fn emit_reserve_intl_locale_object(")
             .expect("Locale reserve transition should exist")
             .1
-            .split_once("/// Consume the unreachable reserved result")
+            .split_once("/// Likely-subtag methods construct")
             .expect("Locale reserve transition should be bounded")
             .0;
         let initializer = lifecycle_source
@@ -2354,7 +2344,7 @@ mod intl_locale_construction_order_tests {
         );
         assert_eq!(
             reserve
-                .matches("NewTargetPrototypeFallback::CurrentGlobal")
+                .matches("OrdinaryDefaultPrototype::IntlLocale")
                 .count(),
             1
         );

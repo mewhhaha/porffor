@@ -202,8 +202,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot define arguments index on a non-extensible object",
             self.result_local,
             self.result_tag_local,
@@ -244,8 +243,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(validation_success_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot redefine non-configurable arguments property",
             self.result_local,
             self.result_tag_local,
@@ -600,8 +598,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot redefine non-configurable arguments.callee",
             self.result_local,
             self.result_tag_local,
@@ -622,8 +619,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot change enumerable flag of non-configurable arguments.callee",
             self.result_local,
             self.result_tag_local,
@@ -643,8 +639,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot change kind of non-configurable arguments.callee",
             self.result_local,
             self.result_tag_local,
@@ -686,8 +681,7 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_throw_current_function_realm_type_error(
                 "Cannot change non-configurable arguments.callee accessor",
                 self.result_local,
                 self.result_tag_local,
@@ -711,8 +705,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot make non-configurable arguments.callee writable",
             self.result_local,
             self.result_tag_local,
@@ -733,8 +726,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot change non-writable arguments.callee",
             self.result_local,
             self.result_tag_local,
@@ -1220,7 +1212,7 @@ impl<'a> FunctionBuilder<'a> {
         let typed_array_brand_local = self.reserve_temp_local();
         let typed_array_numeric_index_payload_local = self.reserve_temp_local();
         let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
-        let typed_array_valid_index_local = self.reserve_temp_local();
+        let typed_array_define_success_local = self.reserve_temp_local();
         let converted_descriptor_payload_local = self.reserve_temp_local();
         let converted_descriptor_tag_local = self.reserve_temp_local();
 
@@ -1394,8 +1386,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Or);
             function.instruction(&Instruction::I32Eqz);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_runtime_error(
-                TYPE_ERROR_NAME,
+            self.emit_throw_current_function_realm_type_error(
                 "Property descriptor getter/setter must be callable or undefined",
                 self.result_local,
                 self.result_tag_local,
@@ -1433,8 +1424,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_trap_truthy_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Proxy defineProperty trap returned false",
             self.result_local,
             self.result_tag_local,
@@ -1473,6 +1463,21 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // No callable trap received this object, so private recursive dispatch
+        // may remove its prototype without changing any exposed descriptor.
+        // Absent converted fields must stay absent in ToPropertyDescriptor.
+        self.store_i64_const_at_offset(
+            descriptor_payload_local,
+            HEAP_PROTOTYPE_OFFSET,
+            0,
+            function,
+        );
+        self.store_i64_const_at_offset(
+            descriptor_payload_local,
+            HEAP_OBJECT_PROTOTYPE_TAG_OFFSET,
+            ValueKind::Null.tag() as u64,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(proxy_traversal_payload_local));
         function.instruction(&Instruction::LocalSet(target_payload_local));
         function.instruction(&Instruction::LocalGet(proxy_traversal_tag_local));
@@ -1522,6 +1527,60 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(proxy_handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        let definition_descriptor = WasmPartialDescriptor {
+            value: Presence::Runtime {
+                present: value_present_local,
+                value: TaggedLocals::new(value_payload_local, value_tag_local),
+            },
+            writable: Presence::Runtime {
+                present: writable_present_local,
+                value: writable_payload_local,
+            },
+            get: Presence::Runtime {
+                present: getter_present_local,
+                value: TaggedLocals::new(getter_payload_local, getter_tag_local),
+            },
+            set: Presence::Runtime {
+                present: setter_present_local,
+                value: TaggedLocals::new(setter_payload_local, setter_tag_local),
+            },
+            enumerable: Presence::Runtime {
+                present: enumerable_present_local,
+                value: enumerable_payload_local,
+            },
+            configurable: Presence::Runtime {
+                present: configurable_present_local,
+                value: configurable_payload_local,
+            },
+        }
+        .from_runtime_checked();
+
+        self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_namespace_define_own_property(
+            target_payload_local,
+            key_string_local,
+            definition_descriptor.as_partial(),
+            array_named_define_success_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(array_named_define_success_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Cannot redefine module namespace property",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(original_target_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(original_target_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Block(BlockType::Empty));
 
         function.instruction(&Instruction::I64Const(0));
@@ -1580,56 +1639,16 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_typed_array_valid_integer_index_i32(
+        self.emit_typed_array_define_index_property(
             target_payload_local,
             typed_array_numeric_index_payload_local,
-            index_local,
-            typed_array_valid_index_local,
+            &definition_descriptor,
+            typed_array_define_success_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalGet(typed_array_valid_index_local));
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(typed_array_define_success_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Cannot define invalid TypedArray index",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(getter_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(setter_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(writable_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(writable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(enumerable_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(enumerable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(configurable_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(configurable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
             "Cannot define incompatible TypedArray index descriptor",
@@ -1638,20 +1657,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(value_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_typed_array_element_write_from_locals(
-            target_payload_local,
-            index_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
@@ -1738,8 +1743,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(boxed_string_len_local));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             TYPE_ERROR_NAME,
             self.result_local,
             self.result_tag_local,
@@ -1766,8 +1770,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             TYPE_ERROR_NAME,
             self.result_local,
             self.result_tag_local,
@@ -1894,8 +1897,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             TYPE_ERROR_NAME,
             self.result_local,
             self.result_tag_local,
@@ -2163,8 +2165,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(array_length_success_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot define array length",
             self.result_local,
             self.result_tag_local,
@@ -2176,8 +2177,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(descriptor_kind_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot define array length",
             self.result_local,
             self.result_tag_local,
@@ -2195,8 +2195,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(array_length_success_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_runtime_error(
-            TYPE_ERROR_NAME,
+        self.emit_throw_current_function_realm_type_error(
             "Cannot define array length",
             self.result_local,
             self.result_tag_local,
@@ -2430,7 +2429,7 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(converted_descriptor_tag_local);
         self.release_temp_local(converted_descriptor_payload_local);
-        self.release_temp_local(typed_array_valid_index_local);
+        self.release_temp_local(typed_array_define_success_local);
         self.release_temp_local(typed_array_canonical_numeric_index_local);
         self.release_temp_local(typed_array_numeric_index_payload_local);
         self.release_temp_local(typed_array_brand_local);

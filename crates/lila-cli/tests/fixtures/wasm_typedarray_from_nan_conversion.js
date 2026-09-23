@@ -29,6 +29,9 @@ if (uint32[0] !== 0 || uint32[1] !== 0) throw "Uint32Array conversion";
 let clamped = Uint8ClampedArray.from([NaN, undefined]);
 if (clamped[0] !== 0 || clamped[1] !== 0) throw "Uint8ClampedArray conversion";
 
-if (typeof Float16Array !== "undefined") throw "Float16Array exposed";
+let float16 = Float16Array.from([NaN, undefined]);
+if (float16.length !== 2) throw "Float16Array length";
+if (float16[0] === float16[0]) throw "Float16Array NaN";
+if (float16[1] === float16[1]) throw "Float16Array undefined";
 
 262;

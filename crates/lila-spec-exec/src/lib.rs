@@ -29,6 +29,8 @@ use lila_runtime::{
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleHostConfig {
+    /// Independent global Script evaluated before the entry Module.
+    pub prelude: Option<String>,
     pub module_root: Option<PathBuf>,
     pub test_path: Option<PathBuf>,
     pub module_loading_policy: ModuleLoadingPolicy,
@@ -661,6 +663,11 @@ pub fn execute_module(
         LoadedModuleKind::Source,
         module.clone(),
     );
+    if let Some(prelude) = &host.prelude {
+        context
+            .eval(source_with_name(prelude, None))
+            .map_err(|error| format_js_error(error, &mut context))?;
+    }
     let promise = module.load_link_evaluate(&mut context);
     context
         .run_jobs()
@@ -739,6 +746,20 @@ pub fn observe_module(
         .link(&mut context)
         .map_err(|error| format_js_error(error, &mut context))?;
 
+    if let Some(prelude) = &host.prelude {
+        let prelude = Script::parse(source_with_name(prelude, None), None, &mut context)
+            .map_err(|error| format_js_error(error, &mut context))?;
+        if let Err(error) = prelude.evaluate(&mut context) {
+            let (value, note) = observe_js_error(&error, &mut context);
+            // Drain queued jobs without replacing the primary top-level throw.
+            let _ = context.run_jobs();
+            return Ok(ObservedExecutionOutcome {
+                completion: ObservedCompletion::Throw(value),
+                output_events: host_realms.finish_output_events(),
+                note,
+            });
+        }
+    }
     let promise = module.evaluate(&mut context);
     let job_throw = context.run_jobs().err().map(|error| {
         let (value, note) = observe_js_error(&error, &mut context);
@@ -4325,6 +4346,7 @@ mod tests {
             "import foo from './module-import-resolution_FIXTURE.js';\nimport { x, y } from './module-import-resolution_FIXTURE.js';\nif (foo !== 42 || x !== 'named' || y !== 39) throw new Error('bad import');\n",
             Some(&test_path_string),
             ModuleHostConfig {
+                prelude: None,
                 module_root: Some(root.clone()),
                 test_path: Some(test_path),
                 module_loading_policy: ModuleLoadingPolicy::Filesystem,

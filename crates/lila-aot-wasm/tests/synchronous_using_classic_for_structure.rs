@@ -1,7 +1,10 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
+const STATEMENT_COMPLETION_SOURCE: &str =
+    include_str!("../src/control_flow/statement_completion.rs");
 const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_using_classic_for_head.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/synchronous-using-classic-for.md");
@@ -91,11 +94,7 @@ fn closed_initializer_keeps_the_classic_for_as_the_direct_control_owner() {
     assert!(!resource_init.contains("StatementIr::Block"));
     assert!(!resource_init.contains("ForInitIr::Lexical"));
 
-    let loop_lowering = bounded(
-        LOWERING_SOURCE,
-        "    fn lower_for_loop(",
-        "    /// The resume state a plain `async function` body",
-    );
+    let loop_lowering = LOOP_LOWERING_SOURCE;
     assert!(loop_lowering.contains("StatementIr::For {\n                init,"));
     assert!(!loop_lowering.contains("StatementIr::Block(Box::new(StatementIr::For"));
     assert!(CONTRACT.contains("The containing node remains `StatementIr::For`"));
@@ -106,10 +105,11 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     let dispatch = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn compile_for(",
-        "    fn compile_sync_disposable_for(",
+        "    fn compile_classic_for_test(",
     );
     assert!(dispatch.contains("if let Some(ForInitIr::SyncDisposable(resources)) = init"));
     assert!(dispatch.contains("return self.compile_sync_disposable_for("));
+    assert!(dispatch.contains("SynchronousLoopBodyIr::new(body)"));
     assert_eq!(
         dispatch
             .matches("self.compile_classic_for_test(test, break_frame, function)?")
@@ -131,7 +131,7 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
         "    fn compile_classic_for_update(",
     );
     for boundary in [
-        "self.compile_truthy_i32(test, function)?",
+        "self.compile_iteration_condition(test, function)?",
         "self.emit_propagate_throw_from_locals_if_needed(",
         "self.result_local",
         "self.result_tag_local",
@@ -154,14 +154,13 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     let update = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_classic_for_update(",
-        "    fn compile_sync_disposable_for(",
+        "    fn compile_async_disposable_for(",
     );
     for boundary in [
+        "self.save_statement_list_value(function)",
         "self.compile_expr_payload(update, function)?",
         "function.instruction(&Instruction::Drop)",
-        "self.emit_propagate_throw_from_locals_if_needed(",
-        "self.result_local",
-        "self.result_tag_local",
+        "self.restore_statement_list_value(saved, function)",
     ] {
         assert!(
             update.contains(boundary),
@@ -170,8 +169,62 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
     }
     assert_before(
         update,
+        "self.save_statement_list_value(function)",
+        "self.compile_expr_payload(update, function)?",
+    );
+    assert_before(
+        update,
+        "self.compile_expr_payload(update, function)?",
         "function.instruction(&Instruction::Drop)",
+    );
+    assert_before(
+        update,
+        "function.instruction(&Instruction::Drop)",
+        "self.restore_statement_list_value(saved, function)",
+    );
+
+    let restore = bounded(
+        STATEMENT_COMPLETION_SOURCE,
+        "    pub(crate) fn restore_statement_list_value(",
+        "    pub(super) fn compile_iteration_condition(",
+    );
+    for boundary in [
         "self.emit_propagate_throw_from_locals_if_needed(",
+        "self.result_local",
+        "self.result_tag_local",
+        "Instruction::LocalGet(saved.payload)",
+        "Instruction::LocalGet(saved.tag)",
+    ] {
+        assert!(
+            restore.contains(boundary),
+            "missing completion boundary: {boundary}"
+        );
+    }
+    assert_before(
+        restore,
+        "self.emit_propagate_throw_from_locals_if_needed(",
+        "Instruction::LocalGet(saved.payload)",
+    );
+    assert_before(
+        restore,
+        "self.emit_propagate_throw_from_locals_if_needed(",
+        "Instruction::LocalGet(saved.tag)",
+    );
+
+    let condition = bounded(
+        STATEMENT_COMPLETION_SOURCE,
+        "    pub(super) fn compile_iteration_condition(",
+        "\n    }\n}",
+    );
+    assert_before(
+        condition,
+        "self.save_statement_list_value(function)",
+        "self.compile_truthy_i32(condition, function)?",
+    );
+    assert_before(
+        condition,
+        "self.compile_truthy_i32(condition, function)?",
+        "self.restore_statement_list_value(saved, function)",
     );
 
     let lifecycle = bounded(
@@ -180,6 +233,8 @@ fn backend_nests_continue_inside_one_disposal_capability_and_restores_after_it()
         "    pub(crate) fn compile_switch(",
     );
     for boundary in [
+        "body: SynchronousLoopBodyIr<'_>",
+        "let body = body.statement()",
         "debug_assert!(!resources.is_empty())",
         "!environment.per_iteration_slots.is_empty()",
         "if let Some(environment) = &runtime_environment",

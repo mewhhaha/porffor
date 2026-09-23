@@ -81,7 +81,7 @@ impl<'a> ScriptLowerer<'a> {
         lowerer.script_global_call_observation_mode = self.script_global_call_observation_mode;
         lowerer.is_function_body = true;
         lowerer.current_function_id = Some(function.id.clone());
-        match function.protocol.execution_kind() {
+        match function.protocol.source_execution_kind() {
             FunctionExecutionKind::Generator => {
                 lowerer.current_generator_resume_state = Some(0);
             }
@@ -259,8 +259,12 @@ impl<'a> ScriptLowerer<'a> {
                 generator_plan: (function.protocol.execution_kind()
                     == FunctionExecutionKind::Generator)
                     .then(|| {
-                        linear_generator_plan(function.body)
-                            .unwrap_or_else(GeneratorPlanIr::without_suspensions)
+                        if function.protocol == FunctionProtocolIr::ModuleActivation {
+                            GeneratorPlanIr::module_instantiation()
+                        } else {
+                            linear_generator_plan(function.body)
+                                .unwrap_or_else(GeneratorPlanIr::without_suspensions)
+                        }
                     }),
                 resumable_plan: resumable_plan.clone(),
                 strict: function.strict,
@@ -695,8 +699,12 @@ impl<'a> ScriptLowerer<'a> {
             generator_plan: (function.protocol.execution_kind()
                 == FunctionExecutionKind::Generator)
                 .then(|| {
-                    linear_generator_plan(function.body)
-                        .unwrap_or_else(GeneratorPlanIr::without_suspensions)
+                    if function.protocol == FunctionProtocolIr::ModuleActivation {
+                        GeneratorPlanIr::module_instantiation()
+                    } else {
+                        linear_generator_plan(function.body)
+                            .unwrap_or_else(GeneratorPlanIr::without_suspensions)
+                    }
                 }),
             resumable_plan,
             strict: function.strict,

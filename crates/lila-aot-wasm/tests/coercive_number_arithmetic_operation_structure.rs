@@ -25,11 +25,11 @@ fn number_arithmetic_emission_exhaustively_matches_every_ir_operation() {
     let body = bounded(
         OPERATIONS_SOURCE,
         "pub(crate) fn compile_coercive_binary_number_to_locals(",
-        "pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(",
+        "pub(crate) fn emit_primitive_to_numeric_locals(",
     );
     let number_branch = bounded(
         body,
-        "function.instruction(&Instruction::Else);\n        match op {",
+        "\n        match op {",
         "function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));",
     );
     for operation in ["Add", "Sub", "Mul", "Div", "Mod", "Exp"] {
@@ -41,21 +41,28 @@ fn number_arithmetic_emission_exhaustively_matches_every_ir_operation() {
         );
     }
     assert!(!number_branch.contains("matches!(op"));
-    assert_eq!(number_branch.matches("unreachable!").count(), 1);
-    assert!(normalized(number_branch).contains(
-        "ArithmeticBinaryOp::Add=>unreachable!(\"additionusesitsprimitive-pairroute\"),"
-    ));
+    assert!(!number_branch.contains("unreachable!"));
     assert!(!number_branch.contains("_ =>"));
 }
 
 #[test]
 fn every_number_operation_uses_its_authoritative_wasm_emitter() {
-    let body = normalized(bounded(
+    let owner = bounded(
         OPERATIONS_SOURCE,
-        "function.instruction(&Instruction::Else);\n        match op {",
+        "pub(crate) fn compile_coercive_binary_number_to_locals(",
+        "pub(crate) fn emit_primitive_to_numeric_locals(",
+    );
+    let body = normalized(bounded(
+        owner,
+        "\n        match op {",
         "function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));",
     ));
-    for (operation, instruction) in [("Sub", "F64Sub"), ("Mul", "F64Mul"), ("Div", "F64Div")] {
+    for (operation, instruction) in [
+        ("Add", "F64Add"),
+        ("Sub", "F64Sub"),
+        ("Mul", "F64Mul"),
+        ("Div", "F64Div"),
+    ] {
         let arm = concat!(
             "function.instruction(&Instruction::LocalGet(lhs_payload_local));",
             "function.instruction(&Instruction::F64ReinterpretI64);",

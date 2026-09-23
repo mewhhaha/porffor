@@ -1,0 +1,12 @@
+const a = new Temporal.Instant(-12345678901234567890n);
+const b = new Temporal.Instant(-12345675240233566879n);
+const d = a.until(b, {largestUnit:'hour'});
+if (d.hours!==1 || d.minutes!==1 || d.seconds!==1 || d.milliseconds!==1 || d.microseconds!==1 || d.nanoseconds!==11) throw 'balanced fields';
+if (a.add(d).epochNanoseconds!==b.epochNanoseconds) throw 'exact difference round trip';
+const n = a.since(b, {largestUnit:'hour'});
+if (n.hours!==-1 || n.minutes!==-1 || n.seconds!==-1 || n.milliseconds!==-1 || n.microseconds!==-1 || n.nanoseconds!==-11) throw 'since sign';
+if (new Temporal.Instant(-1n).until(new Temporal.Instant(1n)).nanoseconds!==2) throw 'negative subsecond cross zero';
+if (new Temporal.Instant(1n).until(new Temporal.Instant(-1n)).nanoseconds!==-2) throw 'positive subsecond cross zero';
+const full = new Temporal.Instant(-8640000000000000000000n).until(new Temporal.Instant(8640000000000000000000n));
+if (full.seconds!==17280000000000 || full.nanoseconds!==0) throw 'full epoch difference';
+print('ok');

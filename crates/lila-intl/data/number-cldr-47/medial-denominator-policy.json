@@ -1,0 +1,415 @@
+[
+  {
+    "locale": "ee",
+    "width": "long",
+    "unit": "second",
+    "pattern": "sekend {0} wo",
+    "selected_display_name": "sekend"
+  },
+  {
+    "locale": "ee_GH",
+    "width": "long",
+    "unit": "second",
+    "pattern": "sekend {0} wo",
+    "selected_display_name": "sekend"
+  },
+  {
+    "locale": "ee_TG",
+    "width": "long",
+    "unit": "second",
+    "pattern": "sekend {0} wo",
+    "selected_display_name": "sekend"
+  },
+  {
+    "locale": "gaa",
+    "width": "long",
+    "unit": "microsecond",
+    "pattern": "sɛkɛnsi {0} mlijaa 1000",
+    "selected_display_name": "sɛkɛnsi mlijaa 1000"
+  },
+  {
+    "locale": "gaa",
+    "width": "long",
+    "unit": "millisecond",
+    "pattern": "sɛkɛnsi {0} mlijaa 100",
+    "selected_display_name": "sɛkɛnsi mlijaa 100"
+  },
+  {
+    "locale": "gaa_GH",
+    "width": "long",
+    "unit": "microsecond",
+    "pattern": "sɛkɛnsi {0} mlijaa 1000",
+    "selected_display_name": "sɛkɛnsi mlijaa 1000"
+  },
+  {
+    "locale": "gaa_GH",
+    "width": "long",
+    "unit": "millisecond",
+    "pattern": "sɛkɛnsi {0} mlijaa 100",
+    "selected_display_name": "sɛkɛnsi mlijaa 100"
+  },
+  {
+    "locale": "ja",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "摂氏 {0} 度",
+    "selected_display_name": "摂氏"
+  },
+  {
+    "locale": "ja",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "ja_JP",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "摂氏 {0} 度",
+    "selected_display_name": "摂氏"
+  },
+  {
+    "locale": "ja_JP",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "ko",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "섭씨 {0}도",
+    "selected_display_name": "섭씨"
+  },
+  {
+    "locale": "ko",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "화씨 {0}도",
+    "selected_display_name": "화씨"
+  },
+  {
+    "locale": "ko_CN",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "섭씨 {0}도",
+    "selected_display_name": "섭씨"
+  },
+  {
+    "locale": "ko_CN",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "화씨 {0}도",
+    "selected_display_name": "화씨"
+  },
+  {
+    "locale": "ko_KP",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "섭씨 {0}도",
+    "selected_display_name": "섭씨"
+  },
+  {
+    "locale": "ko_KP",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "화씨 {0}도",
+    "selected_display_name": "화씨"
+  },
+  {
+    "locale": "ko_KR",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "섭씨 {0}도",
+    "selected_display_name": "섭씨"
+  },
+  {
+    "locale": "ko_KR",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "화씨 {0}도",
+    "selected_display_name": "화씨"
+  },
+  {
+    "locale": "si",
+    "width": "short",
+    "unit": "celsius",
+    "pattern": "සෙල්. {0}°",
+    "selected_display_name": "සෙල්සියස් අංශක"
+  },
+  {
+    "locale": "si",
+    "width": "short",
+    "unit": "fahrenheit",
+    "pattern": "ෆැර. {0}°",
+    "selected_display_name": "ෆැර. අ"
+  },
+  {
+    "locale": "si",
+    "width": "narrow",
+    "unit": "fahrenheit",
+    "pattern": "ෆැර. {0}°",
+    "selected_display_name": "ෆැර. අ"
+  },
+  {
+    "locale": "si_LK",
+    "width": "short",
+    "unit": "celsius",
+    "pattern": "සෙල්. {0}°",
+    "selected_display_name": "සෙල්සියස් අංශක"
+  },
+  {
+    "locale": "si_LK",
+    "width": "short",
+    "unit": "fahrenheit",
+    "pattern": "ෆැර. {0}°",
+    "selected_display_name": "ෆැර. අ"
+  },
+  {
+    "locale": "si_LK",
+    "width": "narrow",
+    "unit": "fahrenheit",
+    "pattern": "ෆැර. {0}°",
+    "selected_display_name": "ෆැර. අ"
+  },
+  {
+    "locale": "sw",
+    "width": "long",
+    "unit": "fluid-ounce",
+    "pattern": "aunsi {0} ya ujazo",
+    "selected_display_name": "aunsi za ujazo"
+  },
+  {
+    "locale": "sw",
+    "width": "long",
+    "unit": "mile-scandinavian",
+    "pattern": "maili {0} ya skandinavia",
+    "selected_display_name": "maili ya skandinavia"
+  },
+  {
+    "locale": "sw_CD",
+    "width": "long",
+    "unit": "fluid-ounce",
+    "pattern": "aunsi {0} ya ujazo",
+    "selected_display_name": "aunsi za ujazo"
+  },
+  {
+    "locale": "sw_CD",
+    "width": "long",
+    "unit": "mile-scandinavian",
+    "pattern": "maili {0} ya skandinavia",
+    "selected_display_name": "maili ya skandinavia"
+  },
+  {
+    "locale": "sw_KE",
+    "width": "long",
+    "unit": "fluid-ounce",
+    "pattern": "aunsi {0} ya ujazo",
+    "selected_display_name": "aunsi za ujazo"
+  },
+  {
+    "locale": "sw_KE",
+    "width": "long",
+    "unit": "mile-scandinavian",
+    "pattern": "maili {0} ya skandinavia",
+    "selected_display_name": "maili ya skandinavia"
+  },
+  {
+    "locale": "sw_TZ",
+    "width": "long",
+    "unit": "fluid-ounce",
+    "pattern": "aunsi {0} ya ujazo",
+    "selected_display_name": "aunsi za ujazo"
+  },
+  {
+    "locale": "sw_TZ",
+    "width": "long",
+    "unit": "mile-scandinavian",
+    "pattern": "maili {0} ya skandinavia",
+    "selected_display_name": "maili ya skandinavia"
+  },
+  {
+    "locale": "sw_UG",
+    "width": "long",
+    "unit": "fluid-ounce",
+    "pattern": "aunsi {0} ya ujazo",
+    "selected_display_name": "aunsi za ujazo"
+  },
+  {
+    "locale": "sw_UG",
+    "width": "long",
+    "unit": "mile-scandinavian",
+    "pattern": "maili {0} ya skandinavia",
+    "selected_display_name": "maili ya skandinavia"
+  },
+  {
+    "locale": "yue",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏"
+  },
+  {
+    "locale": "yue",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "yue_Hans",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "摄氏 {0} 度",
+    "selected_display_name": "摄氏度数"
+  },
+  {
+    "locale": "yue_Hans",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "华氏 {0} 度",
+    "selected_display_name": "华氏度数"
+  },
+  {
+    "locale": "yue_Hans_CN",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "摄氏 {0} 度",
+    "selected_display_name": "摄氏度数"
+  },
+  {
+    "locale": "yue_Hans_CN",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "华氏 {0} 度",
+    "selected_display_name": "华氏度数"
+  },
+  {
+    "locale": "yue_Hant",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏"
+  },
+  {
+    "locale": "yue_Hant",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "yue_Hant_CN",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏"
+  },
+  {
+    "locale": "yue_Hant_CN",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "yue_Hant_HK",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏"
+  },
+  {
+    "locale": "yue_Hant_HK",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "yue_Hant_MO",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏"
+  },
+  {
+    "locale": "yue_Hant_MO",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏"
+  },
+  {
+    "locale": "zh_Hant",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏度數"
+  },
+  {
+    "locale": "zh_Hant",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏度數"
+  },
+  {
+    "locale": "zh_Hant_HK",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏度"
+  },
+  {
+    "locale": "zh_Hant_HK",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏度"
+  },
+  {
+    "locale": "zh_Hant_MO",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏度"
+  },
+  {
+    "locale": "zh_Hant_MO",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏度"
+  },
+  {
+    "locale": "zh_Hant_MY",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏度數"
+  },
+  {
+    "locale": "zh_Hant_MY",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏度數"
+  },
+  {
+    "locale": "zh_Hant_TW",
+    "width": "long",
+    "unit": "celsius",
+    "pattern": "攝氏 {0} 度",
+    "selected_display_name": "攝氏度數"
+  },
+  {
+    "locale": "zh_Hant_TW",
+    "width": "long",
+    "unit": "fahrenheit",
+    "pattern": "華氏 {0} 度",
+    "selected_display_name": "華氏度數"
+  }
+]

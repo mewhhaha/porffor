@@ -1,6 +1,7 @@
 use super::*;
 
 enum EnumerableOwnProperties {
+    Keys,
     Entries,
     Values,
 }
@@ -37,6 +38,7 @@ impl<'a> FunctionBuilder<'a> {
         let function_realm_local = self.reserve_temp_local();
         let array_prototype_local = self.reserve_temp_local();
         let nullish_message = match &mode {
+            EnumerableOwnProperties::Keys => "Object.keys called on null or undefined",
             EnumerableOwnProperties::Entries => "Object.entries called on null or undefined",
             EnumerableOwnProperties::Values => "Object.values called on null or undefined",
         };
@@ -188,20 +190,30 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
 
-        self.emit_object_read_with_key_tag(
-            object_payload_local,
-            object_tag_local,
-            object_payload_local,
-            object_tag_local,
-            own_key_payload_local,
-            Some(own_key_tag_local),
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-
+        if !matches!(mode, EnumerableOwnProperties::Keys) {
+            self.emit_object_read_with_key_tag(
+                object_payload_local,
+                object_tag_local,
+                object_payload_local,
+                object_tag_local,
+                own_key_payload_local,
+                Some(own_key_tag_local),
+                value_payload_local,
+                value_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+        }
         match &mode {
+            EnumerableOwnProperties::Keys => {
+                self.emit_array_write(
+                    result_payload_local,
+                    write_index_local,
+                    own_key_payload_local,
+                    own_key_tag_local,
+                    function,
+                )?;
+            }
             EnumerableOwnProperties::Entries => {
                 function.instruction(&Instruction::I64Const(2));
                 function.instruction(&Instruction::LocalSet(entry_index_local));
@@ -314,6 +326,16 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(arg_tag_local);
         self.release_temp_local(arg_payload_local);
         Ok(())
+    }
+
+    pub(in crate::builtins) fn compile_object_keys_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.compile_object_enumerable_own_properties_builtin(
+            EnumerableOwnProperties::Keys,
+            function,
+        )
     }
 
     pub(in crate::builtins) fn compile_object_entries_builtin(

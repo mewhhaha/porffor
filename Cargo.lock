@@ -1459,9 +1459,19 @@ dependencies = [
 name = "lila-intl"
 version = "0.1.0"
 dependencies = [
+ "calendrical_calculations",
+ "icu_calendar",
  "icu_locale",
  "icu_locale_data",
  "icu_provider",
+ "jiff-tzdb",
+ "serde",
+ "serde_json",
+ "sha2",
+ "timezone_provider",
+ "tinystr",
+ "tzif",
+ "zerovec",
 ]
 
 [[package]]
@@ -2296,8 +2306,6 @@ dependencies = [
 [[package]]
 name = "timezone_provider"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df9ba0000e9e73862f3e7ca1ff159e2ddf915c9d8bb11e38a7874760f445d993"
 dependencies = [
  "combine",
  "jiff-tzdb",

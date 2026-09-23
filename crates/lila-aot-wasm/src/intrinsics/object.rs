@@ -81,6 +81,24 @@ impl<'a> FunctionBuilder<'a> {
             has_own_property_meta,
             function,
         )?;
+        for builtin in [
+            StandardBuiltinId::ObjectPrototypeDefineGetter,
+            StandardBuiltinId::ObjectPrototypeDefineSetter,
+        ] {
+            let method = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .expect("Object intrinsic installation roots accessor definers");
+            self.emit_object_define_function_data(
+                prototype_object_local,
+                builtin
+                    .native_function_name()
+                    .expect("accessor definer name"),
+                &method,
+                function,
+            )?;
+        }
         let lookup_getter_meta = self
             .functions
             .get(&StandardBuiltinId::ObjectPrototypeLookupGetter.function_id())

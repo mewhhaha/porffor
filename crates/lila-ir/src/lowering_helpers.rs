@@ -65,6 +65,7 @@ fn is_direct_suspension(statement: &StatementIr) -> bool {
         statement,
         StatementIr::GeneratorYield { .. }
             | StatementIr::AsyncAwait { .. }
+            | StatementIr::AsyncModuleInstantiation
             | StatementIr::ResumableClassDefinition(_)
     )
 }

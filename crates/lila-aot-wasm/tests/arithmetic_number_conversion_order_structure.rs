@@ -80,14 +80,16 @@ fn both_coercive_expression_consumers_use_the_tagged_arithmetic_owner() {
 }
 
 #[test]
-fn addition_delegates_before_reserving_numeric_operands() {
+fn unproven_addition_delegates_before_reserving_numeric_operands() {
     let body = normalized(bounded(
         OPERATIONS_SOURCE,
         "    pub(crate) fn compile_coercive_binary_number_to_locals(",
-        "    pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(",
+        "    pub(crate) fn emit_primitive_to_numeric_locals(",
     ));
     assert!(body.contains(concat!(
-        ")->Result<(),EmitError>{ifmatches!(op,ArithmeticBinaryOp::Add){",
+        ")->Result<(),EmitError>{",
+        "letnumber_operands=expr_has_static_number_payload(lhs)&&expr_has_static_number_payload(rhs);",
+        "if!number_operands&&matches!(op,ArithmeticBinaryOp::Add){",
         "returnself.compile_coercive_add_to_locals(lhs,rhs,payload_local,tag_local,function,);}",
         "letlhs_payload_local=self.reserve_temp_local();"
     )));
@@ -106,7 +108,7 @@ fn addition_delegates_before_reserving_numeric_operands() {
         .find("ValueKind::String.tag()")
         .expect("string dispatch");
     let numeric = addition
-        .find("self.emit_primitive_to_numeric_locals_without_throw_return(")
+        .find("self.emit_primitive_to_numeric_locals(")
         .expect("numeric conversion after the string branch");
     assert!(primitives < string_choice && string_choice < numeric);
 }
@@ -116,16 +118,22 @@ fn numeric_arithmetic_evaluates_both_operands_before_ordered_conversion_and_type
     let body = normalized(bounded(
         OPERATIONS_SOURCE,
         "    pub(crate) fn compile_coercive_binary_number_to_locals(",
-        "    pub(crate) fn emit_primitive_to_numeric_locals_without_throw_return(",
+        "    pub(crate) fn emit_primitive_to_numeric_locals(",
     ));
     let ordered_steps = [
         "self.compile_expr_to_locals(lhs,lhs_payload_local,lhs_tag_local,function)?;",
         "self.compile_expr_to_locals(rhs,rhs_payload_local,rhs_tag_local,function)?;",
+        "if!number_operands{",
         "self.emit_value_to_numeric_locals(lhs_payload_local,lhs_tag_local,function)?;",
         "self.emit_value_to_numeric_locals(rhs_payload_local,rhs_tag_local,function)?;",
         "self.emit_is_bigint_tag_i32(lhs_tag_local,function);",
         "self.emit_is_bigint_tag_i32(rhs_tag_local,function);",
         "function.instruction(&Instruction::I32Ne);",
+        "self.emit_bigint_binary_op_to_locals(",
+        "function.instruction(&Instruction::Else);}",
+        "matchop{",
+        "function.instruction(&Instruction::LocalSet(tag_local));",
+        "if!number_operands{function.instruction(&Instruction::End);}",
     ];
     let mut remaining = body.as_str();
     for step in ordered_steps {

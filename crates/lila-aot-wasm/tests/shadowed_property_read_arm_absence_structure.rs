@@ -12,7 +12,7 @@ fn property_read_source() -> &'static str {
         .find("    pub(crate) fn compile_property_read_from_locals(")
         .expect("property-read entry");
     let end = OBJECTS_SOURCE[start..]
-        .find("    fn compile_dynamic_property_read_from_locals(")
+        .find("    pub(crate) fn compile_dynamic_property_read_from_locals(")
         .map(|offset| start + offset)
         .expect("dynamic property-read entry");
     &OBJECTS_SOURCE[start..end]

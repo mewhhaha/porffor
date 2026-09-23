@@ -42,6 +42,7 @@ pub struct ModuleGraphIr {
     /// fixed point, components whose referrer does not materialize are removed,
     /// so every row here names a call site that can run in this artifact.
     components: Vec<DynamicComponentIr>,
+    pub(super) dynamic_rejections: Vec<super::admission::RejectedDynamicModule>,
     /// When each unit's body runs, indexed by [`ModuleUnitId`].
     ///
     /// Filled by [`link`]; empty on a graph that has not been linked, which
@@ -248,7 +249,13 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
             let binding = match &entry.import_name {
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,
-                    binding: ModuleBindingNameIr::Namespace,
+                    binding: ModuleBindingNameIr::Namespace(
+                        entry
+                            .request
+                            .phase()
+                            .namespace_mode()
+                            .expect("source imports resolve separately"),
+                    ),
                 },
                 ImportNameIr::Name(name) => graph.resolve_export(target, name),
             };
@@ -317,12 +324,12 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
     // site in a source-only referrer is link metadata, not artifact code.
     let components = super::dynamic::discover_components(graph);
     classify_evaluation_modes(graph, &components);
+    report_unlinkable_phases(graph, &components);
     let components: Vec<_> = components
         .into_iter()
         .filter(|component| graph.materialization_mode(component.referrer()).is_some())
         .collect();
     graph.components = components;
-    report_unlinkable_phases(graph);
 }
 
 /// `[[ImportName]]` as it reads in a diagnostic.

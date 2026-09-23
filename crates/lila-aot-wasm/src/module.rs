@@ -10,6 +10,9 @@ use crate::emitted_function::ModuleFunctionTable;
 pub(crate) use crate::gc_types::FinalizedModuleGlobals;
 use crate::gc_types::RuntimeModuleTypes;
 
+mod typed_array_element_kind;
+pub(crate) use typed_array_element_kind::{TypedArrayContentType, TypedArrayElementKind};
+
 mod error_prototype_location;
 pub(crate) use error_prototype_location::{
     error_prototype_global_index, error_realm_prototype_entries, error_realm_prototype_offset,
@@ -210,6 +213,11 @@ pub(crate) const DISPOSABLE_STACK_PROTOTYPE_GLOBAL_INDEX: u32 = 138;
 pub(crate) const DISPOSABLE_STACK_CONSTRUCTOR_GLOBAL_INDEX: u32 = 139;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX: u32 = 140;
 pub(crate) const REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 141;
+pub(crate) const FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX: u32 = 142;
+pub(crate) const MODULE_EVALUATION_PROMISE_GLOBAL_INDEX: u32 = 143;
+pub(crate) const MODULE_EVALUATION_STATUS_GLOBAL_INDEX: u32 = 144;
+pub(crate) const INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 145;
+pub(crate) const INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 146;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -831,6 +839,26 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "%RegExpStringIteratorPrototype%",
         index: REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Float16Array",
+        index: FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "module_evaluation_promise",
+        index: MODULE_EVALUATION_PROMISE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "module_evaluation_status",
+        index: MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.NumberFormat.prototype",
+        index: INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.NumberFormat",
+        index: INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -907,9 +935,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::IntlDateTimeFormatConstructor => {
             Some(INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
         }
+        StandardBuiltinId::IntlNumberFormatConstructor => {
+            Some(INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
+        }
         StandardBuiltinId::RegExpConstructor => Some(REGEXP_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float64ArrayConstructor => Some(FLOAT64_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Float32ArrayConstructor => Some(FLOAT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::Float16ArrayConstructor => Some(FLOAT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Int32ArrayConstructor => Some(INT32_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Int16ArrayConstructor => Some(INT16_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::Int8ArrayConstructor => Some(INT8_ARRAY_CONSTRUCTOR_GLOBAL_INDEX),
@@ -1091,6 +1123,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::ObjectIsExtensible
         | StandardBuiltinId::ObjectPreventExtensions
         | StandardBuiltinId::ObjectPrototypeHasOwnProperty
+        | StandardBuiltinId::ObjectPrototypeDefineGetter
+        | StandardBuiltinId::ObjectPrototypeDefineSetter
         | StandardBuiltinId::ObjectPrototypeLookupGetter
         | StandardBuiltinId::ObjectPrototypeLookupSetter
         | StandardBuiltinId::ObjectPrototypeProtoGetter
@@ -1318,6 +1352,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TypedArrayPrototypeValues
         | StandardBuiltinId::TypedArrayPrototypeKeys
         | StandardBuiltinId::TypedArrayPrototypeEntries
+        | StandardBuiltinId::TypedArrayPrototypeFill
         | StandardBuiltinId::TypedArrayPrototypeJoin
         | StandardBuiltinId::TypedArrayPrototypeToLocaleString
         | StandardBuiltinId::TypedArrayPrototypeSubarray
@@ -1612,12 +1647,18 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalNowZonedDateTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
+        | StandardBuiltinId::TemporalInstantPrototypeAdd
+        | StandardBuiltinId::TemporalInstantPrototypeSubtract
+        | StandardBuiltinId::TemporalInstantPrototypeRound
+        | StandardBuiltinId::TemporalInstantPrototypeUntil
+        | StandardBuiltinId::TemporalInstantPrototypeSince
         | StandardBuiltinId::TemporalInstantPrototypeEquals
         | StandardBuiltinId::TemporalInstantFrom
         | StandardBuiltinId::TemporalInstantCompare
         | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
         | StandardBuiltinId::TemporalInstantFromEpochNanoseconds
         | StandardBuiltinId::TemporalInstantPrototypeToString
+        | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
         | StandardBuiltinId::TemporalInstantPrototypeToJson
         | StandardBuiltinId::TemporalInstantPrototypeValueOf
         | StandardBuiltinId::TemporalZonedDateTimeFrom
@@ -1632,6 +1673,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
         | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
         | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
         | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
@@ -1657,6 +1699,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
@@ -1669,7 +1712,17 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
         | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
+        | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+        | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+        | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+        | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+        | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumericGetter
+        | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+        | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
         | StandardBuiltinId::IntlLocalePrototypeToString
+        | StandardBuiltinId::IntlLocalePrototypeMaximize
+        | StandardBuiltinId::IntlLocalePrototypeMinimize
         | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
         | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
@@ -1677,6 +1730,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
         | StandardBuiltinId::IntlDateTimeFormatBoundFormat
+        | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+        | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+        | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts
+        | StandardBuiltinId::IntlNumberFormatBoundFormat
         | StandardBuiltinId::WeakRefPrototypeDeref
         | StandardBuiltinId::FinalizationRegistryPrototypeRegister
         | StandardBuiltinId::FinalizationRegistryPrototypeUnregister
@@ -1699,21 +1759,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
     }
 }
 
-pub(crate) fn typed_array_constructor_bytes_per_element_entries() -> [(StandardBuiltinId, u64); 11]
+pub(crate) fn typed_array_constructor_bytes_per_element_entries() -> [(StandardBuiltinId, u64); 12]
 {
-    [
-        (StandardBuiltinId::Float64ArrayConstructor, 8),
-        (StandardBuiltinId::Float32ArrayConstructor, 4),
-        (StandardBuiltinId::Int32ArrayConstructor, 4),
-        (StandardBuiltinId::Int16ArrayConstructor, 2),
-        (StandardBuiltinId::Int8ArrayConstructor, 1),
-        (StandardBuiltinId::Uint32ArrayConstructor, 4),
-        (StandardBuiltinId::Uint16ArrayConstructor, 2),
-        (StandardBuiltinId::Uint8ArrayConstructor, 1),
-        (StandardBuiltinId::Uint8ClampedArrayConstructor, 1),
-        (StandardBuiltinId::BigInt64ArrayConstructor, 8),
-        (StandardBuiltinId::BigUint64ArrayConstructor, 8),
-    ]
+    TypedArrayElementKind::ALL.map(|kind| (kind.constructor(), kind.bytes_per_element()))
 }
 
 pub(crate) fn host_builtin_by_name(name: &str) -> Option<HostBuiltinId> {
@@ -1721,20 +1769,9 @@ pub(crate) fn host_builtin_by_name(name: &str) -> Option<HostBuiltinId> {
 }
 
 pub(crate) fn typed_array_element_kind(builtin: StandardBuiltinId) -> u64 {
-    match builtin {
-        StandardBuiltinId::Float64ArrayConstructor => 1,
-        StandardBuiltinId::Float32ArrayConstructor => 2,
-        StandardBuiltinId::Int8ArrayConstructor => 3,
-        StandardBuiltinId::Int16ArrayConstructor => 4,
-        StandardBuiltinId::Int32ArrayConstructor => 5,
-        StandardBuiltinId::Uint8ClampedArrayConstructor => 6,
-        StandardBuiltinId::Uint8ArrayConstructor => 7,
-        StandardBuiltinId::Uint16ArrayConstructor => 8,
-        StandardBuiltinId::Uint32ArrayConstructor => 9,
-        StandardBuiltinId::BigInt64ArrayConstructor => 10,
-        StandardBuiltinId::BigUint64ArrayConstructor => 11,
-        _ => 0,
-    }
+    TypedArrayElementKind::from_constructor(builtin)
+        .expect("typed-array constructor must have an element kind")
+        .abi_word()
 }
 
 pub(crate) fn typed_array_realm_prototype_offset(builtin: StandardBuiltinId) -> Option<u64> {
@@ -1744,6 +1781,9 @@ pub(crate) fn typed_array_realm_prototype_offset(builtin: StandardBuiltinId) -> 
         }
         StandardBuiltinId::Float32ArrayConstructor => {
             HEAP_FUNCTION_REALM_FLOAT32_ARRAY_PROTOTYPE_OFFSET
+        }
+        StandardBuiltinId::Float16ArrayConstructor => {
+            HEAP_FUNCTION_REALM_FLOAT16_ARRAY_PROTOTYPE_OFFSET
         }
         StandardBuiltinId::Int32ArrayConstructor => {
             HEAP_FUNCTION_REALM_INT32_ARRAY_PROTOTYPE_OFFSET
@@ -1784,6 +1824,9 @@ pub(crate) fn typed_array_realm_intrinsics_prototype_offset(
         StandardBuiltinId::Float32ArrayConstructor => {
             HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET
         }
+        StandardBuiltinId::Float16ArrayConstructor => {
+            HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET
+        }
         StandardBuiltinId::Int32ArrayConstructor => {
             HEAP_REALM_INTRINSICS_INT32_ARRAY_PROTOTYPE_OFFSET
         }
@@ -1821,6 +1864,7 @@ pub(crate) fn typed_array_realm_prototype_debug_slot(
     Some(match builtin {
         StandardBuiltinId::Float64ArrayConstructor => "$Realm.Float64Array.prototype",
         StandardBuiltinId::Float32ArrayConstructor => "$Realm.Float32Array.prototype",
+        StandardBuiltinId::Float16ArrayConstructor => "$Realm.Float16Array.prototype",
         StandardBuiltinId::Int32ArrayConstructor => "$Realm.Int32Array.prototype",
         StandardBuiltinId::Int16ArrayConstructor => "$Realm.Int16Array.prototype",
         StandardBuiltinId::Int8ArrayConstructor => "$Realm.Int8Array.prototype",
@@ -1835,16 +1879,13 @@ pub(crate) fn typed_array_realm_prototype_debug_slot(
 }
 
 pub(crate) fn typed_array_bytes_per_element(builtin: StandardBuiltinId) -> u64 {
-    typed_array_constructor_bytes_per_element_entries()
-        .into_iter()
-        .find_map(|(candidate, bytes)| (candidate == builtin).then_some(bytes))
-        .unwrap_or(1)
+    TypedArrayElementKind::from_constructor(builtin)
+        .expect("typed-array constructor must have an element width")
+        .bytes_per_element()
 }
 
 pub(crate) fn is_typed_array_constructor(builtin: StandardBuiltinId) -> bool {
-    typed_array_constructor_bytes_per_element_entries()
-        .into_iter()
-        .any(|(candidate, _)| candidate == builtin)
+    TypedArrayElementKind::from_constructor(builtin).is_some()
 }
 
 pub(crate) const fn throw_error_name_global_index(uses_heap: bool) -> u32 {
@@ -2066,7 +2107,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX as usize + 1,
+            INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );

@@ -5,7 +5,7 @@
 //! (emission of the body), once as 27 hand-written `base + N` accessors on
 //! [`FunctionBuilder`](crate::emit::FunctionBuilder), and once as a literal
 //! `27` in `debug_dump`. The literal had already drifted — the counted truth is
-//! now 40 unconditional helpers plus one conditional one — because nothing
+//! now 41 unconditional helpers plus one conditional one — because nothing
 //! forced the four copies to agree.
 //!
 //! Now the enum *is* the order. `RuntimeHelperId as u32` is the offset from the
@@ -142,6 +142,36 @@ const _: () = assert!(
     regexp_matcher_status_words_are_unique(),
     "RegExp matcher statuses must have unique ABI words"
 );
+
+/// The pure Pattern compiler's private second result slot. These are not
+/// JavaScript completion tags. Unsupported preserves the explicit old fallback;
+/// every other non-success route throws before publishing receiver state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegExpCompilerStatus {
+    Compiled,
+    SyntaxError,
+    Unsupported,
+    ResourceExhausted,
+    CorruptProgram,
+}
+impl RegExpCompilerStatus {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Compiled,
+        Self::SyntaxError,
+        Self::Unsupported,
+        Self::ResourceExhausted,
+        Self::CorruptProgram,
+    ];
+    pub(crate) const fn abi_word(self) -> i64 {
+        match self {
+            Self::Compiled => 0,
+            Self::SyntaxError => 1,
+            Self::Unsupported => 2,
+            Self::ResourceExhausted => 3,
+            Self::CorruptProgram => 4,
+        }
+    }
+}
 
 /// One fact a module can carry about itself that some *conditional* runtime
 /// helper's emission depends on.
@@ -334,16 +364,35 @@ pub(crate) enum RuntimeHelperId {
     /// the trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
     /// Returns a Boolean or the standard abrupt completion tuple.
     ObjectHasProperty = 39,
+    /// Object Environment Record HasBinding for [[IsWithEnvironment]] = true.
+    /// Receives binding object payload/tag in 0/1, String name in 2/3, and
+    /// trusted caller Realm environment or zero in 6. Slots 4/5 are unused.
+    /// Returns a Boolean or the standard abrupt completion tuple.
+    WithEnvironmentHasBinding = 40,
+    /// Pure runtime Pattern compiler; parameters/results use a private ABI.
+    RegExpCompiler = 41,
+    /// Sparse array index bookkeeping. Params 0..3 are array payload,
+    /// index, value payload and value tag; params 4..6 are unused. This internal
+    /// mutation neither invokes JavaScript nor changes the caller completion.
+    ArrayAppendPresentIndex = 42,
+    /// Graph-owned operations reserve indices in every artifact; a graphless
+    /// artifact has unreachable bodies and no caller edges to these slots.
+    ModuleEvaluate = 43,
+    ModuleReady = 44,
+    ModuleGather = 45,
+    ModuleExecute = 46,
+    ModuleFulfilled = 47,
+    ModuleRejected = 48,
+    ModuleDeferredImport = 49,
     /// Only helper whose emission is conditional today. Keep conditional
-    /// helpers last; `conditional_helpers_are_last` is a compile-time check,
-    /// not a comment.
-    JsonStringifyValue = 40,
+    /// helpers last; `conditional_helpers_are_last` is a compile-time check.
+    JsonStringifyValue = 50,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 41] = [
+    pub(crate) const ALL: [Self; 51] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -384,6 +433,16 @@ impl RuntimeHelperId {
         Self::ValueToPrimitiveString,
         Self::ValueToPropertyKey,
         Self::ObjectHasProperty,
+        Self::WithEnvironmentHasBinding,
+        Self::RegExpCompiler,
+        Self::ArrayAppendPresentIndex,
+        Self::ModuleEvaluate,
+        Self::ModuleReady,
+        Self::ModuleGather,
+        Self::ModuleExecute,
+        Self::ModuleFulfilled,
+        Self::ModuleRejected,
+        Self::ModuleDeferredImport,
         Self::JsonStringifyValue,
     ];
 
@@ -424,9 +483,11 @@ impl RuntimeHelperId {
             Self::FunctionObjectAlloc => FUNCTION_OBJECT_ALLOC_TYPE_INDEX,
             Self::PlainObjectAlloc => PLAIN_OBJECT_ALLOC_TYPE_INDEX,
             Self::ArrayAlloc => ARRAY_ALLOC_TYPE_INDEX,
-            // The object-define-data helper takes seven i64 params and returns
+            // Internal heap mutations take seven i64 params and return
             // nothing, which is the accessor-append signature.
-            Self::ObjectDefineData => OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
+            Self::ObjectDefineData | Self::ArrayAppendPresentIndex => {
+                OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX
+            }
             Self::ObjectRead
             | Self::ObjectWrite
             | Self::ProxyCall
@@ -442,6 +503,7 @@ impl RuntimeHelperId {
             | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
+            | Self::RegExpCompiler
             | Self::FunctionCall
             | Self::DynamicPropertyRead
             | Self::OrdinarySetDataOnReceiver
@@ -468,6 +530,14 @@ impl RuntimeHelperId {
             | Self::ValueToPrimitiveString
             | Self::ValueToPropertyKey
             | Self::ObjectHasProperty
+            | Self::WithEnvironmentHasBinding
+            | Self::ModuleEvaluate
+            | Self::ModuleReady
+            | Self::ModuleGather
+            | Self::ModuleExecute
+            | Self::ModuleFulfilled
+            | Self::ModuleRejected
+            | Self::ModuleDeferredImport
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -500,6 +570,8 @@ impl RuntimeHelperId {
             | Self::ObjectPreventExtensions
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
+            | Self::RegExpCompiler
+            | Self::ArrayAppendPresentIndex
             | Self::FunctionCall
             | Self::DynamicPropertyRead
             | Self::OrdinarySetDataOnReceiver
@@ -517,7 +589,15 @@ impl RuntimeHelperId {
             | Self::ValueToPrimitiveNumber
             | Self::ValueToPrimitiveString
             | Self::ValueToPropertyKey
-            | Self::ObjectHasProperty => true,
+            | Self::ObjectHasProperty
+            | Self::ModuleEvaluate
+            | Self::ModuleReady
+            | Self::ModuleGather
+            | Self::ModuleExecute
+            | Self::ModuleFulfilled
+            | Self::ModuleRejected
+            | Self::ModuleDeferredImport
+            | Self::WithEnvironmentHasBinding => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -555,6 +635,8 @@ impl RuntimeHelperId {
             Self::ObjectPreventExtensions => "object_prevent_extensions",
             Self::ObjectReadProxy => "object_read_proxy",
             Self::RegExpMatcher => "regexp_matcher",
+            Self::RegExpCompiler => "regexp_compiler",
+            Self::ArrayAppendPresentIndex => "array_append_present_index",
             Self::FunctionCall => "function_call",
             Self::DynamicPropertyRead => "dynamic_property_read",
             Self::OrdinarySetDataOnReceiver => "ordinary_set_data_on_receiver",
@@ -575,6 +657,14 @@ impl RuntimeHelperId {
             Self::ValueToPrimitiveString => "value_to_primitive_string",
             Self::ValueToPropertyKey => "value_to_property_key",
             Self::ObjectHasProperty => "object_has_property",
+            Self::WithEnvironmentHasBinding => "with_environment_has_binding",
+            Self::ModuleEvaluate => "module_evaluate",
+            Self::ModuleReady => "module_ready",
+            Self::ModuleGather => "module_gather",
+            Self::ModuleExecute => "module_execute",
+            Self::ModuleFulfilled => "module_fulfilled",
+            Self::ModuleRejected => "module_rejected",
+            Self::ModuleDeferredImport => "module_deferred_import",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -698,8 +788,8 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 40 unconditional helpers plus JSON.stringify's value helper. The
-        // `debug_dump` line used to hard-code 27 and had drifted by five.
+        // 50 reserved helpers include the seven graph-owned module operations;
+        // JSON.stringify adds the only optional helper.
         let without_json = RuntimeHelperId::ALL
             .iter()
             .filter(|helper| helper.is_emitted(RuntimeHelperEmission::NONE))
@@ -712,8 +802,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 40);
-        assert_eq!(with_json, 41);
+        assert_eq!(without_json, 50);
+        assert_eq!(with_json, 51);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

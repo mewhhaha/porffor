@@ -33,6 +33,32 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn constructor_parameter_patterns_bind_in_local_foreign_and_resumable_functions() {
+    assert_function_trace(
+        r#"
+var localObject = Function('{value}', 'return value;');
+var localArray = Function('[value]', 'return value;');
+print(localObject({value: 21}));
+print(localArray([22]));
+var foreign = __lilaCreateRealm().global;
+var foreignObject = new foreign.Function('{value}', 'return value;');
+var foreignArray = new foreign.Function('[value]', 'return value;');
+print(foreignObject({value: 23}));
+print(foreignArray([24]));
+print(Object.getPrototypeOf(foreignObject) === foreign.Function.prototype);
+print(localObject.toString() === 'function anonymous({value}\n) {\nreturn value;\n}');
+var GeneratorFunction = (function* () {}).constructor;
+print(GeneratorFunction('{value}', 'yield value;')({value: 25}).next().value);
+var AsyncFunction = (async function () {}).constructor;
+AsyncFunction('[value]', 'return value;')([26]).then(function (value) { print(value); });
+var AsyncGeneratorFunction = (async function* () {}).constructor;
+AsyncGeneratorFunction('{value}', 'yield value;')({value: 27}).next().then(function (result) { print(result.value); });
+"#,
+        &["21", "22", "23", "24", "true", "true", "25", "26", "27"],
+    );
+}
+
+#[test]
 fn nested_global_source_candidates_preserve_syntax_errors_and_live_callees() {
     assert_function_trace(
         r#"

@@ -290,8 +290,8 @@ fn runtime_regexp_entry_kind_has_one_private_capability_free_owner() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "RuntimeRegExpEntryKind"),
-        10,
-        "the owner, reexport, three writers and four reader routes must be the complete source census"
+        9,
+        "the owner, reexport, three writers and three reader routes must be the complete source census"
     );
     let all_routes = normalized_routes_in_rust_sources(&source_root);
     for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
@@ -348,15 +348,7 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         .1;
     let expected_writer_tail = r#"
                 RuntimeRegExpEntry::Program(program) => {
-                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PTR_WORD] = program.ptr as u64;
-                    record[RUNTIME_REGEXP_RECORD_INSTRUCTION_COUNT_WORD] =
-                        program.instruction_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_CAPTURE_COUNT_WORD] = program.capture_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_SPLIT_COUNT_WORD] = program.split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_REPEATABLE_SPLIT_COUNT_WORD] =
-                        program.repeatable_split_count as u64;
-                    record[RUNTIME_REGEXP_RECORD_NAMED_GROUP_TABLE_PTR_WORD] =
-                        program.named_group_table_ptr as u64;
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] = program.payload();
                     RuntimeRegExpEntryKind::Program.word()
                 }
                 RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),
@@ -378,9 +370,9 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let all_routes = normalized_routes_in_rust_sources(&source_root);
     for (route, expected) in [
-        ("RuntimeRegExpEntryKind::Program.word()", 3),
+        ("RuntimeRegExpEntryKind::Program.word()", 2),
         ("RuntimeRegExpEntryKind::Rejected.word()", 1),
-        ("RuntimeRegExpEntryKind::Unsupported.word()", 1),
+        ("RuntimeRegExpEntryKind::Unsupported.word()", 2),
     ] {
         assert_eq!(all_routes.matches(route).count(), expected, "{route}");
     }
@@ -388,7 +380,7 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         all_routes
             .matches(".map(RuntimeRegExpEntryKind::word)")
             .count(),
-        1
+        0
     );
     assert_eq!(all_routes.matches(".throws_syntax_error()").count(), 1);
     assert_eq!(
@@ -399,123 +391,57 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
     );
     assert_eq!(
         all_routes.matches("RuntimeRegExpEntryKind::word").count(),
-        1
+        0
     );
     assert!(!all_routes.contains("<RuntimeRegExpEntryKind>::word"));
     assert!(!all_routes.contains("RuntimeRegExpEntryKind::ALL.into_iter()"));
 }
 
 #[test]
-fn runtime_regexp_entry_kind_reader_is_borrowed_and_ordered() {
+fn runtime_regexp_reader_publishes_one_pending_descriptor_after_typed_resolution() {
     let reader = bounded(
         EXPRESSIONS_SOURCE,
         "    pub(crate) fn emit_runtime_regexp_program_slots(",
-        "    fn compile_regexp_literal_payload(",
+        "    #[allow(clippy::too_many_arguments)]\n    pub(crate) fn emit_regexp_program_with_compatible_flags(",
     );
-    let normalized_reader = normalize_rust(reader).routes;
+    let routes = normalize_rust(reader).routes;
+    let kinds = routes
+        .find("forentryinRuntimeRegExpEntryKind::ALL.iter(){")
+        .unwrap();
+    let compiler = routes
+        .find("self.regexp_compiler_helper_function_index()")
+        .unwrap();
+    let outcomes = routes
+        .find("foroutcomeinRegExpCompilerStatus::ALL{")
+        .unwrap();
+    let publication = routes.find("self.store_i64_local_at_offset(object_local,HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET,pending,function,").unwrap();
+    assert!(kinds < compiler && compiler < outcomes && outcomes < publication);
+    assert_eq!(routes.matches("self.store_i64_local_at_offset(").count(), 1);
     assert_eq!(
-        normalized_reader
-            .matches(concat!(
-                "function.instruction(&Instruction::I64Const(",
-                "RuntimeRegExpEntryKind::Program.word()asi64,));",
-                "function.instruction(&Instruction::LocalSet(entry_kind_local));"
-            ))
-            .count(),
+        routes.matches("HEAP_REGEXP_PROGRAM_PAYLOAD_OFFSET").count(),
         1
     );
     assert_eq!(
-        normalized_reader
-            .matches(concat!(
-                "function.instruction(&Instruction::LocalGet(entry_kind_local));",
-                "function.instruction(&Instruction::I64Const(",
-                "RuntimeRegExpEntryKind::Program.word()asi64,));",
-                "function.instruction(&Instruction::I64Eq);",
-                "function.instruction(&Instruction::If(BlockType::Empty));",
-                "for(record_word,heap_offset)in["
-            ))
+        routes
+            .matches("RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD")
             .count(),
         1
     );
-    assert_eq!(
-        normalized_reader
-            .matches(concat!(
-                "letthrowing_kind_words=RuntimeRegExpEntryKind::ALL.iter()",
-                ".filter(|kind|kind.throws_syntax_error())",
-                ".map(RuntimeRegExpEntryKind::word).collect::<Vec<_>>();"
-            ))
-            .count(),
-        1
+    assert!(routes.contains("ifentry.throws_syntax_error(){"));
+    assert!(
+        routes.contains("RegExpCompilerStatus::Compiled|RegExpCompilerStatus::Unsupported=>None,")
     );
-    let tail_start = reader
-        .find("        let throwing_kind_words = RuntimeRegExpEntryKind::ALL")
-        .expect("throwing-kind reader pipeline");
-    let reader_tail = &reader[tail_start..];
-    let (validation, replacement) = reader_tail
-        .split_once("        self.emit_regexp_program_slots(object_local, None, function);")
-        .expect("program replacement follows syntax validation");
-    let expected_validation = r#"
-        let throwing_kind_words = RuntimeRegExpEntryKind::ALL
-            .iter()
-            .filter(|kind| kind.throws_syntax_error())
-            .map(RuntimeRegExpEntryKind::word)
-            .collect::<Vec<_>>();
-        let mut thrown = Ok(());
-        if !throwing_kind_words.is_empty() {
-            for (position, word) in throwing_kind_words.iter().enumerate() {
-                function.instruction(&Instruction::LocalGet(entry_kind_local));
-                function.instruction(&Instruction::I64Const(*word as i64));
-                function.instruction(&Instruction::I64Eq);
-                if position > 0 {
-                    function.instruction(&Instruction::I32Or);
-                }
-            }
-            function.instruction(&Instruction::If(BlockType::Empty));
-            thrown = self.emit_throw_runtime_error_to_active_handler(
-                SYNTAX_ERROR_NAME,
-                "Invalid regular expression pattern",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-
-"#;
-    assert_eq!(
-        normalize_rust(validation).routes,
-        normalize_rust(expected_validation).routes,
-        "the throwing comparison and SyntaxError emission must precede all program mutation"
-    );
-    let (installation, unwind) = replacement
-        .split_once("        self.release_temp_local(entry_kind_local);")
-        .expect("program installation precedes local unwind");
-    assert!(normalize_rust(installation).routes.contains(
-        "Instruction::I64LtU);function.instruction(&Instruction::If(BlockType::Empty));"
-    ));
-    assert!(installation.contains("for (record_word, heap_offset) in ["));
-    assert_eq!(
-        normalize_rust(unwind).routes,
-        normalize_rust(
-            r#"
-        self.release_temp_local(candidate_payload_local);
-        self.release_temp_local(record_ptr_local);
-        self.release_temp_local(index_local);
-        thrown
+    for failure in ["SyntaxError", "ResourceExhausted", "CorruptProgram"] {
+        assert!(routes.contains(&format!("RegExpCompilerStatus::{failure}=>")));
     }
-"#,
-        )
-        .routes,
-        "local unwind preserves the syntax-emission result"
-    );
-    assert_eq!(normalized_reader.matches(".copied()").count(), 0);
-    assert!(!normalized_reader.contains("RuntimeRegExpEntryKind::ALL.into_iter()"));
-    assert!(!normalized_reader.contains("_=>"));
     for forbidden in [
-        "kind==",
-        "kind!=",
-        "RuntimeRegExpEntryKind::default",
+        "self.emit_regexp_program_slots(",
+        "HEAP_REGEXP_PROGRAM_PTR_OFFSET",
+        "HEAP_REGEXP_PROGRAM_INSTRUCTION_COUNT_OFFSET",
+        ".copied()",
         "RuntimeRegExpEntryKind::ALL.into_iter()",
+        "_=>",
     ] {
-        assert!(!normalized_reader.contains(forbidden), "{forbidden}");
+        assert!(!routes.contains(forbidden), "{forbidden}");
     }
 }

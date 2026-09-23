@@ -82,7 +82,9 @@ fn block_preserves_caller_flow(block: &BlockIr) -> bool {
 
 fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
     match statement {
+        StatementIr::ModuleImportBinding(_) => true,
         StatementIr::Empty => true,
+        StatementIr::AsyncModuleInstantiation => false,
         StatementIr::ModuleUnitOnce {
             module: _module,
             block: _block,
@@ -162,6 +164,12 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             then_resume_state: _then_resume_state,
             else_resume_state: _else_resume_state,
             exit_state: _exit_state,
+        } => false,
+        StatementIr::AsyncFunctionIf {
+            condition: _condition,
+            then_branch: _then_branch,
+            else_branch: _else_branch,
+            plan: _plan,
         } => false,
         StatementIr::Block(block) => block_preserves_caller_flow(block),
         StatementIr::If {
@@ -332,9 +340,16 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             phase: _phase,
             referrer: _referrer,
         } => false,
-        ExprIr::ImportMeta { module: _module } | ExprIr::ModuleNamespace { module: _module } => {
-            false
-        }
+        ExprIr::ImportMeta { module: _module } => false,
+        ExprIr::ModuleEntryEvaluation(_) => false,
+        ExprIr::ModuleExecutionGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_) => false,
+        ExprIr::ModuleNamespacePublish { namespace, .. } => expr_preserves_caller_flow(namespace),
+        ExprIr::ModuleNamespace { exports, .. } => expr_preserves_caller_flow(exports),
         ExprIr::ObjectLiteral(properties) => {
             properties.iter().all(object_property_preserves_caller_flow)
         }
@@ -590,6 +605,7 @@ fn object_property_preserves_caller_flow(property: &ObjectPropertyIr) -> bool {
         ObjectPropertyIr::ComputedData {
             key: _key,
             value: _value,
+            name_inference: _,
         } => false,
         ObjectPropertyIr::ComputedMethod {
             key: _key,
@@ -666,6 +682,7 @@ fn spec_operation_preserves_caller_flow(
         | SpecOperationIr::GetV
         | SpecOperationIr::Set
         | SpecOperationIr::HasProperty
+        | SpecOperationIr::WithEnvironmentHasBinding
         | SpecOperationIr::HasOwnProperty
         | SpecOperationIr::DeletePropertyOrThrow
         | SpecOperationIr::CreateDataPropertyOrThrow

@@ -1,0 +1,17 @@
+const duration = Temporal.Duration.from({nanoseconds:18446744073709551616});
+const date = new Temporal.PlainDate(1970,1,1);
+if (date.add(duration).toString() !== '2554-07-21') throw 'date integral projection';
+if (new Temporal.PlainDate(2554,7,21).subtract(duration).toString() !== '1970-01-01') throw 'date subtraction';
+const dateTime = new Temporal.PlainDateTime(1970,1,1);
+const later = dateTime.add(duration);
+if (later.toString() !== '2554-07-21T23:34:33.709551616') throw 'date-time exact normalization';
+if (later.subtract(duration).toString() !== '1970-01-01T00:00:00') throw 'date-time subtraction';
+if (new Temporal.PlainTime().add(duration).toString() !== '23:34:33.709551616') throw 'time modulo';
+if (new Temporal.PlainTime(23,34,33,709,551,616).subtract(duration).toString() !== '00:00:00') throw 'time subtraction';
+const d = new Temporal.PlainDate(2000,1,1).until(new Temporal.PlainDate(2001,2,3),{largestUnit:'year'});
+if (d.years !== 1 || d.months !== 1 || d.days !== 2) throw 'date difference Number fields';
+const ym = new Temporal.PlainYearMonth(2000,1);
+const delta = ym.until(new Temporal.PlainYearMonth(2001,2),{largestUnit:'year'});
+if (delta.years !== 1 || delta.months !== 1 || ym.add(delta).toString() !== '2001-02') throw 'year-month producer and consumer';
+if (ym.since(new Temporal.PlainYearMonth(2001,2),{largestUnit:'year'}).months !== -1) throw 'year-month negative fields';
+print('ok');

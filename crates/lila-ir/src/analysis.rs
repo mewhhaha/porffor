@@ -168,7 +168,7 @@ pub(crate) enum AsyncDisposableScopeOwnerPlan {
 
 impl FunctionPlan<'_> {
     pub(crate) fn sync_disposable_scope_owner(&self) -> SyncDisposableScopeOwnerPlan {
-        match self.protocol.execution_kind() {
+        match self.protocol.source_execution_kind() {
             FunctionExecutionKind::Ordinary => SyncDisposableScopeOwnerPlan::Immediate,
             FunctionExecutionKind::Generator => SyncDisposableScopeOwnerPlan::PlainGenerator,
             FunctionExecutionKind::Async => SyncDisposableScopeOwnerPlan::AsyncFunction,
@@ -177,7 +177,7 @@ impl FunctionPlan<'_> {
     }
 
     pub(crate) fn async_disposable_scope_owner(&self) -> AsyncDisposableScopeOwnerPlan {
-        match self.protocol.execution_kind() {
+        match self.protocol.source_execution_kind() {
             FunctionExecutionKind::Ordinary => AsyncDisposableScopeOwnerPlan::Ordinary,
             FunctionExecutionKind::Generator => AsyncDisposableScopeOwnerPlan::Generator,
             FunctionExecutionKind::Async => AsyncDisposableScopeOwnerPlan::AsyncFunction,
@@ -226,6 +226,9 @@ pub(crate) struct Analysis<'a> {
     pub(crate) annex_b_function_plans: BTreeMap<String, AnnexBFunctionPlan>,
     pub(crate) function_expr_ids: BTreeMap<String, FunctionId>,
     pub(crate) class_execution_ids: BTreeMap<String, FunctionId>,
+    pub(crate) module_execution: crate::modules::ModuleExecutionAnalysis,
+    pub(crate) module_entry_evaluation: Option<crate::modules::ModuleEntryEvaluationBoundary<'a>>,
+    pub(crate) namespace_initializers: BTreeMap<usize, ModuleNamespaceModeIr>,
     pub(crate) default_export_class_ids: BTreeSet<FunctionId>,
     pub(crate) hoisted_default_export_function_ids: BTreeSet<FunctionId>,
     pub(crate) class_name_environment_ids: BTreeMap<String, EnvironmentId>,
@@ -539,6 +542,9 @@ impl<'a> AnalysisBuilder<'a> {
             annex_b_function_plans: self.annex_b_function_plans,
             function_expr_ids: self.function_expr_ids,
             class_execution_ids: self.class_execution_ids,
+            module_execution: crate::modules::ModuleExecutionAnalysis::default(),
+            module_entry_evaluation: None,
+            namespace_initializers: BTreeMap::new(),
             default_export_class_ids: BTreeSet::new(),
             hoisted_default_export_function_ids: BTreeSet::new(),
             class_name_environment_ids: self.class_name_environment_ids,
@@ -4422,17 +4428,13 @@ impl<'a> AnalysisBuilder<'a> {
                     .expect("try block scan must restore its lexical environment cursor");
                 debug_assert_eq!(cursor, try_cursor);
                 if let Some(catch) = try_statement.catch() {
-                    let mut catch_aliases = self.scoped_capture_aliases(
-                        interner,
-                        catch.block().statement_list().statements(),
-                        capture_aliases,
-                    );
+                    let mut catch_parameter_aliases = capture_aliases.clone();
                     if let Some(bound_names) = catch
                         .parameter()
                         .and_then(|binding| supported_bound_names(interner, binding))
                     {
                         for bound in bound_names {
-                            catch_aliases.insert(
+                            catch_parameter_aliases.insert(
                                 bound.source_name.clone(),
                                 scoped_lexical_binding_storage_name(&bound.source_name, bound.span),
                             );
@@ -4478,6 +4480,22 @@ impl<'a> AnalysisBuilder<'a> {
                     }
                     self.environment_cursor_stack
                         .push(catch_parameter_cursor.clone());
+                    if let Some(Binding::Pattern(pattern)) = catch.parameter() {
+                        self.scan_pattern_expressions(
+                            owner_id,
+                            pattern,
+                            interner,
+                            source_text,
+                            self_name,
+                            &catch_parameter_aliases,
+                            refs,
+                        );
+                    }
+                    let catch_aliases = self.scoped_capture_aliases(
+                        interner,
+                        catch.block().statement_list().statements(),
+                        &catch_parameter_aliases,
+                    );
                     let catch_block_cursor = self.register_lexical_environment_with_modes(
                         owner_id,
                         EnvironmentKind::Block,
@@ -5766,8 +5784,8 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
             }
-            Expression::Update(update) => {
-                if let UpdateTarget::Identifier(identifier) = update.target() {
+            Expression::Update(update) => match update.target() {
+                UpdateTarget::Identifier(identifier) => {
                     self.record_ref(
                         owner_id,
                         interner.resolve_expect(identifier.sym()).to_string(),
@@ -5775,7 +5793,38 @@ impl<'a> AnalysisBuilder<'a> {
                         refs,
                     );
                 }
-            }
+                UpdateTarget::PropertyAccess(access) => self.scan_property_access(
+                    owner_id,
+                    access,
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
+                ),
+                UpdateTarget::WebCompatCall(call) => {
+                    self.scan_expression(
+                        owner_id,
+                        call.function(),
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
+                    );
+                    for argument in call.args() {
+                        self.scan_expression(
+                            owner_id,
+                            argument,
+                            interner,
+                            source_text,
+                            self_name,
+                            capture_aliases,
+                            refs,
+                        );
+                    }
+                }
+            },
             Expression::Call(call) => {
                 self.scan_expression(
                     owner_id,
@@ -6012,7 +6061,7 @@ impl<'a> AnalysisBuilder<'a> {
                         name: function
                             .name()
                             .map(|identifier| interner.resolve_expect(identifier.sym()).to_string())
-                            .unwrap_or_else(|| "<arrow>".to_string()),
+                            .unwrap_or_default(),
                         to_string_representation: CallableToStringRepresentation::ExactSource(
                             arrow_function_source_slice(function, source_text),
                         ),

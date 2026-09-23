@@ -5,7 +5,7 @@ const FIXTURE: &str =
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/regexp.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/regexp.rs");
 const MATCHER_SOURCE: &str = include_str!("../src/builtins/regexp.rs");
-const DATA_SOURCE: &str = include_str!("../src/data.rs");
+const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs");
 const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../test262/backlog/shortcut-allowlist.tsv");
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
@@ -243,12 +243,12 @@ fn finite_class_set_is_the_only_canonical_string_algebra() {
 
 #[test]
 fn one_lowerer_emits_longest_singleton_empty_priority_in_both_directions() {
-    assert!(IR_SOURCE.contains("enum FiniteClassSetDirection {\n    Forward,\n    Reverse,\n}"));
+    assert!(IR_SOURCE.contains("enum RegExpMatchDirection {\n    Forward,\n    Reverse,\n}"));
     assert!(IR_SOURCE.contains(
-        "ParsedAtom::FiniteClassSet(atom) => {\n                self.finite_class_set_atom(atom, FiniteClassSetDirection::Forward)"
+        "ParsedAtom::FiniteClassSet(atom) => {\n                self.finite_class_set_atom(atom, RegExpMatchDirection::Forward)"
     ));
     assert!(IR_SOURCE.contains(
-        "ParsedAtom::FiniteClassSet(atom) => {\n                self.finite_class_set_atom(atom, FiniteClassSetDirection::Reverse)"
+        "ParsedAtom::FiniteClassSet(atom) => {\n                self.finite_class_set_atom(atom, RegExpMatchDirection::Reverse)"
     ));
 
     let producer = bounded(
@@ -267,9 +267,9 @@ fn one_lowerer_emits_longest_singleton_empty_priority_in_both_directions() {
             "self.instructions[split] = RegExpInstruction::split(primary, fallback);",
             "fn finite_class_set_alternative(",
             "atom.multi_code_point_strings.get(index)",
-            "FiniteClassSetDirection::Forward",
+            "RegExpMatchDirection::Forward",
             "for instruction in string",
-            "FiniteClassSetDirection::Reverse",
+            "RegExpMatchDirection::Reverse",
             "for instruction in string.iter().rev()",
             "index == atom.multi_code_point_strings.len()",
             "self.push(atom.singleton)",
@@ -314,12 +314,7 @@ fn existing_aot_choices_and_shared_range_matcher_cover_both_directions() {
         assert!(frame.contains(marker), "choice frame lost {marker}");
     }
 
-    let accounting = bounded(
-        DATA_SOURCE,
-        "        let split_count = program\n",
-        "        self.pending_regexp_programs.push((",
-    );
-    assert!(accounting.contains("REGEXP_OPCODE_SPLIT | REGEXP_OPCODE_PROGRESS_SPLIT"));
+    assert!(PROGRAM_SOURCE.contains("is_some_and(RegExpOpcode::is_choice)"));
 
     assert_eq!(
         MATCHER_SOURCE
@@ -330,8 +325,18 @@ fn existing_aot_choices_and_shared_range_matcher_cover_both_directions() {
     );
     let reverse = bounded(
         MATCHER_SOURCE,
-        "        function.instruction(&Instruction::LocalGet(reverse_mode));\n",
-        "        // Dot, an explicit UTF-16/code-point literal, and a negative ASCII",
+        concat!(
+            "        function.instruction(&Instruction::LocalGet(reverse_mode));\n",
+            "        function.instruction(&Instruction::I32WrapI64);\n",
+            "        function.instruction(&Instruction::If(BlockType::Empty));\n",
+            "        function.instruction(&Instruction::LocalGet(opcode));\n",
+        ),
+        concat!(
+            "        function.instruction(&Instruction::Br(1));\n",
+            "        function.instruction(&Instruction::End);\n",
+            "        function.instruction(&Instruction::LocalGet(opcode));\n",
+            "        function.instruction(&Instruction::I64Const(REGEXP_OPCODE_LITERAL_ASCII as i64));",
+        ),
     );
     for marker in [
         "REGEXP_OPCODE_LITERAL_CODE_POINT as i64",

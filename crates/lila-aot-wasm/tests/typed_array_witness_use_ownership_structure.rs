@@ -292,11 +292,11 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayViewLocals"),
-        51
+        54
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "TypedArrayViewLocals::new("),
-        40
+        41
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "&TypedArrayViewLocals"),
@@ -359,7 +359,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayWitnessUse"),
-        68
+        72
     );
     for forbidden in [
         "impl Clone for TypedArrayWitnessUse",
@@ -376,7 +376,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
 fn every_witness_use_route_has_an_exact_closed_projection() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (variant, count) in [
-        ("ValidatedMethodEntry", 34),
+        ("ValidatedMethodEntry", 36),
         ("ArrayLikeLengthSnapshot", 8),
         ("IntegerIndexedProperty", 13),
         ("Accessor", 4),
@@ -392,8 +392,8 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
     }
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "emit_typed_array_witness"),
-        51,
-        "one definition and 50 calls must remain the complete witness boundary"
+        53,
+        "one definition and 52 calls must remain the complete witness boundary"
     );
 
     let identifiers = [
@@ -418,7 +418,9 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
         ("builtins/iterators.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
         ("builtins/mod.rs", [1, 0, 1, 0, 0, 0, 0, 0]),
         ("builtins/object.rs", [2, 1, 2, 1, 0, 1, 0, 0]),
-        ("builtins/standard.rs", [13, 12, 15, 14, 13, 1, 0, 0]),
+        ("builtins/standard.rs", [11, 10, 12, 11, 10, 1, 0, 0]),
+        ("builtins/typed_array_set.rs", [3, 2, 4, 3, 3, 0, 0, 0]),
+        ("builtins/typed_array_fill.rs", [2, 1, 3, 2, 2, 0, 0, 0]),
         ("builtins/uint8array_codecs.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
     ] {
         let source = fs::read_to_string(source_root.join(owner)).expect("witness owner source");

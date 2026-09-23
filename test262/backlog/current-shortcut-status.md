@@ -10,10 +10,10 @@ audit means no unclassified selector drift; it does not mean zero shortcuts.
 
 | Classification | Observations |
 | --- | ---: |
-| `legitimate-harness-adaptation` | 31 |
+| `legitimate-harness-adaptation` | 29 |
 | `diagnostic-instrumentation` | 39 |
-| `semantic-shortcut` | 42 |
-| **Total** | **112** |
+| `semantic-shortcut` | 40 |
+| **Total** | **108** |
 
 ## Semantic shortcuts by removal task
 
@@ -23,19 +23,18 @@ also groups legitimate adaptations and diagnostic observations by task.
 | Removal task | Semantic observations |
 | --- | ---: |
 | T03 | 1 |
-| T09 | 1 |
 | T13 | 2 |
 | T15 | 28 |
-| T17 | 5 |
+| T17 | 4 |
 | T24 | 5 |
 
 ## Input identity
 
 | Input | SHA-256 |
 | --- | --- |
-| `test262/backlog/shortcut-allowlist.tsv` | `ed77eb012097d4b871c15d5f08f9bec8c95f6ebb577cb335ef88f384ca44fc06` |
-| `test262/backlog/shortcut-inventory.md` | `0e64436778d3188317fd9d607f955668413092f802a5405629914e2dd4cf27ca` |
-| `crates/lila-test262/src/lib.rs` | `5103e13aab6b9bee0ec3ff4abd7c07cb75ddb12e9c03cef855ae3557b4d75947` |
+| `test262/backlog/shortcut-allowlist.tsv` | `b1584b1159c5898caea05ba00d0143f0345fbc7d30fe33c349dbf3f8bd76e60c` |
+| `test262/backlog/shortcut-inventory.md` | `bb20b9c3f33f1e555e398031a287424bc20bf79b9a17acd50620a49c8f3f4f27` |
+| `crates/lila-test262/src/lib.rs` | `80dfd9384ff4696edaae06b794e615075cbc0aae16e9f4775603bed1631bacb7` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.

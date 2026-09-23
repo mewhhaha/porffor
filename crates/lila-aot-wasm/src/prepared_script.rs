@@ -9,6 +9,56 @@ struct PreparedScriptRealmExecution {
 }
 
 impl FunctionBuilder<'_> {
+    pub(crate) fn emit_module_prelude(
+        &mut self,
+        id: lila_ir::StaticScriptId,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let realm_local = self.reserve_temp_local();
+        let environment_local = self.reserve_temp_local();
+        let global_object_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(realm_local));
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+            environment_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            realm_local,
+            HEAP_REALM_GLOBAL_OBJECT_OFFSET,
+            global_object_local,
+            function,
+        );
+        let wasm_index = self
+            .functions
+            .get(&id.function_id())
+            .expect("Module prelude has a compiled Script thunk")
+            .wasm_index;
+        function.instruction(&Instruction::LocalGet(environment_local));
+        function.instruction(&Instruction::LocalGet(global_object_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        self.emit_undefined_new_target(function);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(environment_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::Call(wasm_index));
+        self.store_call_results(self.result_local, self.result_tag_local, function);
+        self.release_temp_local(global_object_local);
+        self.release_temp_local(environment_local);
+        self.release_temp_local(realm_local);
+        self.emit_propagate_throw_from_locals_if_needed(
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_statement_result(function, ValueKind::Undefined);
+        Ok(())
+    }
+
     pub(crate) fn emit_prepared_script_dispatch(
         &mut self,
         kind: PreparedScriptKind,

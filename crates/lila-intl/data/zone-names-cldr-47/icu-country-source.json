@@ -1,0 +1,8 @@
+{
+  "release": "77.1",
+  "tag": "release-77-1",
+  "tagObject": "457157a92aa053e632cc7fcfd0e12f8a943b2d11",
+  "commit": "457157a92aa053e632cc7fcfd0e12f8a943b2d11",
+  "sourceUrl": "https://raw.githubusercontent.com/unicode-org/icu/457157a92aa053e632cc7fcfd0e12f8a943b2d11/icu4c/source/data/misc/zoneinfo64.txt",
+  "usage": "geographic country metadata only; IANA2026a Zone/Link/zone.tab/backzone is identifier authority"
+}

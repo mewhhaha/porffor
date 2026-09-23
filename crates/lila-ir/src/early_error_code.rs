@@ -98,7 +98,8 @@ pub(crate) const fn rejection_kind(code: EarlyErrorCode) -> IrDiagnosticKind {
         | EarlyErrorCode::ModuleTopLevelSuper
         | EarlyErrorCode::ModuleTopLevelNewTarget => IrDiagnosticKind::EarlyError,
 
-        EarlyErrorCode::ModuleUnresolved
+        EarlyErrorCode::ModuleSyntax
+        | EarlyErrorCode::ModuleUnresolved
         | EarlyErrorCode::ModuleMissingExport
         | EarlyErrorCode::ModuleAmbiguousExport
         | EarlyErrorCode::ModuleInconsistentLoad

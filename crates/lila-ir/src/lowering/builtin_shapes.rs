@@ -1003,6 +1003,25 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
+        for builtin in [
+            StandardBuiltinId::TemporalInstantPrototypeAdd,
+            StandardBuiltinId::TemporalInstantPrototypeSubtract,
+            StandardBuiltinId::TemporalInstantPrototypeRound,
+            StandardBuiltinId::TemporalInstantPrototypeUntil,
+            StandardBuiltinId::TemporalInstantPrototypeSince,
+            StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
+        ] {
+            properties.insert(
+                builtin
+                    .native_function_name()
+                    .expect("Instant method name")
+                    .to_owned(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    builtin.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
             "equals".to_string(),
             ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
@@ -1069,6 +1088,38 @@ impl<'a> ScriptLowerer<'a> {
                 "baseName",
                 StandardBuiltinId::IntlLocalePrototypeBaseNameGetter,
             ),
+            (
+                "calendar",
+                StandardBuiltinId::IntlLocalePrototypeCalendarGetter,
+            ),
+            (
+                "collation",
+                StandardBuiltinId::IntlLocalePrototypeCollationGetter,
+            ),
+            (
+                "firstDayOfWeek",
+                StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter,
+            ),
+            (
+                "hourCycle",
+                StandardBuiltinId::IntlLocalePrototypeHourCycleGetter,
+            ),
+            (
+                "caseFirst",
+                StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter,
+            ),
+            (
+                "numeric",
+                StandardBuiltinId::IntlLocalePrototypeNumericGetter,
+            ),
+            (
+                "numberingSystem",
+                StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter,
+            ),
+            (
+                "variants",
+                StandardBuiltinId::IntlLocalePrototypeVariantsGetter,
+            ),
         ] {
             properties.insert(
                 name.to_string(),
@@ -1080,13 +1131,19 @@ impl<'a> ScriptLowerer<'a> {
                 },
             );
         }
-        properties.insert(
-            "toString".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::IntlLocalePrototypeToString.function_id(),
-                false,
-            )),
-        );
+        for (name, method) in [
+            ("toString", StandardBuiltinId::IntlLocalePrototypeToString),
+            ("maximize", StandardBuiltinId::IntlLocalePrototypeMaximize),
+            ("minimize", StandardBuiltinId::IntlLocalePrototypeMinimize),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    method.function_id(),
+                    false,
+                )),
+            );
+        }
         properties.insert(
             shape_namespace_key(WellKnownSymbol::ToStringTag),
             ObjectShapeProperty::Data(Self::string_value_info("Intl.Locale")),
@@ -2425,6 +2482,7 @@ impl<'a> ScriptLowerer<'a> {
             ("keys", StandardBuiltinId::TypedArrayPrototypeKeys),
             ("entries", StandardBuiltinId::TypedArrayPrototypeEntries),
             ("toString", StandardBuiltinId::TypedArrayPrototypeToString),
+            ("fill", StandardBuiltinId::TypedArrayPrototypeFill),
             ("join", StandardBuiltinId::TypedArrayPrototypeJoin),
             ("set", StandardBuiltinId::TypedArrayPrototypeSet),
             ("reverse", StandardBuiltinId::TypedArrayPrototypeReverse),
@@ -2562,6 +2620,7 @@ impl<'a> ScriptLowerer<'a> {
             builtin,
             StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -3939,6 +3998,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 StandardBuiltinId::Float64ArrayConstructor
                 | StandardBuiltinId::Float32ArrayConstructor
+                | StandardBuiltinId::Float16ArrayConstructor
                 | StandardBuiltinId::Int32ArrayConstructor
                 | StandardBuiltinId::Int16ArrayConstructor
                 | StandardBuiltinId::Int8ArrayConstructor
@@ -4749,11 +4809,7 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    pub(super) fn standard_builtin_signature(
-        &self,
-        builtin: StandardBuiltinId,
-        current_this_info: ValueInfo,
-    ) -> FunctionSignature {
+    pub(super) fn standard_builtin_signature(builtin: StandardBuiltinId) -> FunctionSignature {
         let (return_kind, return_possible_kinds, return_shape, constructor_instance) = match builtin
         {
             StandardBuiltinId::FunctionConstructor => (
@@ -4877,7 +4933,9 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::ObjectPrototypeProtoSetter => (
+            StandardBuiltinId::ObjectPrototypeDefineGetter
+            | StandardBuiltinId::ObjectPrototypeDefineSetter
+            | StandardBuiltinId::ObjectPrototypeProtoSetter => (
                 ValueKind::Undefined,
                 KindSet::from_kind(ValueKind::Undefined),
                 None,
@@ -5266,7 +5324,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::TypedArrayPrototypeReverse
+            StandardBuiltinId::TypedArrayPrototypeFill
+            | StandardBuiltinId::TypedArrayPrototypeReverse
             | StandardBuiltinId::TypedArrayPrototypeCopyWithin
             | StandardBuiltinId::TypedArrayPrototypeSort
             | StandardBuiltinId::TypedArrayPrototypeSubarray
@@ -6047,6 +6106,9 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::TemporalInstantFrom
             | StandardBuiltinId::TemporalInstantFromEpochMilliseconds
+            | StandardBuiltinId::TemporalInstantPrototypeAdd
+            | StandardBuiltinId::TemporalInstantPrototypeSubtract
+            | StandardBuiltinId::TemporalInstantPrototypeRound
             | StandardBuiltinId::TemporalInstantFromEpochNanoseconds => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -6078,6 +6140,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::TemporalInstantPrototypeToString
+            | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
             | StandardBuiltinId::TemporalInstantPrototypeToJson => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
@@ -6106,6 +6169,13 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::intl_locale_instance_shape()),
                 Self::value_info_from_shape(Some(Self::intl_locale_instance_shape())),
             ),
+            StandardBuiltinId::IntlLocalePrototypeMaximize
+            | StandardBuiltinId::IntlLocalePrototypeMinimize => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::intl_locale_instance_shape()),
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::IntlLocalePrototypeLanguageGetter
             | StandardBuiltinId::IntlLocalePrototypeBaseNameGetter
             | StandardBuiltinId::IntlLocalePrototypeToString => (
@@ -6114,8 +6184,21 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
+            StandardBuiltinId::IntlLocalePrototypeNumericGetter => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
             StandardBuiltinId::IntlLocalePrototypeScriptGetter
-            | StandardBuiltinId::IntlLocalePrototypeRegionGetter => (
+            | StandardBuiltinId::IntlLocalePrototypeRegionGetter
+            | StandardBuiltinId::IntlLocalePrototypeCalendarGetter
+            | StandardBuiltinId::IntlLocalePrototypeCollationGetter
+            | StandardBuiltinId::IntlLocalePrototypeFirstDayOfWeekGetter
+            | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
+            | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
+            | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => (
                 ValueKind::Dynamic,
                 KindSet::from_kind(ValueKind::String)
                     .union(KindSet::from_kind(ValueKind::Undefined)),
@@ -6219,6 +6302,39 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::IntlDateTimeFormatBoundFormat
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatConstructor => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                Self::fresh_constructed_instance_info(),
+            ),
+            StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => (
+                ValueKind::Array,
+                KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatBoundFormat
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
                 None,
@@ -6458,7 +6574,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_plain_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalPlainTimePrototypeUntil
+            StandardBuiltinId::TemporalInstantPrototypeUntil
+            | StandardBuiltinId::TemporalInstantPrototypeSince
+            | StandardBuiltinId::TemporalPlainTimePrototypeUntil
             | StandardBuiltinId::TemporalPlainTimePrototypeSince => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
@@ -6606,7 +6724,14 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeRound
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
             | StandardBuiltinId::TemporalZonedDateTimeFrom => (
@@ -6842,6 +6967,7 @@ impl<'a> ScriptLowerer<'a> {
             ),
             StandardBuiltinId::Float64ArrayConstructor
             | StandardBuiltinId::Float32ArrayConstructor
+            | StandardBuiltinId::Float16ArrayConstructor
             | StandardBuiltinId::Int32ArrayConstructor
             | StandardBuiltinId::Int16ArrayConstructor
             | StandardBuiltinId::Int8ArrayConstructor
@@ -7459,7 +7585,10 @@ impl<'a> ScriptLowerer<'a> {
             return_shape: FunctionReturnShape::flow_sensitive(return_shape),
             return_targets: FunctionTargetKnowledge::unknown(),
             constructor_instance,
-            this_info: current_this_info,
+            // Intrinsics have no lexical-this captures. Until the first call
+            // observes a receiver, retaining the complete global shape here
+            // would duplicate it in every cloned builtin signature.
+            this_info: ValueInfo::undefined(),
             this_observed: false,
             source_call_flow_effects: SourceCallFlowEffects::unobserved(),
         }

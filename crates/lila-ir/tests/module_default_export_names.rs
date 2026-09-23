@@ -41,6 +41,33 @@ fn graph(files: &[(&str, &str)]) -> ScriptIr {
     program.script.expect("module graph has Script IR")
 }
 
+fn module_owner(script: &ScriptIr) -> &lila_ir::FunctionIr {
+    let graph = script
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| {
+            let StatementIr::Expression(expression) = statement else {
+                return None;
+            };
+            let ExprIr::ModuleExecutionGraph(graph) = &expression.expr else {
+                return None;
+            };
+            Some(graph)
+        })
+        .expect("single synchronous Module has a canonical activation");
+    let activation = graph
+        .activations()
+        .iter()
+        .find(|activation| activation.module() == 0)
+        .unwrap();
+    script
+        .functions
+        .iter()
+        .find(|function| &function.id == activation.function())
+        .expect("private Module lexical owner")
+}
+
 fn class_names(script: &ScriptIr) -> Vec<&str> {
     script
         .functions
@@ -65,8 +92,8 @@ fn default_class_display_name_is_independent_of_its_merged_storage() {
     }
     let script = module("export default class { static value = this.name; }print('after');");
     assert_eq!(class_names(&script), ["default"]);
-    let definition =
-        class_binding(&script.body.statements).expect("default export class declaration");
+    let definition = class_binding(&module_owner(&script).body.statements)
+        .expect("default export class declaration");
     assert_eq!(definition.0, "$d0$");
     assert_eq!(definition.1.name.as_deref(), Some("default"));
     assert!(!definition.1.element_plan.static_elements.is_empty());
@@ -214,17 +241,22 @@ fn hoistable_default_protocols_initialize_the_storage_binding_before_evaluation(
             .expect("default callable");
         assert!(!function.is_expression, "{definition}");
         assert_eq!(function.to_string_representation.materialize(), definition);
+        assert!(script.global_bindings.get("$d0$").is_none());
+        let owner = module_owner(&script);
+        let initializers = initialized_binding(&owner.body.statements, "$d0$");
         assert_eq!(
-            script
-                .global_bindings
-                .get("$d0$")
-                .expect("merged binding")
-                .initializer,
-            lila_ir::GlobalPropertyInitializerIr::SourceFunction(function.id.clone())
+            initializers.len(),
+            1,
+            "the owner initializes once: {definition}"
+        );
+        assert_eq!(
+            initializers[0].expr,
+            ExprIr::FunctionValue(function.id.clone())
         );
         assert!(
-            initialized_binding(&script.body.statements, "$d0$").is_empty(),
-            "the source export must not create a second function: {definition}"
+            matches!(owner.body.statements.first(), Some(StatementIr::Lexical { name, init, .. })
+                if name == "$d0$" && init.expr == ExprIr::FunctionValue(function.id.clone())),
+            "the function must initialize before the first body statement: {definition}"
         );
     }
 }
@@ -244,12 +276,26 @@ fn expression_defaults_retain_lexical_initialization_at_the_export_statement() {
             .find(|function| function.name == "default")
             .expect("default callable");
         assert!(function.is_expression, "{definition}");
-        assert!(script
+        assert!(!script
             .global_bindings
             .lexical_bindings()
             .contains_key("$d0$"));
         assert!(script.global_bindings.get("$d0$").is_none());
-        let initializers = initialized_binding(&script.body.statements, "$d0$");
+        let owner = module_owner(&script);
+        let boundary = owner
+            .body
+            .statements
+            .iter()
+            .position(|statement| matches!(statement, StatementIr::GeneratorYield { .. }))
+            .expect("instantiation ends at the private boundary");
+        assert!(
+            matches!(
+                owner.body.statements.get(boundary + 1),
+                Some(StatementIr::Expression(_))
+            ),
+            "the body statement must precede a non-hoisted default: {definition}"
+        );
+        let initializers = initialized_binding(&owner.body.statements, "$d0$");
         assert_eq!(initializers.len(), 1, "{definition}");
         assert_eq!(
             initializers[0].expr,

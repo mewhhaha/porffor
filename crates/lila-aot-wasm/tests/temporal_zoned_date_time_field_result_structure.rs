@@ -291,11 +291,11 @@ fn zdt_field_result_is_private_and_capability_free() {
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ZdtFieldResult::NumberOnStack"),
-        10
+        9
     );
     assert_eq!(
         count_route_in_rust_sources(&source_root, "ZdtFieldResult::WrittenByCallee"),
-        13
+        14
     );
 
     for forbidden in [
@@ -410,8 +410,13 @@ fn zdt_field_result_binds_every_field_to_its_complete_delivery_body() {
             }
 
             ZonedDateTimeField::Year => {
-                function.instruction(&Instruction::LocalGet(year_payload_local));
-                ZdtFieldResult::NumberOnStack
+                self.emit_temporal_zoned_date_time_calendar_numeric_field(
+                    ZonedDateTimeCalendarField::Year,
+                    record_local,
+                    [year_payload_local, month_payload_local, day_payload_local],
+                    function,
+                );
+                ZdtFieldResult::WrittenByCallee
             }
             ZonedDateTimeField::Month => {
                 function.instruction(&Instruction::LocalGet(month_payload_local));

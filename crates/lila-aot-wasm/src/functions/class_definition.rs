@@ -2,6 +2,90 @@ use super::*;
 use lila_ir::{ClassEvaluationPrefixIr, ResumableClassDefinitionIr};
 
 impl FunctionBuilder<'_> {
+    pub(super) fn emit_define_public_class_field(
+        &mut self,
+        receiver: u32,
+        receiver_tag: u32,
+        key: u32,
+        value: u32,
+        value_tag: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // A derived constructor may receive any object from super(), including
+        // a namespace, Proxy or integer-indexed exotic. Use the descriptor
+        // dispatcher so DefineField observes its [[DefineOwnProperty]].
+        let descriptor = self.reserve_temp_local();
+        let descriptor_tag = self.reserve_temp_local();
+        let attribute_key = self.reserve_temp_local();
+        let attribute_value = self.reserve_temp_local();
+        let attribute_tag = self.reserve_temp_local();
+        let key_value = self.reserve_temp_local();
+        let key_tag = self.reserve_temp_local();
+        let result = self.reserve_temp_local();
+        let result_tag = self.reserve_temp_local();
+        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
+        function.instruction(&Instruction::LocalSet(descriptor));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(descriptor_tag));
+        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
+        function.instruction(&Instruction::LocalSet(attribute_key));
+        self.emit_object_define_enumerable_data(
+            descriptor,
+            attribute_key,
+            value,
+            value_tag,
+            function,
+        )?;
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(attribute_value));
+        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+        function.instruction(&Instruction::LocalSet(attribute_tag));
+        for name in ["writable", "enumerable", "configurable"] {
+            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+            function.instruction(&Instruction::LocalSet(attribute_key));
+            self.emit_object_define_enumerable_data(
+                descriptor,
+                attribute_key,
+                attribute_value,
+                attribute_tag,
+                function,
+            )?;
+        }
+        self.emit_property_key_tag_from_payload(key, key_tag, function);
+        self.emit_property_key_value_payload_to_local(key, key_value, function);
+        let define_property = self
+            .functions
+            .get(&StandardBuiltinId::ObjectDefineProperty.function_id())
+            .cloned()
+            .expect("public class fields require the canonical property-definition builtin");
+        self.emit_direct_js_call(
+            &define_property,
+            None,
+            &[
+                (receiver, receiver_tag),
+                (key_value, key_tag),
+                (descriptor, descriptor_tag),
+            ],
+            result,
+            result_tag,
+            function,
+        )?;
+        for local in [
+            result_tag,
+            result,
+            key_tag,
+            key_value,
+            attribute_tag,
+            attribute_value,
+            attribute_key,
+            descriptor_tag,
+            descriptor,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
+
     pub(crate) fn compile_class_definition_payload(
         &mut self,
         class: &ClassDefinitionIr,
@@ -230,6 +314,20 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalSet(constructor_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(constructor_tag_local));
+        if let Some(binding_name) = &class.inferred_name_binding {
+            let storage = self
+                .lookup_binding(binding_name)
+                .expect("computed class name key is materialized before class evaluation");
+            self.read_binding_to_locals(storage, key_local, value_tag_local, function)?;
+            self.emit_value_to_property_key_payload(key_local, value_tag_local, function)?;
+            function.instruction(&Instruction::LocalSet(key_local));
+            self.emit_set_function_name(
+                constructor_local,
+                key_local,
+                FunctionNamePrefix::None,
+                function,
+            )?;
+        }
         if let Some(private_environment_local) = private_environment_local {
             self.emit_current_private_environment_to_local(key_local, function);
             if let Some(class_private_scope) = class_private_scope {
@@ -737,6 +835,14 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::LocalSet(value_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
             function.instruction(&Instruction::LocalSet(value_tag_local));
+            if private_name_id.is_none() {
+                let prefix = match kind {
+                    ClassMethodKindIr::Method => FunctionNamePrefix::None,
+                    ClassMethodKindIr::Getter => FunctionNamePrefix::Getter,
+                    ClassMethodKindIr::Setter => FunctionNamePrefix::Setter,
+                };
+                self.emit_set_function_name(value_payload_local, key_local, prefix, function)?;
+            }
             if placement == ClassMethodPlacementIr::Static && private_name_id.is_none() {
                 self.emit_reject_static_class_prototype_definition(
                     key_local,
@@ -916,8 +1022,9 @@ impl FunctionBuilder<'_> {
                             prototype_key_local,
                             function,
                         )?;
-                        self.emit_object_define_enumerable_data(
+                        self.emit_define_public_class_field(
                             constructor_local,
+                            constructor_tag_local,
                             key_local,
                             value_payload_local,
                             value_tag_local,

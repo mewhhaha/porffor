@@ -21,7 +21,7 @@
 //!   is `E0382`.
 
 use super::*;
-use crate::{WellKnownSymbol, WithObjectBindingName};
+use crate::WithObjectBindingName;
 use boa_ast::expression::operator::binary::{ArithmeticOp, BitwiseOp};
 use std::sync::Arc;
 
@@ -944,114 +944,22 @@ impl ObjectEnvironmentBindingObject {
         )
     }
 
-    /// Object Environment Record HasBinding, including `Symbol.unscopables`.
-    ///
-    /// The temporary name is allocated by the lowerer because it owns lexical
-    /// name allocation. The object operand is not supplied separately: both
-    /// HasProperty and the unscopables read come from this validated binding
-    /// object, so they cannot silently disagree about the environment queried.
-    fn binding_visible(&self, referenced_name: &str, unscopables_binding: String) -> TypedExpr {
-        let has_property = self.has_property(referenced_name);
-        let unscopables = TypedExpr::from_info(
-            dynamic_value_info(),
-            ExprIr::PropertyRead {
-                target: Box::new(self.read()),
-                key: PropertyKeyIr::StringExpr(Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Symbol),
-                    ExprIr::String(WellKnownSymbol::Unscopables.description().to_string()),
-                ))),
-            },
-        );
-        let read_unscopables = || {
-            TypedExpr::from_info(
-                dynamic_value_info(),
-                ExprIr::Identifier(unscopables_binding.clone()),
-            )
-        };
-        let unscopables_type = || {
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::TypeOf {
-                    expr: Box::new(read_unscopables()),
-                },
-            )
-        };
-        let type_is_object = TypedExpr::spec_strict_equality_comparison(
-            unscopables_type(),
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::String("object".to_string()),
-            ),
-        );
-        let is_not_null = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalNot {
-                expr: Box::new(TypedExpr::spec_strict_equality_comparison(
-                    read_unscopables(),
-                    TypedExpr::from_info(ValueInfo::new(ValueKind::Null), ExprIr::Null),
-                )),
-            },
-        );
-        let is_non_null_object = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::And,
-                lhs: Box::new(type_is_object),
-                rhs: Box::new(is_not_null),
-            },
-        );
-        let type_is_function = TypedExpr::spec_strict_equality_comparison(
-            unscopables_type(),
-            TypedExpr::from_info(
-                ValueInfo::new(ValueKind::String),
-                ExprIr::String("function".to_string()),
-            ),
-        );
-        let is_object = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::Or,
-                lhs: Box::new(is_non_null_object),
-                rhs: Box::new(type_is_function),
-            },
-        );
-        let blocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::Conditional {
-                condition: Box::new(is_object),
-                then_expr: Box::new(TypedExpr::spec_to_boolean(TypedExpr::from_info(
-                    dynamic_value_info(),
-                    ExprIr::PropertyRead {
-                        target: Box::new(read_unscopables()),
-                        key: PropertyKeyIr::StaticString(referenced_name.to_string()),
-                    },
-                ))),
-                else_expr: Box::new(TypedExpr::from_info(
-                    ValueInfo::new(ValueKind::Boolean),
-                    ExprIr::Boolean(false),
-                )),
-            },
-        );
-        let binding_unblocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalNot {
-                expr: Box::new(blocked),
-            },
-        );
-        let binding_unblocked = TypedExpr::from_info(
-            ValueInfo::new(ValueKind::Boolean),
-            ExprIr::MaterializeBinding {
-                name: unscopables_binding,
-                value: Box::new(unscopables),
-                body: Box::new(binding_unblocked),
-            },
-        );
+    /// HasBinding for a record whose [[IsWithEnvironment]] is true. The
+    /// validated binding object owns both the HasProperty and unscopables
+    /// reads; one semantic operation keeps those reads ordered without
+    /// expanding general JavaScript property and typeof expressions per use.
+    fn binding_visible(&self, referenced_name: &str) -> TypedExpr {
         TypedExpr::from_info(
             ValueInfo::new(ValueKind::Boolean),
-            ExprIr::LogicalShortCircuit {
-                op: LogicalBinaryOp::And,
-                lhs: Box::new(has_property),
-                rhs: Box::new(binding_unblocked),
+            ExprIr::SpecOperation {
+                operation: SpecOperationIr::WithEnvironmentHasBinding,
+                operands: vec![
+                    self.read(),
+                    TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::String(referenced_name.to_string()),
+                    ),
+                ],
             },
         )
     }
@@ -1502,23 +1410,16 @@ pub(crate) struct SelectedWithEnvironmentObjects {
 #[derive(Debug)]
 struct WithEnvironmentResolution {
     binding_object: ObjectEnvironmentBindingObject,
-    unscopables_binding: String,
 }
 
 impl WithEnvironmentResolution {
-    fn create(binding_object: ObjectEnvironmentBindingObject, unscopables_binding: String) -> Self {
-        Self {
-            binding_object,
-            unscopables_binding,
-        }
+    fn create(binding_object: ObjectEnvironmentBindingObject) -> Self {
+        Self { binding_object }
     }
 
     fn delete_binding_or_else(self, referenced_name: &str, fallback: TypedExpr) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let deletion = TypedExpr::from_info(
             ValueInfo::new(ValueKind::Boolean),
             ExprIr::DeleteProperty {
@@ -1545,11 +1446,8 @@ impl WithEnvironmentResolution {
         strictness: Strictness,
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let with_value = binding_object.get_value(referenced_name, strictness);
         TypedExpr::from_info(
             dynamic_value_info(),
@@ -1572,11 +1470,8 @@ impl WithEnvironmentResolution {
         args: &[TypedExpr],
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let callee = binding_object
             .clone()
             .get_value(referenced_name, strictness);
@@ -1608,11 +1503,8 @@ impl WithEnvironmentResolution {
         value: TypedExpr,
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let with_write = binding_object.put_value(referenced_name, strictness, value);
         TypedExpr::from_info(
             with_write.value_info(),
@@ -1636,11 +1528,8 @@ impl WithEnvironmentResolution {
         bindings: &NumericUpdateBindings,
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let selected_update =
             binding_object.numeric_update(referenced_name, strictness, op, return_mode, bindings);
         let numeric_info = selected_update.value_info();
@@ -1665,11 +1554,8 @@ impl WithEnvironmentResolution {
         rhs: TypedExpr,
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let selected = binding_object.logical_assignment(referenced_name, strictness, op, rhs);
         TypedExpr::from_info(
             dynamic_value_info(),
@@ -1691,11 +1577,8 @@ impl WithEnvironmentResolution {
         assignment: &EagerCompoundAssignment,
         fallback: TypedExpr,
     ) -> TypedExpr {
-        let Self {
-            binding_object,
-            unscopables_binding,
-        } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name, unscopables_binding);
+        let Self { binding_object } = self;
+        let binding_visible = binding_object.binding_visible(referenced_name);
         let selected_assignment =
             binding_object.eager_compound_assignment(referenced_name, strictness, assignment);
         let result_info = selected_assignment.value_info();
@@ -1718,14 +1601,12 @@ impl SelectedWithEnvironmentObjects {
         self,
         referenced_name: String,
         strictness: Strictness,
-        mut allocate_unscopables_binding: impl FnMut() -> String,
     ) -> WithEnvironmentReferencePlan {
         let Self { innermost, outer } = self;
-        let innermost =
-            WithEnvironmentResolution::create(innermost, allocate_unscopables_binding());
+        let innermost = WithEnvironmentResolution::create(innermost);
         let mut outer = outer
             .into_iter()
-            .map(|object| WithEnvironmentResolution::create(object, allocate_unscopables_binding()))
+            .map(WithEnvironmentResolution::create)
             .collect::<Vec<_>>();
         outer.reverse();
         WithEnvironmentReferencePlan::create(innermost, outer, referenced_name, strictness)
@@ -1738,14 +1619,9 @@ impl SelectedWithEnvironmentObjects {
         self,
         referenced_name: String,
         strictness: Strictness,
-        allocate_unscopables_binding: impl FnMut() -> String,
     ) -> WithEnvironmentIdentifierCallReferencePlan {
         WithEnvironmentIdentifierCallReferencePlan {
-            reference: self.into_reference_plan(
-                referenced_name,
-                strictness,
-                allocate_unscopables_binding,
-            ),
+            reference: self.into_reference_plan(referenced_name, strictness),
         }
     }
 }
@@ -2587,6 +2463,14 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         | ExprIr::DynamicImport { .. }
         | ExprIr::ImportMeta { .. }
         | ExprIr::ModuleNamespace { .. }
+        | ExprIr::ModuleEntryEvaluation(_)
+        | ExprIr::ModuleExecutionGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_)
+        | ExprIr::ModuleNamespacePublish { .. }
         | ExprIr::GlobalPropertyRead { .. }
         | ExprIr::GlobalIdentifierRead { .. }
         | ExprIr::AssignIdentifier { .. }
@@ -2860,6 +2744,14 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::DynamicImport { .. }
         | ExprIr::ImportMeta { .. }
         | ExprIr::ModuleNamespace { .. }
+        | ExprIr::ModuleEntryEvaluation(_)
+        | ExprIr::ModuleExecutionGraph(_)
+        | ExprIr::ModuleBindingRead(_)
+        | ExprIr::ModuleEvaluate(_)
+        | ExprIr::DeferredModuleEvaluate(_)
+        | ExprIr::ModuleHasAsyncDependencies(_)
+        | ExprIr::ModuleDeferredImportEvaluate(_)
+        | ExprIr::ModuleNamespacePublish { .. }
         | ExprIr::AssignIdentifier { .. }
         | ExprIr::GlobalPropertyWrite { .. }
         | ExprIr::OptionalPropertyChain { .. }
@@ -3110,19 +3002,11 @@ mod tests {
         assert!(!cloned.contains(&StandardBuiltinId::ArrayPrototypePush.function_id()));
     }
 
-    fn with_environment_resolution(
-        storage_name: &str,
-        unscopables_binding: &str,
-    ) -> WithEnvironmentResolution {
-        WithEnvironmentResolution::create(
-            ObjectEnvironmentBindingObject {
-                source: ObjectEnvironmentBindingObjectSource::Materialized(
-                    storage_name.to_string(),
-                ),
-                info: ValueInfo::new(ValueKind::Object),
-            },
-            unscopables_binding.to_string(),
-        )
+    fn with_environment_resolution(storage_name: &str) -> WithEnvironmentResolution {
+        WithEnvironmentResolution::create(ObjectEnvironmentBindingObject {
+            source: ObjectEnvironmentBindingObjectSource::Materialized(storage_name.to_string()),
+            info: ValueInfo::new(ValueKind::Object),
+        })
     }
 
     #[test]
@@ -3173,15 +3057,16 @@ mod tests {
     }
 
     fn initial_resolution_target(expr: &TypedExpr) -> &str {
-        let ExprIr::LogicalShortCircuit {
-            op: LogicalBinaryOp::And,
-            lhs,
-            rhs: _,
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::WithEnvironmentHasBinding,
+            operands,
         } = &expr.expr
         else {
             panic!("expected Object Environment HasBinding, got {expr:?}");
         };
-        has_property_target(lhs)
+        assert_eq!(operands.len(), 2);
+        assert!(matches!(&operands[1].expr, ExprIr::String(_)));
+        identifier_name(&operands[0])
     }
 
     fn assert_strict_selected_write(
@@ -3267,11 +3152,8 @@ mod tests {
     #[test]
     fn with_environment_strict_put_value_resolves_inner_to_outer_then_rechecks_same_object() {
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.inner", "$with.unscopables.inner"),
-            vec![with_environment_resolution(
-                "$with.outer",
-                "$with.unscopables.outer",
-            )],
+            with_environment_resolution("$with.inner"),
+            vec![with_environment_resolution("$with.outer")],
             "x".to_string(),
             Strictness::Strict,
         )
@@ -3307,7 +3189,7 @@ mod tests {
     #[test]
     fn with_environment_sloppy_put_value_observes_recheck_before_checked_set() {
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            with_environment_resolution("$with.object"),
             Vec::new(),
             "x".to_string(),
             Strictness::Sloppy,
@@ -3369,11 +3251,8 @@ mod tests {
     #[test]
     fn with_environment_get_value_resolves_inner_to_outer_then_rechecks_selected_object() {
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.inner", "$with.unscopables.inner"),
-            vec![with_environment_resolution(
-                "$with.outer",
-                "$with.unscopables.outer",
-            )],
+            with_environment_resolution("$with.inner"),
+            vec![with_environment_resolution("$with.outer")],
             "x".to_string(),
             Strictness::Strict,
         )
@@ -3403,7 +3282,7 @@ mod tests {
         assert_eq!(identifier_name(fallback), "fallback");
 
         let sloppy = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            with_environment_resolution("$with.object"),
             Vec::new(),
             "x".to_string(),
             Strictness::Sloppy,
@@ -3418,7 +3297,7 @@ mod tests {
     #[test]
     fn with_environment_numeric_update_sequences_same_object_get_delta_put_then_result() {
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            with_environment_resolution("$with.object"),
             Vec::new(),
             "x".to_string(),
             Strictness::Strict,
@@ -3498,7 +3377,7 @@ mod tests {
             },
         );
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            with_environment_resolution("$with.object"),
             Vec::new(),
             "x".to_string(),
             Strictness::Strict,
@@ -3646,7 +3525,7 @@ mod tests {
     #[test]
     fn with_environment_logical_assignment_selects_once_and_puts_only_in_rhs_branch() {
         let lowered = WithEnvironmentReferencePlan::create(
-            with_environment_resolution("$with.object", "$with.unscopables.object"),
+            with_environment_resolution("$with.object"),
             Vec::new(),
             "x".to_string(),
             Strictness::Strict,
@@ -3690,7 +3569,7 @@ mod tests {
         );
         let lowered = WithEnvironmentIdentifierCallReferencePlan {
             reference: WithEnvironmentReferencePlan::create(
-                with_environment_resolution("$with.object", "$with.unscopables.object"),
+                with_environment_resolution("$with.object"),
                 Vec::new(),
                 "x".to_string(),
                 Strictness::Sloppy,

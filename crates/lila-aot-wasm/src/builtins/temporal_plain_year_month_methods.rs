@@ -9,7 +9,7 @@ use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
     TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
 };
-use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedYear};
+use super::temporal_plain_date::{TemporalEraLocals, TemporalResolvedIsoYear};
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDifferenceOperation,
 };
@@ -200,7 +200,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_year_month_resolve_fields(
         &mut self,
-        resolved_year: &TemporalResolvedYear,
+        resolved_year: &TemporalResolvedIsoYear,
         month_local: u32,
         month_present_local: u32,
         month_code_payload_local: u32,
@@ -467,7 +467,7 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             year_local,
@@ -1317,7 +1317,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        let resolved_year = self.emit_temporal_resolve_era_to_year(
+        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
             calendar_payload_local,
             new_year_local,
@@ -1427,14 +1427,11 @@ impl<'a> FunctionBuilder<'a> {
         match operation {
             TemporalPlainArithmeticOperation::Add => {}
             TemporalPlainArithmeticOperation::Subtract => {
-                for local in duration_locals.iter() {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(*local));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(*local));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
+        let date_fields =
+            self.reserve_temporal_duration_date_field_locals(&duration_locals, function);
 
         // The options are read before any algorithmic validation - Test262's
         // `add/options-read-before-algorithmic-validation.js` observes the
@@ -1463,7 +1460,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(duration_locals[2]));
+        function.instruction(&Instruction::LocalGet(date_fields[2]));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::I32Or);
@@ -1489,9 +1486,9 @@ impl<'a> FunctionBuilder<'a> {
             year_local,
             month_local,
             day_local,
-            duration_locals[0],
-            duration_locals[1],
-            duration_locals[2],
+            date_fields[0],
+            date_fields[1],
+            date_fields[2],
             day_delta_local,
             overflow_local,
             function,
@@ -1509,6 +1506,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for local in date_fields.into_iter().rev() {
+            self.release_temp_local(local);
+        }
         self.release_temporal_duration_field_locals(duration_locals);
         for local in [
             day_delta_local,
@@ -1945,26 +1945,33 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(total_local));
         function.instruction(&Instruction::I64Const(12));
         function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(duration_locals[0]));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(
+            duration_locals.number_bits_locals()[0],
+        ));
         function.instruction(&Instruction::LocalGet(total_local));
         function.instruction(&Instruction::I64Const(12));
         function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(duration_locals[1]));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(
+            duration_locals.number_bits_locals()[1],
+        ));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(total_local));
-        function.instruction(&Instruction::LocalSet(duration_locals[1]));
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(
+            duration_locals.number_bits_locals()[1],
+        ));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         match operation {
             TemporalPlainDifferenceOperation::Until => {}
             TemporalPlainDifferenceOperation::Since => {
-                for index in [0_usize, 1] {
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalGet(duration_locals[index]));
-                    function.instruction(&Instruction::I64Sub);
-                    function.instruction(&Instruction::LocalSet(duration_locals[index]));
-                }
+                self.emit_temporal_duration_negate_fields(&duration_locals, function);
             }
         }
         self.emit_create_temporal_duration(&duration_locals, function)?;

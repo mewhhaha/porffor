@@ -6,7 +6,7 @@ Status: T22 ownership invariant extended to the complete 21-field dispatch,
 ## Boundary
 
 `emit_temporal_zoned_date_time_iso_field` emits one of 21 accessor bodies.
-Nine bodies leave one Number payload on the Wasm stack. The other twelve write
+Eight bodies leave one Number payload on the Wasm stack. The other thirteen write
 the complete result payload/tag pair themselves. The private domain naming
 that distinction is:
 
@@ -25,11 +25,12 @@ publication silently.
 
 ## Result routes
 
-The nine existing numeric stack arms publish their value as Number. The
+The eight numeric stack arms publish their value as Number. The
 self-written routes preserve the callee's complete result pair:
 
 - `monthCode` publishes String; `era` and `eraYear` retain the shared calendar
   emitter's String, Number or Undefined result pair.
+- `year` projects the receiver calendar year, including its calendar offset.
 - `dayOfWeek`, `dayOfYear`, `daysInWeek`, `daysInMonth`, `daysInYear` and
   `monthsInYear` project the receiver's local ISO date through the shared
   PlainDate calculation and publish Number.
@@ -54,7 +55,7 @@ The Rust-lexical structure target pins:
   alias, representation or cast route;
 - exactly 24 source-wide `ZdtFieldResult` identifiers: one declaration, 21
   producers and two consumer arms;
-- exactly ten qualified `NumberOnStack` routes and thirteen qualified
+- exactly nine qualified `NumberOnStack` routes and fourteen qualified
   `WrittenByCallee` routes, including their final consumer arms;
 - exactly two `delivery` identifiers, its inferred binding and its consuming
   match;

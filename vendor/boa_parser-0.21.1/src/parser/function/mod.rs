@@ -14,7 +14,7 @@ use crate::{
     Error,
     lexer::{Error as LexError, InputElement, TokenKind},
     parser::{
-        AllowAwait, AllowYield, Cursor, OrAbrupt, ParseResult, TokenParser,
+        AllowAwait, AllowYield, Cursor, ParseResult, TokenParser,
         expression::{BindingIdentifier, Initializer},
         statement::{ArrayBindingPattern, ObjectBindingPattern, StatementList},
     },
@@ -351,8 +351,9 @@ where
                 TokenKind::Punctuator(Punctuator::OpenBlock) => {
                     let bindings = ObjectBindingPattern::new(self.allow_yield, self.allow_await)
                         .parse(cursor, interner)?;
-                    let init = if *cursor.peek(0, interner).or_abrupt()?.kind()
-                        == TokenKind::Punctuator(Punctuator::Assign)
+                    let init = if cursor
+                        .peek(0, interner)?
+                        .is_some_and(|tok| tok.kind() == &TokenKind::Punctuator(Punctuator::Assign))
                     {
                         Some(
                             Initializer::new(true, self.allow_yield, self.allow_await)
@@ -367,8 +368,9 @@ where
                 TokenKind::Punctuator(Punctuator::OpenBracket) => {
                     let bindings = ArrayBindingPattern::new(self.allow_yield, self.allow_await)
                         .parse(cursor, interner)?;
-                    let init = if *cursor.peek(0, interner).or_abrupt()?.kind()
-                        == TokenKind::Punctuator(Punctuator::Assign)
+                    let init = if cursor
+                        .peek(0, interner)?
+                        .is_some_and(|tok| tok.kind() == &TokenKind::Punctuator(Punctuator::Assign))
                     {
                         Some(
                             Initializer::new(true, self.allow_yield, self.allow_await)
@@ -481,8 +483,8 @@ where
                 .start()
         };
 
-        let break_tokens = if self.parse_full_input {
-            &[] as &[TokenKind]
+        let break_tokens: &[TokenKind] = if self.parse_full_input {
+            &[]
         } else {
             &FUNCTION_BREAK_TOKENS
         };

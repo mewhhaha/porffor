@@ -3,11 +3,13 @@
 //! `record` owns `ParseModule` and the static entry tables (16.2.1.6.1,
 //! 16.2.2, 16.2.3). `early` owns the module early errors (16.2.3.1) and the
 //! classification of boa's own module-goal static-semantics failures.
-//! `graph_build` owns transitive assembly; `graph_resolution` owns
+//! `admission` assigns dynamic-only loading failures to import jobs while
+//! preserving static rejection. `graph_build` owns transitive assembly; `graph_resolution` owns
 //! `GetExportedNames` / `ResolveExport`; `graph_evaluation_classification` owns
 //! evaluation-mode classification and unsupported phase policy;
-//! `graph_evaluation_order` owns `InnerModuleEvaluation` order and
-//! strongly-connected components; `graph_async_evaluation` owns async-module
+//! `graph_evaluation_order` owns static order/component queries for linking
+//! and retained drivers; canonical execution selects components at runtime.
+//! `graph_async_evaluation` owns async-module
 //! propagation and pending-dependency queries; and `graph_materialization`
 //! owns the evaluation-to-runtime query boundary.
 //! `graph` retains the linked record and linking orchestration. `link` merges
@@ -29,10 +31,14 @@
 //! hands the closure over as a [`ModuleGraphSources`]; nothing in this
 //! directory touches the filesystem.
 
+mod admission;
 mod default_export_definition;
 mod dynamic;
 mod early;
+mod entry_evaluation;
 mod evaluation_mode;
+pub(crate) use entry_evaluation::{LinkedModuleEntry, ModuleEntryEvaluationBoundary};
+pub use entry_evaluation::{ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr};
 mod graph;
 mod graph_async_evaluation;
 mod graph_build;
@@ -47,9 +53,14 @@ mod loaded_sources;
 mod module_key;
 mod module_unit;
 mod namespace;
+mod namespace_definition;
 mod record;
 mod resolved_binding;
 mod source;
+mod synchronous_definition;
+mod synchronous_execution;
+mod synchronous_source;
+pub use synchronous_execution::*;
 
 pub use dynamic::*;
 pub use evaluation_mode::ModuleEvaluationModeIr;
@@ -64,9 +75,12 @@ pub use namespace::*;
 pub use record::*;
 pub use resolved_binding::{ModuleBindingNameIr, ResolvedBindingIr};
 
+pub(crate) use admission::link_loaded_graph;
 pub(crate) use dynamic::lower_import_call;
 pub(crate) use graph::link;
 pub(crate) use graph_build::build_graph;
 pub(crate) use link::linked_script_source;
 
-pub(crate) use default_export_definition::DefaultExportDefinitions;
+pub(crate) use namespace_definition::LinkedScriptDefinitions;
+
+pub(crate) use synchronous_definition::ModuleExecutionAnalysis;

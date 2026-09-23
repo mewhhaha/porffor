@@ -1,4 +1,5 @@
 use super::*;
+use crate::functions::OrdinaryDefaultPrototype;
 
 /// An allocated `Intl.DateTimeFormat` result that has not been branded or
 /// connected to its internal record.
@@ -30,13 +31,44 @@ impl<'a> FunctionBuilder<'a> {
         let prototype_tag_local = self.reserve_temp_local();
         let prototype = TaggedLocals::new(prototype_payload_local, prototype_tag_local);
         let result = (|| {
-            self.emit_new_target_prototype_to_locals(
-                INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
-                NewTargetPrototypeFallback::CurrentGlobal,
+            self.compile_new_target_to_locals(prototype.payload, prototype.tag, function)?;
+            function.instruction(&Instruction::LocalGet(prototype.tag));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            // A plain call uses the active builtin as NewTarget. Its immutable
+            // prototype property is the intrinsic in that function's Realm.
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+            function.instruction(&Instruction::GlobalGet(
+                INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+            ));
+            function.instruction(&Instruction::Else);
+            function.instruction(&Instruction::LocalGet(self.current_env_local));
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalSet(prototype.payload));
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(prototype.tag));
+            self.emit_required_new_target_realm_ordinary_prototype(
+                prototype.payload,
+                prototype.tag,
+                OrdinaryDefaultPrototype::IntlDateTimeFormat,
                 prototype.payload,
                 prototype.tag,
                 function,
             )?;
+            function.instruction(&Instruction::Else);
+            self.emit_new_target_prototype_to_locals(
+                INTL_DATE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                NewTargetPrototypeFallback::RequiredResolvedRealmOrdinary(
+                    OrdinaryDefaultPrototype::IntlDateTimeFormat,
+                ),
+                prototype.payload,
+                prototype.tag,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
             self.emit_alloc_plain_object_with_prototype_and_tag(
                 Some(prototype.payload),
                 Some(prototype.tag),

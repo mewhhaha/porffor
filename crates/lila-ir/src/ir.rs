@@ -5,7 +5,8 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::{
-    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, BindingMode, BitwiseBinaryOp,
+    ArithmeticBinaryOp, ArrayPatternProtocol, ArraySpreadProtocol, AsyncFunctionForOfBodyError,
+    AsyncFunctionForOfBodyIr, AsyncFunctionIfPlanIr, BindingMode, BitwiseBinaryOp,
     CallableToStringRepresentation, CompletionRecordIr, EcmaLanguageType, EqualityBinaryOp,
     FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
     IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
@@ -14,8 +15,8 @@ use crate::{
     ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{
-    ImportPhaseIr, ModuleGraphIr, ModuleUnitId, PreparedScript, PreparedScriptOutcome,
-    PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
+    ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
+    PreparedScriptOutcome, PreparedScriptUnit, RuntimeGlobalDeclarationPlan,
 };
 
 /// Reference Records (6.2.5) and their `[[Strict]]`. See
@@ -704,6 +705,20 @@ pub struct AsyncTryPlanIr {
 }
 
 impl GeneratorPlanIr {
+    pub(crate) const MODULE_INSTANTIATION: GeneratorSuspensionPointIr =
+        GeneratorSuspensionPointIr {
+            suspend_state: 0,
+            resume_state: 1,
+        };
+
+    pub(crate) fn module_instantiation() -> Self {
+        Self {
+            entry_state: Self::MODULE_INSTANTIATION.suspend_state,
+            state_count: Self::MODULE_INSTANTIATION.resume_state + 1,
+            suspension_points: vec![Self::MODULE_INSTANTIATION],
+        }
+    }
+
     #[must_use]
     pub const fn without_suspensions() -> Self {
         Self {
@@ -811,6 +826,13 @@ impl ObjectMethodFunctionIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComputedPropertyNameInferenceIr {
+    None,
+    Function,
+    Class { key_binding: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectPropertyIr {
     PrototypeSetter {
         value: TypedExpr,
@@ -830,6 +852,7 @@ pub enum ObjectPropertyIr {
     ComputedData {
         key: TypedExpr,
         value: TypedExpr,
+        name_inference: ComputedPropertyNameInferenceIr,
     },
     ComputedMethod {
         key: TypedExpr,
@@ -1060,6 +1083,7 @@ impl ClassPrivateEnvironmentIr {
 pub struct ClassDefinitionIr {
     pub name: Option<String>,
     pub name_binding: Option<ClassNameBindingIr>,
+    pub inferred_name_binding: Option<String>,
     pub constructor_function_id: FunctionId,
     pub explicit_constructor: bool,
     pub heritage_kind: ClassHeritageKind,
@@ -1999,6 +2023,22 @@ impl ArrayAccumulationIr {
     }
 }
 
+/// Evaluation behavior of the same module namespace exotic representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModuleNamespaceModeIr {
+    Eager,
+    Deferred,
+}
+
+impl ModuleNamespaceModeIr {
+    pub(crate) const fn cell_role(self) -> crate::UnitCellRole {
+        match self {
+            Self::Eager => crate::UnitCellRole::Namespace,
+            Self::Deferred => crate::UnitCellRole::DeferredNamespace,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprIr {
     Undefined,
@@ -2038,9 +2078,26 @@ pub enum ExprIr {
     ImportMeta {
         module: ModuleUnitId,
     },
-    /// The module namespace exotic object of `module`, identity-cached.
+    /// A namespace's private closure table, produced only from trusted linker
+    /// metadata. Its first element is undefined (eager) or an evaluation closure
+    /// (deferred), followed by sorted export-name / live-reader pairs. The linker
+    /// binds the resulting object once to preserve namespace identity.
     ModuleNamespace {
+        mode: ModuleNamespaceModeIr,
+        exports: Box<TypedExpr>,
+    },
+    /// Allocate every private activation and instantiate imports/namespaces before evaluation.
+    ModuleExecutionGraph(Box<crate::modules::ModuleExecutionGraphIr>),
+    ModuleEntryEvaluation(crate::modules::ModuleEntryEvaluationIr),
+    ModuleBindingRead(crate::modules::ModuleCellIr),
+    ModuleEvaluate(crate::modules::ModuleEvaluationIr),
+    DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
+    ModuleHasAsyncDependencies(crate::modules::ModuleEvaluationIr),
+    ModuleDeferredImportEvaluate(crate::modules::ModuleEvaluationIr),
+    ModuleNamespacePublish {
         module: ModuleUnitId,
+        mode: ModuleNamespaceModeIr,
+        namespace: Box<TypedExpr>,
     },
     This,
     Arguments,
@@ -2750,9 +2807,9 @@ pub(crate) enum AsyncFunctionForOfIteratorInitializationError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AsyncFunctionForOfIteratorPlanError {
-    InvalidAwaitSequence(AwaitSequenceError),
+    InvalidBody(AsyncFunctionForOfBodyError),
     ExitStateOverflow {
-        resume_state: u32,
+        body_exit_state: u32,
     },
     BindingHeadEnvironmentRequired {
         mode: BindingMode,
@@ -3104,13 +3161,8 @@ fn validate_async_function_for_of_initialization(
 }
 
 /// One activation-backed synchronous Iterator Record walk in a plain async
-/// function whose loop body directly awaits.
-///
-/// The private fields keep the body split, state order, Iterator Record, and
-/// environment lifecycle as one compiler-owned plan. In particular, this is
-/// not the optional async-protocol plan on [`ForOfIteratorHeadIr`]: it performs
-/// the ordinary synchronous iterator protocol, then suspends only at the
-/// source body's direct await sequence.
+/// function. Its checked body owns structured await continuations; its head
+/// and Iterator Record retain the ordinary synchronous iterator protocol.
 #[must_use = "a resumable synchronous for-of plan must be attached to its statement"]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsyncFunctionForOfIteratorPlanIr {
@@ -3119,37 +3171,18 @@ pub struct AsyncFunctionForOfIteratorPlanIr {
     record: IteratorRecordIr,
     head_environment: Option<ForInOfEnvironmentIr>,
     iteration_environment: ResumableLoopIterationEnvironmentIr,
-    before_await: Vec<StatementIr>,
-    await_statement: Box<StatementIr>,
-    after_await: Vec<StatementIr>,
-    entry_state: u32,
-    resume_state: u32,
+    body: AsyncFunctionForOfBodyIr,
     exit_state: u32,
 }
 
 impl AsyncFunctionForOfIteratorPlanIr {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         head: AsyncFunctionForOfIteratorHeadIr,
         record: IteratorRecordIr,
         head_environment: Option<ForInOfEnvironmentIr>,
-        mut before_await: Vec<StatementIr>,
-        await_statement: StatementIr,
-        after_await: Vec<StatementIr>,
+        mut statements: Vec<StatementIr>,
         entry_state: u32,
     ) -> Result<Self, AsyncFunctionForOfIteratorPlanError> {
-        if before_await.iter().any(statement_contains_suspension) {
-            return Err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence(
-                AwaitSequenceError::NestedSuspension,
-            ));
-        }
-        let resume_state =
-            direct_await_sequence_resume_state(&await_statement, &after_await, entry_state)
-                .map_err(AsyncFunctionForOfIteratorPlanError::InvalidAwaitSequence)?;
-        let exit_state = resume_state
-            .checked_add(1)
-            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { resume_state })?;
-
         let (value_storage, value_mode, iteration_environment, mut initialization) = match head {
             AsyncFunctionForOfIteratorHeadIr::Binding(binding) => {
                 let value_mode = binding.mode;
@@ -3433,7 +3466,13 @@ impl AsyncFunctionForOfIteratorPlanIr {
                 }
             }
         }
-        initialization.append(&mut before_await);
+        initialization.append(&mut statements);
+        let body = AsyncFunctionForOfBodyIr::new(initialization, entry_state)
+            .map_err(AsyncFunctionForOfIteratorPlanError::InvalidBody)?;
+        let body_exit_state = body.exit_state();
+        let exit_state = body_exit_state
+            .checked_add(1)
+            .ok_or(AsyncFunctionForOfIteratorPlanError::ExitStateOverflow { body_exit_state })?;
 
         Ok(Self {
             value_storage,
@@ -3441,11 +3480,7 @@ impl AsyncFunctionForOfIteratorPlanIr {
             record,
             head_environment,
             iteration_environment,
-            before_await: initialization,
-            await_statement: Box::new(await_statement),
-            after_await,
-            entry_state,
-            resume_state,
+            body,
             exit_state,
         })
     }
@@ -3480,26 +3515,12 @@ impl AsyncFunctionForOfIteratorPlanIr {
         &self.iteration_environment
     }
 
-    pub fn before_await(&self) -> &[StatementIr] {
-        &self.before_await
-    }
-
-    pub fn await_statement(&self) -> &StatementIr {
-        &self.await_statement
-    }
-
-    /// The remaining body, including later direct awaits in this iteration.
-    pub fn after_await(&self) -> &[StatementIr] {
-        &self.after_await
+    pub fn body(&self) -> &AsyncFunctionForOfBodyIr {
+        &self.body
     }
 
     pub fn entry_state(&self) -> u32 {
-        self.entry_state
-    }
-
-    /// The final resume state in the iteration's direct await sequence.
-    pub fn resume_state(&self) -> u32 {
-        self.resume_state
+        self.body.entry_state()
     }
 
     pub fn exit_state(&self) -> u32 {
@@ -3585,6 +3606,7 @@ pub struct FunctionIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementIr {
     Empty,
+    ModuleImportBinding(crate::modules::ModuleImportBindingIr),
     ResumableClassDefinition(Box<ResumableClassDefinitionIr>),
     /// Runs module `module`'s hoist or body block exactly once.
     ///
@@ -3643,6 +3665,8 @@ pub enum StatementIr {
         resume_state: u32,
         resume_mode: GeneratorResumeModeIr,
     },
+    /// Private Allocate/Instantiate boundary; it neither creates jobs nor settles the body promise.
+    AsyncModuleInstantiation,
     AsyncAwait {
         value: TypedExpr,
         suspend_state: u32,
@@ -3680,6 +3704,12 @@ pub enum StatementIr {
         condition: TypedExpr,
         then_branch: Box<StatementIr>,
         else_branch: Option<Box<StatementIr>>,
+    },
+    AsyncFunctionIf {
+        condition: TypedExpr,
+        then_branch: Box<StatementIr>,
+        else_branch: Option<Box<StatementIr>>,
+        plan: AsyncFunctionIfPlanIr,
     },
     While {
         condition: TypedExpr,
@@ -4130,6 +4160,7 @@ impl StatementIr {
             Self::Empty
             | Self::ResumableClassDefinition(_)
             | Self::ModuleUnitOnce { .. }
+            | Self::ModuleImportBinding(_)
             | Self::Lexical { .. }
             | Self::AnnexBFunctionCopy { .. }
             | Self::LexicalBlock(_)
@@ -4140,11 +4171,13 @@ impl StatementIr {
             | Self::DeclarationEvaluation(_)
             | Self::Expression(_)
             | Self::GeneratorYield { .. }
+            | Self::AsyncModuleInstantiation
             | Self::AsyncAwait { .. }
             | Self::GeneratorLoop { .. }
             | Self::GeneratorIf { .. }
             | Self::Block(_)
             | Self::If { .. }
+            | Self::AsyncFunctionIf { .. }
             | Self::While { .. }
             | Self::DoWhile { .. }
             | Self::For { .. }
@@ -4298,6 +4331,26 @@ impl GlobalBindingPlan {
         );
     }
 
+    pub(crate) fn require_host_global(&mut self, builtin: HostBuiltinId) {
+        let Some(name) = builtin.global_name() else {
+            return;
+        };
+        match self.object_bindings.get_mut(name) {
+            Some(binding) => {
+                // Prepared sources are compiled after entry declarations. A bare
+                // var reuses the host property; a source function overrides it.
+                if binding.initializer == GlobalPropertyInitializerIr::FreshUndefined {
+                    binding.initializer = GlobalPropertyInitializerIr::HostFunction(builtin);
+                }
+            }
+            None => self.insert_initial(ScriptGlobalBindingIr {
+                name: name.to_owned(),
+                initializer: GlobalPropertyInitializerIr::HostFunction(builtin),
+                declarations: GlobalDeclarationSetIr::None,
+            }),
+        }
+    }
+
     pub fn record_var(&mut self, name: String) {
         assert!(
             !self.lexical_bindings.contains_key(&name),
@@ -4401,6 +4454,8 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
+    /// A separate global Script evaluated before the Module graph.
+    pub module_prelude: Option<PreparedScriptUnit>,
     pub prepared_scripts: Vec<PreparedScript>,
     pub runtime_declarations: RuntimeGlobalDeclarationPlan,
     pub prepared_dynamic_functions: Vec<PreparedDynamicFunction>,
@@ -4429,13 +4484,21 @@ pub struct ScriptIr {
 }
 
 impl ScriptIr {
+    pub fn module_entry_evaluation(&self) -> Option<&ModuleEntryEvaluationIr> {
+        ModuleEntryEvaluationIr::in_root_block(&self.body)
+    }
+
     pub fn prepared_script_units(&self) -> impl Iterator<Item = &PreparedScriptUnit> {
-        self.prepared_scripts
+        self.module_prelude
             .iter()
-            .filter_map(|prepared| match &prepared.outcome {
-                PreparedScriptOutcome::Executable(unit) => Some(unit),
-                PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
-            })
+            .chain(
+                self.prepared_scripts
+                    .iter()
+                    .filter_map(|prepared| match &prepared.outcome {
+                        PreparedScriptOutcome::Executable(unit) => Some(unit),
+                        PreparedScriptOutcome::DeferredSyntaxError { .. } => None,
+                    }),
+            )
     }
 
     pub fn executable_script_bodies(&self) -> impl Iterator<Item = &BlockIr> {
@@ -4806,6 +4869,7 @@ impl IrSummaryCounts {
                 | StatementIr::AsyncDisposableScope { .. }
                 | StatementIr::GeneratorLoop { .. }
                 | StatementIr::GeneratorIf { .. }
+                | StatementIr::AsyncFunctionIf { .. }
                 | StatementIr::ForOfIterator {
                     head: ForOfIteratorHeadIr::Assignment {
                         async_plan: Some(_),
@@ -4827,7 +4891,10 @@ impl IrSummaryCounts {
                     self.visit_statement(statement);
                 }
             }
-            StatementIr::Empty | StatementIr::AnnexBFunctionCopy { .. } => {}
+            StatementIr::AsyncModuleInstantiation
+            | StatementIr::Empty
+            | StatementIr::AnnexBFunctionCopy { .. } => {}
+            StatementIr::ModuleImportBinding(_) => {}
             StatementIr::ModuleUnitOnce { block, .. } => self.visit_block(block),
             StatementIr::Lexical { mode, init, .. } => {
                 match mode {
@@ -4903,6 +4970,12 @@ impl IrSummaryCounts {
                 condition,
                 then_branch,
                 else_branch,
+            }
+            | StatementIr::AsyncFunctionIf {
+                condition,
+                then_branch,
+                else_branch,
+                plan: _,
             } => {
                 self.ifs += 1;
                 self.visit_expr(condition);
@@ -4993,12 +5066,7 @@ impl IrSummaryCounts {
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 self.fors += 1;
                 self.visit_expr(iterable);
-                for statement in plan
-                    .before_await()
-                    .iter()
-                    .chain(std::iter::once(plan.await_statement()))
-                    .chain(plan.after_await())
-                {
+                for statement in plan.body().statements() {
                     self.visit_statement(statement);
                 }
             }
@@ -5172,7 +5240,16 @@ impl IrSummaryCounts {
                     self.visit_expr(operand);
                 }
             }
-            ExprIr::ImportMeta { .. } | ExprIr::ModuleNamespace { .. } => {}
+            ExprIr::ImportMeta { .. } => {}
+            ExprIr::ModuleEntryEvaluation(entry) => self.visit_expr(entry.evaluation()),
+            ExprIr::ModuleExecutionGraph(_)
+            | ExprIr::ModuleBindingRead(_)
+            | ExprIr::ModuleEvaluate(_)
+            | ExprIr::DeferredModuleEvaluate(_)
+            | ExprIr::ModuleHasAsyncDependencies(_)
+            | ExprIr::ModuleDeferredImportEvaluate(_) => {}
+            ExprIr::ModuleNamespacePublish { namespace, .. } => self.visit_expr(namespace),
+            ExprIr::ModuleNamespace { exports, .. } => self.visit_expr(exports),
             ExprIr::DynamicImport {
                 specifier, options, ..
             } => {
@@ -5217,7 +5294,7 @@ impl IrSummaryCounts {
                         ObjectPropertyIr::NonEnumerableData { value, .. } => {
                             self.visit_expr(value);
                         }
-                        ObjectPropertyIr::ComputedData { key, value } => {
+                        ObjectPropertyIr::ComputedData { key, value, .. } => {
                             self.visit_expr(key);
                             self.visit_expr(value);
                         }

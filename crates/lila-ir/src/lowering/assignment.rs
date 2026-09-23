@@ -1,5 +1,21 @@
 use super::*;
 
+/// A saved primitive keeps its value domain while evaluating the right side.
+/// Object conversion properties remain mutable, and a missing tracked shape
+/// currently means ordinary String conversion to the coercion analyser. Use an
+/// unknown value for heap-bearing operands rather than inventing that proof.
+fn saved_compound_assignment_value_info(kind: ValueKind, possible_kinds: KindSet) -> ValueInfo {
+    if !possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY) {
+        return ValueInfo::new(ValueKind::Dynamic);
+    }
+    ValueInfo {
+        kind,
+        possible_kinds,
+        heap_shape: None,
+        function_targets: FunctionTargetKnowledge::none(),
+    }
+}
+
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_assign(
         &mut self,
@@ -164,14 +180,35 @@ impl<'a> ScriptLowerer<'a> {
                         value,
                     );
                 }
+                let binding = self.lookup_binding(&name);
+                let global_info = self.lookup_global_property_info(&name).cloned();
+                // Runtime GetValue retains the old operand before RHS effects.
+                // Snapshot its primitive domain at the corresponding lowering
+                // point; the binding may have a different value after the RHS.
+                let lhs_info = binding
+                    .as_ref()
+                    .map(|binding| {
+                        saved_compound_assignment_value_info(binding.kind, binding.possible_kinds)
+                    })
+                    .or_else(|| {
+                        global_info
+                            .as_ref()
+                            .filter(|info| info.proven_present)
+                            .map(|info| {
+                                saved_compound_assignment_value_info(
+                                    info.value_info.kind,
+                                    info.value_info.possible_kinds,
+                                )
+                            })
+                    });
                 let value = self.lower_expression(rhs);
                 // 13.15.4 ApplyStringOrNumericAssignment does GetValue then
                 // PutValue, so both 9.1.1.1.6 step 2 and 9.1.1.1.5 step 3 apply
                 // and neither was checked here before. Ledger **L4**: the RHS is
                 // lowered above, so the throw follows its side effects where
                 // 13.15.4 steps 1-2 put it before them; the resolution is placed
-                // at the existing `lookup_binding` line rather than hoisted over
-                // ~300 lines of arm without a runtime oracle.
+                // at the existing resolution point; this value-domain repair
+                // does not change the separate definite-TDZ completion path.
                 match self.resolve_binding_reference(&name) {
                     BindingResolution::Uninitialized(violation) => {
                         let error = violation.into_throw();
@@ -185,7 +222,6 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     BindingResolution::Initialized(_) | BindingResolution::Unresolvable => {}
                 }
-                let binding = self.lookup_binding(&name);
                 // 13.15.2 `AssignmentExpression : LeftHandSideExpression op=
                 // AssignmentExpression` evaluates the LHS Reference, GetValues
                 // it, evaluates the RHS (done above), applies
@@ -208,12 +244,9 @@ impl<'a> ScriptLowerer<'a> {
                     (binding.mode == BindingMode::Const).then(|| {
                         (
                             binding.storage_name.clone(),
-                            ValueInfo {
-                                kind: binding.kind,
-                                possible_kinds: binding.possible_kinds,
-                                heap_shape: binding.heap_shape.clone(),
-                                function_targets: binding.function_targets.clone(),
-                            },
+                            lhs_info
+                                .clone()
+                                .expect("the saved binding has an operand domain"),
                         )
                     })
                 });
@@ -229,16 +262,6 @@ impl<'a> ScriptLowerer<'a> {
                     };
                     let lhs_read =
                         TypedExpr::from_info(lhs_info, ExprIr::Identifier(storage_name.clone()));
-                    // `combine_arithmetic` has refusals of its own: an operand
-                    // that is neither statically coercible nor PRIMITIVE_ONLY
-                    // (`const x = {}; x -= 1`) still reaches
-                    // `unsupported_expr("string or coercive `+`")` or the
-                    // non-primitive `Sub | Mul | Div | Mod` fallback. So this arm
-                    // does not make *every* const compound assignment compile —
-                    // it makes the ones whose arithmetic is representable
-                    // compile, and moves the rest to a message that no longer
-                    // names `const`. Do not read the const refusal's
-                    // disappearance from the grep as those programs working.
                     let applied = self.combine_arithmetic(arithmetic, lhs_read, value);
                     return self.immutable_binding_write(&storage_name, applied);
                 }
@@ -247,47 +270,12 @@ impl<'a> ScriptLowerer<'a> {
                 let binding_storage_name = binding.as_ref().and_then(|binding| {
                     (!script_global_reference).then(|| binding.storage_name.clone())
                 });
-                let global_info = self.lookup_global_property_info(&name).cloned();
-                let rhs_may_string = value.possible_kinds.contains(ValueKind::String);
-                let binding_known_string = binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.kind == ValueKind::String);
-                let global_known_string = global_info.as_ref().is_some_and(|info| {
-                    info.proven_present && info.value_info.kind == ValueKind::String
-                });
-                let binding_allows_string_add = binding.as_ref().is_some_and(|binding| {
-                    binding.kind == ValueKind::String
-                        || binding.kind == ValueKind::Dynamic
-                        || binding.kind == ValueKind::Undefined
-                        || binding.possible_kinds.contains(ValueKind::String)
-                });
-                let global_allows_string_add = global_info.as_ref().is_some_and(|info| {
-                    info.proven_present
-                        && (info.value_info.kind == ValueKind::String
-                            || info.value_info.kind == ValueKind::Dynamic
-                            || info.value_info.kind == ValueKind::Undefined
-                            || info.value_info.possible_kinds.contains(ValueKind::String))
-                });
+                let string_kind = KindSet::from_kind(ValueKind::String);
                 let string_add = matches!(op, AssignOp::Add)
-                    && ((binding_known_string || global_known_string)
-                        || (value.possible_kinds.is_subset_of(KindSet::PRIMITIVE_ONLY)
-                            && (rhs_may_string
-                                || binding_allows_string_add
-                                || global_allows_string_add)));
-                let lhs_info = binding
-                    .as_ref()
-                    .map(|binding| ValueInfo {
-                        kind: binding.kind,
-                        possible_kinds: binding.possible_kinds,
-                        heap_shape: binding.heap_shape.clone(),
-                        function_targets: binding.function_targets.clone(),
-                    })
-                    .or_else(|| {
-                        global_info
+                    && (value.possible_kinds.is_subset_of(string_kind)
+                        || lhs_info
                             .as_ref()
-                            .filter(|info| info.proven_present)
-                            .map(|info| info.value_info.clone())
-                    });
+                            .is_some_and(|lhs| lhs.possible_kinds.is_subset_of(string_kind)));
                 let coercive_add = matches!(op, AssignOp::Add)
                     && !string_add
                     && lhs_info.as_ref().is_some_and(|lhs| {
@@ -354,34 +342,11 @@ impl<'a> ScriptLowerer<'a> {
                 // Anything the specialised number/string forms below cannot
                 // represent still has a meaning: read the binding, apply
                 // ApplyStringOrNumericBinaryOperator, assign the result back.
-                let needs_general_form = (!string_add && value.kind != ValueKind::Number)
-                    || match &binding {
-                        // No `binding.mode != BindingMode::Const` conjunct: a
-                        // `const` target returned at `const_target` above, so it
-                        // was trivially true here and read as though the const
-                        // case were still live.
-                        Some(binding) => {
-                            if string_add {
-                                !binding_known_string
-                                    && !rhs_may_string
-                                    && !binding_allows_string_add
-                            } else {
-                                binding.kind != ValueKind::Number
-                            }
-                        }
-                        None => {
-                            self.global_property_is_proven_present(&name)
-                                && !global_info.as_ref().is_some_and(|info| {
-                                    info.proven_present
-                                        && ((string_add
-                                            && (global_known_string
-                                                || rhs_may_string
-                                                || global_allows_string_add))
-                                            || (!string_add
-                                                && info.value_info.kind == ValueKind::Number))
-                                })
-                        }
-                    };
+                let needs_general_form = !string_add
+                    && (value.kind != ValueKind::Number
+                        || lhs_info
+                            .as_ref()
+                            .is_some_and(|lhs| lhs.kind != ValueKind::Number));
                 if needs_general_form {
                     // A `const` target returned above.
                     if let Some(lhs_info) = lhs_info {
@@ -414,32 +379,13 @@ impl<'a> ScriptLowerer<'a> {
                         function_targets: FunctionTargetKnowledge::none(),
                     }
                 };
-                if let Some(binding) = binding {
-                    // A `const` target returned above.
-                    if string_add {
-                        if !binding_known_string && !rhs_may_string && !binding_allows_string_add {
-                            return self
-                                .unsupported_expr("compound assignment on non-string binding");
-                        }
-                    } else if binding.kind != ValueKind::Number {
-                        return self.unsupported_expr("compound assignment on non-number binding");
-                    }
+                if binding.is_some() {
                     self.set_binding_value_info(&name, result_info.clone());
                     if script_global_reference {
                         self.set_global_property_value_info(name.clone(), result_info.clone());
                     }
-                } else if global_info.as_ref().is_some_and(|info| {
-                    info.proven_present
-                        && ((string_add
-                            && (global_known_string || rhs_may_string || global_allows_string_add))
-                            || (!string_add && info.value_info.kind == ValueKind::Number))
-                }) {
+                } else if global_info.as_ref().is_some_and(|info| info.proven_present) {
                     self.set_global_property_value_info(name.clone(), result_info.clone());
-                } else if self.global_property_is_proven_present(&name) {
-                    if string_add {
-                        return self.unsupported_expr("compound assignment on non-string binding");
-                    }
-                    return self.unsupported_expr("compound assignment on non-number binding");
                 } else {
                     self.unsupported_with_message(format!(
                         "unsupported in lila wasm-aot first slice: unbound identifier `{name}`"
@@ -682,13 +628,20 @@ impl<'a> ScriptLowerer<'a> {
                 let lhs_value = TypedExpr::from_info(
                     binding
                         .as_ref()
-                        .map(|binding| ValueInfo {
-                            kind: binding.kind,
-                            possible_kinds: binding.possible_kinds,
-                            heap_shape: binding.heap_shape.clone(),
-                            function_targets: binding.function_targets.clone(),
+                        .map(|binding| {
+                            saved_compound_assignment_value_info(
+                                binding.kind,
+                                binding.possible_kinds,
+                            )
                         })
-                        .or_else(|| global_info.as_ref().map(|info| info.value_info.clone()))
+                        .or_else(|| {
+                            global_info.as_ref().map(|info| {
+                                saved_compound_assignment_value_info(
+                                    info.value_info.kind,
+                                    info.value_info.possible_kinds,
+                                )
+                            })
+                        })
                         .unwrap_or_else(|| ValueInfo::new(ValueKind::Dynamic)),
                     if binding.is_some() {
                         ExprIr::Identifier(binding_storage_name.clone().expect("binding storage"))

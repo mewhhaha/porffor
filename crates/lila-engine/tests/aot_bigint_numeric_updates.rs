@@ -155,3 +155,172 @@ received instanceof TypeError && conversions === 2;
 "#,
     );
 }
+
+#[test]
+fn immutable_symbol_updates_preserve_error_tags_and_captured_binding_values() {
+    let mut source = String::from(
+        r#"
+function check(condition, label) { if (!condition) throw label; }
+function isTypeError(error) {
+  return typeof error === 'object' && error instanceof TypeError &&
+    Object.getPrototypeOf(error) === TypeError.prototype;
+}
+"#,
+    );
+    for (scope, captured) in [("captured", true), ("uncaptured", false)] {
+        for (label, update) in [
+            ("postIncrement", "value++"),
+            ("preIncrement", "++value"),
+            ("postDecrement", "value--"),
+            ("preDecrement", "--value"),
+        ] {
+            let binding = format!("{scope}_{label}");
+            let update = update.replace("value", &binding);
+            source.push_str(&format!(
+                "const {binding} = Symbol('{binding}');\nconst original_{binding} = {binding};\n"
+            ));
+            if captured {
+                source.push_str(&format!(
+                    "function read_{binding}() {{ return {binding}; }}\n"
+                ));
+            }
+            source.push_str(&format!(
+                r#"
+let caught_{binding};
+try {{ {update}; }} catch (error) {{ caught_{binding} = error; }}
+check(isTypeError(caught_{binding}), '{binding} error payload and tag');
+check({binding} === original_{binding}, '{binding} original value');
+"#,
+            ));
+            if captured {
+                source.push_str(&format!(
+                    "check(read_{binding}() === original_{binding}, '{binding} captured value');\n"
+                ));
+            }
+        }
+    }
+    source.push_str("true;");
+    assert_numeric_updates(&source);
+}
+
+#[test]
+fn immutable_updates_preserve_numeric_coercion_order_and_arbitrary_user_throws() {
+    let mut source = String::from(
+        r#"
+function check(condition, label) { if (!condition) throw label; }
+function isTypeError(error) {
+  return typeof error === 'object' && error instanceof TypeError &&
+    Object.getPrototypeOf(error) === TypeError.prototype;
+}
+const symbol = Symbol('conversion result');
+let conversions = 0;
+const converted = {[Symbol.toPrimitive](hint) {
+  check(hint === 'number', 'numeric conversion hint');
+  conversions++;
+  return symbol;
+}};
+function readConverted() { return converted; }
+"#,
+    );
+    for (index, update) in ["converted++", "++converted", "converted--", "--converted"]
+        .into_iter()
+        .enumerate()
+    {
+        let count = index + 1;
+        source.push_str(&format!(
+            r#"
+let convertedError{index};
+try {{ {update}; }} catch (error) {{ convertedError{index} = error; }}
+check(isTypeError(convertedError{index}) && conversions === {count}, 'object to Symbol conversion');
+check(readConverted() === converted, 'coercion does not replace the const binding');
+"#,
+        ));
+    }
+    source.push_str(
+        r#"
+const markers = [undefined, null, 7, 'sentinel', Symbol('thrown'), 1n, NaN, {}, new TypeError('sentinel')];
+for (const marker of markers) {
+  let calls = 0;
+  const value = {valueOf() { calls++; throw marker; }};
+  function read() { return value; }
+"#,
+    );
+    for (index, update) in ["value++", "++value", "value--", "--value"]
+        .into_iter()
+        .enumerate()
+    {
+        let count = index + 1;
+        source.push_str(&format!(
+            r#"
+  let caught{index} = false;
+  try {{ {update}; }} catch (error) {{
+    caught{index} = true;
+    check(Object.is(error, marker) && typeof error === typeof marker, 'arbitrary thrown value identity');
+  }}
+  check(caught{index} && calls === {count} && read() === value, 'throw precedes immutable publication');
+"#,
+        ));
+    }
+    source.push_str(
+        r#"
+}
+for (const value of [7, 1n, 9223372036854775808n]) {
+  let caught;
+  try { value++; } catch (error) { caught = error; }
+  check(isTypeError(caught), 'successful ToNumeric reaches the immutable-binding error');
+}
+true;
+"#,
+    );
+    assert_numeric_updates(&source);
+}
+
+#[test]
+fn primitive_numeric_throws_reach_nested_catch_finally_and_function_return_routes() {
+    let mut source = String::from(
+        r#"
+function check(condition, label) { if (!condition) throw label; }
+function isTypeError(error) {
+  return typeof error === 'object' && error instanceof TypeError &&
+    Object.getPrototypeOf(error) === TypeError.prototype;
+}
+const value = Symbol('nested update');
+function read() { return value; }
+const original = value;
+const trace = [];
+"#,
+    );
+    for update in ["value++", "++value", "value--", "--value"] {
+        source.push_str(&format!(
+            r#"
+trace.length = 0;
+for (let iteration = 0; iteration < 2; iteration++) {{
+  try {{
+    try {{
+      if (iteration >= 0) {{ {update}; trace.push('after'); }}
+    }} finally {{ trace.push('inner finally'); }}
+  }} catch (error) {{
+    check(isTypeError(error), 'nested conversion error');
+    trace.push('catch');
+  }} finally {{ trace.push('outer finally'); }}
+}}
+check(trace.join(',') === 'inner finally,catch,outer finally,inner finally,catch,outer finally',
+      'numeric throw follows nested catch/finally order');
+check(read() === original && value === original, 'nested update leaves binding intact');
+"#,
+        ));
+    }
+    source.push_str(
+        r#"
+function updateWithoutHandler() {
+  const local = Symbol('function update');
+  return local++;
+}
+let returnedError;
+try { updateWithoutHandler(); } catch (error) { returnedError = error; }
+check(isTypeError(returnedError), 'function completion retains the thrown object tag');
+true;
+"#,
+    );
+    assert_numeric_updates(&source);
+}
