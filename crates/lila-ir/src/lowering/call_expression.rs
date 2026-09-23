@@ -210,7 +210,9 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 if field_name == "toString" {
-                    if args.is_empty() {
+                    if args.is_empty()
+                        && self.intrinsic_method_is_proven(IntrinsicPrototype::String, "toString")
+                    {
                         if let Some(value) = self.static_string_receiver_value(access.target()) {
                             return Self::static_string_typed_expr(value);
                         }
@@ -234,7 +236,12 @@ impl<'a> ScriptLowerer<'a> {
                                     ExprIr::String("[object Boolean]".to_string()),
                                 );
                             }
-                            PrototypeToStringState::Intrinsic => {
+                            PrototypeToStringState::Intrinsic
+                                if self.intrinsic_method_is_proven(
+                                    IntrinsicPrototype::Boolean,
+                                    "toString",
+                                ) =>
+                            {
                                 for arg in args {
                                     self.lower_expression(arg);
                                 }
@@ -245,7 +252,8 @@ impl<'a> ScriptLowerer<'a> {
                                     ),
                                 );
                             }
-                            PrototypeToStringState::Unknown => {}
+                            PrototypeToStringState::Intrinsic | PrototypeToStringState::Unknown => {
+                            }
                         }
                     }
                     if self.number_prototype_to_string_state
@@ -260,7 +268,10 @@ impl<'a> ScriptLowerer<'a> {
                             ExprIr::String("[object Number]".to_string()),
                         );
                     }
-                    if self.number_prototype_to_string_state == PrototypeToStringState::Intrinsic
+                    let number_to_string_is_intrinsic = self.number_prototype_to_string_state
+                        == PrototypeToStringState::Intrinsic
+                        && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toString");
+                    if number_to_string_is_intrinsic
                         && self
                             .static_number_to_string_receiver_value(access.target())
                             .is_some()
@@ -277,8 +288,7 @@ impl<'a> ScriptLowerer<'a> {
                             },
                         );
                     }
-                    if let Some(value) = (self.number_prototype_to_string_state
-                        == PrototypeToStringState::Intrinsic)
+                    if let Some(value) = number_to_string_is_intrinsic
                         .then(|| self.static_number_to_string_call(access.target(), args))
                         .flatten()
                     {
@@ -299,7 +309,9 @@ impl<'a> ScriptLowerer<'a> {
                 // this". The match has **no `_` arm** on purpose — a catch-all
                 // would silently absorb a fourth outcome, which is the mistake
                 // class this closes.
-                if field_name == "toExponential" {
+                if field_name == "toExponential"
+                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toExponential")
+                {
                     let fold = self.static_number_to_exponential_call(access.target(), args);
                     match fold {
                         NumberFormatFold::Formatted(value) => {
@@ -321,19 +333,21 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
                 if field_name == "valueOf" {
-                    if args.is_empty() {
+                    if args.is_empty()
+                        && self.intrinsic_method_is_proven(IntrinsicPrototype::String, "valueOf")
+                    {
                         if let Some(value) = self.static_string_receiver_value(access.target()) {
                             return Self::static_string_typed_expr(value);
                         }
                     }
-                    if let Some(value) = self
-                        .boolean_receiver_uses_intrinsic_method(
-                            access.target(),
-                            "valueOf",
-                            StandardBuiltinId::BooleanPrototypeValueOf,
-                        )
-                        .then(|| self.static_boolean_receiver_value(access.target()))
-                        .flatten()
+                    if let Some(value) = (self.boolean_receiver_uses_intrinsic_method(
+                        access.target(),
+                        "valueOf",
+                        StandardBuiltinId::BooleanPrototypeValueOf,
+                    ) && self
+                        .intrinsic_method_is_proven(IntrinsicPrototype::Boolean, "valueOf"))
+                    .then(|| self.static_boolean_receiver_value(access.target()))
+                    .flatten()
                     {
                         for arg in args {
                             self.lower_expression(arg);
@@ -348,7 +362,9 @@ impl<'a> ScriptLowerer<'a> {
                 // all: its `RangeError` arm is new, and the message string with
                 // it. It could not have been fixed by calling the old shared
                 // `[0, 100]` predicate — step 5 here is `p < 1 or p > 100`.
-                if field_name == "toPrecision" {
+                if field_name == "toPrecision"
+                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toPrecision")
+                {
                     let fold = self.static_number_to_precision_call(access.target(), args);
                     match fold {
                         NumberFormatFold::Formatted(value) => {
@@ -376,7 +392,9 @@ impl<'a> ScriptLowerer<'a> {
                 // was exactly this ordering, spelled as a coincidence of two
                 // adjacent predicates; it is now
                 // `NonFiniteReceiverOrder::RangeCheckFirst`.
-                if field_name == "toFixed" {
+                if field_name == "toFixed"
+                    && self.intrinsic_method_is_proven(IntrinsicPrototype::Number, "toFixed")
+                {
                     let fold = self.static_number_to_fixed_call(access.target(), args);
                     match fold {
                         NumberFormatFold::Formatted(value) => {
@@ -526,76 +544,46 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     let mut receiver = self.lower_property_target(access.target());
                     let receiver_capture_epoch = self.intervening_effect_epoch;
-                    let string_from_code_point_apply_call = if let PropertyAccessField::Const(
-                        field,
-                    ) = access.field()
-                    {
-                        self.interner.resolve_expect(field.sym()).to_string() == "apply"
-                            && matches!(
-                                    Self::unwrap_parenthesized_expr(access.target()),
-                                    Expression::PropertyAccess(target_access)
-                                        if matches!(
-                                            target_access,
-                                            PropertyAccess::Simple(target_access)
-                                                if matches!(
-                                                (
-                                                    Self::unwrap_parenthesized_expr(target_access.target()),
-                                                    target_access.field(),
-                                                ),
-                                                (
-                                                    Expression::Identifier(target),
-                                                    PropertyAccessField::Const(field),
-                                                ) if self
-                                                    .interner
-                                                    .resolve_expect(target.sym())
-                                                    .to_string()
-                                                    == STRING_NAME
-                                                    && self
-                                                        .interner
-                                                        .resolve_expect(field.sym())
-                                                        .to_string()
-                                                        == "fromCodePoint"
-                                            )
-                                    )
-                            )
-                    } else {
-                        false
-                    };
+                    // The receiver's value, not its spelling: `String` and its
+                    // `fromCodePoint` are both writable.
+                    let string_from_code_point_apply_call =
+                        receiver.function_targets.exact_single_target()
+                            == Some(&StandardBuiltinId::StringFromCodePoint.function_id());
                     if let PropertyAccessField::Const(field) = access.field() {
                         let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                        let receiver_is_array = receiver.possible_kinds.contains(ValueKind::Array)
-                            || matches!(receiver.heap_shape.as_deref(), Some(HeapShape::Array(_)));
-                        let receiver_is_iterator = self
-                            .read_object_shape_property(&receiver, "forEach")
-                            .is_some_and(|property| match property {
-                                ObjectShapeProperty::Data(info) => {
-                                    info.function_targets.exact_single_target()
-                                        == Some(
-                                            &StandardBuiltinId::IteratorPrototypeForEach
-                                                .function_id(),
-                                        )
-                                }
-                                ObjectShapeProperty::Accessor { .. } => false,
+                        // `Array.prototype.forEach` reaches only an Array
+                        // receiver whose prototype is still tracked as intrinsic.
+                        let receiver_uses_array_for_each = field_name == "forEach"
+                            && !self.array_prototype_mutated
+                            && receiver
+                                .possible_kinds
+                                .is_subset_of(KindSet::from_kind(ValueKind::Array))
+                            && !Self::array_shape_has_custom_prototype(&receiver);
+                        // A callback-taking iterator helper needs both the
+                        // receiver's chain to name the `%Iterator.prototype%`
+                        // builtin and that prototype to still hold it.
+                        let receiver_uses_iterator_method = self
+                            .shaped_receiver_intrinsic_method(
+                                &receiver,
+                                IntrinsicPrototype::Iterator,
+                                &field_name,
+                            )
+                            .is_some_and(|method| {
+                                matches!(
+                                    method.builtin(),
+                                    StandardBuiltinId::IteratorPrototypeForEach
+                                        | StandardBuiltinId::IteratorPrototypeEvery
+                                        | StandardBuiltinId::IteratorPrototypeSome
+                                        | StandardBuiltinId::IteratorPrototypeFind
+                                        | StandardBuiltinId::IteratorPrototypeReduce
+                                        | StandardBuiltinId::IteratorPrototypeMap
+                                        | StandardBuiltinId::IteratorPrototypeFilter
+                                        | StandardBuiltinId::IteratorPrototypeFlatMap
+                                        | StandardBuiltinId::IteratorPrototypeTake
+                                        | StandardBuiltinId::IteratorPrototypeDrop
+                                )
                             });
-                        let receiver_has_custom_array_prototype =
-                            Self::array_shape_has_custom_prototype(&receiver);
-                        if (field_name == "forEach"
-                            && ((receiver_is_array && !receiver_has_custom_array_prototype)
-                                || receiver_is_iterator))
-                            || (matches!(
-                                field_name.as_str(),
-                                "every"
-                                    | "some"
-                                    | "find"
-                                    | "reduce"
-                                    | "reduceRight"
-                                    | "map"
-                                    | "filter"
-                                    | "flatMap"
-                                    | "take"
-                                    | "drop"
-                            ) && !receiver_is_array)
-                        {
+                        if receiver_uses_array_for_each || receiver_uses_iterator_method {
                             let args = self
                                 .lower_call_args_expanding_spread(args)
                                 .into_arguments_after_expression(&mut receiver);
@@ -689,7 +677,19 @@ impl<'a> ScriptLowerer<'a> {
                             && args.len() == 1
                             && receiver.possible_kinds.contains(ValueKind::Object)
                         {
-                            let info = if field_name == "test" {
+                            // `CallMethod` looks `exec`/`test` up at run time, so
+                            // it is right for any receiver. Only a receiver whose
+                            // chain names the `%RegExp.prototype%` builtin while
+                            // that prototype still holds it licenses the builtin's
+                            // result kind and effects; any other callee is unknown.
+                            let method = self
+                                .shaped_receiver_intrinsic_method(
+                                    &receiver,
+                                    IntrinsicPrototype::RegExp,
+                                    &field_name,
+                                )
+                                .map(|method| method.builtin());
+                            let info = if method == Some(StandardBuiltinId::RegExpPrototypeTest) {
                                 ValueInfo::new(ValueKind::Boolean)
                             } else {
                                 ValueInfo {
@@ -710,7 +710,12 @@ impl<'a> ScriptLowerer<'a> {
                                         .collect(),
                                 },
                             );
-                            self.invalidate_unknown_user_code_effects();
+                            match method {
+                                Some(_) => self.invalidate_unknown_user_code_effects(),
+                                None => self.observe_unaccounted_invocation_effects(
+                                    InvocationTargetProvenance::Erased,
+                                ),
+                            }
                             return result;
                         }
                         if !self.array_prototype_mutated
@@ -859,7 +864,12 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
-                                if field_name == "charCodeAt" && args.len() <= 1 {
+                                let method =
+                                    self.intrinsic_method(IntrinsicPrototype::String, &field_name);
+                                let proven = method.proven().map(|method| method.builtin());
+                                if proven == Some(StandardBuiltinId::StringPrototypeCharCodeAt)
+                                    && args.len() <= 1
+                                {
                                     let index = args
                                         .first()
                                         .map(|arg| self.lower_expression(arg))
@@ -877,7 +887,9 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                if field_name == "split" && args.len() <= 2 {
+                                if proven == Some(StandardBuiltinId::StringPrototypeSplit)
+                                    && args.len() <= 2
+                                {
                                     let args = self
                                         .lower_call_args_expanding_spread(args)
                                         .into_arguments_after_expression(&mut receiver);
@@ -897,113 +909,18 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                let builtin = match field_name.as_str() {
-                                    "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
-                                    "concat" => Some(StandardBuiltinId::StringPrototypeConcat),
-                                    "charCodeAt" => {
-                                        Some(StandardBuiltinId::StringPrototypeCharCodeAt)
-                                    }
-                                    "codePointAt" => {
-                                        Some(StandardBuiltinId::StringPrototypeCodePointAt)
-                                    }
-                                    "at" => Some(StandardBuiltinId::StringPrototypeAt),
-                                    "anchor" => Some(StandardBuiltinId::StringPrototypeAnchor),
-                                    "big" => Some(StandardBuiltinId::StringPrototypeBig),
-                                    "blink" => Some(StandardBuiltinId::StringPrototypeBlink),
-                                    "bold" => Some(StandardBuiltinId::StringPrototypeBold),
-                                    "fixed" => Some(StandardBuiltinId::StringPrototypeFixed),
-                                    "fontcolor" => {
-                                        Some(StandardBuiltinId::StringPrototypeFontcolor)
-                                    }
-                                    "fontsize" => Some(StandardBuiltinId::StringPrototypeFontsize),
-                                    "italics" => Some(StandardBuiltinId::StringPrototypeItalics),
-                                    "link" => Some(StandardBuiltinId::StringPrototypeLink),
-                                    "small" => Some(StandardBuiltinId::StringPrototypeSmall),
-                                    "strike" => Some(StandardBuiltinId::StringPrototypeStrike),
-                                    "sub" => Some(StandardBuiltinId::StringPrototypeSub),
-                                    "substr" => Some(StandardBuiltinId::StringPrototypeSubstr),
-                                    "substring" => {
-                                        Some(StandardBuiltinId::StringPrototypeSubstring)
-                                    }
-                                    "sup" => Some(StandardBuiltinId::StringPrototypeSup),
-                                    "match" => Some(StandardBuiltinId::StringPrototypeMatch),
-                                    "matchAll" => Some(StandardBuiltinId::StringPrototypeMatchAll),
-                                    "replace" => Some(StandardBuiltinId::StringPrototypeReplace),
-                                    "replaceAll" => {
-                                        Some(StandardBuiltinId::StringPrototypeReplaceAll)
-                                    }
-                                    "search" => Some(StandardBuiltinId::StringPrototypeSearch),
-                                    "indexOf" => Some(StandardBuiltinId::StringPrototypeIndexOf),
-                                    "lastIndexOf" => {
-                                        Some(StandardBuiltinId::StringPrototypeLastIndexOf)
-                                    }
-                                    "slice" => Some(StandardBuiltinId::StringPrototypeSlice),
-                                    "split" => Some(StandardBuiltinId::StringPrototypeSplit),
-                                    "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
-                                    "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
-                                    "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
-                                    "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
-                                    "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
-                                    "startsWith" => {
-                                        Some(StandardBuiltinId::StringPrototypeStartsWith)
-                                    }
-                                    "normalize" => {
-                                        Some(StandardBuiltinId::StringPrototypeNormalize)
-                                    }
-                                    "localeCompare" => {
-                                        Some(StandardBuiltinId::StringPrototypeLocaleCompare)
-                                    }
-                                    "toLocaleLowerCase" => {
-                                        Some(StandardBuiltinId::StringPrototypeToLocaleLowerCase)
-                                    }
-                                    "toLocaleUpperCase" => {
-                                        Some(StandardBuiltinId::StringPrototypeToLocaleUpperCase)
-                                    }
-                                    "toLowerCase" => {
-                                        Some(StandardBuiltinId::StringPrototypeToLowerCase)
-                                    }
-                                    "toUpperCase" => {
-                                        Some(StandardBuiltinId::StringPrototypeToUpperCase)
-                                    }
-                                    "toString" => Some(StandardBuiltinId::StringPrototypeToString),
-                                    "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
-                                    "trim" => Some(StandardBuiltinId::StringPrototypeTrim),
-                                    "trimStart" | "trimLeft" => {
-                                        Some(StandardBuiltinId::StringPrototypeTrimStart)
-                                    }
-                                    "trimEnd" | "trimRight" => {
-                                        Some(StandardBuiltinId::StringPrototypeTrimEnd)
-                                    }
-                                    "isWellFormed" => {
-                                        Some(StandardBuiltinId::StringPrototypeIsWellFormed)
-                                    }
-                                    "toWellFormed" => {
-                                        Some(StandardBuiltinId::StringPrototypeToWellFormed)
-                                    }
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
-                                } else {
-                                    TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
-                                }
+                                TypedExpr::from_info(
+                                    method.callee_info().unwrap_or(ValueInfo {
+                                        kind: ValueKind::Dynamic,
+                                        possible_kinds: KindSet::all_runtime_tags(),
+                                        heap_shape: None,
+                                        function_targets: FunctionTargetKnowledge::unknown(),
+                                    }),
+                                    ExprIr::PropertyRead {
+                                        target: Box::new(receiver.clone()),
+                                        key: PropertyKeyIr::StaticString(field_name),
+                                    },
+                                )
                             } else {
                                 return self
                                     .unsupported_expr("indirect call: dynamic string property");
@@ -1071,48 +988,30 @@ impl<'a> ScriptLowerer<'a> {
                                         },
                                     );
                                 }
-                                let builtin = match field_name.as_str() {
-                                    "toExponential" => {
-                                        Some(StandardBuiltinId::NumberPrototypeToExponential)
-                                    }
-                                    "toFixed" => Some(StandardBuiltinId::NumberPrototypeToFixed),
-                                    "toLocaleString" => {
-                                        Some(StandardBuiltinId::NumberPrototypeToLocaleString)
-                                    }
-                                    "toPrecision" => {
-                                        Some(StandardBuiltinId::NumberPrototypeToPrecision)
-                                    }
-                                    "toString"
-                                        if self.number_prototype_to_string_state
-                                            == PrototypeToStringState::Intrinsic =>
-                                    {
-                                        Some(StandardBuiltinId::NumberPrototypeToString)
-                                    }
-                                    "valueOf" => Some(StandardBuiltinId::NumberPrototypeValueOf),
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
+                                // `toString` also needs the delete-tracking state:
+                                // after `delete Number.prototype.toString` the
+                                // recorded prototype no longer names the method.
+                                let method = if field_name == "toString"
+                                    && self.number_prototype_to_string_state
+                                        != PrototypeToStringState::Intrinsic
+                                {
+                                    self.intrinsic_method(IntrinsicPrototype::Number, &field_name)
+                                        .unclaimed()
                                 } else {
-                                    TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
-                                }
+                                    self.intrinsic_method(IntrinsicPrototype::Number, &field_name)
+                                };
+                                TypedExpr::from_info(
+                                    method.callee_info().unwrap_or(ValueInfo {
+                                        kind: ValueKind::Dynamic,
+                                        possible_kinds: KindSet::all_runtime_tags(),
+                                        heap_shape: None,
+                                        function_targets: FunctionTargetKnowledge::unknown(),
+                                    }),
+                                    ExprIr::PropertyRead {
+                                        target: Box::new(receiver.clone()),
+                                        key: PropertyKeyIr::StaticString(field_name),
+                                    },
+                                )
                             } else {
                                 self.lower_object_property_key(receiver.clone(), access.field())
                             }
@@ -1121,38 +1020,27 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
-                                let builtin = match field_name.as_str() {
-                                    "toString"
-                                        if self.boolean_prototype_to_string_state
-                                            == PrototypeToStringState::Intrinsic =>
-                                    {
-                                        Some(StandardBuiltinId::BooleanPrototypeToString)
-                                    }
-                                    "valueOf" => Some(StandardBuiltinId::BooleanPrototypeValueOf),
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
+                                let method = if field_name == "toString"
+                                    && self.boolean_prototype_to_string_state
+                                        != PrototypeToStringState::Intrinsic
+                                {
+                                    self.intrinsic_method(IntrinsicPrototype::Boolean, &field_name)
+                                        .unclaimed()
                                 } else {
-                                    TypedExpr::from_info(
-                                        ValueInfo {
-                                            kind: ValueKind::Dynamic,
-                                            possible_kinds: KindSet::all_runtime_tags(),
-                                            heap_shape: None,
-                                            function_targets: FunctionTargetKnowledge::unknown(),
-                                        },
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
-                                }
+                                    self.intrinsic_method(IntrinsicPrototype::Boolean, &field_name)
+                                };
+                                TypedExpr::from_info(
+                                    method.callee_info().unwrap_or(ValueInfo {
+                                        kind: ValueKind::Dynamic,
+                                        possible_kinds: KindSet::all_runtime_tags(),
+                                        heap_shape: None,
+                                        function_targets: FunctionTargetKnowledge::unknown(),
+                                    }),
+                                    ExprIr::PropertyRead {
+                                        target: Box::new(receiver.clone()),
+                                        key: PropertyKeyIr::StaticString(field_name),
+                                    },
+                                )
                             } else {
                                 return self
                                     .unsupported_expr("indirect call: dynamic boolean property");
@@ -1162,22 +1050,12 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
-                                let builtin = match field_name.as_str() {
-                                    "toString" => Some(StandardBuiltinId::BigIntPrototypeToString),
-                                    "toLocaleString" => {
-                                        Some(StandardBuiltinId::BigIntPrototypeToLocaleString)
-                                    }
-                                    "valueOf" => Some(StandardBuiltinId::BigIntPrototypeValueOf),
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
+                                if let Some(read) = self.intrinsic_method_read(
+                                    IntrinsicPrototype::BigInt,
+                                    &receiver,
+                                    &field_name,
+                                ) {
+                                    read
                                 } else {
                                     return self.unsupported_expr(
                                         "indirect call: unsupported bigint property",
@@ -1191,19 +1069,12 @@ impl<'a> ScriptLowerer<'a> {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =
                                     self.interner.resolve_expect(field.sym()).to_string();
-                                let builtin = match field_name.as_str() {
-                                    "toString" => Some(StandardBuiltinId::SymbolPrototypeToString),
-                                    "valueOf" => Some(StandardBuiltinId::SymbolPrototypeValueOf),
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
+                                if let Some(read) = self.intrinsic_method_read(
+                                    IntrinsicPrototype::Symbol,
+                                    &receiver,
+                                    &field_name,
+                                ) {
+                                    read
                                 } else {
                                     // Anything else (e.g. `hasOwnProperty`,
                                     // `constructor`) is inherited from
@@ -1440,325 +1311,20 @@ impl<'a> ScriptLowerer<'a> {
                         {
                             self.lower_object_property_key(receiver.clone(), access.field())
                         }
+                        // An unshaped receiver that is an Array (or nullish, which
+                        // throws before the call) reaches `%Array.prototype%`
+                        // under the same policy as the `ValueKind::Array` arm. A
+                        // receiver that may also be a function, string or other
+                        // object may resolve the name elsewhere, so nothing here
+                        // may claim a builtin for it.
                         ValueKind::Dynamic
-                            if receiver.possible_kinds.contains(ValueKind::Function) =>
-                        {
-                            if let PropertyAccessField::Const(field) = access.field() {
-                                let field_name =
-                                    self.interner.resolve_expect(field.sym()).to_string();
-                                let builtin = match field_name.as_str() {
-                                    "call"
-                                        if self.function_prototype_call_is_intrinsic(&receiver) =>
-                                    {
-                                        Some(StandardBuiltinId::FunctionPrototypeCall)
-                                    }
-                                    "apply" => Some(StandardBuiltinId::FunctionPrototypeApply),
-                                    "bind" => Some(StandardBuiltinId::FunctionPrototypeBind),
-                                    "toString" => {
-                                        Some(StandardBuiltinId::FunctionPrototypeToString)
-                                    }
-                                    "push"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypePush)
-                                    }
-                                    "shift"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeShift)
-                                    }
-                                    "unshift"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeUnshift)
-                                    }
-                                    "concat"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeConcat)
-                                    }
-                                    "toLocaleString"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeToLocaleString)
-                                    }
-                                    "flat"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFlat)
-                                    }
-                                    "flatMap"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFlatMap)
-                                    }
-                                    "at" if receiver.possible_kinds.contains(ValueKind::Array) => {
-                                        Some(StandardBuiltinId::ArrayPrototypeAt)
-                                    }
-                                    "toReversed"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeToReversed)
-                                    }
-                                    "with"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeWith)
-                                    }
-                                    "toSpliced"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeToSpliced)
-                                    }
-                                    "toSorted"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeToSorted)
-                                    }
-                                    "reverse"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeReverse)
-                                    }
-                                    "copyWithin"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeCopyWithin)
-                                    }
-                                    "includes"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeIncludes)
-                                    }
-                                    "indexOf"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeIndexOf)
-                                    }
-                                    "lastIndexOf"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeLastIndexOf)
-                                    }
-                                    "find"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFind)
-                                    }
-                                    "findIndex"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFindIndex)
-                                    }
-                                    "findLast"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFindLast)
-                                    }
-                                    "findLastIndex"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFindLastIndex)
-                                    }
-                                    "every"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeEvery)
-                                    }
-                                    "some"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeSome)
-                                    }
-                                    "forEach"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeForEach)
-                                    }
-                                    "filter"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeFilter)
-                                    }
-                                    "map"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeMap)
-                                    }
-                                    "reduce"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeReduce)
-                                    }
-                                    "reduceRight"
-                                        if receiver.possible_kinds.contains(ValueKind::Array) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayPrototypeReduceRight)
-                                    }
-                                    "getUint8"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetUint8)
-                                    }
-                                    "setUint8"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetUint8)
-                                    }
-                                    "getInt8"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetInt8)
-                                    }
-                                    "setInt8"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetInt8)
-                                    }
-                                    "getUint16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetUint16)
-                                    }
-                                    "setUint16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetUint16)
-                                    }
-                                    "getInt16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetInt16)
-                                    }
-                                    "setInt16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetInt16)
-                                    }
-                                    "getUint32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetUint32)
-                                    }
-                                    "setUint32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetUint32)
-                                    }
-                                    "getInt32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetInt32)
-                                    }
-                                    "setInt32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetInt32)
-                                    }
-                                    "getFloat16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat16)
-                                    }
-                                    "setFloat16"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat16)
-                                    }
-                                    "getFloat32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat32)
-                                    }
-                                    "setFloat32"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat32)
-                                    }
-                                    "getFloat64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetFloat64)
-                                    }
-                                    "setFloat64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetFloat64)
-                                    }
-                                    "getBigInt64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetBigInt64)
-                                    }
-                                    "setBigInt64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetBigInt64)
-                                    }
-                                    "getBigUint64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeGetBigUint64)
-                                    }
-                                    "setBigUint64"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::DataViewPrototypeSetBigUint64)
-                                    }
-                                    "resize"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayBufferPrototypeResize)
-                                    }
-                                    "transfer"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(StandardBuiltinId::ArrayBufferPrototypeTransfer)
-                                    }
-                                    "transferToFixedLength"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(
-                                            StandardBuiltinId::ArrayBufferPrototypeTransferToFixedLength,
-                                        )
-                                    }
-                                    "transferToImmutable"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(
-                                            StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
-                                        )
-                                    }
-                                    "sliceToImmutable"
-                                        if receiver.possible_kinds.contains(ValueKind::Object) =>
-                                    {
-                                        Some(
-                                            StandardBuiltinId::ArrayBufferPrototypeSliceToImmutable,
-                                        )
-                                    }
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(receiver.clone()),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
-                                } else if receiver.possible_kinds.contains(ValueKind::Object) {
-                                    self.lower_object_property_key(receiver.clone(), access.field())
-                                } else {
-                                    return self.unsupported_expr(
-                                        "indirect call: unsupported dynamic function property",
-                                    );
-                                }
-                            } else {
-                                self.lower_object_property_key(receiver.clone(), access.field())
-                            }
-                        }
-                        ValueKind::Dynamic
-                            if receiver.possible_kinds.contains(ValueKind::Array) =>
+                            if !self.array_prototype_mutated
+                                && receiver.possible_kinds.contains(ValueKind::Array)
+                                && receiver.possible_kinds.is_subset_of(
+                                    KindSet::from_kind(ValueKind::Array)
+                                        .union(KindSet::from_kind(ValueKind::Undefined))
+                                        .union(KindSet::from_kind(ValueKind::Null)),
+                                ) =>
                         {
                             if let PropertyAccessField::Const(field) = access.field() {
                                 let field_name =

@@ -217,6 +217,23 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# The intrinsic-method gate owns the one name -> prototype-builtin catalogue and
+# the only construction of its proof token, so a static method resolution that
+# wants the exact builtin cannot skip the live-prototype proof.
+ir_intrinsic_method_lowering="crates/lila-ir/src/lowering/intrinsic_method.rs"
+require_file "$ir_intrinsic_method_lowering"
+require_module_decl "$ir_lowering" "intrinsic_method"
+require_fixed_string_count \
+  "$ir_intrinsic_method_lowering" \
+  'pub(super) fn catalogued_method(' \
+  1 \
+  'intrinsic-method catalogue owner'
+require_fixed_string_count \
+  "$ir_intrinsic_method_lowering" \
+  'IntrinsicMethod { builtin }' \
+  1 \
+  'intrinsic-method proof construction'
+check_no_inline_legacy_includes "$ir_intrinsic_method_lowering"
 # T02's assignment-expression boundary owns the exhaustive AssignOp/target
 # dispatch across identifier, property, private, destructuring, logical and
 # eager compound writes. Its specialized Reference lifecycles remain in their
