@@ -384,15 +384,35 @@ pub(crate) enum RuntimeHelperId {
     ModuleFulfilled = 47,
     ModuleRejected = 48,
     ModuleDeferredImport = 49,
+    /// Allocates the fresh native error object every runtime-thrown error
+    /// starts from: an ordinary object with [[ErrorData]] and the given
+    /// [[Prototype]], then own `name` and `message` data properties
+    /// (writable, non-enumerable, configurable).
+    ///
+    /// Private ABI on the JS function shape: 0=prototype Object payload,
+    /// 1=`name` String payload, 2=`message` String payload; 3..6 unused.
+    /// Results are the error payload, the Object tag and a Normal completion.
+    /// It invokes no JavaScript and cannot throw, so the caller keeps its own
+    /// completion state and only then publishes the Throw.
+    ///
+    /// Outlined because the composite is emitted once per operation that can
+    /// throw. Measured with `LILA_WASM_DUMP` on
+    /// `wasm_ordinary_property_logical_assignment_reference.js`: inline, the
+    /// script body reached 5,487,494 bytes and Cranelift rejected it (`Code
+    /// for function is too large`). About 1,600 inline error objects owned
+    /// most of it — in the main export every append also carries the
+    /// bootstrap-only `%Array.prototype%` define arm — so one global
+    /// identifier read (ReferenceError plus TDZ error) cost 4,100 bytes there.
+    RuntimeErrorObject = 50,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check.
-    JsonStringifyValue = 50,
+    JsonStringifyValue = 51,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 51] = [
+    pub(crate) const ALL: [Self; 52] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -443,6 +463,7 @@ impl RuntimeHelperId {
         Self::ModuleFulfilled,
         Self::ModuleRejected,
         Self::ModuleDeferredImport,
+        Self::RuntimeErrorObject,
         Self::JsonStringifyValue,
     ];
 
@@ -538,6 +559,9 @@ impl RuntimeHelperId {
             | Self::ModuleFulfilled
             | Self::ModuleRejected
             | Self::ModuleDeferredImport
+            // 0=prototype payload, 1=name payload, 2=message payload; see the
+            // variant for the full private ABI.
+            | Self::RuntimeErrorObject
             | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
         }
     }
@@ -597,7 +621,8 @@ impl RuntimeHelperId {
             | Self::ModuleFulfilled
             | Self::ModuleRejected
             | Self::ModuleDeferredImport
-            | Self::WithEnvironmentHasBinding => true,
+            | Self::WithEnvironmentHasBinding
+            | Self::RuntimeErrorObject => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -665,6 +690,7 @@ impl RuntimeHelperId {
             Self::ModuleFulfilled => "module_fulfilled",
             Self::ModuleRejected => "module_rejected",
             Self::ModuleDeferredImport => "module_deferred_import",
+            Self::RuntimeErrorObject => "runtime_error_object",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -788,7 +814,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 50 reserved helpers include the seven graph-owned module operations;
+        // 51 reserved helpers include the seven graph-owned module operations;
         // JSON.stringify adds the only optional helper.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -802,8 +828,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 50);
-        assert_eq!(with_json, 51);
+        assert_eq!(without_json, 51);
+        assert_eq!(with_json, 52);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in

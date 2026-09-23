@@ -127,7 +127,7 @@ fn diagnostic_publication_follows_object_creation_and_precedes_throw_completion(
     );
     assert_before(
         resolved_prototype_path,
-        "self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;",
+        "self.emit_fresh_native_error_object_call(",
         "self.emit_set_thrown_error_text(kind, Some(message), function);",
     );
     assert_before(

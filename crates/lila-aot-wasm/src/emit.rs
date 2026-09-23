@@ -334,6 +334,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -418,6 +419,7 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
         }
     }
@@ -515,6 +517,7 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -583,6 +586,7 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -2363,6 +2367,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_object_has_property_helper()
         })
         .transpose()?;
+    let runtime_error_object_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_runtime_error_object_helper()
+        })
+        .transpose()?;
     let with_environment_has_binding_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2690,6 +2711,11 @@ fn emit_script_with_forced_builtins(
             RuntimeHelperId::WithEnvironmentHasBinding,
             with_environment_has_binding_helper_function
                 .expect("with HasBinding helper must exist when heap is enabled"),
+        );
+        helper_bodies.insert(
+            RuntimeHelperId::RuntimeErrorObject,
+            runtime_error_object_helper_function
+                .expect("runtime error-object helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
             RuntimeHelperId::IndexedElementRead,
@@ -4846,6 +4872,10 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::TemporalCalendarIdentifier
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
+            // Its call sites have no inline body to fall back to, and its body
+            // allocates and appends without creating a runtime error, so it
+            // cannot reach its own call seam.
+            | RuntimeHelperId::RuntimeErrorObject
             // Deliberately recursive: see above.
             | RuntimeHelperId::JsonStringifyValue => {}
         }

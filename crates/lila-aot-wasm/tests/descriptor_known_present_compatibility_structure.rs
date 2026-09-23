@@ -134,16 +134,42 @@ fn static_kind_changes_use_the_same_always_predicate() {
 
 #[test]
 fn fresh_runtime_errors_append_properties_without_recursive_validation() {
+    // The one outlined body appends `name` and `message` to the fresh object
+    // directly; neither is validated against a descriptor that cannot exist.
+    let helper = function_source(
+        RUNTIME_ERROR_SOURCE,
+        "pub(crate) fn compile_runtime_error_object_helper(",
+    );
+    assert!(helper.contains("self.begin_helper_body(RuntimeHelperId::RuntimeErrorObject);"));
+    assert_eq!(
+        helper
+            .matches("emit_object_append_data_property_with_flags(")
+            .count(),
+        2
+    );
+    assert!(!helper.contains("emit_object_define_data("));
+    assert!(!helper.contains("emit_fresh_native_error_object_call("));
+
+    // Both producers reach that body only through the single call seam, and
+    // neither keeps an inline copy of the composite.
+    let call = function_source(
+        RUNTIME_ERROR_SOURCE,
+        "fn emit_fresh_native_error_object_call(",
+    );
+    assert!(call.contains("RuntimeHelperId::RuntimeErrorObject.index(base)"));
     for signature in [
         "pub(crate) fn emit_runtime_error_object(",
         "fn emit_throw_runtime_error_with_prototype_local_kind(",
     ] {
         let body = function_source(RUNTIME_ERROR_SOURCE, signature);
         assert_eq!(
-            body.matches("emit_object_append_data_property_with_flags(")
+            body.matches("self.emit_fresh_native_error_object_call(")
                 .count(),
-            2
+            1,
+            "{signature}"
         );
+        assert!(!body.contains("emit_object_append_data_property_with_flags("));
         assert!(!body.contains("emit_object_define_data("));
+        assert!(!body.contains("emit_alloc_plain_object_with_prototype("));
     }
 }
