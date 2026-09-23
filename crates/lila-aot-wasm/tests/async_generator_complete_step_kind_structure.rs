@@ -539,54 +539,126 @@ fn complete_step_preserves_request_settlement_order_and_temp_lifetime() {
     assert!(normalize < first_release);
 }
 
+/// Rust source with `//` comments removed, so a census counts code rather than
+/// the prose that explains it.
+fn code_only(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| match line.find("//") {
+            Some(comment) => &line[..comment],
+            None => line,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// AsyncGeneratorCompleteStep is emitted into the main export's promise-job
-/// drain as well as into the AsyncGenerator.prototype builtins, and its
-/// iterator result must be allocated in the running execution context's Realm
-/// (CreateIteratorResultObject). In the main export
+/// drain as well as into the AsyncGenerator.prototype builtins, and every
+/// iterator and iterator result must be allocated in the running execution
+/// context's Realm (CreateIteratorResultObject, CreateArrayIterator,
+/// CreateRegExpStringIterator, %StringIteratorPrototype%). In the main export
 /// `current_env_local` is the script's lexical environment; reading it as a
-/// function object's defining-Realm slot is what trapped
-/// `wasm_using_async_generator_lifecycle.js` and
-/// `wasm_await_using_async_generator_lifecycle.js` with an out-of-bounds load.
+/// function object's defining-Realm slot is what trapped the using and
+/// await-using async generator fixtures and
+/// `wasm_iterator_allocation_running_realm.js` with an out-of-bounds load.
+///
+/// Census over the iterator allocation module: its one read of
+/// `current_env_local` and of the defining-Realm offset sit in the trusted arm
+/// of the one Realm selector, every allocation reaches that selector exactly
+/// once with its closed intrinsic, and no function-object Realm loader is
+/// called from the module at all.
 #[test]
-fn iterator_results_take_the_running_realm_from_the_body_kind() {
-    let materializer = bounded(
-        ITERATORS_SOURCE,
-        "pub(crate) fn emit_iterator_result_object_from_locals(",
-        "/// Loads %Object.prototype% of the Realm CreateIteratorResultObject",
-    );
+fn iterator_allocations_select_the_running_realm_through_one_closed_selector() {
+    let code = code_only(ITERATORS_SOURCE);
+
+    assert_eq!(code.matches("current_env_local").count(), 1);
     assert_eq!(
-        materializer
-            .matches("self.emit_iterator_result_object_prototype(prototype_local, function);")
-            .count(),
+        code.matches("HEAP_FUNCTION_DEFINING_REALM_OFFSET").count(),
         1
     );
-    assert!(!materializer.contains("current_env_local"));
+    assert_eq!(code.matches("CURRENT_REALM_GLOBAL_INDEX").count(), 1);
+    assert!(!code.contains("emit_load_function_defining_realm_"));
+    assert!(!code.contains("emit_load_realm_intrinsic_prototype_or_"));
 
-    let selection = bounded(
-        ITERATORS_SOURCE,
-        "fn emit_iterator_result_object_prototype(",
+    let selector = bounded(
+        &code,
+        "fn emit_running_realm_iterator_intrinsic(",
         "pub(crate) fn emit_string_iterator_next_from_locals(",
     );
     assert_eq!(
-        selection
+        selector
             .matches("match self.numeric_error_realm_source() {")
             .count(),
         1
     );
-    assert!(!selection.contains("_ =>"));
+    assert!(!selector.contains("_ =>"));
     let trusted = bounded(
-        selection,
-        "| NumericErrorRealmSource::NumericConversionHelperArgument => {",
+        selector,
+        "NumericErrorRealmSource::StandardBuiltinEnvironment",
         "NumericErrorRealmSource::GlobalFallback => {",
     );
-    assert!(trusted.contains("self.emit_load_function_defining_realm_object_prototype("));
+    assert!(trusted.contains("| NumericErrorRealmSource::NumericConversionHelperArgument => {"));
+    assert!(trusted.contains("Instruction::LocalGet(self.current_env_local)"));
+    assert!(trusted.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
     let fallback = bounded(
-        selection,
+        selector,
         "NumericErrorRealmSource::GlobalFallback => {",
-        "\n            }\n",
+        "for offset in [",
     );
     assert!(fallback.contains("Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX)"));
     assert!(!fallback.contains("current_env_local"));
-    assert!(!fallback.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
-    assert!(!fallback.contains("reserve_temp_local"));
+    assert!(!selector.contains("reserve_temp_local"));
+
+    let domain = code
+        .split_once("enum RunningRealmIteratorIntrinsic {")
+        .expect("the closed running-Realm intrinsic domain")
+        .1;
+    assert!(!domain.contains("_ =>"));
+    assert!(domain.contains("const fn realm_slot(self) -> NonArrayRealmIntrinsicSlot {"));
+
+    for (allocation, next, intrinsic) in [
+        (
+            "pub(crate) fn emit_string_iterator_create_from_local(",
+            "pub(crate) fn emit_array_iterator_create_from_locals(",
+            "RunningRealmIteratorIntrinsic::StringIteratorPrototype",
+        ),
+        (
+            "pub(crate) fn emit_array_iterator_create_from_locals(",
+            "pub(crate) fn emit_typed_array_iterator_create_from_locals(",
+            "RunningRealmIteratorIntrinsic::ArrayIteratorPrototype",
+        ),
+        (
+            "pub(crate) fn emit_typed_array_iterator_create_from_locals(",
+            "fn emit_typed_array_iterator",
+            "RunningRealmIteratorIntrinsic::ArrayIteratorPrototype",
+        ),
+        (
+            "pub(crate) fn emit_iterator_result_object_from_locals(",
+            "fn emit_running_realm_iterator_intrinsic(",
+            "RunningRealmIteratorIntrinsic::ObjectPrototype",
+        ),
+        (
+            "pub(crate) fn emit_regexp_string_iterator_create_from_locals(",
+            "\n    }\n",
+            "RunningRealmIteratorIntrinsic::RegExpStringIteratorPrototype",
+        ),
+    ] {
+        let body = bounded(&code, allocation, next);
+        assert_eq!(
+            body.matches("self.emit_running_realm_iterator_intrinsic(")
+                .count(),
+            1,
+            "{allocation}"
+        );
+        assert!(
+            body.contains(intrinsic),
+            "{allocation} must name {intrinsic}"
+        );
+    }
+    assert_eq!(
+        code.matches("self.emit_running_realm_iterator_intrinsic(")
+            .count(),
+        5,
+        "one selector call per iterator or iterator-result allocation"
+    );
 }

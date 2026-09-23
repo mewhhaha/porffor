@@ -1,6 +1,7 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::emit::NumericErrorRealmSource;
+use crate::functions::NonArrayRealmIntrinsicSlot;
 
 macro_rules! array_iterator_kind_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
@@ -50,12 +51,8 @@ impl<'a> FunctionBuilder<'a> {
         let object_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
         let string_tag_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(
-            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        self.emit_load_function_defining_realm_string_iterator_prototype(
-            self.current_env_local,
+        self.emit_running_realm_iterator_intrinsic(
+            RunningRealmIteratorIntrinsic::StringIteratorPrototype,
             prototype_local,
             function,
         );
@@ -97,20 +94,11 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let object_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(
-            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_load_function_defining_realm_array_iterator_prototype(
-            self.current_env_local,
+        self.emit_running_realm_iterator_intrinsic(
+            RunningRealmIteratorIntrinsic::ArrayIteratorPrototype,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::End);
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(
@@ -154,20 +142,11 @@ impl<'a> FunctionBuilder<'a> {
         let iterator_record_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::GlobalGet(
-            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.emit_load_function_defining_realm_array_iterator_prototype(
-            self.current_env_local,
+        self.emit_running_realm_iterator_intrinsic(
+            RunningRealmIteratorIntrinsic::ArrayIteratorPrototype,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::End);
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(iterator_payload_local));
         self.emit_heap_alloc_const(HEAP_TYPED_ARRAY_ITERATOR_RECORD_SIZE, function)?;
@@ -513,7 +492,11 @@ impl<'a> FunctionBuilder<'a> {
         let prototype_local = self.reserve_temp_local();
         let done_payload_local = self.reserve_temp_local();
         let done_tag_local = self.reserve_temp_local();
-        self.emit_iterator_result_object_prototype(prototype_local, function);
+        self.emit_running_realm_iterator_intrinsic(
+            RunningRealmIteratorIntrinsic::ObjectPrototype,
+            prototype_local,
+            function,
+        );
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data_with_flags(
@@ -551,38 +534,46 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Loads %Object.prototype% of the Realm CreateIteratorResultObject
-    /// allocates in: the running execution context's Realm.
+    /// Loads `intrinsic` from the running execution context's Realm into
+    /// `result_local`: the Realm CreateArrayIterator, CreateRegExpStringIterator,
+    /// the String iterator constructor and CreateIteratorResultObject allocate
+    /// in. It is the only place in this module that reads `current_env_local`.
     ///
     /// Which Wasm state names that Realm depends on what `current_env_local`
-    /// means in this body, so the choice is an exhaustive projection of the
-    /// body's [`NumericErrorRealmSource`] rather than a direct read of
-    /// `current_env_local`. Reading it as a function object in the main
-    /// export is what trapped: the promise-job drain completes async
-    /// generator steps there (AsyncGeneratorCompleteStep), where
-    /// `current_env_local` is the script's lexical environment, so the
-    /// "defining realm" load at `HEAP_FUNCTION_DEFINING_REALM_OFFSET` read
-    /// past that record into whatever the heap held next.
-    fn emit_iterator_result_object_prototype(
+    /// means in this body, so the Realm record is selected by an exhaustive
+    /// projection of the body's [`NumericErrorRealmSource`] rather than by
+    /// reading `current_env_local` as a function object everywhere. That read
+    /// is what trapped in the main export: the promise-job drain completes
+    /// async generator steps there (AsyncGeneratorCompleteStep), where
+    /// `current_env_local` is the script's lexical environment, so the load at
+    /// `HEAP_FUNCTION_DEFINING_REALM_OFFSET` read a binding slot and the
+    /// intrinsics walk that followed left linear memory.
+    ///
+    /// The walk reuses `result_local` for the Realm and intrinsics records, so
+    /// it needs no temp local beyond the caller's.
+    fn emit_running_realm_iterator_intrinsic(
         &mut self,
-        prototype_local: u32,
+        intrinsic: RunningRealmIteratorIntrinsic,
+        result_local: u32,
         function: &mut Function,
     ) {
         match self.numeric_error_realm_source() {
             // A standard builtin's environment is its own self-backed function
             // object; a numeric-conversion helper receives that same trusted
-            // value or zero through ABI parameter 6.
+            // value or zero through ABI parameter 6. Either way it is the
+            // active function, whose Realm is the running Realm.
             NumericErrorRealmSource::StandardBuiltinEnvironment
             | NumericErrorRealmSource::NumericConversionHelperArgument => {
-                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(prototype_local));
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::LocalSet(result_local));
+                function.instruction(&Instruction::LocalGet(result_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::Else);
-                self.emit_load_function_defining_realm_object_prototype(
-                    self.current_env_local,
-                    prototype_local,
+                self.load_i64_to_local_from_offset(
+                    result_local,
+                    HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+                    result_local,
                     function,
                 );
                 function.instruction(&Instruction::End);
@@ -592,36 +583,30 @@ impl<'a> FunctionBuilder<'a> {
             // current Realm record is the running Realm there: the promise-job
             // drain installs each job's Realm (HostEnqueuePromiseJob's `realm`)
             // before running it and restores the checkpoint Realm after.
-            //
-            // The walk reuses `prototype_local` for the Realm and intrinsics
-            // records, so this arm needs no temp local beyond the caller's.
             NumericErrorRealmSource::GlobalFallback => {
                 function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(prototype_local));
-                for offset in [
-                    HEAP_REALM_INTRINSICS_OFFSET,
-                    HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET,
-                ] {
-                    function.instruction(&Instruction::LocalGet(prototype_local));
-                    function.instruction(&Instruction::I64Eqz);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::Else);
-                    self.load_i64_to_local_from_offset(
-                        prototype_local,
-                        offset,
-                        prototype_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::End);
-                }
-                function.instruction(&Instruction::LocalGet(prototype_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                function.instruction(&Instruction::GlobalGet(OBJECT_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::LocalSet(prototype_local));
-                function.instruction(&Instruction::End);
+                function.instruction(&Instruction::LocalSet(result_local));
             }
         }
+        for offset in [
+            HEAP_REALM_INTRINSICS_OFFSET,
+            intrinsic.realm_slot().offset(),
+        ] {
+            function.instruction(&Instruction::LocalGet(result_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Else);
+            self.load_i64_to_local_from_offset(result_local, offset, result_local, function);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(result_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(
+            intrinsic.entry_realm_global_index(),
+        ));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_string_iterator_next_from_locals(
@@ -864,30 +849,11 @@ impl<'a> FunctionBuilder<'a> {
         let index_tag_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
 
-        let realm_local = self.reserve_temp_local();
-        function.instruction(&Instruction::GlobalGet(
-            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        self.emit_load_realm_intrinsic_prototype_or_global(
-            realm_local,
-            HEAP_REALM_INTRINSICS_REGEXP_STRING_ITERATOR_PROTOTYPE_OFFSET,
-            REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        self.emit_running_realm_iterator_intrinsic(
+            RunningRealmIteratorIntrinsic::RegExpStringIteratorPrototype,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::End);
-        self.release_temp_local(realm_local);
         self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.emit_object_define_local_data(
@@ -1455,5 +1421,45 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(slot_present_local);
         self.release_temp_local(key_local);
         Ok(())
+    }
+}
+
+/// An intrinsic an iterator or iterator-result allocation takes from the
+/// running execution context's Realm. Closed, so every such allocation goes
+/// through [`FunctionBuilder::emit_running_realm_iterator_intrinsic`] with a
+/// slot and entry-Realm fallback that cannot disagree.
+#[derive(Clone, Copy)]
+enum RunningRealmIteratorIntrinsic {
+    /// CreateIteratorResultObject's OrdinaryObjectCreate(%Object.prototype%).
+    ObjectPrototype,
+    /// CreateArrayIterator's %ArrayIteratorPrototype%.
+    ArrayIteratorPrototype,
+    /// %StringIteratorPrototype%.
+    StringIteratorPrototype,
+    /// CreateRegExpStringIterator's %RegExpStringIteratorPrototype%.
+    RegExpStringIteratorPrototype,
+}
+
+impl RunningRealmIteratorIntrinsic {
+    /// The Realm record slot, through the one closed slot domain Realm
+    /// construction also writes, so no second offset table exists.
+    const fn realm_slot(self) -> NonArrayRealmIntrinsicSlot {
+        match self {
+            Self::ObjectPrototype => NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            Self::ArrayIteratorPrototype => NonArrayRealmIntrinsicSlot::ArrayIteratorPrototype,
+            Self::StringIteratorPrototype => NonArrayRealmIntrinsicSlot::StringIteratorPrototype,
+            Self::RegExpStringIteratorPrototype => {
+                NonArrayRealmIntrinsicSlot::RegExpStringIteratorPrototype
+            }
+        }
+    }
+
+    const fn entry_realm_global_index(self) -> u32 {
+        match self {
+            Self::ObjectPrototype => OBJECT_PROTOTYPE_GLOBAL_INDEX,
+            Self::ArrayIteratorPrototype => ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+            Self::StringIteratorPrototype => STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+            Self::RegExpStringIteratorPrototype => REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
+        }
     }
 }
