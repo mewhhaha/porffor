@@ -2658,6 +2658,18 @@ impl RuntimeBootstrapPlan {
             // calling a lazy stub.
             self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
         }
+        if matches!(
+            builtin,
+            StandardBuiltinId::IteratorPrototypeConstructorSetter
+                | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+        ) {
+            // SetterThatIgnoresPrototypeProperties performs
+            // [[GetOwnProperty]] through the descriptor builtin and
+            // CreateDataPropertyOrThrow through Object.defineProperty, the
+            // generic bodies that own every exotic and Proxy receiver.
+            self.require_standard_builtin(StandardBuiltinId::ObjectGetOwnPropertyDescriptor);
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
+        }
         match builtin {
             StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
                 // This body is installed only by the Function constructor

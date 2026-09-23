@@ -7,6 +7,7 @@ use super::binary_data::{
 use super::date::DateLocaleFormat;
 use super::intl_datetimeformat::IntlDateTimeFormatPurpose;
 use super::intl_numberformat::NfFormatMode;
+use super::iterators::IteratorPrototypeWeirdSetter;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
 use super::temporal_instant::{InstantArithmetic, InstantDifference};
@@ -11425,71 +11426,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             StandardBuiltinId::IteratorPrototypeToStringTagSetter => {
-                let this_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Iterator.prototype[Symbol.toStringTag] setter receiver",
-                    )
-                })?;
-                let this_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Iterator.prototype[Symbol.toStringTag] setter receiver tag",
-                    )
-                })?;
-                let value_payload_local = self.reserve_temp_local();
-                let value_tag_local = self.reserve_temp_local();
-
-                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_iterator_prototype_weird_setter(
+                    IteratorPrototypeWeirdSetter::ToStringTag,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(this_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(this_payload_local));
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-                self.emit_object_define_local_data(
-                    this_payload_local,
-                    "Symbol.toStringTag",
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(value_tag_local);
-                self.release_temp_local(value_payload_local);
             }
             StandardBuiltinId::IteratorPrototypeForEach => {
                 let this_payload_local = self.this_payload_local.ok_or_else(|| {
@@ -17504,6 +17444,10 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             StandardBuiltinId::IteratorPrototypeConstructorGetter => {
+                // 27.1.4.1.1: return %Iterator%. Both realm installers bind
+                // this getter's environment slot to their realm's %Iterator%;
+                // the body performs no call that would consume it as a realm
+                // environment.
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
@@ -17517,71 +17461,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             StandardBuiltinId::IteratorPrototypeConstructorSetter => {
-                let this_payload_local = self.this_payload_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Iterator.prototype.constructor setter receiver",
-                    )
-                })?;
-                let this_tag_local = self.this_tag_local.ok_or_else(|| {
-                    EmitError::unsupported(
-                        "unsupported in lila wasm-aot first slice: missing Iterator.prototype.constructor setter receiver tag",
-                    )
-                })?;
-                let value_payload_local = self.reserve_temp_local();
-                let value_tag_local = self.reserve_temp_local();
-
-                self.emit_is_heap_object_like_tag_i32(this_tag_local, function);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Iterator.prototype.constructor setter called on incompatible receiver",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_iterator_prototype_weird_setter(
+                    IteratorPrototypeWeirdSetter::Constructor,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                function.instruction(&Instruction::LocalGet(this_tag_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::LocalGet(this_payload_local));
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::GlobalGet(ITERATOR_PROTOTYPE_GLOBAL_INDEX));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(self.current_env_local));
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::I32And);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Iterator.prototype.constructor setter called on incompatible receiver",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-
-                self.emit_builtin_arg_to_locals(0, value_payload_local, value_tag_local, function);
-                self.emit_object_define_local_data(
-                    this_payload_local,
-                    "constructor",
-                    value_payload_local,
-                    value_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-                self.release_temp_local(value_tag_local);
-                self.release_temp_local(value_payload_local);
             }
             StandardBuiltinId::IteratorFromWrapperReturn => {
                 let this_payload_local = self.this_payload_local.ok_or_else(|| {

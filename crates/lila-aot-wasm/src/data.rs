@@ -1133,6 +1133,8 @@ impl StringPool {
             "Iterator.prototype[Symbol.dispose] return method must be callable",
             "Iterator.prototype.constructor setter called on incompatible receiver",
             "Iterator.prototype[Symbol.toStringTag] setter called on incompatible receiver",
+            "Cannot assign to read only property 'constructor' of %Iterator.prototype%",
+            "Cannot assign to read only property Symbol.toStringTag of %Iterator.prototype%",
             "Iterator.from wrapper next called on incompatible receiver",
             "Iterator.from wrapper next method must be callable",
             "Iterator.from wrapper next result must be object",

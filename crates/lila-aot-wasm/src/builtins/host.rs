@@ -6213,10 +6213,14 @@ impl<'a> FunctionBuilder<'a> {
             iterator_setter_payload_local,
             function,
         )?;
+        // The weird setter derives its home object from its realm
+        // environment and forwards that environment to the builtins it
+        // calls, so it must hold a function of this realm, not the home
+        // object itself.
         self.store_i64_local_at_offset(
             iterator_setter_payload_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            iterator_prototype_local,
+            iterator_setter_payload_local,
             function,
         );
         self.store_i64_local_at_offset(
@@ -6302,10 +6306,14 @@ impl<'a> FunctionBuilder<'a> {
             iterator_setter_payload_local,
             function,
         )?;
+        // The weird setter derives its home object from its realm
+        // environment and forwards that environment to the builtins it
+        // calls, so it must hold a function of this realm, not the home
+        // object itself.
         self.store_i64_local_at_offset(
             iterator_setter_payload_local,
             HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-            iterator_prototype_local,
+            iterator_setter_payload_local,
             function,
         );
         self.store_i64_local_at_offset(

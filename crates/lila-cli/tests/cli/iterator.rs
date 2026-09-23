@@ -462,6 +462,34 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_symbol_to_string_tag_fixture
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// `SetterThatIgnoresPrototypeProperties` for the %Iterator.prototype% weird
+/// accessors on receivers the basic fixtures do not reach: own read-only and
+/// accessor properties (step 5 `Set`), non-extensible objects, Function and
+/// Array receivers and Proxy trap order (step 4 `CreateDataPropertyOrThrow`),
+/// and a created realm's own home object.
+#[test]
+fn run_wasm_backend_applies_iterator_prototype_weird_setters_to_every_receiver_kind() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_iterator_prototype_weird_setter_receivers.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_iterator_prototype_constructor_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

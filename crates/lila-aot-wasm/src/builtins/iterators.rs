@@ -3,6 +3,10 @@ use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::emit::NumericErrorRealmSource;
 use crate::functions::NonArrayRealmIntrinsicSlot;
 
+mod prototype_accessors;
+
+pub(crate) use prototype_accessors::IteratorPrototypeWeirdSetter;
+
 macro_rules! array_iterator_kind_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
         pub(crate) enum $name {
