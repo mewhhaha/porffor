@@ -727,6 +727,39 @@ mod tests {
         }
     }
 
+    /// `ObjectAssignmentPattern` has no production with a comma after its
+    /// `AssignmentRestProperty`, so an object literal ending in `...rest,` is
+    /// a valid literal but never a valid assignment target.
+    #[test]
+    fn object_rest_followed_by_comma_is_not_an_assignment_pattern() {
+        for source in [
+            "var rest; 0, {...rest,} = {};",
+            "var rest; ({...rest,} = {});",
+            "var rest; for ({...rest,} in [{}]) ;",
+            "var rest; for ({...rest,} of [{}]) ;",
+            "var rest; [{...rest,}] = [{}];",
+            "var rest; ({a: {...rest,}} = {a: {}});",
+            "var a, rest; ({a, ...rest,} = {});",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("a rest property followed by a comma is not a pattern");
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"), "{source}");
+            }
+        }
+        for source in [
+            "var rest = {}; ({...rest,});",
+            "var rest = {}; ({...rest, a: 1});",
+            "var rest; ({...rest} = {});",
+            "var a, rest; ({a, ...rest} = {});",
+            "var rest; for ({...rest} of [{}]) ;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect("trailing commas are valid in object literals");
+            }
+        }
+    }
+
     #[test]
     fn script_top_level_super_rejects_each_pinned_contains_boundary() {
         for source in SCRIPT_BODY_SUPER_SOURCES {

@@ -41,21 +41,37 @@ use core::{fmt::Write as _, ops::ControlFlow};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectLiteral {
     properties: Box<[PropertyDefinition]>,
+    has_trailing_comma_spread: bool,
     span: Span,
 }
 
 impl ObjectLiteral {
     /// Create a new [`ObjectLiteral`].
+    ///
+    /// `has_trailing_comma_spread` records that the final property definition
+    /// is a spread (`...expr`) followed by a trailing comma. That is a valid
+    /// object literal but never a valid `ObjectAssignmentPattern`, whose
+    /// `AssignmentRestProperty` admits no trailing comma.
     #[inline]
     #[must_use]
-    pub fn new<T>(properties: T, span: Span) -> Self
+    pub fn new<T>(properties: T, has_trailing_comma_spread: bool, span: Span) -> Self
     where
         T: Into<Box<[PropertyDefinition]>>,
     {
         Self {
             properties: properties.into(),
+            has_trailing_comma_spread,
             span,
         }
+    }
+
+    /// Indicates if the final spread property in the object literal has a
+    /// trailing comma. Such a literal cannot be reparsed as an
+    /// `ObjectAssignmentPattern`.
+    #[inline]
+    #[must_use]
+    pub const fn has_trailing_comma_spread(&self) -> bool {
+        self.has_trailing_comma_spread
     }
 
     /// Gets the object literal properties
@@ -68,6 +84,12 @@ impl ObjectLiteral {
     /// Converts the object literal into an [`ObjectPattern`].
     #[must_use]
     pub fn to_pattern(&self, strict: bool) -> Option<ObjectPattern> {
+        // ObjectAssignmentPattern : `{ AssignmentPropertyList , AssignmentRestProperty }`
+        // has no production with a comma after the rest property.
+        if self.has_trailing_comma_spread() {
+            return None;
+        }
+
         let mut bindings = Vec::new();
         for (i, property) in self.properties.iter().enumerate() {
             match property {

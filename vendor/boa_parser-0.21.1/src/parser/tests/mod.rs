@@ -666,7 +666,7 @@ fn spread_in_object() {
                         interner.get_or_intern_static("x", utf16!("x")),
                         Span::new((1, 5), (1, 6)),
                     ),
-                    Some(ObjectLiteral::new(object_properties, Span::new((1, 9), (4, 2))).into()),
+                    Some(ObjectLiteral::new(object_properties, false, Span::new((1, 9), (4, 2))).into()),
                 )]
                 .try_into()
                 .unwrap(),
@@ -805,7 +805,7 @@ fn hashbang_use_strict_with_with_statement() {
         "#},
         vec![
             Statement::With(With::new(
-                ObjectLiteral::new([], Span::new((2, 6), (2, 8))).into(),
+                ObjectLiteral::new([], false, Span::new((2, 6), (2, 8))).into(),
                 Block::from(StatementList::new([], LinearPosition::new(27), false)).into(),
             ))
             .into(),

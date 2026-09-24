@@ -85,6 +85,9 @@ where
 
         let mut has_proto = false;
         let mut duplicate_proto_position = None;
+        // Whether the property definition that precedes the closing brace is
+        // a spread followed by a comma: `{ ...rest, }`.
+        let mut has_trailing_comma_spread = false;
 
         let end = loop {
             if let Some(token) = cursor.next_if(Punctuator::CloseBlock, interner)? {
@@ -106,13 +109,17 @@ where
                 }
             }
 
+            let is_spread = matches!(property, PropertyDefinitionNode::SpreadObject(_));
             elements.push(property);
 
             if let Some(token) = cursor.next_if(Punctuator::CloseBlock, interner)? {
+                has_trailing_comma_spread = false;
                 break token.span().end();
             }
 
-            if cursor.next_if(Punctuator::Comma, interner)?.is_none() {
+            if cursor.next_if(Punctuator::Comma, interner)?.is_some() {
+                has_trailing_comma_spread = is_spread;
+            } else {
                 let next_token = cursor.next(interner).or_abrupt()?;
                 return Err(Error::expected(
                     [",".to_owned(), "}".to_owned()],
@@ -136,7 +143,11 @@ where
         }
 
         let start = open_block_token.span().start();
-        Ok(literal::ObjectLiteral::new(elements, Span::new(start, end)))
+        Ok(literal::ObjectLiteral::new(
+            elements,
+            has_trailing_comma_spread,
+            Span::new(start, end),
+        ))
     }
 }
 
