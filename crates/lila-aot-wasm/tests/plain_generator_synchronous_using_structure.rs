@@ -95,11 +95,20 @@ fn lowering_selects_and_allocates_the_owner_before_any_resource_initializer() {
         "    pub(super) fn lower_module_instantiation_boundary(",
     );
     assert!(admission.contains("owner.sync_disposable_scope_owner()"));
-    assert!(admission.contains("matches!("));
-    assert!(admission.contains("FunctionProtocolIr::ModuleActivation"));
-    assert!(admission.contains("FunctionProtocolIr::AsyncModuleActivation"));
-    assert!(admission.contains("owner.parent_owner_id.as_deref()"));
+    assert!(admission
+        .contains("if !self.owner_is_within_module_activation(self.current_owner_id.as_str()) {"));
     assert!(admission.contains("return None;"));
+    // The activation witness is the trusted protocol found on the lexical
+    // owner chain, shared with the root `this` binding of module code.
+    let activation_owner = bounded(
+        MODULE_LOWERING_SOURCE,
+        "    fn owner_is_within_module_activation(",
+        "    pub(super) fn root_this_binding_for_owner(",
+    );
+    assert!(activation_owner.contains("matches!("));
+    assert!(activation_owner.contains("FunctionProtocolIr::ModuleActivation"));
+    assert!(activation_owner.contains("FunctionProtocolIr::AsyncModuleActivation"));
+    assert!(activation_owner.contains("owner.parent_owner_id.as_deref()"));
 
     let lower = bounded(
         LOWERING_SOURCE,

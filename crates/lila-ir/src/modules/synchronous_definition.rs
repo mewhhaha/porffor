@@ -30,6 +30,26 @@ pub(super) struct ModuleUnitDefinition {
     pub(super) requests: Vec<ModuleExecutionRequestIr>,
 }
 
+/// What the merged program runs after the graph statement.
+#[derive(Debug)]
+pub(super) enum ModuleExecutionEntry {
+    /// One private evaluation statement starts the Module entry's DFS.
+    Module(ModuleEvaluationIr),
+    /// The Script entry's own statements follow; they are user code, and no
+    /// trusted operation is recognized among them.
+    Script,
+}
+
+#[cfg(test)]
+impl ModuleExecutionEntry {
+    pub(super) const fn evaluated_module(&self) -> Option<ModuleUnitId> {
+        match self {
+            Self::Module(evaluation) => Some(evaluation.module()),
+            Self::Script => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ModuleExecutionDefinitions {
     pub(super) graph_span: (boa_ast::Position, boa_ast::Position),
@@ -39,7 +59,7 @@ pub(super) struct ModuleExecutionDefinitions {
     pub(super) dispatcher_evaluations: BTreeMap<String, ModuleEvaluationIr>,
     pub(super) dispatcher_async_dependencies: BTreeMap<String, ModuleEvaluationIr>,
     pub(super) dispatcher_deferred_imports: BTreeMap<String, ModuleEvaluationIr>,
-    pub(super) initial_evaluation: Vec<u32>,
+    pub(super) entry: ModuleExecutionEntry,
 }
 
 impl ModuleExecutionDefinitions {
@@ -306,27 +326,26 @@ impl ModuleExecutionDefinitions {
         for statement in &statements[..graph_index] {
             let _ = statement.visit_with(&mut dispatcher);
         }
-        let mut following = statements[graph_index + 1..].iter();
-        for module in &self.initial_evaluation {
-            let StatementListItem::Statement(statement) =
-                following.next().expect("initial evaluation exists")
-            else {
-                panic!("evaluation is an expression");
-            };
-            let Statement::Expression(expression) = statement.as_ref() else {
-                panic!("evaluation is an expression");
-            };
-            analysis.module_execution.evaluations.insert(
-                std::ptr::from_ref(expression) as usize,
-                self.units
-                    .iter()
-                    .find(|unit| unit.module == *module)
-                    .expect("initial module exists")
-                    .evaluation
-                    .clone(),
-            );
+        match &self.entry {
+            ModuleExecutionEntry::Module(evaluation) => {
+                let [StatementListItem::Statement(statement)] = &statements[graph_index + 1..]
+                else {
+                    panic!("one evaluation statement follows a Module entry's graph");
+                };
+                let Statement::Expression(expression) = statement.as_ref() else {
+                    panic!("evaluation is an expression");
+                };
+                assert!(
+                    self.units.iter().any(|unit| unit.evaluation == *evaluation),
+                    "the Module entry owns an activation"
+                );
+                analysis
+                    .module_execution
+                    .evaluations
+                    .insert(std::ptr::from_ref(expression) as usize, evaluation.clone());
+            }
+            ModuleExecutionEntry::Script => {}
         }
-        assert!(following.next().is_none());
         analysis.module_execution.graphs.insert(
             std::ptr::from_ref(graph) as usize,
             ModuleExecutionGraphIr::new(

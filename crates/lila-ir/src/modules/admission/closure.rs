@@ -29,6 +29,18 @@ impl<'a> StaticClosure<'a> {
             })
     }
 
+    /// Every request key the host resolved for `referrer`, in row order.
+    pub(super) fn request_keys(
+        &self,
+        referrer: ModuleUnitId,
+    ) -> impl Iterator<Item = &'a ModuleRequestKeyIr> + '_ {
+        self.sources
+            .resolutions
+            .iter()
+            .filter(move |(owner, _, _)| *owner == referrer)
+            .map(|(_, request, _)| request)
+    }
+
     pub(super) fn members(&self, root: ModuleUnitId) -> BTreeSet<ModuleUnitId> {
         let mut members = BTreeSet::new();
         let mut pending = vec![root];
@@ -45,7 +57,8 @@ impl<'a> StaticClosure<'a> {
                     .iter()
                     .enumerate()
                     .filter_map(|(index, other)| {
-                        (other.key() == source.key()).then_some(index as u32)
+                        (other.goal() == source.goal() && other.key() == source.key())
+                            .then_some(index as u32)
                     }),
             );
             let Some(record) = &self.records[module as usize] else {

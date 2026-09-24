@@ -45,7 +45,7 @@ fn dynamic_component_exposes_observations_without_construction_fields() {
     let observations = bounded(
         DYNAMIC_SOURCE,
         "impl DynamicComponentIr {",
-        "/// Discovers every statically knowable `import()` target",
+        "/// Discovers every `import()` target the loaded graph can serve.",
     );
     for signature in [
         "pub const fn target_key(&self) -> &ModuleKey",

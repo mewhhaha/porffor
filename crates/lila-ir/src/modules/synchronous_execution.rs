@@ -91,9 +91,11 @@ pub struct ModuleExecutionGraphIr {
 
 impl ModuleExecutionGraphIr {
     pub(super) fn new(record_count: u32, activations: Vec<ModuleActivationIr>) -> Self {
+        // A Module entry is one of the activations; a Script entry owns a
+        // record slot but no activation, and may reach no module at all.
         assert!(
-            !activations.is_empty(),
-            "an execution graph owns at least its entry"
+            record_count > 0,
+            "an execution graph owns at least its entry record"
         );
         let functions: std::collections::BTreeSet<_> = activations
             .iter()

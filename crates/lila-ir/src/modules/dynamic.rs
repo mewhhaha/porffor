@@ -1,10 +1,11 @@
 //! AOT dynamic-import request dispatch and module job continuations.
 //!
-//! The host loads every statically discoverable target before compilation.
-//! Runtime dispatch uses the complete specifier/phase/attribute identity; no
-//! runtime source parser or JavaScript interpreter is involved.
+//! The host loads every statically discoverable target, and every spelling it
+//! declares for computed specifiers, before compilation. Runtime dispatch uses
+//! the complete specifier/phase/attribute identity; no runtime source parser
+//! or JavaScript interpreter is involved.
 //!
-//! Canonical synchronous Module-entry graphs use compiler-owned async
+//! Canonical graphs, with a Module or a Script entry, use compiler-owned async
 //! dispatchers. Operands are evaluated at the user call site. The dispatcher
 //! creates its intrinsic promise before ToString and import-options reads;
 //! these coercions still run synchronously and any abrupt value rejects it.
@@ -23,10 +24,10 @@
 //! Dynamic-only load/link syntax failures are emitted in the importing job.
 //! Static dependency failures still reject the entry before execution.
 //!
-//! TLA, Script-entry and source-phase graphs retain the merged-scope driver.
-//! Its targets still evaluate eagerly and its dispatcher uses mutable global
+//! Source-phase graphs retain the merged-scope driver. Its targets still
+//! evaluate eagerly and its dispatcher uses mutable global
 //! Promise/error/descriptor operations. Those capability and scheduling gaps
-//! are explicit; the synchronous driver does not admit them.
+//! are explicit; the canonical driver does not admit them.
 
 use crate::*;
 
@@ -81,12 +82,23 @@ impl DynamicComponentIr {
     }
 }
 
-/// Discovers every statically knowable `import()` target in the loaded graph.
+/// Discovers every `import()` target the loaded graph can serve.
 ///
-/// A call site with a computed specifier registers nothing: it resolves at
-/// runtime against whatever the registry already holds, and rejects if nothing
-/// matches. That is the entire dynamic-source story — there is no fallback
-/// path that reaches a parser.
+/// A string-literal specifier names its target. A computed one names nothing
+/// at compile time, so in a canonical execution graph it is served from the
+/// referrer's whole host resolution table: every request key the host
+/// resolved for that referrer — its static imports, its literal `import()`
+/// specifiers and the computed-import specifiers the host declared — becomes a
+/// component in the computed call's phase. The runtime match is still the
+/// exact coerced string, so a computed specifier reaches exactly the module
+/// that the same literal would have reached, and anything outside the table
+/// rejects. There is no fallback path that reaches a parser.
+///
+/// The retained merged-scope driver evaluates `import()` targets eagerly, so
+/// widening its registry would run module bodies nobody asked for; there a
+/// computed specifier still matches only the referrer's literal requests.
+/// Source-phase computed calls are never widened: the canonical driver does
+/// not admit source phase.
 ///
 /// The returned set is intentionally wider than the artifact registry. Graph
 /// classification needs edges from every loaded unit to decide which units
@@ -94,30 +106,60 @@ impl DynamicComponentIr {
 /// components whose referrer can run.
 pub(super) fn discover_components(graph: &ModuleGraphIr) -> Vec<DynamicComponentIr> {
     let mut components: Vec<DynamicComponentIr> = Vec::new();
+    let push = |components: &mut Vec<DynamicComponentIr>,
+                referrer: ModuleUnitId,
+                request: ModuleRequestIr,
+                module: ModuleUnitId| {
+        if components
+            .iter()
+            .any(|existing| existing.referrer == referrer && existing.request == request)
+        {
+            return;
+        }
+        let key = graph.unit(module).record.key.clone();
+        components.push(DynamicComponentIr {
+            key,
+            request,
+            referrer,
+            module,
+        });
+    };
     for index in 0..graph.units.len() {
         let referrer = ModuleUnitId::try_from(index)
             .expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
-        let sites = graph.units[index].record.dynamic_import_sites.clone();
-        for site in sites {
+        for site in &graph.units[index].record.dynamic_import_sites {
             let Some(request) = site.discovery_request() else {
                 continue;
             };
             let Some(module) = graph.resolve_request(referrer, &request) else {
                 continue;
             };
-            if components
-                .iter()
-                .any(|existing| existing.referrer == referrer && existing.request == request)
-            {
-                continue;
+            push(&mut components, referrer, request, module);
+        }
+    }
+    if super::synchronous_source::ModuleInstantiationGraph::new(graph, &components).is_none() {
+        return components;
+    }
+    for index in 0..graph.units.len() {
+        let referrer = ModuleUnitId::try_from(index)
+            .expect("unit index is capped by build_graph, which rejects a graph with more units than MAX_LINKABLE_MODULE_UNIT_ID");
+        for phase in
+            super::record::computed_import_phases(&graph.units[index].record.dynamic_import_sites)
+        {
+            match phase {
+                ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {}
+                ImportPhaseIr::Source => continue,
             }
-            let key = graph.unit(module).record.key.clone();
-            components.push(DynamicComponentIr {
-                key,
-                request,
-                referrer,
-                module,
-            });
+            for ((row_referrer, key), module) in &graph.resolutions {
+                if *row_referrer == referrer {
+                    push(
+                        &mut components,
+                        referrer,
+                        ModuleRequestIr::from_key(key.clone(), phase),
+                        *module,
+                    );
+                }
+            }
         }
     }
     components
@@ -299,10 +341,10 @@ pub enum OuterScriptModuleDependency {
 pub fn classify_outer_script_module_dependency(source: &str) -> OuterScriptModuleDependency {
     match lila_front::parse(source, lila_front::ParseOptions::script()) {
         Ok(ParsedSource::Script(script)) => {
-            if super::record::script_dynamic_import_sites(&script).is_empty() {
-                OuterScriptModuleDependency::None
-            } else {
+            if script_writes_import_call(&script) {
                 OuterScriptModuleDependency::RequiresModuleGraph
+            } else {
+                OuterScriptModuleDependency::None
             }
         }
         // Script parse options make this unreachable today. Treat a future
@@ -314,6 +356,19 @@ pub fn classify_outer_script_module_dependency(source: &str) -> OuterScriptModul
             Ok(_) | Err(_) => OuterScriptModuleDependency::Indeterminate,
         },
     }
+}
+
+/// Whether a parsed Script writes an `import()` call of any phase, whatever
+/// its specifier.
+///
+/// The syntactic answer [`source_writes_dynamic_import`] approximates: a
+/// method or property named `import` is not a call. A Script for which this is
+/// `true` needs a module graph even when no specifier is a string literal: its
+/// `import()` must still evaluate its operands, coerce the specifier and settle
+/// a promise (13.3.10.1), which only a compiled dispatcher does.
+#[must_use]
+pub fn script_writes_import_call(source: &ParsedScript) -> bool {
+    !super::record::script_dynamic_import_sites(source).is_empty()
 }
 
 /// Whether `source` writes an `import()` call of any phase.
@@ -500,8 +555,10 @@ impl ModuleGraphIr {
             "function "
         });
         text.push_str(&dispatcher_name(referrer, phase));
+        // The directive keeps the dispatcher strict when it is declared in a
+        // sloppy Script entry's top-level scope.
         text.push_str(if synchronous {
-            "(specifier, options) {"
+            "(specifier, options) { \"use strict\";"
         } else {
             "(specifier, options) { return new Promise(function (resolve, reject) {"
         });

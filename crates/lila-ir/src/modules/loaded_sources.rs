@@ -1,8 +1,12 @@
 use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource, SourceUnit};
 
+use std::collections::BTreeSet;
+
+use super::import_phase::ImportPhaseIr;
 use super::module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};
 use super::record::{
-    scan_module_requests, scan_script_module_requests, ModuleRequestKeyIr, ModuleUnitId,
+    module_computed_import_phases, scan_module_requests, scan_script_module_requests,
+    script_computed_import_phases, ModuleRequestKeyIr, ModuleUnitId,
 };
 
 /// One already-loaded and exactly-once-parsed graph source, plus the key the
@@ -111,6 +115,20 @@ impl ModuleSourceIr {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
             ModuleParse::ScriptEntry(source) => Some(scan_script_module_requests(source)),
+            ModuleParse::Rejected { .. } => None,
+        }
+    }
+
+    /// `[[Phase]]` of every `import()` whose specifier is computed rather than
+    /// a string literal, derived from the retained AST. No spelling in the
+    /// source names such a call's target, so graph discovery can serve it only
+    /// from the host's declared computed-import specifiers. `None` means the
+    /// one parse attempt was rejected.
+    #[must_use]
+    pub fn computed_import_phases(&self) -> Option<BTreeSet<ImportPhaseIr>> {
+        match &self.parse {
+            ModuleParse::Module(source) => Some(module_computed_import_phases(source)),
+            ModuleParse::ScriptEntry(source) => Some(script_computed_import_phases(source)),
             ModuleParse::Rejected { .. } => None,
         }
     }

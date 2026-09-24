@@ -5,26 +5,91 @@ use super::module_key::ANONYMOUS_MODULE_KEY;
 use super::namespace::push_js_string_literal;
 use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
 use super::source::DefaultExportRewrite;
-use super::synchronous_definition::{ModuleExecutionDefinitions, ModuleUnitDefinition};
+use super::synchronous_definition::{
+    ModuleExecutionDefinitions, ModuleExecutionEntry, ModuleUnitDefinition,
+};
 use crate::*;
 
 /// Validated eligibility for the private allocation/instantiation path. The
-/// source builder requires this witness, so source-phase and
-/// Script-entry graphs retain their explicit admission boundary.
+/// source builder requires this witness, so source-phase graphs retain their
+/// explicit admission boundary.
 pub(super) struct ModuleInstantiationGraph<'a> {
     graph: &'a ModuleGraphIr,
 }
 
 impl<'a> ModuleInstantiationGraph<'a> {
     pub(super) fn new(graph: &'a ModuleGraphIr, components: &[DynamicComponentIr]) -> Option<Self> {
-        let eligible = !graph.entry_is_script
-            && graph
-                .units
-                .iter()
-                .flat_map(|unit| &unit.record.requested_modules)
-                .chain(components.iter().map(|component| component.request()))
-                .all(|request| request.phase() != ImportPhaseIr::Source);
+        let eligible = graph
+            .units
+            .iter()
+            .flat_map(|unit| &unit.record.requested_modules)
+            .chain(components.iter().map(|component| component.request()))
+            .all(|request| request.phase() != ImportPhaseIr::Source);
         eligible.then_some(Self { graph })
+    }
+}
+
+/// What the canonical graph's owner runs after allocation and instantiation.
+///
+/// Closed so the two entry shapes cannot be confused: a Module entry is one of
+/// the graph's activations and is evaluated by the private entry operation; a
+/// Script entry is not a module at all; its own statements follow the graph in
+/// the Script's own strictness and global scope, and it reaches the graph only
+/// through `import()`.
+#[derive(Clone, Copy)]
+enum CanonicalGraphEntry<'a> {
+    Module(ModuleUnitId),
+    Script {
+        unit: ModuleUnitId,
+        strict: bool,
+        source: &'a str,
+    },
+}
+
+impl<'a> CanonicalGraphEntry<'a> {
+    fn of(
+        graph: &'a ModuleGraphIr,
+        sources: &ModuleGraphSources,
+    ) -> Result<Self, Vec<IrDiagnostic>> {
+        if !graph.entry_is_script {
+            return Ok(Self::Module(graph.entry));
+        }
+        let strict = match sources
+            .modules
+            .get(sources.entry as usize)
+            .map(|source| &source.parse)
+        {
+            Some(super::loaded_sources::ModuleParse::ScriptEntry(parsed)) => {
+                parsed.with_compiler_session(|script, _| script.strict())
+            }
+            _ => unreachable!("the lowerer admits a Script entry graph only with Script syntax"),
+        };
+        let unit = graph.unit(graph.entry);
+        // The Script's `import()` sites call a dispatcher declared in the
+        // Script's own top-level scope, so a Script spelling a linker name
+        // could shadow or redeclare it.
+        if unit
+            .source_text
+            .contains(super::dynamic::LINKER_NAME_PREFIX)
+        {
+            return Err(vec![IrDiagnostic::unsupported(format!(
+                "unsupported in lila wasm-aot: script {} spells the linker-reserved prefix `{}`",
+                unit.record.key.as_str(),
+                super::dynamic::LINKER_NAME_PREFIX
+            ))]);
+        }
+        Ok(Self::Script {
+            unit: graph.entry,
+            strict,
+            source: &unit.source_text,
+        })
+    }
+
+    fn script_unit(&self) -> Option<ModuleUnitId> {
+        match self {
+            Self::Module(_) => None,
+            Self::Script { unit, .. } => Some(*unit),
+        }
     }
 }
 
@@ -37,13 +102,26 @@ pub(super) fn linked_module_execution_source(
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
-    let mut text = String::from("\"use strict\";\n");
+    let entry = CanonicalGraphEntry::of(graph, sources)?;
+    // Module code is strict (16.2.1.6.1). A Script entry keeps its own
+    // strictness: its Directive Prologue can no longer lead the merged text,
+    // so a strict Script's is restated here, and every generated function
+    // below carries its own "use strict" directive either way.
+    let mut text = match entry {
+        CanonicalGraphEntry::Script { strict: false, .. } => String::new(),
+        CanonicalGraphEntry::Module(_) | CanonicalGraphEntry::Script { strict: true, .. } => {
+            String::from("\"use strict\";\n")
+        }
+    };
     text.push_str(&graph.module_execution_dynamic_import_prelude());
     text.push('\n');
     let graph_start_line = source_line_number(&text);
     let mut definitions = Vec::new();
     text.push_str("[\n");
     for (module, _, unit) in graph.materialized_units() {
+        if entry.script_unit() == Some(module) {
+            continue;
+        }
         let requests = unit
             .record
             .requested_modules
@@ -146,8 +224,13 @@ pub(super) fn linked_module_execution_source(
     }
     text.push_str("];\n");
     let graph_end_line = source_line_number(&text) - 1;
-    let dispatcher_namespaces = graph
-        .materialized_units()
+    // Only activations publish cells; a Script entry has none of its own.
+    let activations = || {
+        graph
+            .materialized_units()
+            .filter(|(module, _, _)| entry.script_unit() != Some(*module))
+    };
+    let dispatcher_namespaces = activations()
         .flat_map(|(_, _, unit)| unit.namespaces.values())
         .map(|namespace| {
             (
@@ -159,12 +242,52 @@ pub(super) fn linked_module_execution_source(
             )
         })
         .collect();
+    let dispatcher_async_dependencies = activations()
+        .map(|(module, _, _)| {
+            (
+                super::dynamic::module_async_dependencies_name(module),
+                super::ModuleEvaluationIr::new(module),
+            )
+        })
+        .collect();
+    let dispatcher_deferred_imports = activations()
+        .map(|(module, _, _)| {
+            (
+                super::dynamic::module_deferred_import_name(module),
+                super::ModuleEvaluationIr::new(module),
+            )
+        })
+        .collect();
     // Dynamic targets evaluate only from their import continuation. Starting
-    // at the entry also preserves its static dependency DFS and SCC owner.
-    let initial_evaluation = vec![graph.entry];
-    for _ in &initial_evaluation {
-        text.push_str("0;\n");
-    }
+    // at a Module entry also preserves its static dependency DFS and SCC
+    // owner. A Script entry is not evaluated as a module: its own statements
+    // follow the graph, and only its `import()` calls evaluate modules.
+    let execution_entry = match entry {
+        CanonicalGraphEntry::Module(module) => {
+            text.push_str("0;\n");
+            ModuleExecutionEntry::Module(super::ModuleEvaluationIr::new(module))
+        }
+        CanonicalGraphEntry::Script { unit, source, .. } => {
+            // A Hashbang Comment is legal only at the very start of the source,
+            // which the Script no longer occupies; `//` keeps it a comment of
+            // the same length on the same line.
+            let source = match source.strip_prefix("#!") {
+                Some(rest) => std::borrow::Cow::Owned(format!("//{rest}")),
+                None => std::borrow::Cow::Borrowed(source),
+            };
+            let body = graph
+                .rewrite_dynamic_import_calls(unit, &source)
+                .map_err(|reason| {
+                    vec![IrDiagnostic::unsupported(format!(
+                        "unsupported in lila wasm-aot: script {}: {reason}",
+                        graph.unit(unit).record.key.as_str()
+                    ))]
+                })?;
+            text.push_str(&body);
+            text.push('\n');
+            ModuleExecutionEntry::Script
+        }
+    };
     let dispatcher_evaluations = definitions
         .iter()
         .map(|unit| {
@@ -175,7 +298,12 @@ pub(super) fn linked_module_execution_source(
         })
         .collect();
     let mut linked = super::LinkedScriptDefinitions::default();
-    linked.entry = Some(super::LinkedModuleEntry::CanonicalGraph(graph.entry));
+    linked.entry = match &execution_entry {
+        ModuleExecutionEntry::Module(evaluation) => Some(super::LinkedModuleEntry::CanonicalGraph(
+            evaluation.module(),
+        )),
+        ModuleExecutionEntry::Script => None,
+    };
     linked.synchronous = Some(ModuleExecutionDefinitions {
         graph_span: (
             boa_ast::Position::new(graph_start_line, 1),
@@ -185,25 +313,9 @@ pub(super) fn linked_module_execution_source(
         record_count: graph.units.len() as u32,
         dispatcher_namespaces,
         dispatcher_evaluations,
-        dispatcher_async_dependencies: graph
-            .materialized_units()
-            .map(|(module, _, _)| {
-                (
-                    super::dynamic::module_async_dependencies_name(module),
-                    super::ModuleEvaluationIr::new(module),
-                )
-            })
-            .collect(),
-        dispatcher_deferred_imports: graph
-            .materialized_units()
-            .map(|(module, _, _)| {
-                (
-                    super::dynamic::module_deferred_import_name(module),
-                    super::ModuleEvaluationIr::new(module),
-                )
-            })
-            .collect(),
-        initial_evaluation,
+        dispatcher_async_dependencies,
+        dispatcher_deferred_imports,
+        entry: execution_entry,
     });
     Ok(LinkedScriptSource {
         definitions: linked,

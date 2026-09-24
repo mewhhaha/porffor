@@ -82,8 +82,9 @@ negative. Agent failures retain their existing aggregate classification.
 ## Scope and verification
 
 Canonical TLA/deferred execution uses the [async lifecycle](module-async-lifecycle.md)
-with runtime DFS, completion capabilities and private reaction kinds. Script-entry
-and source-phase graphs retain their explicit admission boundaries. Host rejection
+with runtime DFS, completion capabilities and private reaction kinds. A Script
+entry has no entry completion; source-phase graphs retain their explicit
+admission boundaries. Host rejection
 policy never supplies or substitutes the module's evaluation completion.
 
 Focused verification targets:

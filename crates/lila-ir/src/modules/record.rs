@@ -1705,6 +1705,36 @@ pub(super) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicI
     })
 }
 
+fn module_dynamic_import_sites(source: &ParsedModule) -> Vec<DynamicImportSiteIr> {
+    source.with_compiler_session(|module, interner| {
+        let mut scan = ModuleBodyScan {
+            interner: Some(interner),
+            text: &source.source_text,
+            ..ModuleBodyScan::default()
+        };
+        let _ = module.visit_with(&mut scan);
+        scan.dynamic_import_sites
+    })
+}
+
+/// `[[Phase]]` of every `import()` in `sites` whose specifier is not a string
+/// literal, i.e. whose target no compile-time spelling names.
+pub(super) fn computed_import_phases(sites: &[DynamicImportSiteIr]) -> BTreeSet<ImportPhaseIr> {
+    sites
+        .iter()
+        .filter(|site| site.static_specifier.is_none())
+        .map(|site| site.phase)
+        .collect()
+}
+
+pub(super) fn module_computed_import_phases(source: &ParsedModule) -> BTreeSet<ImportPhaseIr> {
+    computed_import_phases(&module_dynamic_import_sites(source))
+}
+
+pub(super) fn script_computed_import_phases(source: &ParsedScript) -> BTreeSet<ImportPhaseIr> {
+    computed_import_phases(&script_dynamic_import_sites(source))
+}
+
 fn requests_with_dynamic_imports(
     mut requests: Vec<ModuleRequestKeyIr>,
     sites: &[DynamicImportSiteIr],

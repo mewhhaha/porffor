@@ -11,8 +11,8 @@ use lila_intl::{
 use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_module_graph_with_prelude,
     lower_script_graph_with_host_surface_policy, lower_with_host_surface_policy,
-    source_writes_dynamic_import, CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic,
-    ProgramIr, ValueKind,
+    script_writes_import_call, source_writes_dynamic_import, CompletionKindIr,
+    DynamicSourceRuntimeOperation, IrDiagnostic, ProgramIr, ValueKind,
 };
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
@@ -51,8 +51,8 @@ pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneRepo
 pub use lila_aot_wasm::PromiseRejectionPolicy;
 pub use lila_ir::HostSurfacePolicy;
 pub use module_loader::{
-    load_module_graph, FilesystemModuleLoader, HostModuleLoader, LoadedModule, LoadedModuleKind,
-    ModuleEntry, ModuleKey, ModuleLoadError, ModuleRequestKeyIr,
+    load_module_graph, ComputedImportSpecifiers, FilesystemModuleLoader, HostModuleLoader,
+    LoadedModule, LoadedModuleKind, ModuleEntry, ModuleKey, ModuleLoadError, ModuleRequestKeyIr,
 };
 pub use wasmtime_policy::{WasmGcCapability, WasmWeakReachabilityCapability};
 use wasmtime_policy::{WasmtimeRuntimePolicy, PRODUCT_WASMTIME_POLICY};
@@ -431,6 +431,19 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
         ModuleLoadingPolicy::Filesystem => 0,
         ModuleLoadingPolicy::RejectAll => 1,
     }]);
+    // A declared spelling can resolve to a module the graph already holds,
+    // which adds a runtime component without changing any module's text, so
+    // the graph digest alone does not cover it.
+    match &options.computed_import_specifiers {
+        ComputedImportSpecifiers::Undeclared => hash.update([0]),
+        ComputedImportSpecifiers::Closed(spellings) => {
+            hash.update([1]);
+            hash.update((spellings.len() as u64).to_le_bytes());
+            for spelling in spellings {
+                hash_program_cache_field(&mut hash, spelling.as_bytes());
+            }
+        }
+    }
     hash_program_cache_field(&mut hash, source.as_bytes());
     match graph_digest {
         Some(digest) => {
@@ -478,7 +491,8 @@ fn configured_module_loader(
                 options.module_root.as_deref(),
                 options.filename.as_deref(),
             )
-            .ok()?,
+            .ok()?
+            .with_computed_import_specifiers(options.computed_import_specifiers.clone()),
         )),
         ModuleLoadingPolicy::RejectAll => Some(Box::new(module_loader::RejectAllModuleLoader)),
     }
@@ -510,6 +524,11 @@ fn module_entry_graph(
 /// module's `import()` does. Request discovery walks the retained Script AST;
 /// it does not change the parse goal, so sloppy Script forms remain valid.
 ///
+/// A Script whose every specifier is computed still gets a graph (of the
+/// Script alone, plus whatever the host serves): its `import()` evaluates its
+/// operands and settles a promise through the compiled dispatcher, which is
+/// the only lowering of an `ImportCall` the backend accepts.
+///
 /// Two gates, cheap one first. The lexical scan runs on every Script and answers
 /// `false` for almost all of them; the retained AST is what actually decides,
 /// because only syntax tells `import(x)` apart from a method named `import`
@@ -519,22 +538,58 @@ fn script_entry_graph(
     source: &lila_front::ParsedScript,
     options: &CompileOptions,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    if !source_writes_dynamic_import(&source.source_text) {
+    if !source_writes_dynamic_import(&source.source_text) || !script_writes_import_call(source) {
         return None;
     }
     let loader = configured_module_loader(options)?;
     let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
-    let graph = module_loader::load_module_graph_from_parsed_script(
+    module_loader::load_module_graph_from_parsed_script(
         entry_locator,
         source.clone(),
         loader.as_ref(),
     )
-    .ok()?;
-    let requests = graph.modules.get(graph.entry as usize)?.module_requests()?;
-    if requests.is_empty() {
-        return None;
-    }
-    Some(graph)
+    .ok()
+}
+
+/// The explicit boundary for an `import()` whose specifier no compile-time
+/// spelling names.
+///
+/// Such a call is served from the host's declared computed-import spellings
+/// (see [`ComputedImportSpecifiers`]). Without a declaration the host has not
+/// said which modules it would load, and rejecting every string at run time
+/// would silently deny modules a filesystem host would serve. Source phase is
+/// served for literal specifiers only.
+fn computed_import_gap(
+    sources: &lila_ir::ModuleGraphSources,
+    options: &CompileOptions,
+) -> Option<IrDiagnostic> {
+    let declared = match options.module_loading_policy {
+        ModuleLoadingPolicy::Filesystem => options.computed_import_specifiers.is_declared(),
+        // Nothing loads, so the empty universe is complete.
+        ModuleLoadingPolicy::RejectAll => true,
+    };
+    sources.modules.iter().find_map(|module| {
+        let phases = module.computed_import_phases()?;
+        phases.into_iter().find_map(|phase| {
+            let reason = match phase {
+                lila_ir::ImportPhaseIr::Source => {
+                    "`import.source()` with a computed specifier: the source-phase dispatcher \
+                     serves string-literal specifiers only"
+                }
+                lila_ir::ImportPhaseIr::Evaluation | lila_ir::ImportPhaseIr::Defer if !declared => {
+                    "`import()` with a computed specifier: the host declared no \
+                     computed-import specifiers, and the AOT module map closes at compile time"
+                }
+                lila_ir::ImportPhaseIr::Evaluation | lila_ir::ImportPhaseIr::Defer => {
+                    return None;
+                }
+            };
+            Some(IrDiagnostic::unsupported(format!(
+                "unsupported in lila wasm-aot: module {}: {reason}",
+                module.key().as_str()
+            )))
+        })
+    })
 }
 
 /// Cache key for a program, covering the whole module graph when there is one.
@@ -568,6 +623,9 @@ struct PreparedCompilation {
     source: ParsedSource,
     module_prelude: Option<lila_front::ParsedScript>,
     graph: Option<lila_ir::ModuleGraphSources>,
+    /// Why the loaded graph writes an `import()` this host cannot serve ahead
+    /// of time. Reported after lowering, so an early error still wins.
+    computed_import_gap: Option<IrDiagnostic>,
     host_surface_policy: HostSurfacePolicy,
     promise_rejection_policy: PromiseRejectionPolicy,
     module_loading_policy: ModuleLoadingPolicy,
@@ -1213,6 +1271,9 @@ pub struct CompileOptions {
     /// prevents both AOT graph discovery and spec-exec dynamic source from
     /// consulting ambient files.
     pub module_loading_policy: ModuleLoadingPolicy,
+    /// The specifier spellings the filesystem host serves to an `import()`
+    /// whose specifier is computed at run time. See [`ComputedImportSpecifiers`].
+    pub computed_import_specifiers: ComputedImportSpecifiers,
     /// Which closed set of host-backed globals lowering may expose.
     pub host_surface_policy: HostSurfacePolicy,
     /// Host policy applied after Promise jobs drain; part of the emitted artifact.
@@ -1228,6 +1289,7 @@ impl Default for CompileOptions {
             target_triple: None,
             module_root: None,
             module_loading_policy: ModuleLoadingPolicy::default(),
+            computed_import_specifiers: ComputedImportSpecifiers::default(),
             host_surface_policy: HostSurfacePolicy::default(),
             promise_rejection_policy: PromiseRejectionPolicy::default(),
         }
@@ -2660,10 +2722,14 @@ impl Engine {
                     })
             })
             .transpose()?;
+        let computed_import_gap = graph
+            .as_ref()
+            .and_then(|graph| computed_import_gap(graph, options));
         Ok(PreparedCompilation {
             source,
             module_prelude,
             graph,
+            computed_import_gap,
             host_surface_policy: options.host_surface_policy,
             promise_rejection_policy: options.promise_rejection_policy,
             module_loading_policy: options.module_loading_policy,
@@ -2678,6 +2744,7 @@ impl Engine {
             source,
             module_prelude,
             graph,
+            computed_import_gap,
             host_surface_policy,
             promise_rejection_policy,
             module_loading_policy,
@@ -2738,6 +2805,8 @@ impl Engine {
         {
             return Err(EngineError::from_ir_diagnostic(diagnostic.clone()));
         }
+        let mut ir = ir;
+        ir.diagnostics.extend(computed_import_gap);
         Ok(CompilationUnit {
             source: source.source().clone(),
             ir,
@@ -4728,6 +4797,29 @@ report;
         assert_ne!(
             key,
             program_wasm_cache_key("1 + 2", ParseGoal::Script, &changed_module_policy)
+        );
+        // A declared spelling can add a runtime component without changing
+        // any module's text, so the declaration itself is part of the key.
+        let declared = |spellings: &[&str]| CompileOptions {
+            computed_import_specifiers: ComputedImportSpecifiers::Closed(
+                spellings
+                    .iter()
+                    .map(|spelling| (*spelling).to_string())
+                    .collect(),
+            ),
+            ..base.clone()
+        };
+        let empty = program_wasm_cache_key("1 + 2", ParseGoal::Script, &declared(&[]));
+        assert_ne!(key, empty);
+        let one = program_wasm_cache_key("1 + 2", ParseGoal::Script, &declared(&["./a.js"]));
+        assert_ne!(empty, one);
+        assert_ne!(
+            one,
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &declared(&["./b.js"]))
+        );
+        assert_ne!(
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &declared(&["./a.js", "b"])),
+            program_wasm_cache_key("1 + 2", ParseGoal::Script, &declared(&["./a.jsb"]))
         );
     }
 

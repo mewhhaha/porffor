@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
-    ObservedCompletion, RealmBuilder, RunOptions,
+    CompileOptions, ComputedImportSpecifiers, Engine, ExecutionBackend, HostOutputEvent,
+    HostSurfacePolicy, ObservedCompletion, RealmBuilder, RunOptions,
 };
 
 struct Modules(PathBuf);
@@ -34,6 +34,9 @@ fn assert_modules(files: &[(&str, &str)], expected: &[&str], prelude: Option<&st
                 module_root: Some(fixture.0.to_str().unwrap().into()),
                 module_prelude: prelude.map(str::to_owned),
                 host_surface_policy: HostSurfacePolicy::Test262,
+                // The fixture host serves no spelling beyond what each module
+                // names; a computed specifier matches only those.
+                computed_import_specifiers: ComputedImportSpecifiers::Closed(Vec::new()),
                 ..CompileOptions::default()
             },
             RunOptions {

@@ -6,8 +6,9 @@
 //! Evaluate promises, async parents and exact rejection values. Source Await
 //! resumes the existing async ABI after a separate private instantiation phase.
 //!
-//! Script-entry and source-phase graphs retain their explicit merged-driver
-//! admission boundary.
+//! A Script entry that writes `import()` owns the same canonical graph without
+//! being one of its activations. Source-phase graphs retain their explicit
+//! merged-driver admission boundary.
 //!
 //! `synchronous` owns allocation/instantiation and canonical cells; `evaluation`
 //! and `completion` own runtime DFS and Promise completion; `traversal` owns
@@ -21,10 +22,10 @@
 //! and resolves or rejects a promise, so no `ImportCall` node reaches this
 //! backend and no source is parsed at runtime, ever. A Script gets the same
 //! treatment as a module: `lila_ir::lower_script_graph` compiles the targets
-//! of a Script's `import()` calls into the same artifact and wraps them in one
-//! strict function so the Script itself stays Script code. See
-//! `lila_ir::modules::dynamic`, and [`emit_dynamic_import`] for the one case
-//! that still reaches this file.
+//! of a Script's `import()` calls into the same artifact, and the Script's own
+//! statements run after the graph is instantiated, in the Script's own
+//! strictness and global scope. See `lila_ir::modules::dynamic`, and
+//! [`emit_dynamic_import`] for the one case that still reaches this file.
 //!
 //! Namespace constructors carry their private export-reader table directly in
 //! `ExprIr::ModuleNamespace`. The canonical runtime object implementation lives
@@ -128,13 +129,12 @@ impl FunctionBuilder<'_> {
     /// an ordinary call to a generated dispatcher, so no `ImportCall` survives
     /// to this backend.
     ///
-    /// What is left here is the case the linker cannot reach at all: a Script
-    /// the loader could not read as module code (a sloppy `with`, an octal
-    /// literal), whose `import()` specifiers therefore could not be discovered.
-    /// Closing it needs the entry's dynamic-import sites read off a *Script*
-    /// parse, not a Wasm emitter — an artifact with no target compiled into it
-    /// can only reject, and rejecting silently would be a wrong answer rather
-    /// than a missing one.
+    /// A Script entry that writes `import()` always gets a graph, even when no
+    /// specifier is a literal, so what is left here is source lowered without
+    /// one at all: a prepared Script such as `$262.evalScript` text or a
+    /// Module's global Script prelude. An artifact with no dispatcher compiled
+    /// into it has nothing to evaluate, coerce or settle with, and rejecting
+    /// silently would be a wrong answer rather than a missing one.
     pub(crate) fn emit_dynamic_import(
         &mut self,
         _referrer: Option<u32>,

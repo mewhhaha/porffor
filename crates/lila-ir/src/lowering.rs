@@ -5891,6 +5891,20 @@ impl<'a> ScriptLowerer<'a> {
         target: &Expression,
         resume_mode: AsyncResumeModeIr,
     ) -> (StatementIr, ValueKind) {
+        // An operand that itself suspends (`const x = await f(await p)`)
+        // stages its own suspensions first: the operand is evaluated, inner
+        // awaits included, before the outer Await begins. The statement-level
+        // shapes that reach here do not arm the prefix themselves. A resumable
+        // plan numbers its suspensions in its own order, so it keeps the
+        // unstaged path.
+        if self.current_resumable_plan.is_none() {
+            if let Some((mut statements, value)) = self.lower_async_prefixed_expression(target) {
+                let (await_statement, kind) =
+                    self.lower_linear_async_await_value(value, resume_mode);
+                statements.push(await_statement);
+                return (StatementIr::LexicalBlock(statements), kind);
+            }
+        }
         let value = self.lower_expression(target);
         self.lower_linear_async_await_value(value, resume_mode)
     }

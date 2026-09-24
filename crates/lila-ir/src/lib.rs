@@ -138,10 +138,10 @@ pub use lowering::{
 pub(crate) use lowering_helpers::*;
 pub use modules::{
     classify_outer_script_module_dependency, evaluation_components, parse_module_record,
-    scan_module_requests, scan_script_module_requests, source_writes_dynamic_import,
-    DuplicateImportAttributeKeyIr, DynamicComponentIr, DynamicImportAttributesIr,
-    DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr, ImportPhaseIr,
-    IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
+    scan_module_requests, scan_script_module_requests, script_writes_import_call,
+    source_writes_dynamic_import, DuplicateImportAttributeKeyIr, DynamicComponentIr,
+    DynamicImportAttributesIr, DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr,
+    ImportPhaseIr, IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
     ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
     ModuleGraphSources, ModuleKey, ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr,
     ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,

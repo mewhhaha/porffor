@@ -3,6 +3,46 @@
 use super::*;
 
 impl ScriptLowerer<'_> {
+    /// Whether `owner_id` is a canonical module activation or lexically nested
+    /// in one. Trusted linker metadata assigns that protocol; no source
+    /// spelling can.
+    fn owner_is_within_module_activation(&self, owner_id: &str) -> bool {
+        let mut owner_id = Some(owner_id);
+        while let Some(id) = owner_id {
+            if self.analysis.function_plans.get(id).is_some_and(|owner| {
+                matches!(
+                    owner.protocol,
+                    FunctionProtocolIr::ModuleActivation
+                        | FunctionProtocolIr::AsyncModuleActivation
+                )
+            }) {
+                return true;
+            }
+            owner_id = self
+                .analysis
+                .owner_plans
+                .get(id)
+                .and_then(|owner| owner.parent_owner_id.as_deref());
+        }
+        false
+    }
+
+    /// Root `this` binding for code owned by `owner_id`.
+    ///
+    /// A Script entry's canonical graph is one Script-goal program whose root
+    /// `this` is the global object, but each module activation holds module
+    /// code, whose root binding is `undefined` (16.2.1.6.4 step 8 gives a
+    /// Module Environment Record no `this` value). The merged parse goal must
+    /// not leak into module code through an arrow chain.
+    pub(super) fn root_this_binding_for_owner(&self, owner_id: &str) -> RootThisBinding {
+        match self.root_this_binding {
+            RootThisBinding::GlobalObject if self.owner_is_within_module_activation(owner_id) => {
+                RootThisBinding::Undefined
+            }
+            binding => binding,
+        }
+    }
+
     pub(super) fn admit_sync_disposable_scope_owner(
         &mut self,
     ) -> Option<SyncDisposableScopeOwnerPlan> {
@@ -10,26 +50,7 @@ impl ScriptLowerer<'_> {
             // The retained source-phase drivers do not own independent
             // Module environments. Only a canonical module activation proves
             // this module's resources belong to an admitted execution lifetime.
-            let mut owner_id = Some(self.current_owner_id.as_str());
-            let mut has_module_activation = false;
-            while let Some(id) = owner_id {
-                if self.analysis.function_plans.get(id).is_some_and(|owner| {
-                    matches!(
-                        owner.protocol,
-                        FunctionProtocolIr::ModuleActivation
-                            | FunctionProtocolIr::AsyncModuleActivation
-                    )
-                }) {
-                    has_module_activation = true;
-                    break;
-                }
-                owner_id = self
-                    .analysis
-                    .owner_plans
-                    .get(id)
-                    .and_then(|owner| owner.parent_owner_id.as_deref());
-            }
-            if !has_module_activation {
+            if !self.owner_is_within_module_activation(self.current_owner_id.as_str()) {
                 self.unsupported(
                     "using declaration in a module without a canonical execution owner",
                 );

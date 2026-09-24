@@ -201,6 +201,22 @@ pub(crate) fn linked_script_source(
     check_linkable(graph, &mut diagnostics);
     let aliases = collect_binding_aliases(graph, &mut diagnostics);
     diagnostics.extend(graph.check_dynamic_import_linkable());
+    // This driver evaluates `import()` targets eagerly, so it cannot widen a
+    // computed specifier to the host's declared spellings (see
+    // `dynamic::discover_components`); matching only literal requests would
+    // reject modules the host serves.
+    for (_, _, unit) in graph.materialized_units() {
+        if super::record::computed_import_phases(&unit.record.dynamic_import_sites)
+            .iter()
+            .any(|phase| *phase != ImportPhaseIr::Source)
+        {
+            diagnostics.push(IrDiagnostic::unsupported(format!(
+                "unsupported in lila wasm-aot: module {}: `import()` with a computed specifier \
+                 in a graph the source-phase driver links",
+                unit.record.key.as_str()
+            )));
+        }
+    }
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
@@ -351,7 +367,26 @@ pub(crate) fn linked_script_source(
                  `await`",
             )]);
         }
-        wrap_script_graph_modules(graph, &text, &mut definitions) + &script_entry_body
+        // The wrapper displaces the Script's Directive Prologue, so a strict
+        // Script's strictness is restated ahead of it (the wrapper's own
+        // function is strict either way).
+        let script_is_strict = match sources
+            .modules
+            .get(sources.entry as usize)
+            .map(|source| &source.parse)
+        {
+            Some(super::loaded_sources::ModuleParse::ScriptEntry(parsed)) => {
+                parsed.with_compiler_session(|script, _| script.strict())
+            }
+            _ => unreachable!("the lowerer admits a Script entry graph only with Script syntax"),
+        };
+        let wrapped = wrap_script_graph_modules(graph, &text, &mut definitions);
+        if script_is_strict {
+            definitions.prepend("\"use strict\";\n");
+            format!("\"use strict\";\n{wrapped}{script_entry_body}")
+        } else {
+            wrapped + &script_entry_body
+        }
     } else {
         // 16.2.1.6.1: module code is always strict. The prologue stays outside
         // any wrapper so it is still the merged script's first Directive
@@ -811,7 +846,7 @@ mod tests {
             .synchronous
             .expect("canonical module definitions");
         assert_eq!(definitions.units.len(), 1);
-        assert_eq!(definitions.initial_evaluation, [0]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(0));
         assert_eq!(definitions.units[0].evaluation.module(), 0);
         assert_eq!(
             definitions.units[0].kind,
@@ -834,7 +869,7 @@ mod tests {
             .definitions
             .synchronous
             .expect("canonical async graph");
-        assert_eq!(definitions.initial_evaluation, [0]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(0));
         assert_eq!(
             definitions.units[0].kind,
             super::super::ModuleActivationKindIr::Async
@@ -860,7 +895,7 @@ mod tests {
         assert_eq!(graph.async_evaluation(), vec![true, true]);
         let linked = linked_script_source(&sources, &mut graph).expect("graph should link");
         let definitions = linked.definitions.synchronous.unwrap();
-        assert_eq!(definitions.initial_evaluation, [1]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(1));
         assert_eq!(
             definitions.units[0].kind,
             super::super::ModuleActivationKindIr::Async
@@ -893,7 +928,7 @@ mod tests {
             .definitions
             .synchronous
             .expect("canonical module definitions");
-        assert_eq!(definitions.initial_evaluation, [1]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(1));
         let entry = definitions
             .units
             .iter()
@@ -1354,7 +1389,7 @@ mod tests {
             .definitions
             .synchronous
             .expect("canonical module definitions");
-        assert_eq!(definitions.initial_evaluation, [1]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(1));
         let deferred = definitions
             .units
             .iter()
@@ -1534,7 +1569,7 @@ mod tests {
             .definitions
             .synchronous
             .expect("canonical module definitions");
-        assert_eq!(definitions.initial_evaluation, [0]);
+        assert_eq!(definitions.entry.evaluated_module(), Some(0));
         assert!(definitions
             .dispatcher_evaluations
             .contains_key("$lila$module$evaluate$1"));

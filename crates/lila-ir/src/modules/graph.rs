@@ -59,18 +59,15 @@ pub struct ModuleGraphIr {
     /// (13.3.10 takes `GetActiveScriptOrModule`, which a Script satisfies), and
     /// serving it needs exactly the same compiled targets a module's `import()`
     /// needs. So the loader assembles the closure of the Script's `import()`
-    /// specifiers into an ordinary graph and marks the entry with this flag,
-    /// which changes three things in `modules::link`:
+    /// specifiers into an ordinary graph and marks the entry with this flag.
     ///
-    /// * the entry's text is emitted verbatim — no `"use strict"` prologue is
-    ///   forced on it, no module syntax is stripped from it, and its top-level
-    ///   `this` stays `globalThis`, because all three are Script semantics and
-    ///   the entry really is a Script;
-    /// * every *other* unit's material is wrapped in one immediately-invoked
-    ///   strict function, so module code stays strict (16.2.1.6.1) and its
-    ///   top-level bindings stay out of the Script's scope;
-    /// * the entry's `import()` dispatchers are re-exported out of that wrapper
-    ///   through `var` bindings the Script can call.
+    /// The Script's text is emitted as itself — its own strictness, no module
+    /// syntax stripped, and a top-level `this` of `globalThis` — and it is not
+    /// in the module map (`keys`). In a canonical graph it owns the graph
+    /// statement but no activation, and its statements run after every module
+    /// environment is instantiated (`synchronous_source::CanonicalGraphEntry`).
+    /// A source-phase graph keeps the retained driver, which wraps every other
+    /// unit in one strict function and re-exports the Script's dispatchers.
     pub entry_is_script: bool,
 }
 

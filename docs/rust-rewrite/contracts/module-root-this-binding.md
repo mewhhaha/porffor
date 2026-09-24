@@ -49,6 +49,14 @@ wrapper's bare strict call supplies the required `undefined`. This seam adds no
 new wrapper and changes only the flat eager synchronous Module-entry path that
 previously had neither an activation nor the correct root binding.
 
+A Script entry that writes `import()` now shares the canonical graph (see
+[Script-entry `import()`](script-entry-dynamic-import.md)). Its merged program
+keeps the Script goal, so its root binding is the global object; code owned by,
+or lexically nested in, a module activation takes the Module root binding
+through `ScriptLowerer::root_this_binding_for_owner`, which walks the trusted
+activation protocol rather than any source spelling. The IIFE-wrapped shape
+remains only for Script entries in source-phase graphs.
+
 `ScriptIr::top_level_this_uses` counts only root reads that resolve to the
 Script global object. The AOT planner may use that count to request global
 bootstrap; a statically undefined module-root read cannot request it.

@@ -13,8 +13,10 @@ await and transitive asynchronous dependencies. Ordinary and deferred imports
 use the same canonical owners. Original request phases and order survive linking;
 runtime traversal owns cycle and async dependency state.
 
-Script entries and source-phase graphs retain their separate driver and explicit
-capability boundaries. Retained Module-entry drivers use a private lexical arrow
+A Script entry that writes `import()` uses the same witness; it owns the graph
+statement but no activation (see
+[Script-entry `import()`](script-entry-dynamic-import.md)). Source-phase graphs
+retain their separate driver and explicit capability boundaries. Retained Module-entry drivers use a private lexical arrow
 owner, including an async arrow when required. Their declarations stay outside
 the independent global Script, but those drivers still share declarations between
 module units and retain their global import-alias limitations.

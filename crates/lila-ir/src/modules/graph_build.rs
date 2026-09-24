@@ -29,7 +29,15 @@ pub(crate) fn build_graph(
     let mut inconsistent: Vec<ModuleKey> = Vec::new();
 
     for source in &sources.modules {
-        if let Some(&existing) = graph.keys.get(source.key()) {
+        // A Script entry is not in the module map (it has no Module Record), so
+        // it neither claims its key nor absorbs a Module Record the host loaded
+        // from the same file: `import('./self.js')` in a Script names a fresh
+        // module, not the running Script.
+        let in_module_map = match source.goal() {
+            lila_front::ParseGoal::Module => true,
+            lila_front::ParseGoal::Script => false,
+        };
+        if let Some(&existing) = graph.keys.get(source.key()).filter(|_| in_module_map) {
             // Same key, different bytes: the host contradicted itself, and
             // there is no honest way to pick a winner.
             if graph.units[existing as usize].source_text != source.source_text()
@@ -77,7 +85,9 @@ pub(crate) fn build_graph(
                     vec![ResolvedBindingIr::NotFound; record.import_entries.len()];
                 let resolved_indirect_exports =
                     vec![ResolvedBindingIr::NotFound; record.indirect_export_entries.len()];
-                graph.keys.insert(source.key().clone(), id);
+                if in_module_map {
+                    graph.keys.insert(source.key().clone(), id);
+                }
                 graph.units.push(ModuleUnitIr {
                     record,
                     source_text: source.source_text().to_string(),

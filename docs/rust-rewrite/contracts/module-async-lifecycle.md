@@ -89,8 +89,9 @@ even by a fully synchronous graph. No private operation is a product export.
 
 The [entry completion owner](module-entry-completion.md) consumes the root capability
 independently of unhandled-rejection policy. Pending entry at supported host-work
-quiescence remains IncompleteModuleEvaluation. Source-phase and Script-entry graphs
-retain their separate explicit capability boundaries.
+quiescence remains IncompleteModuleEvaluation. Source-phase graphs
+retain their separate explicit capability boundaries; a Script entry uses these
+operations for its `import()` targets but has no entry completion of its own.
 
 ## Verification boundary
 

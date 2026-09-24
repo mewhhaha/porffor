@@ -2,7 +2,7 @@
 
 use super::loaded_sources::ModuleParse;
 use super::*;
-use crate::{EarlyErrorCode, IrDiagnostic, NativeErrorKind};
+use crate::{EarlyErrorCode, IrDiagnostic, NativeErrorKind, ParseGoal};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod closure;
@@ -64,8 +64,7 @@ pub(crate) fn link_loaded_graph(
         Ok(graph) => return Ok(graph),
         Err(rejection) => rejection,
     };
-    if entry_is_script
-        || sources.modules.get(sources.entry as usize).is_none()
+    if sources.modules.get(sources.entry as usize).is_none()
         || !original.diagnostics.iter().all(can_reject_import)
         || !host_identity_is_consistent(sources)
     {
@@ -83,6 +82,18 @@ pub(crate) fn link_loaded_graph(
                 }
             }
             ModuleParse::Rejected { .. } => None,
+            // The lowerer admits Script syntax only in a Script entry's slot.
+            // Its record carries `import()` sites and no static requests, so
+            // its static closure is itself.
+            ModuleParse::ScriptEntry(parsed)
+                if entry_is_script && index == sources.entry as usize =>
+            {
+                Some(super::record::script_entry_record(
+                    parsed,
+                    index as u32,
+                    source.key().clone(),
+                ))
+            }
             ModuleParse::ScriptEntry(_) => return Err(original),
         };
         if record.as_ref().is_some_and(|record| {
@@ -102,7 +113,10 @@ pub(crate) fn link_loaded_graph(
     let closure = StaticClosure::new(sources, &records);
     let entry_members = closure.members(sources.entry);
     // Static imports, including defer, must load and link before any entry body.
-    link_sources(&closure.project(&entry_members, sources.entry), false)?;
+    link_sources(
+        &closure.project(&entry_members, sources.entry),
+        entry_is_script,
+    )?;
     let mut admitted = entry_members.clone();
     let mut pending = entry_members.into_iter().collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
@@ -115,10 +129,27 @@ pub(crate) fn link_loaded_graph(
         let record = records[referrer as usize]
             .as_ref()
             .expect("admitted source has a parsed record");
-        for site in &record.dynamic_import_sites {
-            let Some(request) = site.discovery_request() else {
-                continue;
-            };
+        // The same occurrences `dynamic::discover_components` registers: each
+        // literal request, and for a computed call every key the host resolved
+        // for this referrer, in that call's phase.
+        let mut requests: Vec<ModuleRequestIr> = record
+            .dynamic_import_sites
+            .iter()
+            .filter_map(DynamicImportSiteIr::discovery_request)
+            .collect();
+        for phase in super::record::computed_import_phases(&record.dynamic_import_sites) {
+            match phase {
+                ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {}
+                ImportPhaseIr::Source => continue,
+            }
+            for key in closure.request_keys(referrer) {
+                let request = ModuleRequestIr::from_key(key.clone(), phase);
+                if !requests.contains(&request) {
+                    requests.push(request);
+                }
+            }
+        }
+        for request in requests {
             let Some(target) = closure.target(referrer, request.key()) else {
                 continue;
             };
@@ -144,7 +175,7 @@ pub(crate) fn link_loaded_graph(
                         DynamicModuleRejectionStage::Dependencies
                     };
                     rejected_requests.push((
-                        sources.modules[referrer as usize].key().clone(),
+                        referrer,
                         request,
                         stage,
                         rejection.diagnostics[0].message.clone(),
@@ -153,9 +184,14 @@ pub(crate) fn link_loaded_graph(
             }
         }
     }
-    let mut graph = link_sources(&closure.project(&admitted, sources.entry), false)?;
+    let mut graph = link_sources(&closure.project(&admitted, sources.entry), entry_is_script)?;
     for (referrer, request, stage, message) in rejected_requests {
-        let referrer = graph.keys[&referrer];
+        // A Script entry is outside the module map, so it is found by position.
+        let referrer = if referrer == sources.entry {
+            graph.entry
+        } else {
+            graph.keys[sources.modules[referrer as usize].key()]
+        };
         if !graph
             .dynamic_rejections
             .iter()
@@ -186,11 +222,17 @@ fn can_reject_import(diagnostic: &IrDiagnostic) -> bool {
         })
 }
 
+/// Module-map identity is keyed per goal: a Script entry shares its file's
+/// key with a Module Record the host loads from that file without being the
+/// same record.
 fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
     let mut loaded = BTreeMap::new();
     for source in &sources.modules {
         if loaded
-            .insert(source.key(), source.source_text())
+            .insert(
+                (source.goal() == ParseGoal::Script, source.key()),
+                source.source_text(),
+            )
             .is_some_and(|previous| previous != source.source_text())
         {
             return false;
@@ -205,7 +247,14 @@ fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
             continue;
         };
         if requests
-            .insert((referrer.key(), request), target.key())
+            .insert(
+                (
+                    referrer.goal() == ParseGoal::Script,
+                    referrer.key(),
+                    request,
+                ),
+                target.key(),
+            )
             .is_some_and(|previous| previous != target.key())
         {
             return false;

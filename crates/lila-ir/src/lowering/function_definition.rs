@@ -20,7 +20,7 @@ impl<'a> ScriptLowerer<'a> {
             self.interner,
             self.analysis,
             self.source_text,
-            self.root_this_binding,
+            self.root_this_binding_for_owner(function.id.as_str()),
             function.id.clone(),
             self.host_surface_policy,
         );

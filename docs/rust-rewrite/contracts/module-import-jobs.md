@@ -1,8 +1,9 @@
 # Contract: canonical Module-entry dynamic imports
 
-Canonical Module-entry graphs, including top-level await, use these continuations.
-Graphs with source-phase requests or a Script entry keep their existing driver
-and capability boundaries.
+Canonical graphs, including top-level await, use these continuations, whether
+the entry is a Module or a Script that writes `import()` (see
+[Script-entry `import()`](script-entry-dynamic-import.md)). Graphs with
+source-phase requests keep their existing driver and capability boundaries.
 
 All graph activations and namespace identities are created before evaluation.
 Only the entry starts initial evaluation; it walks its static evaluation

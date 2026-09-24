@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
-    ObservedCompletion, RealmBuilder, RunOptions,
+    CompileOptions, ComputedImportSpecifiers, Engine, ExecutionBackend, HostOutputEvent,
+    HostSurfacePolicy, ObservedCompletion, RealmBuilder, RunOptions,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind};
 
@@ -32,6 +32,9 @@ impl Modules {
             filename: Some(self.0.join("entry.js").to_str().unwrap().into()),
             module_root: Some(self.0.to_str().unwrap().into()),
             host_surface_policy: HostSurfacePolicy::Test262,
+            // The fixture host serves no spelling beyond what each module
+            // names; a computed specifier matches only those.
+            computed_import_specifiers: ComputedImportSpecifiers::Closed(Vec::new()),
             ..CompileOptions::default()
         }
     }

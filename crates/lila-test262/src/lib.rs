@@ -13,9 +13,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lila_engine::{
-    compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
-    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, PromiseRejectionPolicy,
-    RealmBuilder, RunOptions, WasmExecutionFailureKind,
+    compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions,
+    ComputedImportSpecifiers, Engine, EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy,
+    PromiseRejectionPolicy, RealmBuilder, RunOptions, WasmExecutionFailureKind,
 };
 use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
 use serde::ser::SerializeMap;
@@ -9948,8 +9948,50 @@ fn compile_options_for_case(case: &TestCase) -> CompileOptions {
         // Entry Module completion has its own root; unrelated rejections use
         // the default ECMAScript host tracker in every source goal.
         promise_rejection_policy: PromiseRejectionPolicy::Ignore,
+        computed_import_specifiers: test262_computed_import_specifiers(&case.source_path),
         ..CompileOptions::default()
     }
+}
+
+/// The modules this host serves to an `import()` whose specifier is computed.
+///
+/// INTERPRETING.md fixes the Test262 host's module map: every specifier is
+/// `./` followed by the name of a file in the test's own directory, and the
+/// files a test is meant to import are exactly those whose name contains
+/// `_FIXTURE`. An AOT artifact has to carry every module it can load, so the
+/// host declares that set up front; any other computed string names no module
+/// here and rejects. Literal specifiers keep resolving through the ordinary
+/// loader, including a test that imports its own file.
+fn test262_computed_import_specifiers(test_path: &Path) -> ComputedImportSpecifiers {
+    // Every case asks, usually more than once, and most share a directory.
+    static LISTINGS: OnceLock<Mutex<BTreeMap<PathBuf, Vec<String>>>> = OnceLock::new();
+    let Some(directory) = test_path.parent() else {
+        return ComputedImportSpecifiers::Closed(Vec::new());
+    };
+    let listings = LISTINGS.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if let Some(spellings) = listings
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(directory)
+    {
+        return ComputedImportSpecifiers::Closed(spellings.clone());
+    }
+    let mut spellings: Vec<String> = fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.contains("_FIXTURE"))
+        .map(|name| format!("./{name}"))
+        .collect();
+    // Directory order is not stable; the list is part of the artifact key.
+    spellings.sort();
+    listings
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(directory.to_path_buf(), spellings.clone());
+    ComputedImportSpecifiers::Closed(spellings)
 }
 
 /// The evidence dimensions a direct-run checkpoint must match before resume.

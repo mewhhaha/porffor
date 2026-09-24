@@ -161,7 +161,7 @@ fn private_source_spans_survive_ecmascript_line_terminators_and_ordinary_arrays(
 }
 
 #[test]
-fn tla_modules_use_private_async_owners_while_script_and_source_phase_keep_their_driver() {
+fn tla_modules_use_private_async_owners_while_source_phase_keeps_its_driver() {
     let asynchronous = module_program(&[
         (
             "entry.js",
@@ -209,7 +209,21 @@ fn tla_modules_use_private_async_owners_while_script_and_source_phase_keep_their
         ParseGoal::Script,
     ));
     assert!(script.is_wasm_supported(), "{:?}", script.diagnostics);
-    assert!(activation_graph(script.script.as_ref().unwrap()).is_none());
+    // A Script entry owns the canonical graph but is not one of its modules:
+    // only the imported module has an activation, and nothing evaluates it
+    // before the Script's own `import.defer()` call runs.
+    let script_ir = script.script.as_ref().unwrap();
+    let script_graph = activation_graph(script_ir).expect("Script entry uses the canonical driver");
+    assert_eq!(script_graph.record_count(), 2);
+    assert_eq!(
+        script_graph
+            .activations()
+            .iter()
+            .map(lila_ir::ModuleActivationIr::module)
+            .collect::<Vec<_>>(),
+        [1]
+    );
+    assert!(script_ir.module_entry_evaluation().is_none());
     let source_phase = module_program(&[
         ("entry.js", "import source source from './source.js'; import defer * as ns from './value.js'; source; print(ns.value);"),
         ("source.js", "export const value = 1;"),

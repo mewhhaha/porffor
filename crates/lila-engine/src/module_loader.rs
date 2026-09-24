@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use lila_front::{ParsedModule, ParsedScript};
+use lila_front::{ParseGoal, ParsedModule, ParsedScript};
 use lila_ir::{ModuleGraphSources, ModuleSourceIr};
 pub use lila_ir::{ModuleKey, ModuleRequestKeyIr};
 
@@ -99,6 +99,53 @@ impl core::fmt::Display for ModuleLoadError {
     }
 }
 
+/// The specifier spellings a host serves to an `import()` whose specifier is
+/// computed at run time.
+///
+/// Compilation closes the module map before the program runs: a module body
+/// can execute only if it was compiled into the artifact, and no parser ships
+/// with it. A string-literal specifier names its target at compile time; a
+/// computed one names nothing, so the host has to declare what it will serve.
+/// Each declared spelling is resolved and loaded for every module that writes
+/// a computed evaluation- or defer-phase `import()`, exactly as though that
+/// module had also written the literal. At run time the dispatcher compares
+/// the coerced specifier against those spellings (and the referrer's own
+/// literal and static requests); anything else names no module this host
+/// serves and rejects the import.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ComputedImportSpecifiers {
+    /// The host has not said which modules a computed specifier may reach. A
+    /// program that writes such an `import()` is an explicit compile-time
+    /// unsupported case rather than a silent rejection of a module the host
+    /// might have served.
+    #[default]
+    Undeclared,
+    /// The complete set of spellings the host serves to computed specifiers.
+    Closed(Vec<String>),
+}
+
+static UNDECLARED_COMPUTED_IMPORTS: ComputedImportSpecifiers = ComputedImportSpecifiers::Undeclared;
+static NO_COMPUTED_IMPORTS: ComputedImportSpecifiers = ComputedImportSpecifiers::Closed(Vec::new());
+
+impl ComputedImportSpecifiers {
+    /// Spellings to request on behalf of a computed `import()`.
+    fn spellings(&self) -> &[String] {
+        match self {
+            Self::Undeclared => &[],
+            Self::Closed(spellings) => spellings,
+        }
+    }
+
+    /// Whether the host has declared its computed-import universe.
+    #[must_use]
+    pub const fn is_declared(&self) -> bool {
+        match self {
+            Self::Undeclared => false,
+            Self::Closed(_) => true,
+        }
+    }
+}
+
 /// The host hooks module loading needs.
 pub trait HostModuleLoader: Send + Sync {
     /// `HostResolveImportedModule`: phase-free request key plus referrer to a
@@ -128,6 +175,11 @@ pub trait HostModuleLoader: Send + Sync {
     /// are returned unchanged: an in-memory entry has no path to normalize.
     fn canonical_key(&self, key: &str) -> ModuleKey {
         ModuleKey::from_host(key)
+    }
+
+    /// The spellings this host serves to a computed `import()` specifier.
+    fn computed_import_specifiers(&self) -> &ComputedImportSpecifiers {
+        &UNDECLARED_COMPUTED_IMPORTS
     }
 }
 
@@ -161,6 +213,11 @@ impl HostModuleLoader for RejectAllModuleLoader {
             specifier: key.as_str().to_string(),
             reason: "module loading disabled by host policy".to_string(),
         })
+    }
+
+    /// Nothing loads under this policy, so the (empty) universe is complete.
+    fn computed_import_specifiers(&self) -> &ComputedImportSpecifiers {
+        &NO_COMPUTED_IMPORTS
     }
 }
 
@@ -199,6 +256,7 @@ impl ModuleEntry {
 pub struct FilesystemModuleLoader {
     root: PathBuf,
     entry_dir: PathBuf,
+    computed_import_specifiers: ComputedImportSpecifiers,
 }
 
 impl FilesystemModuleLoader {
@@ -219,7 +277,19 @@ impl FilesystemModuleLoader {
         let root = root.map(PathBuf::from).unwrap_or_else(|| entry_dir.clone());
         let root = root.canonicalize().unwrap_or(root);
         let entry_dir = entry_dir.canonicalize().unwrap_or(entry_dir);
-        Ok(Self { root, entry_dir })
+        Ok(Self {
+            root,
+            entry_dir,
+            computed_import_specifiers: ComputedImportSpecifiers::Undeclared,
+        })
+    }
+
+    /// Declares the spellings this host serves to computed `import()`
+    /// specifiers. They resolve relative to each referrer like any request.
+    #[must_use]
+    pub fn with_computed_import_specifiers(mut self, specifiers: ComputedImportSpecifiers) -> Self {
+        self.computed_import_specifiers = specifiers;
+        self
     }
 
     /// Rejects any path that escapes the root, before it is ever read.
@@ -278,6 +348,10 @@ impl HostModuleLoader for FilesystemModuleLoader {
         Ok(ModuleKey::from_host(
             resolved.to_string_lossy().into_owned(),
         ))
+    }
+
+    fn computed_import_specifiers(&self) -> &ComputedImportSpecifiers {
+        &self.computed_import_specifiers
     }
 
     fn canonical_key(&self, key: &str) -> ModuleKey {
@@ -393,7 +467,16 @@ fn load_module_graph_from_entry(
     // here, so a loader that normalizes further on load still reads each
     // module once.
     let mut indices: BTreeMap<ModuleKey, u32> = BTreeMap::new();
-    indices.insert(modules[0].key().clone(), 0);
+    // A Script entry has no Module Record and is not in the module map: its
+    // key only anchors relative resolution. A request naming the Script's own
+    // file therefore loads that file afresh as a Module Record (16.2.1.8
+    // HostLoadImportedModule), which evaluates independently of the Script.
+    match modules[0].goal() {
+        ParseGoal::Module => {
+            indices.insert(modules[0].key().clone(), 0);
+        }
+        ParseGoal::Script => {}
+    }
     let mut resolutions = Vec::new();
     let mut cursor = 0usize;
 
@@ -401,13 +484,30 @@ fn load_module_graph_from_entry(
         let referrer = u32::try_from(cursor).unwrap_or(u32::MAX);
         let key = modules[cursor].key().clone();
         let requests = modules[cursor].module_requests();
+        let computed_phases = modules[cursor].computed_import_phases();
         cursor += 1;
 
         // A rejected module produces no requests; `lila-ir` reports the
         // retained parse failure itself without trying the parser again.
-        let Some(requests) = requests else {
+        let Some(mut requests) = requests else {
             continue;
         };
+        // A computed evaluation- or defer-phase `import()` names no target, so
+        // the host serves it the spellings it declared, requested on this
+        // module's behalf. Source phase is not widened (see
+        // `lila_ir::modules::dynamic::discover_components`).
+        if computed_phases.is_some_and(|phases| {
+            phases
+                .iter()
+                .any(|phase| !matches!(phase, lila_ir::ImportPhaseIr::Source))
+        }) {
+            for spelling in loader.computed_import_specifiers().spellings() {
+                let request = ModuleRequestKeyIr::plain(spelling.as_str());
+                if !requests.contains(&request) {
+                    requests.push(request);
+                }
+            }
+        }
         for request in requests {
             // A request the loader rejects stays unresolved on purpose: the
             // link stage turns it into the SyntaxError the spec asks for,
@@ -501,6 +601,78 @@ mod tests {
         ModuleEntry::HostLoad {
             locator: path.to_string_lossy().into_owned(),
         }
+    }
+
+    #[test]
+    fn declared_spellings_are_requested_only_for_computed_imports() {
+        let base = temp_base("computed-spellings");
+        let root = base.join("root");
+        write_tree(
+            &root,
+            &[
+                ("entry.js", "import(globalThis.name); import './plain.js';"),
+                ("plain.js", "import('./value.js');"),
+                ("value.js", "export const value = 1;"),
+                ("other.js", "export const other = 2;"),
+            ],
+        );
+        let loader = loader_at(&root).with_computed_import_specifiers(
+            ComputedImportSpecifiers::Closed(vec!["./other.js".into(), "./missing.js".into()]),
+        );
+
+        let sources = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        let requested = |referrer: u32| {
+            let mut specifiers = sources
+                .resolutions
+                .iter()
+                .filter(|(owner, _, _)| *owner == referrer)
+                .map(|(_, request, _)| request.specifier().to_string())
+                .collect::<Vec<_>>();
+            specifiers.sort();
+            specifiers
+        };
+        // The computed call serves the declared spelling that exists; a
+        // missing one is simply unresolved, and the module that writes only a
+        // literal `import()` is not widened.
+        assert_eq!(requested(0), ["./other.js", "./plain.js"]);
+        let plain = sources
+            .modules
+            .iter()
+            .position(|module| module.key().as_str().ends_with("plain.js"))
+            .unwrap() as u32;
+        assert_eq!(requested(plain), ["./value.js"]);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_script_entry_is_not_in_the_module_map() {
+        let base = temp_base("script-self-import");
+        let root = base.join("root");
+        let text = "import('./entry.js');";
+        write_tree(&root, &[("entry.js", text)]);
+        let loader = loader_at(&root);
+        let lila_front::ParsedSource::Script(script) =
+            lila_front::parse(text, lila_front::ParseOptions::script()).unwrap()
+        else {
+            panic!("Script parse goal");
+        };
+        let locator = root.join("entry.js").to_string_lossy().into_owned();
+        let sources = load_module_graph_from_parsed_script(&locator, script, &loader).unwrap();
+        assert_eq!(sources.modules.len(), 2);
+        assert_eq!(sources.modules[0].goal(), ParseGoal::Script);
+        assert_eq!(sources.modules[1].goal(), ParseGoal::Module);
+        assert_eq!(sources.modules[0].key(), sources.modules[1].key());
+        // Both the Script's call and the Module copy's own call name the
+        // Module Record.
+        assert_eq!(
+            sources
+                .resolutions
+                .iter()
+                .map(|(referrer, _, target)| (*referrer, *target))
+                .collect::<Vec<_>>(),
+            [(0, 1), (1, 1)]
+        );
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

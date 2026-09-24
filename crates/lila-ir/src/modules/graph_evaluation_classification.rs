@@ -20,9 +20,10 @@ use super::record::ModuleUnitId;
 ///
 /// The entry always evaluates. So does every evaluation-phase `import()`
 /// target, because `import()` resolves with an *evaluated* namespace. So does
-/// every unit no request points at: a graph assembled by an embedder rather than
-/// by `load_module_graph` may hold units with no importer at all, and dropping
-/// their bodies would silently change what such a graph runs.
+/// every unit no request and no host resolution row points at: a graph
+/// assembled by an embedder rather than by `load_module_graph` may hold units
+/// with no importer at all, and dropping their bodies would silently change
+/// what such a graph runs.
 ///
 /// A dynamic request counts exactly as much as its static twin does, phase for
 /// phase: `import.defer('m')` defers `m` the way `import defer * as ns from
@@ -38,8 +39,8 @@ use super::record::ModuleUnitId;
 ///
 /// Outside that boundary, a deferred module's evaluation-phase dependencies
 /// remain eager because the merged-scope driver cannot share cells belonging
-/// to a deferred thunk. Script entries and source-phase graphs still retain
-/// that explicit implementation gap.
+/// to a deferred thunk. Source-phase graphs still retain that explicit
+/// implementation gap.
 pub(super) fn classify_evaluation_modes(
     graph: &mut ModuleGraphIr,
     components: &[DynamicComponentIr],
@@ -81,6 +82,14 @@ pub(super) fn classify_evaluation_modes(
         }
         targeted[target] = true;
         edges.push((referrer, component.request().phase(), target));
+    }
+    // A host resolution row is an importer too. A module the host loaded only
+    // to serve a computed `import()` has a row but, in the retained driver, no
+    // component: it must not become an eagerly evaluated root.
+    for target in graph.resolutions.values() {
+        if let Some(slot) = targeted.get_mut(*target as usize) {
+            *slot = true;
+        }
     }
 
     let mut eager = vec![false; count];

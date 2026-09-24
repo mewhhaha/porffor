@@ -113,6 +113,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
         "source_text",
         "meta_url",
         "module_requests",
+        "computed_import_phases",
         "goal",
     ] {
         assert_eq!(
@@ -121,7 +122,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
             "{method} must have one public owner"
         );
     }
-    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 9);
+    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 10);
     assert_eq!(OWNER_SOURCE.matches("#[doc(hidden)]").count(), 1);
     assert_eq!(
         OWNER_SOURCE.matches("scan_module_requests(source)").count(),
@@ -180,7 +181,9 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
             .count(),
         4
     );
-    assert_eq!(SYNCHRONOUS_SOURCE.matches("ModuleGraphSources").count(), 1);
+    // `linked_module_execution_source` and `CanonicalGraphEntry::of`, which
+    // reads a Script entry's strictness off its retained parse.
+    assert_eq!(SYNCHRONOUS_SOURCE.matches("ModuleGraphSources").count(), 2);
     // The public graph-lowering entry points live in `lowering/module_graph.rs`;
     // `lowering.rs` keeps only the one-node `ModuleGraphSources::single` path.
     assert_eq!(LOWERING_SOURCE.matches("ModuleGraphSources").count(), 1);
@@ -200,7 +203,8 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
         ENGINE_LOADER_SOURCE.matches("ModuleGraphSources").count(),
         6
     );
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 7);
+    // Includes `computed_import_gap`, the host's computed-specifier boundary.
+    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 8);
 
     assert_eq!(OWNER_SOURCE.matches("ModuleSourceIr").count(), 4);
     assert_eq!(GRAPH_SOURCE.matches("ModuleSourceIr").count(), 1);
