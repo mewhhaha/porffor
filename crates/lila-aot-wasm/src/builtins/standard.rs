@@ -7,7 +7,7 @@ use super::binary_data::{
 use super::date::DateLocaleFormat;
 use super::intl_datetimeformat::IntlDateTimeFormatPurpose;
 use super::intl_numberformat::NfFormatMode;
-use super::iterators::IteratorPrototypeWeirdSetter;
+use super::object::SetterIgnoringPrototypeProperties;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
 use super::temporal_instant::{InstantArithmetic, InstantDifference};
@@ -11443,8 +11443,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             StandardBuiltinId::IteratorPrototypeToStringTagSetter => {
-                self.emit_iterator_prototype_weird_setter(
-                    IteratorPrototypeWeirdSetter::ToStringTag,
+                self.emit_setter_ignoring_prototype_properties(
+                    SetterIgnoringPrototypeProperties::IteratorToStringTag,
                     function,
                 )?;
             }
@@ -17478,8 +17478,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
             StandardBuiltinId::IteratorPrototypeConstructorSetter => {
-                self.emit_iterator_prototype_weird_setter(
-                    IteratorPrototypeWeirdSetter::Constructor,
+                self.emit_setter_ignoring_prototype_properties(
+                    SetterIgnoringPrototypeProperties::IteratorConstructor,
                     function,
                 )?;
             }
@@ -30274,6 +30274,12 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::ErrorPrototypeToString => {
                 self.emit_error_prototype_to_string_builtin(function)?
+            }
+            StandardBuiltinId::ErrorPrototypeStackGetter => {
+                self.emit_error_prototype_stack_getter_builtin(function)?
+            }
+            StandardBuiltinId::ErrorPrototypeStackSetter => {
+                self.emit_error_prototype_stack_setter_builtin(function)?
             }
             StandardBuiltinId::BoundFunctionInvoker => {
                 self.emit_bound_function_invoker_builtin(function)?

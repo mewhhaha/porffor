@@ -219,13 +219,13 @@ fn error_builtin_is_the_exact_non_capability_dispatch_authority() {
     );
     assert_eq!(
         declaration,
-        "enumErrorBuiltin{IsError,Constructor(NativeErrorKind),PrototypeToString,}"
+        "enumErrorBuiltin{IsError,Constructor(NativeErrorKind),PrototypeToString,PrototypeStackGetter,PrototypeStackSetter,}"
     );
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "ErrorBuiltin"),
-        16
+        20
     );
     for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
         assert!(!ERROR_SOURCE.contains(&format!("impl {capability} for ErrorBuiltin")));
@@ -248,6 +248,8 @@ fn sole_error_emitter_consumes_every_dispatch_and_constructor_family() {
         "ErrorBuiltin::IsError=>{",
         "ErrorBuiltin::Constructor(error_kind)=>matcherror_kind{",
         "ErrorBuiltin::PrototypeToString=>{",
+        "ErrorBuiltin::PrototypeStackGetter=>{",
+        "ErrorBuiltin::PrototypeStackSetter=>{",
     ] {
         assert_eq!(consumer.matches(route).count(), 1, "route `{route}`");
     }
@@ -276,7 +278,7 @@ fn sole_error_emitter_consumes_every_dispatch_and_constructor_family() {
 }
 
 #[test]
-fn eleven_fixed_error_entries_own_every_raw_authority() {
+fn thirteen_fixed_error_entries_own_every_raw_authority() {
     let standard = rust_code(STANDARD_SOURCE, true);
     let dispatcher_mappings = [
         "StandardBuiltinId::ErrorConstructor=>self.emit_error_constructor_builtin(function)?,",
@@ -290,6 +292,8 @@ fn eleven_fixed_error_entries_own_every_raw_authority() {
         "StandardBuiltinId::URIErrorConstructor=>{self.emit_uri_error_constructor_builtin(function)?}",
         "StandardBuiltinId::ReferenceErrorConstructor=>{self.emit_reference_error_constructor_builtin(function)?}",
         "StandardBuiltinId::ErrorPrototypeToString=>{self.emit_error_prototype_to_string_builtin(function)?}",
+        "StandardBuiltinId::ErrorPrototypeStackGetter=>{self.emit_error_prototype_stack_getter_builtin(function)?}",
+        "StandardBuiltinId::ErrorPrototypeStackSetter=>{self.emit_error_prototype_stack_setter_builtin(function)?}",
     ];
     for mapping in dispatcher_mappings {
         assert_eq!(standard.matches(&mapping).count(), 1, "mapping `{mapping}`");
@@ -308,19 +312,20 @@ fn eleven_fixed_error_entries_own_every_raw_authority() {
     );
     assert_eq!(
         fixed_entries.matches("self.emit_error_builtin(").count(),
-        11
+        13
     );
     assert_eq!(
         fixed_entries.matches("ErrorBuiltin::Constructor(").count(),
         9
     );
     assert_eq!(fixed_entries.matches("ErrorBuiltin::IsError").count(), 1);
-    assert_eq!(
-        fixed_entries
-            .matches("ErrorBuiltin::PrototypeToString")
-            .count(),
-        1
-    );
+    for row in [
+        "ErrorBuiltin::PrototypeToString",
+        "ErrorBuiltin::PrototypeStackGetter",
+        "ErrorBuiltin::PrototypeStackSetter",
+    ] {
+        assert_eq!(fixed_entries.matches(row).count(), 1, "row `{row}`");
+    }
 }
 
 #[test]

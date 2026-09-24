@@ -4699,6 +4699,22 @@ Recent focused progress through `2026-09-01`:
   `built-ins/Error/prototype/toString/length.js`, and
   `built-ins/Error/prototype/toString/name.js` each report `1/1` passing as of
   `2026-06-15` under `--execution-backend wasm` with the `60000` ms timeout.
+- `Error.prototype.stack` (TC39 proposal-error-stack-accessor, Test262 feature
+  `error-stack-accessor`) is a real accessor on every Realm's
+  `%Error.prototype%` (`get stack`/`set stack`, non-enumerable, configurable);
+  Error instances and NativeError prototypes get no own `stack`. The getter
+  throws a TypeError for a non-Object receiver, returns undefined without
+  `[[ErrorData]]` (Proxies included), and otherwise returns the
+  implementation-defined trace string, which is the empty String because Lila
+  records no stack frames. The setter requires a String and is
+  `SetterThatIgnoresPrototypeProperties` with the setter Realm's
+  `%Error.prototype%` as home, sharing one emitter with the two
+  `%Iterator.prototype%` weird setters. Against the vendored Test262 `7ab7faf`,
+  `built-ins/Error` reports `186/186` (was `118/186`; the 35 new
+  `prototype/stack` files in both modes) and `built-ins/NativeErrors`
+  `188/188`, `built-ins/AggregateError` `50/50` and
+  `built-ins/SuppressedError` `44/44` are unchanged, as of `2026-09-24` with
+  `TZ=UTC LC_ALL=C.UTF-8 LILA_TEST262_FORCE_CASE_RUNNER=1 ./target/release/lila --jobs 1 test262 run built-ins/Error --execution-backend wasm-aot --suite-root test262/vendor/test262 --threads 3 --timeout-ms 60000`.
 - `built-ins/Error/prototype/no-error-data.js`,
   `built-ins/Error/prototype/S15.11.3.1_A1_T1.js`,
   `built-ins/Error/prototype/S15.11.3.1_A2_T1.js`,

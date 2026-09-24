@@ -512,6 +512,8 @@ mod realm_function_materialization_tests {
         let host = include_str!("builtins/host.rs");
         let created_realm_iterator_next =
             include_str!("builtins/host/created_realm_iterator_next.rs");
+        let created_realm_error_stack_accessor =
+            include_str!("builtins/host/created_realm_error_stack_accessor.rs");
         let uint8_array_codecs = include_str!("builtins/uint8array_codecs.rs");
         let throw_type_error = include_str!("functions/throw_type_error.rs");
         let objects = include_str!("objects.rs");
@@ -587,10 +589,19 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            ("builtins/host.rs", host, 89, "&realm_functions"),
+            // 88 since the created-realm Proxy constructor moved to
+            // `emit_realm_proxy_constructor_value_payload`, which supplies
+            // its bootstrap prototype through the context-taking variant.
+            ("builtins/host.rs", host, 88, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",
                 created_realm_iterator_next,
+                1,
+                "realm_functions",
+            ),
+            (
+                "builtins/host/created_realm_error_stack_accessor.rs",
+                created_realm_error_stack_accessor,
                 1,
                 "realm_functions",
             ),

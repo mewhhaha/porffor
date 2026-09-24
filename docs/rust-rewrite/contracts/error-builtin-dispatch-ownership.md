@@ -6,21 +6,23 @@ structural verification, 2026-08-27.
 ## Scope
 
 This contract owns the Wasm-AOT dispatch boundary for `Error.isError`, the nine
-Error-family constructors, and `Error.prototype.toString`. It does not own the
-algorithms inside those branches, Error prototype selection, native-error
-metadata, or intrinsic publication.
+Error-family constructors, `Error.prototype.toString`, and the two functions of
+the `Error.prototype.stack` accessor (proposal-error-stack-accessor). It does
+not own the algorithms inside those branches, Error prototype selection,
+native-error metadata, or intrinsic publication.
 
 ## Rust invariant
 
-The private, non-derived `ErrorBuiltin` domain is created only by eleven fixed
+The private, non-derived `ErrorBuiltin` domain is created only by thirteen fixed
 entries inside `builtins/errors.rs` and consumed by the sole raw error-family
 emitter. Standard dispatch cannot import, construct or pass it. The authority
 has no clone, copy, debug, equality, default, wildcard or Boolean projection. A
 caller cannot transfer the same dispatch authority twice, and a future row
 cannot inherit an existing branch through equality plus a default.
 
-The domain has three rows: `IsError`, `Constructor(NativeErrorKind)`, and
-`PrototypeToString`. There are nine exact constructor producers. The standard
+The domain has five rows: `IsError`, `Constructor(NativeErrorKind)`,
+`PrototypeToString`, `PrototypeStackGetter` and `PrototypeStackSetter`. There
+are nine exact constructor producers. The standard
 dispatcher also has one exact producer for each non-constructor row. The
 consumer's outer match is exhaustive. Its constructor arm immediately exhausts
 all nine `NativeErrorKind` rows, retaining the existing distinct AggregateError
@@ -36,8 +38,8 @@ operation.
 
 The Rust-lexical structure guard ignores comments and every normal, raw, byte,
 C-string, character and raw-identifier form. It pins the exact declaration,
-the 16-mention recursive source census, the sole two-level exhaustive consumer,
-all eleven fixed entries and their exact standard calls. The focused target
+the 20-mention recursive source census, the sole two-level exhaustive consumer,
+all thirteen fixed entries and their exact standard calls. The focused target
 passes `4/4`.
 
 This is a source-equivalent ownership closure. Runtime witnesses remain owned
@@ -60,3 +62,11 @@ ownership structure target passes `4/4`, and the exact constructor-properties,
 cross-realm `Error.isError` and `Error.prototype.toString` CLI controls pass
 `3/3`. No Batch AQ Test262, semantic-golden or published conformance-count
 result is claimed.
+
+The 2026-09-24 `Error.prototype.stack` accessor adds the `PrototypeStackGetter`
+and `PrototypeStackSetter` rows, each with one fixed entry and one exact
+standard dispatch mapping. The getter body is `errors/prototype_stack.rs`; the
+setter row forwards to the shared `SetterThatIgnoresPrototypeProperties`
+emitter (`builtins/object/setter_ignoring_prototype_properties.rs`) with the
+`ErrorStack` home. The historical Batch AQ hashes above describe the
+eleven-entry source and are not re-pinned.

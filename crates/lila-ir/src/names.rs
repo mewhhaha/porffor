@@ -1622,6 +1622,10 @@ pub const BUILTIN_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.TypeError";
 pub const BUILTIN_URI_ERROR_FUNCTION_ID: &str = "$builtin.URIError";
 pub const BUILTIN_REFERENCE_ERROR_FUNCTION_ID: &str = "$builtin.ReferenceError";
 pub const BUILTIN_ERROR_PROTOTYPE_TO_STRING_FUNCTION_ID: &str = "$builtin.Error.prototype.toString";
+pub const BUILTIN_ERROR_PROTOTYPE_STACK_GETTER_FUNCTION_ID: &str =
+    "$builtin.Error.prototype.stack.get";
+pub const BUILTIN_ERROR_PROTOTYPE_STACK_SETTER_FUNCTION_ID: &str =
+    "$builtin.Error.prototype.stack.set";
 pub const BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID: &str = "$builtin.%ThrowTypeError%";
 pub const BUILTIN_BOUND_FUNCTION_INVOKER_FUNCTION_ID: &str = "$builtin.[[BoundFunctionInvoke]]";
 pub const BUILTIN_ESCAPE_FUNCTION_ID: &str = "$builtin.escape";

@@ -4,6 +4,7 @@ use super::*;
 /// Each variant names both the entry-Realm global and the Realm intrinsic
 /// slot, so a new prototype cannot pair one with another's slot.
 pub(crate) enum ActiveBuiltinRealmPrototype {
+    Error,
     TypeError,
     SuppressedError,
 }
@@ -11,6 +12,7 @@ pub(crate) enum ActiveBuiltinRealmPrototype {
 impl ActiveBuiltinRealmPrototype {
     const fn entry_global(&self) -> u32 {
         match self {
+            Self::Error => ERROR_PROTOTYPE_GLOBAL_INDEX,
             Self::TypeError => TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
             Self::SuppressedError => SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
         }
@@ -18,6 +20,7 @@ impl ActiveBuiltinRealmPrototype {
 
     const fn realm_intrinsic_offset(&self) -> u64 {
         match self {
+            Self::Error => HEAP_REALM_INTRINSICS_ERROR_PROTOTYPE_OFFSET,
             Self::TypeError => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
             Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
         }

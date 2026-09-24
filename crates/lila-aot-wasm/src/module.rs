@@ -1389,6 +1389,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::DataViewPrototypeGetBigUint64
         | StandardBuiltinId::DataViewPrototypeSetBigUint64
         | StandardBuiltinId::ErrorPrototypeToString
+        | StandardBuiltinId::ErrorPrototypeStackGetter
+        | StandardBuiltinId::ErrorPrototypeStackSetter
         | StandardBuiltinId::ThrowTypeError
         | StandardBuiltinId::BoundFunctionInvoker
         | StandardBuiltinId::JsonParse

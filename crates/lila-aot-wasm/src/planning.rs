@@ -2662,6 +2662,7 @@ impl RuntimeBootstrapPlan {
             builtin,
             StandardBuiltinId::IteratorPrototypeConstructorSetter
                 | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+                | StandardBuiltinId::ErrorPrototypeStackSetter
         ) {
             // SetterThatIgnoresPrototypeProperties performs
             // [[GetOwnProperty]] through the descriptor builtin and
@@ -7697,6 +7698,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeMaximize
         | StandardBuiltinId::IntlLocalePrototypeMinimize => 0,
         StandardBuiltinId::ErrorIsError => 1,
+        StandardBuiltinId::ErrorPrototypeStackGetter => 0,
+        StandardBuiltinId::ErrorPrototypeStackSetter => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
         StandardBuiltinId::AggregateErrorConstructor => 2,
         StandardBuiltinId::ErrorConstructor

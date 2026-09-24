@@ -1078,8 +1078,9 @@ check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
 # likely-subtag entries, legacy accessor definers and six Instant methods
 # (including toLocaleString): 2,273 raw lines.
+# +8 for the two Error.prototype.stack accessor result rows: 2,281 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2273
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2281
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -3455,7 +3456,7 @@ if grep -Eq 'ErrorBuiltin|NativeErrorKind|self\.emit_error_builtin\(' "$wasm_sta
   fail "$wasm_standard_builtins must use fixed Error-family operations instead of the raw policy"
 fi
 require_fixed_string_count "$wasm_error_builtins" 'fn emit_error_builtin(' 1 'private Error-family compiler'
-require_fixed_string_count "$wasm_error_builtins" 'self.emit_error_builtin(' 11 'fixed Error-family entry calls'
+require_fixed_string_count "$wasm_error_builtins" 'self.emit_error_builtin(' 13 'fixed Error-family entry calls'
 for error_wrapper in \
   emit_error_constructor_builtin \
   emit_error_is_error_builtin \
@@ -3467,7 +3468,9 @@ for error_wrapper in \
   emit_type_error_constructor_builtin \
   emit_uri_error_constructor_builtin \
   emit_reference_error_constructor_builtin \
-  emit_error_prototype_to_string_builtin
+  emit_error_prototype_to_string_builtin \
+  emit_error_prototype_stack_getter_builtin \
+  emit_error_prototype_stack_setter_builtin
 do
   require_fixed_string_count "$wasm_error_builtins" "pub(super) fn ${error_wrapper}(" 1 "fixed Error-family entry $error_wrapper"
   require_fixed_string_count "$wasm_standard_builtins" "self.${error_wrapper}(function)?" 1 "standard call to fixed Error-family entry $error_wrapper"

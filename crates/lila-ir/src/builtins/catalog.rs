@@ -5799,6 +5799,24 @@ standard_builtin_catalog! {
         installer: None,
         native: "toString",
     }
+    // Error.prototype.stack accessor (TC39 proposal-error-stack-accessor).
+    // The getter reads only the receiver's [[ErrorData]] brand; the setter is
+    // SetterThatIgnoresPrototypeProperties, whose [[GetOwnProperty]],
+    // [[DefineOwnProperty]] and [[Set]] can reach Proxy traps and accessors.
+    ErrorPrototypeStackGetter {
+        function: FunctionOrdinal(842) => BUILTIN_ERROR_PROTOTYPE_STACK_GETTER_FUNCTION_ID,
+        debug: "get Error.prototype.stack",
+        flags: [],
+        installer: None,
+        native: "get stack",
+    }
+    ErrorPrototypeStackSetter {
+        function: FunctionOrdinal(843) => BUILTIN_ERROR_PROTOTYPE_STACK_SETTER_FUNCTION_ID,
+        debug: "set Error.prototype.stack",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "set stack",
+    }
     ThrowTypeError {
         function: FunctionOrdinal(771) => BUILTIN_THROW_TYPE_ERROR_FUNCTION_ID,
         debug: "%ThrowTypeError%",

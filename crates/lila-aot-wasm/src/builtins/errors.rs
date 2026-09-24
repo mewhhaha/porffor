@@ -1,4 +1,5 @@
 use super::super::*;
+use super::object::SetterIgnoringPrototypeProperties;
 use super::standard::ActiveStandardBuiltinFunction;
 use crate::functions::{
     ErrorMessageConstructorKind, FunctionRealmRevokedRoute, NewTargetPrototypeFallback,
@@ -10,6 +11,7 @@ pub(crate) use runtime_error::ActiveBuiltinRealmPrototype;
 mod aggregate_error_preparation;
 mod constructor;
 mod promise_any;
+mod prototype_stack;
 mod prototype_to_string;
 mod runtime_error;
 
@@ -17,6 +19,8 @@ enum ErrorBuiltin {
     IsError,
     Constructor(NativeErrorKind),
     PrototypeToString,
+    PrototypeStackGetter,
+    PrototypeStackSetter,
 }
 
 fn native_error_kind(name: &str) -> Result<NativeErrorKind, EmitError> {
@@ -238,6 +242,15 @@ impl<'a> FunctionBuilder<'a> {
             ErrorBuiltin::PrototypeToString => {
                 self.emit_error_prototype_to_string(function)?;
             }
+            ErrorBuiltin::PrototypeStackGetter => {
+                self.emit_error_prototype_stack_getter(function)?;
+            }
+            ErrorBuiltin::PrototypeStackSetter => {
+                self.emit_setter_ignoring_prototype_properties(
+                    SetterIgnoringPrototypeProperties::ErrorStack,
+                    function,
+                )?;
+            }
         }
         Ok(())
     }
@@ -341,6 +354,20 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_error_builtin(ErrorBuiltin::PrototypeToString, function)
+    }
+
+    pub(super) fn emit_error_prototype_stack_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(ErrorBuiltin::PrototypeStackGetter, function)
+    }
+
+    pub(super) fn emit_error_prototype_stack_setter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_error_builtin(ErrorBuiltin::PrototypeStackSetter, function)
     }
 
     fn emit_install_error_cause_from_arg(

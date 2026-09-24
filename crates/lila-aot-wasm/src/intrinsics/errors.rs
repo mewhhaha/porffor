@@ -46,6 +46,13 @@ impl<'a> FunctionBuilder<'a> {
             to_string_meta,
             function,
         )?;
+        self.install_error_prototype_stack_accessor(
+            prototype_object_local,
+            key_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
         let is_error_meta = self
             .functions
             .get(&StandardBuiltinId::ErrorIsError.function_id())
@@ -57,6 +64,62 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_define_function_data(object_local, "isError", is_error_meta, function)?;
         self.release_temp_local(prototype_object_local);
 
+        Ok(())
+    }
+
+    /// `Error.prototype.stack` (proposal-error-stack-accessor): an accessor
+    /// with both functions, `{ [[Enumerable]]: false, [[Configurable]]: true }`.
+    /// Both functions keep the entry realm's zero environment; the setter
+    /// derives its `%Error.prototype%` home object from it.
+    fn install_error_prototype_stack_accessor(
+        &mut self,
+        prototype_object_local: u32,
+        key_local: u32,
+        getter_payload_local: u32,
+        getter_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let [getter_meta, setter_meta] = [
+            StandardBuiltinId::ErrorPrototypeStackGetter,
+            StandardBuiltinId::ErrorPrototypeStackSetter,
+        ]
+        .map(|builtin| {
+            self.functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })
+        });
+        let (getter_meta, setter_meta) = (getter_meta?, setter_meta?);
+        let setter_payload_local = self.reserve_temp_local();
+        let setter_tag_local = self.reserve_temp_local();
+
+        function.instruction(&Instruction::I64Const(self.strings.payload("stack")));
+        function.instruction(&Instruction::LocalSet(key_local));
+        self.emit_function_value_payload(&getter_meta, function)?;
+        function.instruction(&Instruction::LocalSet(getter_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(getter_tag_local));
+        self.emit_function_value_payload(&setter_meta, function)?;
+        function.instruction(&Instruction::LocalSet(setter_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(setter_tag_local));
+        self.emit_object_append_accessor_property_with_flags(
+            prototype_object_local,
+            key_local,
+            Some((getter_payload_local, getter_tag_local)),
+            Some((setter_payload_local, setter_tag_local)),
+            false,
+            true,
+            function,
+        )?;
+
+        self.release_temp_local(setter_tag_local);
+        self.release_temp_local(setter_payload_local);
         Ok(())
     }
 }

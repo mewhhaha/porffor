@@ -1610,6 +1610,14 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::ReferenceErrorConstructor => {
                 Some(self.standard_error_instance_info(builtin))
             }
+            StandardBuiltinId::ErrorPrototypeStackGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            }),
+            StandardBuiltinId::ErrorPrototypeStackSetter => Some(ValueInfo::undefined()),
             StandardBuiltinId::FunctionPrototypeToString
             | StandardBuiltinId::ErrorPrototypeToString
             | StandardBuiltinId::StringPrototypeAnchor

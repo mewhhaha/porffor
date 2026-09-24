@@ -20,6 +20,7 @@ mod assert_throws;
 mod created_realm_async_disposable_stack_intrinsics;
 mod created_realm_disposable_stack_intrinsics;
 mod created_realm_dynamic_function_intrinsics;
+mod created_realm_error_stack_accessor;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_intl_intrinsics;
 mod created_realm_iterator_next;
@@ -4682,6 +4683,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.release_temp_local(error_to_string_payload_local);
+        self.emit_install_created_realm_error_stack_accessor(
+            &realm_functions,
+            error_prototype_local,
+            type_error_prototype_local,
+            function,
+        )?;
         for (name, meta) in &map_prototype_method_metas {
             let method_payload_local = self.reserve_temp_local();
             self.emit_function_value_payload_in_realm(

@@ -363,6 +363,11 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
             "self.emit_create_data_property_descriptor_carrier(",
             2,
         ),
+        (
+            "builtins/object/setter_ignoring_prototype_properties.rs",
+            "self.emit_create_data_property_descriptor_carrier(",
+            1,
+        ),
         ("objects.rs", "self.emit_from_property_descriptor(", 2),
         (
             "builtins/reflect/descriptor_object_prototype.rs",

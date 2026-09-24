@@ -21,6 +21,9 @@ mod object_to_locale_string_invoke;
 mod own_descriptor_predicate;
 mod prototype_definition;
 mod prototype_lookup;
+mod setter_ignoring_prototype_properties;
+
+pub(crate) use setter_ignoring_prototype_properties::SetterIgnoringPrototypeProperties;
 
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn compile_object_constructor_builtin(

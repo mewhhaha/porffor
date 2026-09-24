@@ -12795,10 +12795,12 @@ impl<'a> ScriptLowerer<'a> {
 
     // `is_error_prototype_expr` and `is_error_constructor_expr` used to sit
     // here. The latter's only caller rejected `Error.stack` (and every native
-    // error constructor's `.stack`) as an unsupported compiler slice. ECMA-262
-    // defines no `stack` property on those constructors or their prototypes, so
-    // the read is an ordinary [[Get]] that yields undefined unless the program
-    // defined the property itself; it now lowers like any other property read.
+    // error constructor's `.stack`) as an unsupported compiler slice. No
+    // constructor has a `stack` property, so that read is an ordinary [[Get]]
+    // that yields undefined unless the program defined the property itself.
+    // The only builtin `stack` is the proposal-error-stack-accessor accessor on
+    // `%Error.prototype%`, which the prototype shape catalogues like any other
+    // builtin accessor; every `.stack` read lowers as an ordinary property read.
 
     fn property_access_field_is_proven_numeric(&self, field: &PropertyAccessField) -> bool {
         let PropertyAccessField::Expr(expr) = field else {

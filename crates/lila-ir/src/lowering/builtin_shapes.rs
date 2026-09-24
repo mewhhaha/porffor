@@ -3014,6 +3014,20 @@ impl<'a> ScriptLowerer<'a> {
                     false,
                 )),
             );
+            // proposal-error-stack-accessor: only `%Error.prototype%` owns the
+            // `stack` accessor; Error instances and NativeError prototypes
+            // reach it through the prototype chain.
+            properties.insert(
+                "stack".to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: StandardBuiltinId::ErrorPrototypeStackGetter.function_id(),
+                    }),
+                    setter: Some(ObjectAccessorShape {
+                        function_id: StandardBuiltinId::ErrorPrototypeStackSetter.function_id(),
+                    }),
+                },
+            );
         }
         Box::new(HeapShape::Object(ObjectShape {
             prototype,
@@ -7599,6 +7613,20 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ErrorPrototypeToString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // A String for a receiver with [[ErrorData]], otherwise undefined.
+            StandardBuiltinId::ErrorPrototypeStackGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ErrorPrototypeStackSetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),
