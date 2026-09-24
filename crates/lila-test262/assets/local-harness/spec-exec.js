@@ -3,6 +3,7 @@
 
 /// sta.js
 function Test262Error(message) {
+  if (!(this instanceof Test262Error)) return new Test262Error(message);
   this.message = message || '';
   this.name = 'Test262Error';
 }

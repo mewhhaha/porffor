@@ -2594,18 +2594,47 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 const WASM_AOT_TYPED_ARRAY_INTRINSIC_PRELUDE: &str =
     "\nvar TypedArray = Object.getPrototypeOf(Int8Array);\n";
 
-const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
+// Identities of the harness files vendored at Test262 7ab7faf (contents plus
+// the trailing newline `load_preludes` appends). Product prelude contracts gate
+// on the fingerprints; the `cfg(test)` values pin the materialization censuses.
+// A harness refresh updates them here, once.
+const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x34b9_2946_b531_1336;
 
 #[cfg(test)]
-const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x59f3_3074_36d5_4a9a;
+const TEST_TYPED_ARRAY_PRELUDE_BYTES: usize = 16_527;
+
+/// Identity of `wasm_aot_split_test_typed_array_dispatcher` output for the
+/// pinned `testTypedArray.js`: the verbatim factory prefix (including the
+/// immutable-buffer factory), the split dispatcher, and the verbatim
+/// constructor-selection helpers, without the unused tail.
+#[cfg(test)]
+const SPLIT_TEST_TYPED_ARRAY_PRELUDE_BYTES: usize = 13_039;
 
 #[cfg(test)]
-const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+const SPLIT_TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0xdc1b_b836_4b05_703f;
+
+#[cfg(test)]
+const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x97bb_d214_0c48_a37e;
+
+#[cfg(test)]
+const PROPERTY_HELPER_PRELUDE_BYTES: usize = 18_957;
+
+#[cfg(test)]
+const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
+
+#[cfg(test)]
+const ASSERT_PRELUDE_BYTES: usize = 4_882;
+
+#[cfg(test)]
+const STA_PRELUDE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+
+#[cfg(test)]
+const STA_PRELUDE_BYTES: usize = 793;
 
 #[cfg(test)]
 const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = PROPERTY_HELPER_PRELUDE_FNV1A;
 
-const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x5bb6_1296_deec_6e91;
+const COMPARE_ARRAY_PRELUDE_FNV1A: u64 = 0x82ae_6418_a909_cf57;
 
 const DETACH_ARRAY_BUFFER_PRELUDE_FNV1A: u64 = 0xb288_4dc7_609b_1d2a;
 
@@ -2631,262 +2660,262 @@ struct TypedArrayLiteralHelperPlan {
 // source bytes for every physical pinned test in the nine literal TypedArray
 // families below. A changed path, include list, or body cannot inherit a helper
 // mode.
-const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 319] = [
+const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 320] = [
     0x01a7_64cf_4431_856f,
+    0x01df_fa29_c5df_67c4,
     0x03ed_1fe1_9322_e60f,
-    0x0528_54ec_d0d7_b865,
-    0x0566_53df_b470_2f25,
+    0x0548_054b_a5e2_7f4a,
+    0x0578_7164_4825_b9d1,
     0x06bb_2052_171d_b57e,
-    0x06f7_d8de_6d56_c6d8,
-    0x08c4_4373_c0f1_376c,
     0x09ae_b250_7c00_31c1,
-    0x0bae_cc66_e629_4d1a,
+    0x0b20_4bc4_10e0_ca8d,
+    0x0b4a_b69a_bb01_c120,
     0x0bbe_0ada_1e3c_d208,
-    0x0cbf_63fa_f2be_4886,
+    0x0db5_dd3c_635e_50c0,
+    0x0ee2_75d4_5120_9099,
     0x0f01_3967_027d_b912,
     0x0f7a_e9dd_9d25_b29a,
-    0x0fc1_1025_6aa5_4ffb,
+    0x0f93_ecd1_3bcb_55f2,
     0x101f_1cfb_dd91_c6c5,
-    0x103b_306c_5822_638d,
     0x11ce_b503_c297_bd3c,
     0x121b_52ba_7da7_79df,
-    0x1280_5e4a_37b7_5016,
-    0x1394_acd3_5806_ba60,
+    0x1363_c238_d8f8_0de9,
     0x1425_50f6_10cd_f0f1,
-    0x1750_644c_5732_f525,
+    0x173d_fa7c_6954_0e8e,
     0x1813_f8dc_c6cf_7a00,
     0x1902_7cb4_df30_1554,
     0x196e_6dc1_176d_ad53,
     0x1a04_f74b_9709_2bbc,
     0x1a3c_9f5c_cb77_8ddb,
+    0x1ac6_98f8_7e00_baf4,
     0x1c54_5006_867d_c549,
     0x1d3d_3cb3_edf0_3095,
+    0x1d99_88bc_3a94_03c2,
     0x1dd3_4adf_f991_f021,
     0x1efb_91c6_c681_736b,
     0x1f02_da51_591a_43c0,
     0x2010_327d_504f_7321,
+    0x20cb_3abd_af37_79b2,
     0x20d8_807b_c056_d258,
+    0x21c3_ef38_8518_2091,
     0x2224_ed08_af52_547c,
+    0x2227_073b_1b7f_3594,
     0x22a8_2517_5714_d488,
     0x2652_75ab_2503_ed2b,
-    0x2672_fd70_6100_5ff4,
-    0x26e8_6a5f_ed72_cbbf,
-    0x274a_5dfd_2f89_bc81,
     0x2758_8193_3d7e_19e7,
-    0x2778_6bda_5c65_61ca,
-    0x28a3_4939_81d6_78aa,
+    0x277c_499b_0d05_da22,
+    0x294b_95fe_b7a0_f330,
     0x297e_e9ca_9f16_31ee,
-    0x29ba_adde_c822_9fd6,
     0x2a09_35cf_ee7a_e07d,
     0x2a32_d328_9dcc_937d,
-    0x2ae6_7cc4_d326_093e,
     0x2af0_8db8_c748_f20f,
-    0x2c88_7021_6627_cdaa,
-    0x2cb8_c511_f80a_1382,
+    0x2af4_e4d7_0930_6ec9,
+    0x2b04_f3ce_30f0_cd9f,
+    0x2b9a_2e3c_c2d9_1fa4,
+    0x2cc9_ef31_9fb9_6b2a,
+    0x2d13_2cb4_1e20_f7be,
     0x2dc7_0af6_a790_8649,
     0x2e7a_6cb3_3c09_672e,
     0x334c_7b75_8e7d_a223,
-    0x33e7_3ce1_70fb_bbab,
-    0x33fa_37d8_4703_c72a,
-    0x3404_7802_0bb9_9cb3,
-    0x349a_8e31_be6f_2f82,
     0x3609_6e09_58bb_c2ee,
     0x37af_b8c0_f4e7_3197,
     0x3bc7_6e5d_67c5_df2c,
     0x3bf8_d004_294d_d2b5,
-    0x3c0a_fd54_8ffb_4be4,
     0x3c7a_423e_6634_9bb8,
+    0x3cb0_6cc5_ed37_ec81,
     0x3e0b_48a0_a1bd_e85f,
-    0x3e64_c489_131e_5495,
     0x3f2b_c1e8_7195_c7e4,
     0x3f55_07eb_4b44_f497,
     0x3fde_d03a_1de4_07bb,
     0x4037_7a2e_90c2_c73e,
     0x4144_364c_7c11_ce9f,
     0x428f_e642_8c05_f419,
+    0x42fc_579c_3edf_afc9,
     0x4380_ffab_d4dc_a132,
     0x4434_6d94_d403_baca,
     0x4446_f303_bfe3_8869,
-    0x4490_ba2d_e626_1f58,
     0x44b6_3992_9102_238a,
     0x4575_c78e_11b1_6346,
+    0x45f6_b6a2_bd37_5f0e,
     0x4757_3dbc_dbc0_d0da,
     0x4768_9e18_1bc8_72f6,
+    0x47e2_7b06_a4c6_ccdc,
     0x48fc_2d14_a8a7_7fec,
     0x4917_ea6e_3724_3624,
     0x49b0_a828_f022_b2f3,
     0x4aee_571f_5229_3eca,
     0x4ba1_e7f0_f8fc_8396,
-    0x4bfd_8a3f_283e_4c2f,
+    0x4cb2_06da_0423_46d8,
+    0x4cf7_a2e1_75f1_ada2,
+    0x4d16_2a85_f661_3df6,
+    0x4d88_8256_3294_b93a,
     0x4d9e_ef73_3e67_beb8,
-    0x4e12_9bd2_03d7_6964,
     0x4f3c_a469_0910_1445,
     0x4f42_d71d_54f7_f779,
     0x502a_f088_a131_a0dd,
     0x5079_f663_ddf0_f52e,
-    0x50aa_352b_7298_ae4d,
-    0x50cc_ca58_009b_e22b,
+    0x508b_478a_3939_a925,
+    0x516e_92f5_15a0_1655,
     0x52e7_24b9_24d9_593b,
-    0x5411_92c4_c057_4773,
+    0x54ca_6cff_a176_a08e,
     0x5517_904f_0072_314e,
     0x554d_f51f_9a8a_7386,
     0x560f_13a5_7178_3a49,
-    0x5638_b06e_f116_7ca2,
+    0x5624_99e2_a9e4_1e5a,
+    0x5664_eab6_af51_cfe3,
     0x5724_ec6d_b314_90d1,
     0x57d4_db1c_21d2_73d7,
     0x58e0_5c32_22d7_9b50,
-    0x5986_93ab_25ab_f6f6,
-    0x5a65_f961_1606_8eea,
     0x5bd4_875b_1eb3_b31c,
+    0x5c4a_141e_f72f_a00a,
     0x5c82_aae0_23c9_bce9,
     0x5d12_7a8b_520c_fc23,
-    0x5f23_e122_1ab5_70d0,
+    0x5e8e_9530_45d8_3dc6,
+    0x5ea9_6ce6_4db3_bdd4,
+    0x5ecd_65d1_df86_d7e8,
+    0x5f05_541a_3c0e_ae32,
+    0x6166_ab0a_f224_f1e6,
     0x6200_980c_04e2_550d,
     0x6247_9ec3_38b1_39d6,
     0x62f0_64ed_b094_fa84,
-    0x645b_5a1e_15e5_79d6,
-    0x648e_1933_49f3_5a06,
-    0x64a3_bde2_3bfd_d74e,
-    0x64e6_3c53_e866_f360,
-    0x66c5_d1bf_5f07_d2d7,
+    0x6364_2d75_fff0_8bd4,
+    0x65dd_9602_d40e_554b,
     0x670e_09c7_2757_5c22,
     0x68eb_723c_a2c0_8f2d,
     0x6ad4_02be_d6ed_8599,
-    0x6afe_153c_9215_58f8,
     0x6b3d_93c5_484c_7591,
-    0x6ba7_02a4_95bc_340a,
-    0x6c09_733a_66d6_3ac8,
-    0x6cdd_2b45_ffe3_8b69,
-    0x6e19_5a68_aadc_1872,
-    0x6e2f_e910_73dd_86c7,
-    0x6f86_8e1a_dcc0_cc8a,
     0x700f_0169_7ae0_4165,
-    0x7098_66b6_5cce_f239,
+    0x7079_57eb_bf48_6c30,
     0x70d2_885d_0fb9_4d04,
     0x717b_2cea_4da2_8785,
-    0x71f8_abab_a649_88ac,
     0x741a_f350_ba75_d78d,
     0x7464_0a6f_e3b8_063d,
     0x748d_9b05_65fa_3d37,
     0x7507_26ff_6f4d_7e3a,
     0x7511_49cf_fdf7_79d0,
-    0x7556_bd2c_00ac_dae2,
     0x7571_b317_3f74_e1b8,
     0x75af_ecc5_014a_b385,
     0x764b_7936_3608_d646,
     0x7677_3622_07ce_e93d,
-    0x76dd_7fee_8d30_8c10,
     0x7772_51f6_1990_ad1c,
+    0x79d6_ab93_8ff1_2d74,
     0x79e0_0393_a5df_c6b4,
-    0x7c47_e187_d549_8baa,
+    0x7ae5_ea38_0f42_694c,
+    0x7b25_bcba_863d_662c,
+    0x7b7f_c1aa_3dcd_189b,
+    0x7c85_7348_9f2c_fa5e,
     0x7ca8_2636_f292_c339,
+    0x7d14_6a3f_a3a6_12bd,
     0x7d77_a94a_277b_4220,
     0x7e3b_50fa_ed2d_3273,
-    0x7f69_c778_d564_1ca8,
-    0x7f76_e24b_f42e_b658,
-    0x801a_9c9b_8509_9a16,
-    0x81c1_f9a3_a881_202e,
-    0x82cb_d374_23f9_fdae,
+    0x80b2_7ade_48f7_1437,
     0x835b_392a_36a8_75b7,
     0x83c3_9534_6701_e600,
-    0x84c4_34d4_c80f_9389,
     0x84f3_6286_ffde_fcae,
     0x85bd_ddde_1a93_5d93,
     0x85d2_bfdd_9f06_f897,
-    0x86b5_46bf_41d3_823f,
+    0x8680_4faf_4c3d_1d53,
+    0x87d7_6600_a755_d901,
     0x881c_f07f_7d68_7256,
+    0x88f7_2a0d_8081_586b,
     0x8964_00ea_95b2_de49,
     0x8985_79d2_87c0_3dcc,
+    0x8b25_66b8_1a59_5041,
     0x8c6b_4b61_28ad_b651,
     0x8c86_8f16_034e_7368,
-    0x8df2_5bbc_4b92_22db,
     0x8e33_6085_b573_276a,
-    0x8e78_ec0d_0d35_af78,
-    0x8eb6_a33c_8295_10ff,
-    0x9073_cd35_9a26_c8f7,
     0x90f6_48d6_e4de_f799,
     0x9125_79bd_1cea_f52c,
+    0x9297_8731_780e_c42f,
+    0x92e1_f14d_74e4_4785,
     0x931e_a0b0_c30f_7c51,
+    0x937c_06fa_825f_ac7f,
+    0x940b_840e_60a4_ee58,
     0x9438_0ce0_aee6_3071,
-    0x94ee_82dd_a4f3_e3b5,
-    0x95ab_a5c5_3b7d_38a9,
     0x95d2_c2ad_3aa2_4a22,
     0x97bd_e9df_1403_46c4,
     0x9887_bc4d_c0ee_a5df,
-    0x98ec_177a_be64_3d58,
     0x98f8_143d_f4cd_5b8e,
     0x9a1c_63dc_4f1d_badb,
     0x9a7a_cc95_d955_601d,
-    0x9a96_ad57_25c0_92e5,
     0x9acb_da0f_bca3_db7c,
     0x9d39_d865_fa8b_0104,
-    0x9d5d_7b51_cc7a_66f2,
+    0x9d3d_36fc_d67b_cb71,
     0x9d8d_dd1f_1e9a_b410,
     0x9dd2_f792_6e62_fc69,
     0x9e95_4319_6998_7758,
-    0x9eb7_5be6_e0d0_3684,
     0x9ef9_f0ae_5faa_0c08,
-    0xa13c_713c_a26c_3094,
+    0xa18f_5a54_d14b_7260,
+    0xa1a7_ab79_8724_d97d,
     0xa21c_0bc4_3c18_d474,
     0xa30b_515d_7f3e_3493,
-    0xa452_dae0_3f83_898a,
+    0xa373_5fe5_c90b_4672,
+    0xa3d4_b2ed_78ef_4448,
     0xa4bf_a4d2_9644_5303,
-    0xa4e0_46ab_f952_72b6,
-    0xa5dc_b56a_0e49_d774,
-    0xa5f2_d9b7_5104_ffb0,
+    0xa5aa_efac_dbdd_8d36,
     0xa657_97d6_837a_d662,
+    0xa72c_1a46_5e25_dc4e,
+    0xa750_4e27_2d35_4a3e,
     0xa82e_2974_8a0d_87fa,
     0xa9b6_6aae_8172_2295,
     0xa9b6_ca0d_fc19_4c57,
-    0xac30_51bb_7940_c542,
+    0xaa50_66bf_7655_6495,
+    0xacad_d6d0_44e1_b7c2,
+    0xad11_f88b_9aba_f62c,
     0xad32_4e25_a4d9_5e3a,
     0xad40_becd_7ceb_5c5f,
     0xad5e_5d06_4a05_8a11,
-    0xad6f_718d_7264_8168,
     0xae1a_3b9f_74b7_aad6,
-    0xae3e_8fb8_846f_768b,
     0xaed4_8beb_e984_7dd3,
-    0xaf19_37f7_1185_1dfc,
     0xaf8f_ac53_b257_52ec,
     0xafe7_4068_6d3e_043a,
     0xb01d_e639_9b8e_d865,
+    0xb0e9_75e4_f9e7_dc64,
     0xb12c_85af_bf81_6cb7,
     0xb163_4285_b329_6572,
-    0xb382_03aa_bdf5_244a,
-    0xb4c5_3dea_558b_fe24,
-    0xb4fe_1a48_5f2b_52ec,
+    0xb212_b48d_7db3_99ee,
+    0xb2c7_c80e_eeb9_097b,
     0xb557_b79e_81a2_c886,
-    0xb603_9423_03c9_636b,
     0xb60e_c63a_c52d_33fc,
     0xb655_8704_0364_f6bb,
     0xb6b3_b32a_da6d_545d,
+    0xb6c8_d5d9_dfbf_0a7a,
+    0xb780_867f_4a78_e5a5,
     0xb7ba_24a1_dc6e_e81b,
     0xb85e_29cc_fb96_345e,
     0xb892_aed6_53a8_b395,
-    0xb8db_978d_ebe1_cfa0,
     0xb9cb_83db_c7fb_6a8a,
     0xb9e7_41ca_ddfd_69f0,
+    0xba5a_1e7a_dd62_e418,
     0xbb8b_6d1a_bec9_603f,
+    0xbc11_4b0a_d4d8_df27,
+    0xbc63_426c_5695_6de7,
+    0xbc7d_82fa_398a_6b3c,
+    0xbe26_1309_93d6_fa18,
     0xbe3d_0e53_859d_43f2,
     0xbeb0_0c41_e217_25fc,
     0xbf58_f6c8_0594_b87e,
     0xbfb7_eb36_9780_d3ab,
+    0xbfc4_5b25_903c_5ec6,
     0xbfd0_a1ea_2f61_5235,
-    0xbff3_21f3_7514_ee7f,
     0xc029_2ec3_5814_aa5f,
-    0xc09c_30f1_35e6_7a9b,
     0xc124_54c1_c61d_87c6,
-    0xc1cd_9ed2_a437_61fc,
+    0xc12c_d40b_9f9c_d82a,
+    0xc253_c43c_4bbb_cc8a,
     0xc262_1a3c_c88a_313c,
-    0xc2fb_56a0_2a92_aeea,
     0xc386_90ba_e6dc_d606,
+    0xc3ea_0436_d85b_8ab4,
     0xc406_b8bd_0dca_d8af,
+    0xc551_f5a3_5d07_43f1,
     0xc5c2_3b25_4746_df36,
     0xc64f_88be_5565_f6cd,
-    0xc77f_2263_9e8e_d361,
-    0xc86a_8271_53a6_cc42,
-    0xc8cc_edcd_e7f3_fb25,
+    0xc6ad_31ff_1e65_c715,
+    0xc86c_9dd1_0e2c_73db,
     0xc8cf_b6c5_e316_6155,
+    0xc8f4_a139_4287_fac0,
+    0xcaac_9d7b_4409_a020,
+    0xcb07_c500_f817_f900,
+    0xcb4e_8229_3ffb_a972,
     0xcba5_817c_6719_99ec,
     0xcbc6_b6f8_9f78_95f3,
     0xcc8c_4daa_3abb_8cf0,
@@ -2898,41 +2927,44 @@ const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 319] = [
     0xcfe7_a5cf_577f_646f,
     0xd004_74b8_8af9_f25b,
     0xd00d_a5b9_3df5_615d,
+    0xd0f3_7e42_aaa1_8aa7,
     0xd37a_9d36_b4e2_4c06,
     0xd38a_3b19_201b_d50f,
     0xd40e_0017_3c6e_33d4,
     0xd417_e5fa_f245_eb72,
     0xd4d4_3edb_fca7_dcae,
     0xd4ed_63ea_4b83_2458,
+    0xd5a4_8598_3cf7_8450,
+    0xd5fd_b1f1_9347_7009,
     0xd833_0631_2a2d_122d,
     0xd872_ed1c_b060_cc61,
-    0xd88a_d600_bcae_29fa,
     0xd89a_640a_c590_0430,
     0xd95e_0370_4d21_f044,
+    0xd9de_6188_5844_5794,
     0xda2a_371f_ec8f_d25b,
-    0xda3d_bb83_5fb9_4afb,
-    0xdaba_7895_cb57_d02e,
     0xdde2_b857_46f8_8edd,
     0xde37_808c_772e_981b,
-    0xde89_96f7_0c0f_be2e,
     0xdefa_5eaa_8a94_cace,
+    0xdfbe_534e_5bca_c492,
+    0xdfc1_36ab_b182_583a,
     0xdff0_6d47_c74a_625e,
     0xe148_9304_80d6_819c,
-    0xe190_b71d_54ce_5706,
     0xe1fc_1e29_b134_9045,
-    0xe385_24ae_98de_50da,
-    0xe3d5_a5cd_5085_fdc0,
-    0xe8f0_518d_ae04_4416,
-    0xe96c_e5a9_5db8_54a1,
+    0xe31c_87b2_8d78_04e0,
+    0xe389_54be_3c6a_25f0,
+    0xe3cb_d67c_4836_6156,
+    0xe523_b0e8_396c_3d0b,
+    0xe529_e7bb_a6af_7bb3,
+    0xe623_8c4d_4512_aac4,
+    0xe64f_8266_9dfd_77b3,
+    0xe6d9_ecc7_1ceb_6d26,
+    0xe98a_d90d_4fca_b000,
     0xe9d5_fc25_1e7d_9bc9,
     0xea93_1df4_a481_9b7f,
     0xeb25_28a4_2e42_53d8,
     0xebf5_5783_898b_8bc4,
     0xeca8_f28e_9ad6_9e52,
-    0xed26_fa92_319a_5e75,
-    0xed44_2900_9a70_ec7c,
     0xedb8_6886_4f7c_df6b,
-    0xee76_2f09_b77f_a148,
     0xef4d_0a1e_62c5_10d1,
     0xf06e_eebe_7132_1ca8,
     0xf291_f07d_c85c_d872,
@@ -2940,16 +2972,14 @@ const TYPED_ARRAY_LITERAL_CASE_CONTRACTS_FNV1A: [u64; 319] = [
     0xf596_ddcf_ff40_5102,
     0xf59c_b229_ec02_6c7a,
     0xf651_5fdf_a8c8_1beb,
-    0xf69b_325e_a513_f6af,
-    0xf867_ba8f_eb41_f6e7,
+    0xf6f1_7bd7_f556_ef9b,
+    0xf749_10c5_37fd_f0a3,
+    0xf76d_7fbc_c786_2930,
     0xf884_dd67_efae_ebfc,
-    0xf89a_06a4_7716_3e4d,
     0xf900_2949_9ffc_d565,
     0xfa6e_3ac3_65ee_b722,
-    0xfc38_5b9c_e6f8_b877,
-    0xfd9b_5706_5e5c_641b,
     0xfe16_cd7c_5f15_45b8,
-    0xfe35_ef1f_85a8_0a4a,
+    0xfeef_12ed_27d6_d3a0,
     0xfff2_6a4c_eaf6_1ca9,
 ];
 
@@ -3315,6 +3345,7 @@ fn test_typed_array_prelude_matches_vendored_contract(prelude: &PreludeEntry) ->
 
     [
         "var typedArrayCtorArgFactories = [makePassthrough, makeArray, makeArrayLike];",
+        "if (makeImmutableArrayBuffer) typedArrayCtorArgFactories.push(makeImmutableArrayBuffer);",
         "function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {",
         "for (var k = 0; k < ctorArgFactories.length; ++k) {",
         "var boundArgFactory = argFactory.bind(undefined, constructor);",
@@ -15413,7 +15444,7 @@ function $DONE(error) {
             )
             .unwrap_or_else(|error| panic!("vendored {method} cases should scan: {error}"));
         }
-        assert_eq!(cases.len(), 622);
+        assert_eq!(cases.len(), 624);
         cases.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
 
         let mut physical_cases: Vec<TestCase> = Vec::new();
@@ -16251,8 +16282,8 @@ export const value = helperRead();
         assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_247);
         assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0x09be_b318_81da_e05a);
         assert_eq!(sta, sta_preamble);
-        assert_eq!(sta.len(), 720);
-        assert_eq!(fnv1a(&sta), 0xbda4_7f3d_1dd0_dad8);
+        assert_eq!(sta.len(), STA_PRELUDE_BYTES);
+        assert_eq!(fnv1a(&sta), STA_PRELUDE_FNV1A);
         assert!(!WASM_AOT_HOST_PRELUDE.contains("///"));
         assert!(!WASM_AOT_HARNESS.contains("var $262 ="));
         assert!(!WASM_AOT_HARNESS.contains("__lilaAgentStart"));
@@ -16794,12 +16825,25 @@ export const value = helperRead();
             physical_counts[index] += 1;
         }
 
-        assert_eq!(cases.len(), 102_043);
-        assert_eq!(physical_requirements.len(), 53_131);
-        assert_eq!(physical_counts, [52_334, 484, 313]);
-        assert_eq!(execution_counts, [100_496, 956, 591]);
-        assert_eq!(host_mode_counts, [788, 751, 8]);
-        assert_eq!((agent_physical_count, agent_execution_count), (109, 218));
+        // One tuple so a pin refresh reports the whole census at once.
+        assert_eq!(
+            (
+                cases.len(),
+                physical_requirements.len(),
+                physical_counts,
+                execution_counts,
+                host_mode_counts,
+                (agent_physical_count, agent_execution_count),
+            ),
+            (
+                102_956,
+                53_597,
+                [52_786, 495, 316],
+                [101_384, 975, 597],
+                [799, 762, 11],
+                (109, 218),
+            )
+        );
         assert_eq!(
             rewritten_active_paths,
             REWRITTEN_ACTIVE_HOST_PATHS
@@ -18843,7 +18887,7 @@ print('Test262:AsyncTestComplete');
     }
 
     #[test]
-    fn typed_array_literal_helper_contract_covers_all_319_physical_vendored_bodies() {
+    fn typed_array_literal_helper_contract_covers_all_320_physical_vendored_bodies() {
         const FULL_VENDORED_TAIL_OBSERVABILITY_NEEDLES: [&str; 10] = [
             "nonAtomicsFriendlyTypedArrayConstructors",
             "testWithNonAtomicsFriendlyTypedArrayConstructors",
@@ -18858,15 +18902,15 @@ print('Test262:AsyncTestComplete');
         ];
         const UNUSED_TYPED_ARRAY_HELPER_TAIL: &str =
             "\n\nvar nonAtomicsFriendlyTypedArrayConstructors";
-        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = 0x92c7_bac7_27f5_772d;
+        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_BYTES: usize = SPLIT_TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const CANONICAL_SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = SPLIT_TEST_TYPED_ARRAY_PRELUDE_FNV1A;
 
         let store = real_wasm_aot_preludes();
         let test_typed_array = store
             .get("testTypedArray.js")
             .expect("Wasm-AOT preludes should contain testTypedArray.js");
         let cases = typed_array_literal_physical_cases();
-        assert_eq!(cases.len(), 319);
+        assert_eq!(cases.len(), 320);
         let mut fingerprints = cases
             .iter()
             .map(test_case_contract_fingerprint)
@@ -19053,11 +19097,11 @@ print('Test262:AsyncTestComplete');
             }
         }
 
-        assert_eq!(assert_count, 319);
-        assert_eq!(factory_counts, [29, 72, 218]);
+        assert_eq!(assert_count, 320);
+        assert_eq!(factory_counts, [29, 72, 219]);
         assert_eq!(property_helper_count, 27);
-        assert_eq!(deprecated_compare_array_count, 67);
-        assert_eq!(representative_source_bytes, (18_595, 22_144));
+        assert_eq!(deprecated_compare_array_count, 68);
+        assert_eq!(representative_source_bytes, (25_839, 23_211));
     }
 
     #[test]
@@ -19162,7 +19206,7 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
             .contains("function verifyProperty(obj, name, desc, options)"));
         assert!(materialized
             .source
-            .contains("assert._formatIdentityFreeValue = function"));
+            .contains("assert._formatIdentityFreeValue = formatIdentityFreeValue;"));
         assert!(!materialized
             .source
             .contains("function verifyProperty(object, name, expectedDescriptor)"));
@@ -19192,7 +19236,7 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
             .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
         assert!(materialized
             .source
-            .contains("assert._formatIdentityFreeValue = function"));
+            .contains("assert._formatIdentityFreeValue = formatIdentityFreeValue;"));
 
         let mut changed_detach_store = store.clone();
         let mut changed_detach = changed_detach_store
@@ -19210,7 +19254,7 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
         assert!(materialized.source.contains("// changed"));
         assert!(materialized
             .source
-            .contains("assert._formatIdentityFreeValue = function"));
+            .contains("assert._formatIdentityFreeValue = formatIdentityFreeValue;"));
 
         let mut changed_assert_store = store.clone();
         let mut changed_assert = changed_assert_store
@@ -19256,7 +19300,7 @@ if (observedError.message !== "Expected TypeError, got RangeError: setter failed
             .contains("Deprecated now that compareArray is defined in assert.js."));
         assert!(materialized
             .source
-            .contains("assert._formatIdentityFreeValue = function"));
+            .contains("assert._formatIdentityFreeValue = formatIdentityFreeValue;"));
 
         let resizable_case = cases
             .iter()
@@ -19974,8 +20018,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 method: "includes",
                 physical_count: 45,
                 full_count: 40,
-                source_cohort_fingerprint: 0xedb9_f76d_b168_d68a,
-                contract_cohort_fingerprint: 0xb6d4_2f32_7482_175b,
+                source_cohort_fingerprint: 0xb7f2_c627_0395_7676,
+                contract_cohort_fingerprint: 0x1bca_e8b0_8bed_482d,
                 metadata_cohort_fingerprint: 0x2a0a_805d_b470_f3ef,
                 full_cohort_fingerprint: 0x5398_022e_0264_abaf,
                 without_test_typed_array_cohort_fingerprint: 0xc22d_2668_e4d9_8e99,
@@ -19987,8 +20031,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 method: "indexOf",
                 physical_count: 43,
                 full_count: 39,
-                source_cohort_fingerprint: 0x7169_aa14_e35b_6ed4,
-                contract_cohort_fingerprint: 0xd763_1f50_03ad_3979,
+                source_cohort_fingerprint: 0x30e2_a17f_4343_633a,
+                contract_cohort_fingerprint: 0x173c_026f_7397_719a,
                 metadata_cohort_fingerprint: 0x9bf0_08a6_a2b8_59d1,
                 full_cohort_fingerprint: 0xa4c6_e58b_a795_5310,
                 without_test_typed_array_cohort_fingerprint: 0x38ef_6bac_d2d6_9137,
@@ -20000,8 +20044,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 method: "lastIndexOf",
                 physical_count: 42,
                 full_count: 38,
-                source_cohort_fingerprint: 0xc0bd_77f0_92ed_1d3f,
-                contract_cohort_fingerprint: 0x1eb0_9ac0_b218_2b85,
+                source_cohort_fingerprint: 0x0560_8ed3_f3af_9695,
+                contract_cohort_fingerprint: 0x6aae_072b_af86_67c4,
                 metadata_cohort_fingerprint: 0x08b0_939a_7f0c_abbd,
                 full_cohort_fingerprint: 0x3108_59f3_0fb9_d159,
                 without_test_typed_array_cohort_fingerprint: 0x4aaa_4276_6e46_cd1b,
@@ -20010,13 +20054,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 without_test_typed_array_suffixes: &LAST_INDEX_OF_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
             },
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const LOCAL_ASSERT_BYTES: usize = 4_595;
-        const LOCAL_STA_BYTES: usize = 720;
-        const VENDORED_ASSERT_BYTES: usize = 4_595;
-        const VENDORED_STA_BYTES: usize = 720;
-        const LOCAL_PROPERTY_HELPER_BYTES: usize = 12_073;
-        const VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const LOCAL_ASSERT_BYTES: usize = ASSERT_PRELUDE_BYTES;
+        const LOCAL_STA_BYTES: usize = STA_PRELUDE_BYTES;
+        const VENDORED_ASSERT_BYTES: usize = ASSERT_PRELUDE_BYTES;
+        const VENDORED_STA_BYTES: usize = STA_PRELUDE_BYTES;
+        const LOCAL_PROPERTY_HELPER_BYTES: usize = PROPERTY_HELPER_PRELUDE_BYTES;
+        const VENDORED_PROPERTY_HELPER_BYTES: usize = PROPERTY_HELPER_PRELUDE_BYTES;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
         const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
         const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
@@ -20100,8 +20144,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
 
         for (name, expected_bytes, expected_fingerprint) in [
             ("assert.js", LOCAL_ASSERT_BYTES, LOCAL_ASSERT_PRELUDE_FNV1A),
-            ("sta.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
-            ("sta-preamble.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
+            ("sta.js", LOCAL_STA_BYTES, STA_PRELUDE_FNV1A),
+            ("sta-preamble.js", LOCAL_STA_BYTES, STA_PRELUDE_FNV1A),
             (
                 "propertyHelper.js",
                 LOCAL_PROPERTY_HELPER_BYTES,
@@ -20117,8 +20161,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             assert_eq!(fnv1a(&prelude.contents), expected_fingerprint, "{name}");
         }
         for (name, expected_bytes, expected_fingerprint) in [
-            ("assert.js", VENDORED_ASSERT_BYTES, 0xf5ff_013f_6c0c_e879),
-            ("sta.js", VENDORED_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
+            (
+                "assert.js",
+                VENDORED_ASSERT_BYTES,
+                LOCAL_ASSERT_PRELUDE_FNV1A,
+            ),
+            ("sta.js", VENDORED_STA_BYTES, STA_PRELUDE_FNV1A),
             (
                 "propertyHelper.js",
                 VENDORED_PROPERTY_HELPER_BYTES,
@@ -20661,8 +20709,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 combined_changed_cohort_fingerprint,
             ),
             (
-                0xe1a7_2b9a_9367_957f,
-                0x3dd1_f189_1b50_1447,
+                0x7b1b_b199_b876_5e77,
+                0x2246_f086_0bd6_7b6f,
                 0xa187_9af3_8f49_af47,
                 0x29de_6e37_f194_8fc6,
                 0x64ca_820d_97af_3025,
@@ -20819,6 +20867,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         #[derive(Clone, Copy)]
         struct DirectoryContract {
             method: &'static str,
+            physical_count: usize,
             full_count: usize,
             source_cohort_fingerprint: u64,
             contract_cohort_fingerprint: u64,
@@ -20826,8 +20875,14 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             full_cohort_fingerprint: u64,
             without_test_typed_array_cohort_fingerprint: u64,
             without_test_typed_array_suffixes: &'static [&'static str],
+            immutable_gated_suffixes: &'static [&'static str],
         }
 
+        // Pinned cases that exercise immutable ArrayBuffers. They materialize
+        // exactly like their neighbours but are reported through the explicit
+        // Wasm-AOT `immutable-arraybuffer` gate until that feature exists.
+        const IMMUTABLE_GATED_SUFFIXES: [&str; 1] =
+            ["speciesctor-destination-backed-by-immutable-buffer.js"];
         const FILTER_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES: [&str; 3] = [
             "resizable-buffer-grow-mid-iteration.js",
             "resizable-buffer-shrink-mid-iteration.js",
@@ -20843,26 +20898,30 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const DIRECTORIES: [DirectoryContract; 2] = [
             DirectoryContract {
                 method: "filter",
-                full_count: 81,
-                source_cohort_fingerprint: 0xf42f_ee20_de8c_e7dc,
-                contract_cohort_fingerprint: 0xe216_2b5c_6a5b_93d5,
-                metadata_cohort_fingerprint: 0x18c2_1d5b_cfda_057d,
-                full_cohort_fingerprint: 0x6c8e_98e8_40ae_1978,
+                physical_count: 87,
+                full_count: 84,
+                source_cohort_fingerprint: 0x10c1_6efb_8487_9046,
+                contract_cohort_fingerprint: 0x7496_ef6c_a5b0_8fb8,
+                metadata_cohort_fingerprint: 0x241d_a4c3_baba_f138,
+                full_cohort_fingerprint: 0xd3af_9172_36fb_0c3c,
                 without_test_typed_array_cohort_fingerprint: 0x45a0_c93e_4a48_f68b,
                 without_test_typed_array_suffixes: &FILTER_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
+                immutable_gated_suffixes: &IMMUTABLE_GATED_SUFFIXES,
             },
             DirectoryContract {
                 method: "map",
-                full_count: 79,
-                source_cohort_fingerprint: 0x47e6_8dd2_b4d0_9ee6,
-                contract_cohort_fingerprint: 0x8966_405b_f934_19af,
-                metadata_cohort_fingerprint: 0x24bd_7929_d7ee_4292,
-                full_cohort_fingerprint: 0x5118_8829_97aa_38e5,
+                physical_count: 85,
+                full_count: 80,
+                source_cohort_fingerprint: 0xe5d0_3938_30f1_c5ec,
+                contract_cohort_fingerprint: 0x8cc1_3236_8734_477d,
+                metadata_cohort_fingerprint: 0x6d32_8126_bd70_4f9b,
+                full_cohort_fingerprint: 0xc6e3_699b_0f0e_63a3,
                 without_test_typed_array_cohort_fingerprint: 0x2dab_d088_d025_9ad3,
                 without_test_typed_array_suffixes: &MAP_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
+                immutable_gated_suffixes: &IMMUTABLE_GATED_SUFFIXES,
             },
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -20948,7 +21007,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 panic!("vendored {} cases should scan: {error}", contract.method)
             });
             executions.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
-            assert_eq!(executions.len(), 168, "{}", contract.method);
+            assert_eq!(
+                executions.len(),
+                contract.physical_count * 2,
+                "{}",
+                contract.method
+            );
 
             let mut executions_by_path = BTreeMap::<String, Vec<TestCase>>::new();
             for case in executions {
@@ -20957,7 +21021,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     .or_default()
                     .push(case);
             }
-            assert_eq!(executions_by_path.len(), 84, "{}", contract.method);
+            assert_eq!(
+                executions_by_path.len(),
+                contract.physical_count,
+                "{}",
+                contract.method
+            );
+            let mut immutable_gated_count = 0;
 
             let mut source_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
             let mut contract_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
@@ -21059,6 +21129,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             fnv1a_extend(without_test_typed_array_cohort_fingerprint, &[u8::MAX]);
                     }
                 }
+                let immutable_gated = contract.immutable_gated_suffixes.contains(&suffix);
+                immutable_gated_count += usize::from(immutable_gated);
 
                 for case in cases {
                     assert_eq!(case.path(), path, "{path}");
@@ -21077,7 +21149,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         test_case_contract_fingerprint(&first),
                         "{path}"
                     );
-                    assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+                    assert_eq!(
+                        case.features.contains("immutable-arraybuffer"),
+                        immutable_gated,
+                        "{path}"
+                    );
+                    assert_eq!(
+                        wasm_aot_unsupported_feature(&case),
+                        immutable_gated.then_some("immutable-arraybuffer"),
+                        "{path}"
+                    );
                     assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                     for (store_name, store) in
@@ -21220,10 +21301,15 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             }
 
             assert_eq!(
-                (full_count, without_test_typed_array_count),
+                (
+                    full_count,
+                    without_test_typed_array_count,
+                    immutable_gated_count
+                ),
                 (
                     contract.full_count,
-                    contract.without_test_typed_array_suffixes.len()
+                    contract.without_test_typed_array_suffixes.len(),
+                    contract.immutable_gated_suffixes.len(),
                 ),
                 "{}",
                 contract.method
@@ -21321,6 +21407,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "resizable-arraybuffer",
         ];
         const SPECIES_TYPED_ARRAY: &[&str] = &["Symbol.species", "TypedArray"];
+        const SPECIES_IMMUTABLE_TYPED_ARRAY: &[&str] =
+            &["Symbol.species", "TypedArray", "immutable-arraybuffer"];
         const SPECIES_RESIZABLE_TYPED_ARRAY: &[&str] =
             &["Symbol.species", "TypedArray", "resizable-arraybuffer"];
         const BIGINT_TYPED_ARRAY: &[&str] = &["BigInt", "TypedArray"];
@@ -21351,7 +21439,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "resizable-arraybuffer",
         ];
 
-        const FULL_VENDORED: [SliceCaseContract; 87] = [
+        const FULL_VENDORED: [SliceCaseContract; 88] = [
             SliceCaseContract::new(
                 "BigInt/arraylength-internal.js",
                 0x5372_1ba4_32d1_d3e1,
@@ -21361,50 +21449,50 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-custom-ctor-other-targettype.js",
-                0x5021_8084_ad71_7186,
-                0x1ab2_f2a2_5c4e_d408,
+                0xa178_60da_2ff0_b0aa,
+                0xf8bd_6dff_3ec5_6710,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-custom-ctor-same-targettype.js",
-                0xbce3_e936_c096_05ae,
-                0xe92b_6ffe_49cd_ed88,
+                0xc5e3_bf23_b60e_aa7d,
+                0x81b8_5446_769a_e61f,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-get-ctor.js",
-                0xf663_91da_125d_b1da,
-                0x87cb_c457_115a_debe,
+                0x6150_9e9b_1c8c_7a04,
+                0x5ecb_0dfe_97b7_d668,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
-                0x013f_ec41_9974_b4b3,
-                0x2971_60eb_d772_cabd,
+                0x2f8d_3aef_a05f_5179,
+                0x7146_da1a_6f05_5b0f,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-zero-count-custom-ctor-other-targettype.js",
-                0x98a5_c8c4_afb0_675f,
-                0xa9df_df2a_9f7e_eb82,
+                0x5119_c030_e21d_706a,
+                0x9931_609e_8387_e68d,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-zero-count-custom-ctor-same-targettype.js",
-                0x9d51_cf79_5d7d_003e,
-                0x27f7_8981_1284_e74d,
+                0x3ca2_bc1f_5101_f694,
+                0xb89b_368e_4dff_b9bb,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer.js",
-                0x0c70_f02c_d27f_a639,
-                0x7e34_1dea_a18e_0a47,
+                0x0db6_5da0_cede_ef35,
+                0x1ad5_ad5a_987f_a607,
                 TEST_TYPED_ARRAY_DETACH,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -21452,29 +21540,29 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-end-symbol.js",
-                0x4192_b7bd_308b_ba34,
-                0xabe7_f91e_b4e2_4d07,
+                0x2401_6771_3072_3db0,
+                0xad21_326d_d162_a19f,
                 TEST_TYPED_ARRAY,
                 BIGINT_SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-end.js",
-                0xa9ce_dac4_0292_465a,
-                0x14b1_04ec_5762_ba94,
+                0x41aa_419a_406c_ec64,
+                0xe2b3_a029_0fc1_8372,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-start-symbol.js",
-                0x80d9_bdc6_3e98_51f4,
-                0x940e_04b5_0238_0484,
+                0x818d_1d0e_3177_7a22,
+                0x3ced_70d6_331b_3ef2,
                 TEST_TYPED_ARRAY,
                 BIGINT_SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-start.js",
-                0x0322_47c5_6e2d_4353,
-                0x303b_672c_bb90_c20a,
+                0xf0c0_813f_4d02_4ae5,
+                0x7b14_7b39_7a9c_0218,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -21487,8 +21575,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/set-values-from-different-ctor-type.js",
-                0x1f81_9cb4_24db_39a2,
-                0x68b0_3b1e_3fad_e2ab,
+                0xa730_fd32_52a1_f4b6,
+                0xd135_579e_49d6_7bdd,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -21501,8 +21589,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-ctor-abrupt.js",
-                0xe845_e90c_c6eb_f531,
-                0x9afd_ad88_6947_2fa6,
+                0x0259_a6ed_a7b9_d498,
+                0xbcc8_3f3c_aa54_ba69,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -21522,15 +21610,15 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-ctor.js",
-                0x5e48_72db_449a_4842,
-                0x9c94_c011_7647_e390,
+                0x323d_fcb3_ddcc_7b45,
+                0x9f42_1805_f200_6a03,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-species-abrupt.js",
-                0x6613_0ae3_da9d_9940,
-                0xbbe2_71dc_e9e1_8137,
+                0xc70d_925f_bb90_a333,
+                0x9fcc_55a9_b451_d6a6,
                 TEST_TYPED_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -21599,8 +21687,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-species.js",
-                0xc29c_9d4b_f335_ce65,
-                0xe0fb_0b4d_9a96_1cb5,
+                0x080c_0854_f44f_765c,
+                0xbc43_7351_44a3_596c,
                 TEST_TYPED_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -21634,50 +21722,50 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "detached-buffer-custom-ctor-other-targettype.js",
-                0x761c_c8f8_4074_3be1,
-                0x34b8_be6a_0e13_538d,
+                0xfacd_e4f9_5070_aaa5,
+                0x1256_1189_a64e_ee41,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-custom-ctor-same-targettype.js",
-                0x5538_0ab9_536b_0842,
-                0xb184_4df4_75a6_3542,
+                0xc0e8_3bc8_96b1_1bf1,
+                0xc6bd_d07b_ab0d_8af1,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-get-ctor.js",
-                0x1039_8845_01c6_780a,
-                0x39bd_61ae_ece5_1174,
+                0x564c_5926_7575_f894,
+                0x1682_5746_e2fb_c29a,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
-                0x09f0_9cf1_09e6_c24d,
-                0xbe86_7c49_554b_7989,
+                0x508a_63d0_5e58_8a7f,
+                0x41e4_d314_b3bf_01bb,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-zero-count-custom-ctor-other-targettype.js",
-                0x8112_8be6_2e8b_3f4a,
-                0x08ac_ac7a_1e73_d133,
+                0x1051_e45b_4543_fceb,
+                0xf639_bfe7_8e33_2608,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-zero-count-custom-ctor-same-targettype.js",
-                0xa511_8d90_1f63_c508,
-                0x2617_8106_171e_2815,
+                0x9f99_0635_f6fe_c7e4,
+                0x3e18_2eb6_0d66_caf1,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer.js",
-                0x28a7_7873_3c9e_ae5b,
-                0xe891_b452_e65c_3f67,
+                0x69e3_4567_3d6e_d28b,
+                0x91c6_68d5_97b9_a9a7,
                 TEST_TYPED_ARRAY_DETACH,
                 TYPED_ARRAY,
             ),
@@ -21774,29 +21862,29 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-end-symbol.js",
-                0xa2b9_802e_03bd_5852,
-                0x17f6_b674_44d6_ffd3,
+                0xa1ca_df02_7a13_75d2,
+                0x3778_80b5_9583_677b,
                 TEST_TYPED_ARRAY,
                 SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-end.js",
-                0x370a_dc2a_b87f_0e1e,
-                0x97a1_0e82_66ae_fb12,
+                0x8de0_2b63_5622_b628,
+                0x0847_fb14_fa62_b3cc,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-start-symbol.js",
-                0x5802_5145_56b9_db3e,
-                0x5f8d_1808_5b29_2008,
+                0xf348_b507_2fa1_6620,
+                0x5e55_dfd3_cf08_2a26,
                 TEST_TYPED_ARRAY,
                 SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-start.js",
-                0xd433_0ba8_a2e6_2dbf,
-                0x65e3_13d9_1468_255c,
+                0x60cf_bbf9_deae_ed81,
+                0x6322_220c_3eba_d8b6,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
@@ -21809,10 +21897,17 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "set-values-from-different-ctor-type.js",
-                0xedf4_7d50_d28c_2454,
-                0xd555_7faf_1e77_6ff9,
+                0x502b_94f5_3dfa_9ec4,
+                0x8863_e0c9_9156_a867,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
                 SPECIES_TYPED_ARRAY,
+            ),
+            SliceCaseContract::new(
+                "speciesctor-destination-backed-by-immutable-buffer.js",
+                0x83f9_9738_6bc9_0813,
+                0x0886_ed54_0974_4c2c,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                SPECIES_IMMUTABLE_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "speciesctor-destination-resizable.js",
@@ -21823,8 +21918,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-ctor-abrupt.js",
-                0xf712_328d_bbaa_f7d3,
-                0x4231_5b52_9b3c_0572,
+                0x8f56_209d_db2b_ade2,
+                0xd0f7_e672_1deb_4d35,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
@@ -21844,15 +21939,15 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-ctor.js",
-                0x6fcb_a161_3448_fe08,
-                0x98bc_3c8d_297a_33a0,
+                0xe7f9_74c8_fd92_64ab,
+                0x388e_6437_07b4_1c13,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "speciesctor-get-species-abrupt.js",
-                0xe5d6_d48a_b42a_344e,
-                0xdcb8_6207_5fa3_a303,
+                0xfe23_10bc_5fa8_1c21,
+                0x5127_ae35_366c_7ad2,
                 TEST_TYPED_ARRAY,
                 SPECIES_TYPED_ARRAY,
             ),
@@ -21921,17 +22016,17 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-species.js",
-                0x402b_5d30_52b5_0537,
-                0x9cb1_1f88_46c7_225d,
+                0x9337_ca94_5776_a2a6,
+                0x7b54_d333_13f0_b9e4,
                 TEST_TYPED_ARRAY,
                 SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "speciesctor-return-same-buffer-with-offset.js",
-                0xdedd_c407_8a5d_04b9,
-                0x7b28_3881_3e94_288c,
+                0xbdda_5329_dc70_b6f9,
+                0xab58_3b3f_a2f1_6db0,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
-                TYPED_ARRAY,
+                SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "this-is-not-object.js",
@@ -21994,8 +22089,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
         ];
 
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const FULL_VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const FULL_VENDORED_PROPERTY_HELPER_BYTES: usize = PROPERTY_HELPER_PRELUDE_BYTES;
         const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
         const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
         const PROPERTY_HELPER_SUFFIXES: [&str; 3] = ["length.js", "name.js", "prop-desc.js"];
@@ -22035,7 +22130,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 .iter()
                 .map(|(_, contracts)| contracts.len())
                 .collect::<Vec<_>>(),
-            [87, 4]
+            [88, 4]
         );
         assert!(FULL_VENDORED
             .windows(2)
@@ -22057,7 +22152,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut directory_cases = Vec::new();
         scan_tests(&slice_root, &test_root, None, true, &mut directory_cases)
             .expect("vendored TypedArray slice cases should scan");
-        assert_eq!(directory_cases.len(), 182);
+        assert_eq!(directory_cases.len(), 184);
 
         let expected_physical_paths = cohort_contracts
             .iter()
@@ -22071,7 +22166,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .iter()
             .map(|case| case.path().to_string())
             .collect::<BTreeSet<_>>();
-        assert_eq!(expected_physical_paths.len(), 91);
+        assert_eq!(expected_physical_paths.len(), 92);
         assert_eq!(physical_paths, expected_physical_paths);
 
         let local_store = real_wasm_aot_preludes();
@@ -22208,6 +22303,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut host_execution_count = 0;
         let mut local_sta_preamble_execution_count = 0;
         let mut static_resizable_execution_count = 0;
+        let mut immutable_gated_execution_count = 0;
 
         for (cohort, contracts) in cohort_contracts {
             for contract in contracts {
@@ -22259,7 +22355,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         contract.contract_fingerprint,
                         "{path}"
                     );
-                    assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
+                    // Immutable ArrayBuffer cases materialize exactly like the
+                    // rest of the directory but are reported through the
+                    // explicit Wasm-AOT gate until that feature exists.
+                    let immutable_gated = contract.features.contains(&"immutable-arraybuffer");
+                    immutable_gated_execution_count += usize::from(immutable_gated);
+                    assert_eq!(
+                        wasm_aot_unsupported_feature(case),
+                        immutable_gated.then_some("immutable-arraybuffer"),
+                        "{path}"
+                    );
                     assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
                     assert!(typed_array_literal_helper_plan(case).is_none(), "{path}");
 
@@ -22498,13 +22603,14 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 full_execution_count,
                 without_test_typed_array_execution_count,
             ),
-            (174, 8)
+            (176, 8)
         );
         assert_eq!(property_helper_execution_count, 6);
         assert_eq!(test262_error_execution_count, 24);
         assert_eq!(host_execution_count, 28);
-        assert_eq!(local_sta_preamble_execution_count, 154);
+        assert_eq!(local_sta_preamble_execution_count, 156);
         assert_eq!(static_resizable_execution_count, 8);
+        assert_eq!(immutable_gated_execution_count, 2);
     }
 
     #[test]
@@ -22540,8 +22646,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const CASES: [(&str, u64, u64, &[&str]); 21] = [
             (
                 "built-ins/TypedArray/prototype/toReversed/ignores-species.js",
-                0x9bc2_5ab3_d969_0514,
-                0x16ac_02f4_bee4_0fab,
+                0xb78f_a092_e9bd_d7b9,
+                0xb40f_d22c_0048_c1b6,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -22552,8 +22658,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/length-property-ignored.js",
-                0x5458_01c3_fb50_46b1,
-                0x1111_fc23_8fc5_ec88,
+                0x3421_68bd_55fa_097f,
+                0x3113_22d6_e7b7_6f2e,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -22588,8 +22694,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
-                0xa492_7dcc_3cca_2514,
-                0x502b_7920_6fac_6e68,
+                0xdb16_b6bd_49cc_1988,
+                0xa3c2_9c71_8a97_88ec,
                 DETACH_TEST_TYPED_ARRAY,
             ),
             (
@@ -22618,8 +22724,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/ignores-species.js",
-                0x628f_80d2_6daf_4a2a,
-                0xa4ef_7ddb_4524_6bcc,
+                0xcfe2_6abf_e2a7_29a9,
+                0x3ca9_4568_8838_6adb,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -22630,8 +22736,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/length-property-ignored.js",
-                0xea92_3ab6_ea1d_2d11,
-                0x4bdb_de96_60f1_f7c5,
+                0x1eb3_d7fa_1c02_cceb,
+                0x1a77_c3ae_23db_1baf,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -22660,12 +22766,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js",
-                0x958e_71c3_2a8f_8c32,
-                0x38c0_0efd_4b01_679d,
+                0x1e9b_a9e8_ccea_c004,
+                0x3fac_daa6_674f_f7e3,
                 DETACH_TEST_TYPED_ARRAY,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -22781,6 +22887,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             for case in cases {
                 let expected_features: &[&str] = if path.ends_with("/not-a-constructor.js") {
                     &["Reflect.construct", "TypedArray", "change-array-by-copy"]
+                } else if path.ends_with("/ignores-species.js") {
+                    &["Symbol.species", "TypedArray", "change-array-by-copy"]
                 } else {
                     &["TypedArray", "change-array-by-copy"]
                 };
@@ -22925,132 +23033,205 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const TEST_TYPED_ARRAY_COMPARE_ARRAY: &[&str] = &["testTypedArray.js", "compareArray.js"];
         const TEST_TYPED_ARRAY_PROPERTY: &[&str] = &["testTypedArray.js", "propertyHelper.js"];
         const IS_CONSTRUCTOR_TEST_TYPED_ARRAY: &[&str] = &["isConstructor.js", "testTypedArray.js"];
-        const CASES: [(&str, u64, u64, &[&str]); 21] = [
+        const CHANGE_BY_COPY: &[&str] = &["TypedArray", "change-array-by-copy"];
+        const BIGINT_CHANGE_BY_COPY: &[&str] = &["BigInt", "TypedArray", "change-array-by-copy"];
+        const BIGINT_RESIZABLE_CHANGE_BY_COPY: &[&str] = &[
+            "BigInt",
+            "TypedArray",
+            "change-array-by-copy",
+            "resizable-arraybuffer",
+        ];
+        const RESIZABLE_CHANGE_BY_COPY: &[&str] = &[
+            "TypedArray",
+            "change-array-by-copy",
+            "resizable-arraybuffer",
+        ];
+        const REFLECT_CONSTRUCT_CHANGE_BY_COPY: &[&str] =
+            &["Reflect.construct", "TypedArray", "change-array-by-copy"];
+        const SPECIES_CHANGE_BY_COPY: &[&str] =
+            &["Symbol.species", "TypedArray", "change-array-by-copy"];
+        const CASES: [(&str, u64, u64, &[&str], &[&str]); 26] = [
             (
                 "built-ins/TypedArray/prototype/with/BigInt/early-type-coercion-bigint.js",
-                0xb9e8_05b3_c61b_9604,
-                0x3392_3fa3_c8c8_0242,
+                0xe1b1_6197_5b55_5b0e,
+                0x03b6_7a7a_6f9e_0658,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                BIGINT_CHANGE_BY_COPY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/BigInt/index-coercion-shrinks.js",
+                0x69fc_8867_de30_aeb2,
+                0x78a1_0b91_fc90_c644,
+                TEST_TYPED_ARRAY,
+                BIGINT_RESIZABLE_CHANGE_BY_COPY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/BigInt/negative-index-resize-to-out-of-bounds.js",
+                0x3c84_4bff_c088_7fce,
+                0x88cb_0ea7_39d6_716c,
+                TEST_TYPED_ARRAY,
+                BIGINT_RESIZABLE_CHANGE_BY_COPY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/BigInt/value-coercion-shrinks.js",
+                0xf52c_d50d_87ab_267a,
+                0xcbce_158c_af93_c219,
+                TEST_TYPED_ARRAY,
+                BIGINT_RESIZABLE_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/early-type-coercion.js",
-                0xca82_75b0_9dca_f50d,
-                0x236f_ecf8_c8c6_5395,
+                0x4bfb_7f68_0f43_733d,
+                0x8dfa_5613_52a4_de25,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/ignores-species.js",
-                0x6087_6401_73cf_0959,
-                0x7b13_cee1_e2e0_5623,
+                0x00b3_5726_f539_c78c,
+                0xb066_de01_b1a2_782a,
                 TEST_TYPED_ARRAY,
+                SPECIES_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/immutable.js",
                 0x962e_8dd3_ffc8_d3ce,
                 0x25bb_2c66_fea0_6159,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-bigger-or-eq-than-length.js",
                 0xbbe3_0f92_1ff0_4299,
                 0xb7c6_8e20_1023_c74c,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-casted-to-number.js",
                 0x30d6_f230_0a60_ce4c,
                 0xf1be_8488_8b71_26d2,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/index-coercion-shrinks.js",
+                0x9de2_faba_abe6_3bff,
+                0x6d74_f6be_046f_a6ee,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                RESIZABLE_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-negative.js",
                 0xc25e_729c_faab_7999,
                 0x2ee3_38f1_c806_1a1a,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-smaller-than-minus-length.js",
                 0xa9bc_d2ee_4a3a_e514,
                 0xf1c5_d3d1_21fd_e093,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-throw-completion.js",
                 0x82b7_a05a_53af_2573,
                 0x1088_5725_00db_026d,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/length-property-ignored.js",
-                0xfdb7_a617_8da9_35fb,
-                0xe37f_7917_bd57_11db,
+                0xfffe_4e34_5663_8125,
+                0xcf62_bc64_de95_9805,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/length.js",
                 0xb00a_8809_4c69_08a2,
                 0x1024_7628_f70e_0f6c,
                 TEST_TYPED_ARRAY_PROPERTY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/name.js",
                 0x0c1e_e128_3112_95a1,
                 0xc3bc_34fd_228f_278a,
                 TEST_TYPED_ARRAY_PROPERTY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-fractional-index-truncated-to-zero.js",
                 0x3a94_1f31_d035_7c05,
                 0x7372_638d_3933_4c53,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
                 0xe746_6bd1_8ec3_56bb,
                 0x639c_97a3_e3f0_52ac,
                 TEST_TYPED_ARRAY,
+                RESIZABLE_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
                 0xde1a_dd8a_3ea2_b038,
                 0xbd51_2cb6_7faa_f184,
                 TEST_TYPED_ARRAY,
+                RESIZABLE_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/not-a-constructor.js",
                 0x6bf6_6859_de94_342a,
                 0xa9c3_e0cf_78d1_f1db,
                 IS_CONSTRUCTOR_TEST_TYPED_ARRAY,
+                REFLECT_CONSTRUCT_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/order-of-evaluation.js",
                 0x56d5_37c1_ac98_95d8,
                 0xfa5e_1e90_5136_1d5e,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/property-descriptor.js",
                 0x7baf_5400_c178_ad64,
                 0xc57b_56b5_872e_f3bd,
                 TEST_TYPED_ARRAY_PROPERTY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/this-value-invalid.js",
                 0x17ea_5510_9f96_2dfb,
                 0x3601_b571_76ad_3a79,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
                 0x53da_8b0f_8d01_d208,
                 0x60ae_178a_039b_6f06,
                 TEST_TYPED_ARRAY,
+                RESIZABLE_CHANGE_BY_COPY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/value-coercion-shrinks.js",
+                0x0bc0_577c_c02e_7803,
+                0x7568_d695_03f6_3f33,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                RESIZABLE_CHANGE_BY_COPY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/value-throw-completion.js",
                 0xacff_000e_e620_20a7,
                 0x4699_270f_f47a_d024,
                 TEST_TYPED_ARRAY,
+                CHANGE_BY_COPY,
             ),
         ];
         const NO_HELPER_NEIGHBOR: (&str, u64, u64) = (
@@ -23058,7 +23239,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             0x1ade_8506_a4c0_25f6,
             0x44aa_af26_fb55_bfd0,
         );
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -23073,12 +23254,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut directory_cases = Vec::new();
         scan_tests(&with_root, &test_root, None, true, &mut directory_cases)
             .expect("vendored TypedArray with cases should scan");
-        assert_eq!(directory_cases.len(), 44);
+        assert_eq!(directory_cases.len(), 54);
         let physical_paths = directory_cases
             .iter()
             .map(|case| case.path.as_str())
             .collect::<BTreeSet<_>>();
-        assert_eq!(physical_paths.len(), 22);
+        assert_eq!(physical_paths.len(), 27);
         let helper_paths = directory_cases
             .iter()
             .filter(|case| {
@@ -23090,7 +23271,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             .collect::<BTreeSet<_>>();
         let expected_helper_paths = CASES
             .iter()
-            .map(|(path, _, _, _)| *path)
+            .map(|(path, _, _, _, _)| *path)
             .collect::<BTreeSet<_>>();
         assert_eq!(helper_paths, expected_helper_paths);
         let no_helper_paths = physical_paths
@@ -23195,8 +23376,13 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             );
         }
 
-        for (path, expected_source_fingerprint, expected_contract_fingerprint, expected_includes) in
-            CASES
+        for (
+            path,
+            expected_source_fingerprint,
+            expected_contract_fingerprint,
+            expected_includes,
+            expected_features,
+        ) in CASES
         {
             let source_path = test_root.join(path);
             let original_source = fs::read_to_string(&source_path)
@@ -23225,21 +23411,6 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             );
 
             for case in cases {
-                let expected_features: &[&str] = if path.contains("/BigInt/") {
-                    &["BigInt", "TypedArray", "change-array-by-copy"]
-                } else if path.contains("resize")
-                    || path.ends_with("/valid-typedarray-index-checked-after-coercions.js")
-                {
-                    &[
-                        "TypedArray",
-                        "change-array-by-copy",
-                        "resizable-arraybuffer",
-                    ]
-                } else if path.ends_with("/not-a-constructor.js") {
-                    &["Reflect.construct", "TypedArray", "change-array-by-copy"]
-                } else {
-                    &["TypedArray", "change-array-by-copy"]
-                };
                 assert_eq!(
                     case.original_source.as_bytes(),
                     original_source.as_bytes(),
@@ -23378,16 +23549,16 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         const CASES: [(&str, u64, u64); 2] = [
             (
                 "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
-                0xa492_7dcc_3cca_2514,
-                0x502b_7920_6fac_6e68,
+                0xdb16_b6bd_49cc_1988,
+                0xa3c2_9c71_8a97_88ec,
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js",
-                0x958e_71c3_2a8f_8c32,
-                0x38c0_0efd_4b01_679d,
+                0x1e9b_a9e8_ccea_c004,
+                0x3fac_daa6_674f_f7e3,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -25867,8 +26038,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/calls-tostring-from-each-value.js",
-                0x7306_d267_9875_3d39,
-                0xf59a_0367_9fa6_9930,
+                0x44d0_aace_03b3_15d1,
+                0xb3f2_cfe9_cad3_95ae,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -25879,14 +26050,14 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/detached-buffer.js",
-                0xd5f2_cd67_5ed0_1a39,
-                0xd85d_fdb4_5706_c14f,
+                0x0743_260a_e06d_980b,
+                0xbc0d_d1e3_b813_323d,
                 TEST_TYPED_ARRAY_DETACH,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/empty-instance-returns-empty-string.js",
-                0x152c_34b0_a17a_9b5f,
-                0xac3c_64c1_7f4c_ab14,
+                0xd3f4_685c_3139_3921,
+                0x2634_fe12_aa64_f796,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -25945,32 +26116,32 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-tolocalestring-from-each-value.js",
-                0xa71a_5c9f_6c82_f411,
-                0x862b_8001_9eac_7fa9,
+                0xcfe9_f046_c73e_5f5f,
+                0x0dec_48ae_4f94_8bb7,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-tostring-from-each-value.js",
-                0x206f_2679_efae_8915,
-                0x5358_a624_6b76_7232,
+                0xeb04_152b_1884_a205,
+                0xae2d_bc4e_00c7_a318,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-valueof-from-each-value.js",
-                0x19be_9b4a_e6a3_a048,
-                0x5761_9d54_c805_abbb,
+                0xecf6_5362_fb8e_5c3c,
+                0x8ad2_716e_0ff7_57dd,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
-                0x845e_0e56_6849_401f,
-                0x7d4c_867c_5fe5_142f,
+                0x77a9_e497_2839_532d,
+                0x33b9_5787_1b6a_449d,
                 TEST_TYPED_ARRAY_DETACH,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/empty-instance-returns-empty-string.js",
-                0xe980_027f_5db8_c9f9,
-                0xabee_3f1b_665d_07a4,
+                0x3c34_bc82_bfa9_dd2f,
+                0xb66e_7677_04e8_d426,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -26017,38 +26188,38 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tolocalestring.js",
-                0xfd9b_3597_350e_fee1,
-                0x2b65_456d_684d_5ae7,
+                0xd86d_7da5_1ec5_d459,
+                0x767e_edd5_4cde_9b6f,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tostring.js",
-                0x2d61_dd60_eb7c_d8ca,
-                0x7387_afbc_40ce_4d46,
+                0x4b39_c9cf_4941_e852,
+                0x06e1_a8cf_f5c4_c576,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-valueof.js",
-                0x5e0e_7ca2_fa03_abfe,
-                0xb0a5_fad5_4783_aa84,
+                0xead3_3ced_400d_c12e,
+                0x2602_b652_318f_eeb4,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tolocalestring.js",
-                0x5e60_854c_8c35_5ef2,
-                0x0ee9_f07f_6d93_a91b,
+                0x03b4_1a39_3b80_132e,
+                0x6f03_584c_7ce4_6185,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tostring.js",
-                0x83e1_0378_da29_c578,
-                0xbc49_5282_fcdc_a36b,
+                0xbd60_30cb_6620_1f46,
+                0xe0fc_aacb_5cf4_19e3,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-valueof.js",
-                0xce35_225e_48a1_fbac,
-                0xe88c_bd6b_8a04_7907,
+                0x03c7_e377_21dd_8752,
+                0x7a41_a8dc_936d_0477,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -26059,8 +26230,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-result.js",
-                0x3ace_7735_43ff_3836,
-                0xee6e_d71d_0039_7026,
+                0x4b66_8a9f_d239_7dde,
+                0x94d3_e4d3_c6c7_880e,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -26093,7 +26264,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 0x8f7f_237c_72b4_1cde,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -27203,9 +27374,9 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const STATIC_SUBCLASS_DEFINITIONS: &str = r#"class MyUint8Array extends Uint8Array {}
 class MyFloat32Array extends Float32Array {}
 class MyBigInt64Array extends BigInt64Array {}"#;
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const SPLIT_TEST_TYPED_ARRAY_FINGERPRINT: u64 = 0x92c7_bac7_27f5_772d;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = SPLIT_TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const SPLIT_TEST_TYPED_ARRAY_FINGERPRINT: u64 = SPLIT_TEST_TYPED_ARRAY_PRELUDE_FNV1A;
 
         assert!(CASES.windows(2).all(|cases| cases[0].path < cases[1].path));
 
@@ -27621,9 +27792,9 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             "built-ins/TypedArray/prototype/values/resizable-buffer.js",
             "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = 12_362;
-        const SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = 0x92c7_bac7_27f5_772d;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const SPLIT_TEST_TYPED_ARRAY_BYTES: usize = SPLIT_TEST_TYPED_ARRAY_PRELUDE_BYTES;
+        const SPLIT_TEST_TYPED_ARRAY_FNV1A: u64 = SPLIT_TEST_TYPED_ARRAY_PRELUDE_FNV1A;
         const STATIC_RESIZABLE_ARRAY_BUFFER_BYTES: usize = 3_682;
         const STATIC_RESIZABLE_ARRAY_BUFFER_FNV1A: u64 = 0xa692_1818_39bc_0bb1;
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
@@ -29497,9 +29668,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xee6a_4c00_72e7_748b,
             0xfd94_0c3e_42b0_0d77,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = LOCAL_ASSERT_PRELUDE_FNV1A;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -30097,8 +30268,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xf03e_d6ef_3707_0d42,
             0xf1f1_6b24_52c0_7f78,
         ];
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = LOCAL_ASSERT_PRELUDE_FNV1A;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -30417,9 +30588,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xf572_aff0_e3c7_72ec,
             0xfdc9_8bc6_edcd_5f52,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = LOCAL_ASSERT_PRELUDE_FNV1A;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -30834,9 +31005,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xe316_5e75_7875_0a86,
             0xf34c_6487_a9cd_b66c,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = STA_PRELUDE_FNV1A;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = LOCAL_ASSERT_PRELUDE_FNV1A;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
