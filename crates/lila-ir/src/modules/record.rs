@@ -1630,6 +1630,37 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
         node.visit_with(self)
     }
 
+    /// An `await using` declaration is the third source of `[[HasTLA]]`.
+    ///
+    /// Its disposal awaits at the end of the enclosing statement list
+    /// (DisposeResources with an async-dispose hint), so a Module whose only
+    /// `await` is the one implied by `await using` still executes through an
+    /// asynchronous ExecuteModule and must be classified as such. This covers
+    /// the declaration form, including a classic `for (await using …;;)`
+    /// head, whose initializer visits the same `LexicalDeclaration`.
+    fn visit_lexical_declaration(
+        &mut self,
+        node: &'ast boa_ast::declaration::LexicalDeclaration,
+    ) -> ControlFlow<Self::BreakTy> {
+        if self.function_depth == 0
+            && matches!(node, boa_ast::declaration::LexicalDeclaration::AwaitUsing(_))
+        {
+            self.top_level_await = true;
+        }
+        node.visit_with(self)
+    }
+
+    /// The `for (await using x of …)` head form of the rule above.
+    fn visit_iterable_loop_initializer(
+        &mut self,
+        node: &'ast IterableLoopInitializer,
+    ) -> ControlFlow<Self::BreakTy> {
+        if self.function_depth == 0 && matches!(node, IterableLoopInitializer::AwaitUsing(_)) {
+            self.top_level_await = true;
+        }
+        node.visit_with(self)
+    }
+
     fn visit_function_body(&mut self, node: &'ast FunctionBody) -> ControlFlow<Self::BreakTy> {
         self.function_depth += 1;
         let result = node.visit_with(self);
@@ -2415,6 +2446,10 @@ mod tests {
         for source in [
             "await Promise.resolve(1);\n",
             "for await (const value of []) { value; }\n",
+            "await using resource = null;\n",
+            "{ await using resource = null; }\n",
+            "for (await using resource of []) { resource; }\n",
+            "for (await using resource = null; ; ) { break; }\n",
         ] {
             let record =
                 parse_module_record(&source_unit(source), 0, ModuleKey::from_host("main.mjs"))
@@ -2429,7 +2464,8 @@ mod tests {
     fn await_inside_a_function_is_not_top_level_await() {
         let record = record_of(
             "async function alpha() { await 1; }\n\
-             const beta = async () => { for await (const v of []) { v; } };\n",
+             const beta = async () => { for await (const v of []) { v; } };\n\
+             async function gamma() { await using resource = null; }\n",
         );
         assert!(!record.has_top_level_await);
     }

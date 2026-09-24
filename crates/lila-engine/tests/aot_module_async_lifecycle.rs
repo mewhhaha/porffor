@@ -247,3 +247,33 @@ print('async module resource lifetime');"#,
         None,
     );
 }
+
+#[test]
+fn top_level_await_using_makes_the_module_async_and_disposes_before_importers_run() {
+    success(
+        &[
+            (
+                "entry.js",
+                r#"import { disposed, syncDisposed, resource } from './dependency.js';
+if (!disposed || !syncDisposed || typeof resource !== 'object') throw 'dependency still live';
+let own = false;
+await using local = { async [Symbol.asyncDispose]() { own = true; print('entry disposed'); } };
+if (own) throw 'entry disposed early';
+print('entry body done');"#,
+            ),
+            (
+                "dependency.js",
+                r#"export let disposed = false;
+export let syncDisposed = false;
+await using resource = {
+  async [Symbol.asyncDispose]() { await 0; await 0; disposed = true; }
+};
+await using syncResource = { [Symbol.dispose]() { syncDisposed = true; } };
+export { resource };
+if (disposed || syncDisposed) throw 'disposed before module evaluation completed';"#,
+            ),
+        ],
+        &["entry body done", "entry disposed"],
+        None,
+    );
+}
