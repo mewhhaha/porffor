@@ -34,7 +34,7 @@ compatibility before sending those fields. Chinese conversion uses the
 [documented canonical calendar domain](intl-calendar-domain.md), including its
 retained astronomical interval and distant integer approximation.
 
-The profile supplies English, Arabic and simplified Chinese data, Gregorian,
+The profile supplies English, Arabic, simplified Chinese and German data, Gregorian,
 ISO and Chinese calendars, and all 77 CLDR 47 positional digit mappings. Named
 zones use the same pinned IANA transition authority as other Intl operations.
 Only complete locale/calendar profile entries participate in negotiation;

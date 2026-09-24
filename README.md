@@ -51,7 +51,7 @@ Published conformance counts are unchanged.
 
 The direct Wasm `Intl.DateTimeFormat` path now uses a pure host provider for
 pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
-`en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601 and
+`en`/`en-US`, `ar`/`ar-EG`, Simplified Chinese and `de`/`de-DE`, with Gregorian, ISO8601 and
 Chinese calendars and all 77 positional numbering systems. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
 The Instant locale method now uses that intrinsic boundary with exact

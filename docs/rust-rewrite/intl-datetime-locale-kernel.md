@@ -9,7 +9,11 @@ sources. There is no host-side JavaScript evaluator or opaque mutable host objec
 
 ## Pinned profiles
 
-The admitted locale inventory is en, en-US, ar, ar-EG, zh, zh-Hans and zh-Hans-CN.
+The admitted locale inventory is en, en-US, ar, ar-EG, zh, zh-Hans, zh-Hans-CN,
+de and de-DE. The German sources `common/main/de.xml` and `de_DE.xml` are the
+unchanged pinned CLDR 47 bytes (Git blobs `4c2d15d6548786041bde37fcdd3d8adedf50c058`
+and `8493f5b316f2abdcaeed25acf4ebba77ff8f493b`, the same members recorded in the
+NumberFormat source archive's CLDR input manifest).
 Unsupported requests use the specified locale lookup and default en-US selection;
 supportedLocalesOf returns only requested tags that match the same inventory.
 Gregorian, ISO8601 and Chinese calendars use the selected locale's inherited
