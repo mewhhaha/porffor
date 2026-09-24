@@ -15,6 +15,28 @@ artifact-assertion failure. The remaining groups and pinned replay are pending.
 See the [checkpoint findings and refresh commands](docs/rust-rewrite/completed-baseline-follow-up.md#arithmetic-completion-and-instant-locale-follow-up-2026-09-22).
 The published full-suite conformance counts remain unchanged.
 
+The Test262 runner's prelude contracts now match the vendored upstream suite
+at `7ab7faf` (2026-09-23). The TypedArray split dispatcher accepts only the new
+`testTypedArray.js` and copies its immutable-buffer argument factory and
+include/exclude factory selection verbatim; the literal-helper contract covers
+320 physical sources. The spec-exec `Test262Error`, like upstream `sta.js`, is
+callable without `new`. Cases that need immutable ArrayBuffers remain behind the
+explicit Wasm-AOT `immutable-arraybuffer` gate. On 2026-09-24 the release CLI
+(`LILA_TEST262_FORCE_CASE_RUNNER=1 lila --jobs 1 test262 run <dir>
+--execution-backend wasm-aot --threads 3 --timeout-ms 60000`) passed
+`TypedArray/prototype` `every` 88/88, `find` 72/72, `slice` 182/184 and
+`copyWithin` 122/130, `TypedArrayConstructors/ctors` 230/232 and
+`DataView/prototype/setInt8` 44/44.
+The four `slice`/`copyWithin` immutable-buffer executions are typed
+`Unsupported`. Upstream now runs the six `copyWithin`
+`coerced-values-*-detached*` executions through every argument factory; they
+time out at 60 s, and with a 600 s bound they exhaust the Wasm heap in
+`copyIntoArrayBuffer`'s element-wise index stores whether or not the split
+dispatcher is used. The two `ctors` failures
+(`throw-type-error-before-custom-proto-access.js`) also fail in the
+2026-09-07 baseline at the previous pin.
+Published conformance counts are unchanged.
+
 The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension
 options in order, resolves pinned provider aliases before and after overrides,
 and exposes eight additional getters. Locale canonicalization preserves valid
