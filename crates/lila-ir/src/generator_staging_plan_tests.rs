@@ -347,3 +347,16 @@ fn generator_expression_refusals_report_the_plan_reason() {
         .iter()
         .any(|diagnostic| diagnostic.message.ends_with("generator suspension")));
 }
+
+#[test]
+fn async_generator_suspending_patterns_are_refused_by_name() {
+    let program = lower_script("var x; async function* g(v) { [x = yield] = v; }");
+    assert!(!program.is_wasm_supported());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("async generator destructuring assignment whose pattern suspends")),
+        "{:?}",
+        program.diagnostics
+    );
+}

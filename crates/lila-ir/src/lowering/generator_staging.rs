@@ -633,6 +633,10 @@ impl ScriptLowerer<'_> {
         // An async generator's resume states are preplanned in visit order;
         // the structured shapes below allocate states as they lower.
         if self.current_resumable_plan.is_some() {
+            self.unsupported(
+                "async generator destructuring assignment whose pattern suspends has no \
+                 preplanned structured resume point",
+            );
             return None;
         }
         let value =

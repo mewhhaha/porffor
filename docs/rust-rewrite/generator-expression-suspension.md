@@ -100,9 +100,14 @@ The shapes that remain refused, each with its own `StagedYieldRejection`:
 
 Async generators keep their preplanned resume states; the structured
 destructuring lowering is synchronous-generator only and refuses explicitly
-inside an async generator. Suspending `var` initializers, `for-of`, `switch`
-and the other statement kinds listed by
-`GeneratorPlanRejection::YieldInUnsupportedStatement` are unchanged.
+("async generator destructuring assignment whose pattern suspends has no
+preplanned structured resume point"). Suspending `var` initializers, `for-of`,
+`switch` and the other statement kinds listed by
+`GeneratorPlanRejection::YieldInUnsupportedStatement` are unchanged. In
+particular the 24 `language/statements/for-of/dstr/*-yield-expr.js` executions
+put the suspending pattern in a `for-of` head; they now report
+`YieldInUnsupportedStatement` instead of the reason-less "generator
+suspension" and need a resumable synchronous `for-of` in plain generators.
 
 ## Verification
 
