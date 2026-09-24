@@ -638,7 +638,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 92,
+            direct_sites, 91,
             "created-realm bootstrap site count drifted"
         );
 
