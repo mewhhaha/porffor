@@ -15364,113 +15364,54 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
+    /// PutValue of an already-evaluated value into a property Reference that
+    /// is evaluated here — the per-iteration store of a for-in/for-of head
+    /// whose `LeftHandSideExpression` is a member expression (14.7.5.7 step
+    /// 6.g-h). The base may be any expression: `for ([let][1] in obj)` stores
+    /// through an array literal, `for ("s".x in obj)` through a primitive.
     fn lower_property_assign_value(
         &mut self,
         access: &PropertyAccess,
         value: TypedExpr,
     ) -> TypedExpr {
         self.record_caller_flow_invalidation();
-        if let PropertyAccess::Private(access) = access {
-            let Some(private_name_id) = self.current_private_name_id(access.field()) else {
-                return self.unsupported_expr("private class element");
-            };
-            return TypedExpr::from_info(
-                value.value_info(),
-                ExprIr::PrivateWrite {
-                    target: Box::new(self.lower_property_target(access.target())),
-                    private_name_id,
-                    value: Box::new(value),
-                },
-            );
+        match access {
+            PropertyAccess::Simple(access) => {
+                self.lower_ordinary_property_plain_assignment_value(access, value)
+            }
+            PropertyAccess::Private(access) => {
+                let Some(private_name_id) = self.current_private_name_id(access.field()) else {
+                    return self.unsupported_expr("private class element");
+                };
+                TypedExpr::from_info(
+                    value.value_info(),
+                    ExprIr::PrivateWrite {
+                        target: Box::new(self.lower_property_target(access.target())),
+                        private_name_id,
+                        value: Box::new(value),
+                    },
+                )
+            }
+            PropertyAccess::Super(access) => {
+                if self.class_context.is_none() {
+                    return self.unsupported_expr("object literal method");
+                }
+                let Some(key) = self.lower_super_property_key(access.field()) else {
+                    return TypedExpr::undefined();
+                };
+                let receiver = self.lower_current_this();
+                let strictness = self.reference_strictness();
+                TypedExpr::from_info(
+                    value.value_info(),
+                    ExprIr::SuperPropertyWrite {
+                        key,
+                        receiver: Box::new(receiver),
+                        value: Box::new(value),
+                        strictness,
+                    },
+                )
+            }
         }
-        let PropertyAccess::Simple(access) = access else {
-            return self.unsupported_expr("property assignment target");
-        };
-        let target = self.lower_property_target(access.target());
-        let key = match target.kind {
-            ValueKind::Object | ValueKind::Function => match access.field() {
-                PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                    self.interner.resolve_expect(name.sym()).to_string(),
-                ),
-                PropertyAccessField::Expr(expr) => {
-                    if let Some(key) = self.lower_static_property_key(expr) {
-                        key
-                    } else if let Some(index) = self.try_constant_array_index_expr(expr) {
-                        if self.is_typed_array_value(&target) {
-                            PropertyKeyIr::ArrayIndex(Box::new(
-                                self.static_number_index_expr(index),
-                            ))
-                        } else if let Some(key) = self.static_number_property_key(expr) {
-                            PropertyKeyIr::StaticString(key)
-                        } else {
-                            return self.unsupported_expr("object property key must be string");
-                        }
-                    } else if self.property_access_field_is_proven_numeric(access.field()) {
-                        let mut lowered = self.lower_expression(expr);
-                        if self.narrow_array_index_expr(&mut lowered) {
-                            PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                        } else {
-                            match self.lower_dynamic_object_property_key(expr) {
-                                Some(key) => key,
-                                None => {
-                                    return self
-                                        .unsupported_expr("object property key must be string");
-                                }
-                            }
-                        }
-                    } else {
-                        match self.lower_dynamic_object_property_key(expr) {
-                            Some(key) => key,
-                            None => {
-                                return self.unsupported_expr("object property key must be string");
-                            }
-                        }
-                    }
-                }
-            },
-            ValueKind::Dynamic | ValueKind::Undefined => match access.field() {
-                PropertyAccessField::Const(name) => PropertyKeyIr::StaticString(
-                    self.interner.resolve_expect(name.sym()).to_string(),
-                ),
-                PropertyAccessField::Expr(expr) => {
-                    if let Some(index) = self.try_constant_array_index_expr(expr) {
-                        PropertyKeyIr::ArrayIndex(Box::new(self.static_number_index_expr(index)))
-                    } else if self.property_access_field_is_proven_numeric(access.field()) {
-                        let mut lowered = self.lower_expression(expr);
-                        if self.narrow_array_index_expr(&mut lowered) {
-                            PropertyKeyIr::ArrayIndex(Box::new(lowered))
-                        } else {
-                            match self.lower_dynamic_object_property_key(expr) {
-                                Some(key) => key,
-                                None => {
-                                    return self
-                                        .unsupported_expr("object property key must be string");
-                                }
-                            }
-                        }
-                    } else {
-                        match self.lower_dynamic_object_property_key(expr) {
-                            Some(key) => key,
-                            None => {
-                                return self.unsupported_expr("object property key must be string");
-                            }
-                        }
-                    }
-                }
-            },
-            _ => return self.unsupported_expr("property access on non-object target"),
-        };
-        self.update_written_shape(access.target(), &key, &value.value_info());
-        let strictness = self.reference_strictness();
-        TypedExpr::from_info(
-            value.value_info(),
-            ExprIr::PropertyWrite {
-                target: Box::new(target),
-                key,
-                value: Box::new(value),
-                strictness,
-            },
-        )
     }
 
     fn lower_property_assign(&mut self, access: &PropertyAccess, rhs: &Expression) -> TypedExpr {

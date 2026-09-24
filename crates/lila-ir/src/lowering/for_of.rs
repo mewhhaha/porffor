@@ -285,9 +285,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             // Re-evaluate the property Reference on each iteration, after
             // the iterator value has been stored in a private temporary.
-            IterableLoopInitializer::Access(
-                access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
-            ) => {
+            IterableLoopInitializer::Access(access) => {
                 access_initializer = Some(access.clone());
                 (
                     LoweredForOfHeadKind::Assignment,

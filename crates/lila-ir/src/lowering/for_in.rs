@@ -74,12 +74,11 @@ impl<'a> ScriptLowerer<'a> {
                         pattern_initializer = Some((BindingMode::Const, pattern.clone()));
                         (BindingMode::Let, self.alloc_temp_binding_name("forin"))
                     }
-                    // `for (obj.key in …)` and `for (this.#field in …)` assign to
+                    // `for (obj.key in …)`, `for ([let][1] in …)`,
+                    // `for (this.#field in …)` and `for (super.x in …)` assign to
                     // a reference the spec re-evaluates every iteration, so the key
                     // lands in a temporary and the body prefix performs the store.
-                    IterableLoopInitializer::Access(
-                        access @ (PropertyAccess::Simple(_) | PropertyAccess::Private(_)),
-                    ) => {
+                    IterableLoopInitializer::Access(access) => {
                         access_initializer = Some(access.clone());
                         (
                             BindingMode::Let,

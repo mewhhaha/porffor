@@ -1334,6 +1334,46 @@ impl<'a> ScriptLowerer<'a> {
             self.observe_all_planned_source_as_unknown_property_hooks();
             self.invalidate_unknown_user_code_effects();
         }
+        self.finish_ordinary_property_plain_assignment(
+            access,
+            plan,
+            referenced_name,
+            metadata,
+            rhs_value,
+            rhs_may_have_intervening_effects,
+        )
+    }
+
+    /// PutValue of an already-evaluated value into one ordinary property
+    /// Reference, as a for-in/for-of head `LeftHandSideExpression` does on
+    /// every iteration (14.7.5.7 step 6.h.i): the Reference's base and key are
+    /// evaluated here, after the value, and nothing runs between them and the
+    /// store.
+    pub(super) fn lower_ordinary_property_plain_assignment_value(
+        &mut self,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+        value: TypedExpr,
+    ) -> TypedExpr {
+        let (plan, referenced_name, metadata) = self.lower_ordinary_property_reference_plan(access);
+        self.finish_ordinary_property_plain_assignment(
+            access,
+            plan,
+            referenced_name,
+            metadata,
+            value,
+            false,
+        )
+    }
+
+    fn finish_ordinary_property_plain_assignment(
+        &mut self,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+        plan: OrdinaryPropertyReferencePlan,
+        referenced_name: PropertyKeyIr,
+        metadata: OrdinaryPropertyReferenceMetadata,
+        rhs_value: TypedExpr,
+        rhs_may_have_intervening_effects: bool,
+    ) -> TypedExpr {
         let written_value_info = rhs_value.value_info();
         let possible_setters =
             self.possible_ordinary_property_setters(&metadata, rhs_may_have_intervening_effects);

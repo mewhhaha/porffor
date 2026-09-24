@@ -242,6 +242,29 @@ fn assignment_heads_preserve_the_empty_body_completion() {
 }
 
 #[test]
+fn member_expression_heads_store_through_any_base_each_iteration() {
+    assert_enumeration(
+        r#"
+var let, seen = [];
+Object.defineProperty(Array.prototype, "1", {
+  set: function (value) { seen.push(value); },
+  configurable: true
+});
+for ([let][1] in { a: 1, b: 2 }) ;
+delete Array.prototype[1];
+if (seen.join() !== "a,b") throw new Error("array literal base: " + seen.join());
+var target = [];
+for ([target][0][target.length] in { c: 1, d: 2 }) ;
+if (target.join() !== "c,d") throw new Error("re-evaluated key: " + target.join());
+for ("primitive".key in { e: 1 }) ;
+var values = [];
+for ([values][0][values.length] of ["f", "g"]) ;
+if (values.join() !== "f,g") throw new Error("for-of member head: " + values.join());
+"#,
+    );
+}
+
+#[test]
 fn builtin_and_assertion_shaped_loops_execute_their_observable_bodies() {
     assert_enumeration(
         r#"
