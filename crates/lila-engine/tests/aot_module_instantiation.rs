@@ -725,3 +725,34 @@ print(events.join(','));
         None,
     );
 }
+
+#[test]
+fn json_modules_export_one_parsed_default_shared_by_every_import_form() {
+    assert_modules(
+        &[
+            (
+                "entry.js",
+                r#"
+import data from './data.json' with { type: 'json' };
+import * as ns from './data.json' with { type: 'json' };
+import defer * as deferred from './data.json' with { type: 'json' };
+if (ns.default !== data || deferred.default !== data) throw 'one module record';
+if (Object.getOwnPropertyNames(ns).join() !== 'default') throw 'default only';
+if (Object.getPrototypeOf(data) !== Object.prototype || !Object.isExtensible(data)) throw 'plain object';
+if (!Array.isArray(data.__proto__) || data.__proto__.length !== 1) throw '__proto__ is an own property';
+if (data.dup !== 2 || Object.keys(data).join() !== 'text,dup,__proto__,nested') throw 'duplicate keys keep first position';
+if (data.text !== 'a /' || data.nested[0] !== null || 1 / data.nested[1] !== -Infinity) throw 'values';
+import('./data.json', { with: { type: 'json' } }).then((dynamic) => {
+  print(dynamic.default === data ? 'json module' : 'distinct dynamic record');
+});
+"#,
+            ),
+            (
+                "data.json",
+                "{ \"text\": \"a\u{2028}\\/\", \"dup\": 1, \"__proto__\": [0], \"dup\": 2, \"nested\": [null, -0] }",
+            ),
+        ],
+        &["json module"],
+        None,
+    );
+}

@@ -24,13 +24,62 @@ use module_paths::normalize;
 pub enum LoadedModuleKind {
     /// A Source Text Module Record's source text.
     Source(String),
-    // No `Json` variant on purpose. A JSON module is `ParseJSONModule`'d, not
-    // parsed as ECMAScript, and resolves exactly one name (`default`). Until
-    // that record type exists, serving JSON text as a Source Text Module
-    // Record would either be a SyntaxError (`{"a": 1}` is not a module body)
-    // or, worse, parse as valid JS with zero exports (`[1, 2]`, `"s"`) and
-    // report a bogus `MissingExport`. `load` rejects `.json` instead, which
-    // leaves the request unresolved and produces one honest link error.
+    /// The text of a JSON module, requested with `with { type: "json" }`.
+    ///
+    /// It is never parsed as ECMAScript: the graph loader hands it to
+    /// `ParseJSONModule` ([`ModuleSourceIr::json`]), whose failure is a failed
+    /// load of the request that named it.
+    Json(String),
+}
+
+/// The module type a request selects through its `type` import attribute.
+///
+/// The module map is keyed by the resolved module *and* its type, so a file
+/// imported both as JavaScript and as JSON is two module records. The type is
+/// therefore part of the [`ModuleKey`] this host mints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostModuleType {
+    JavaScript,
+    Json,
+}
+
+impl HostModuleType {
+    /// The host-owned key namespace of JSON modules.
+    const JSON_KEY_PREFIX: &'static str = "json:";
+
+    /// `AllImportAttributesSupported` plus the module-type selection: `type`
+    /// is the only supported key and `"json"` its only supported value.
+    fn of_request(request: &ModuleRequestKeyIr) -> Result<Self, ModuleLoadError> {
+        let mut module_type = Self::JavaScript;
+        for attribute in request.attributes() {
+            match (attribute.key.as_str(), attribute.value.as_str()) {
+                ("type", "json") => module_type = Self::Json,
+                _ => {
+                    return Err(ModuleLoadError::UnsupportedAttribute {
+                        key: attribute.key.clone(),
+                        value: attribute.value.clone(),
+                    });
+                }
+            }
+        }
+        Ok(module_type)
+    }
+
+    fn key(self, path: &Path) -> ModuleKey {
+        let path = path.to_string_lossy();
+        match self {
+            Self::JavaScript => ModuleKey::from_host(path.into_owned()),
+            Self::Json => ModuleKey::from_host(format!("{}{path}", Self::JSON_KEY_PREFIX)),
+        }
+    }
+
+    /// Splits a key this host minted back into its type and path.
+    fn of_key(key: &ModuleKey) -> (Self, &str) {
+        match key.as_str().strip_prefix(Self::JSON_KEY_PREFIX) {
+            Some(path) => (Self::Json, path),
+            None => (Self::JavaScript, key.as_str()),
+        }
+    }
 }
 
 /// One loaded module.
@@ -312,16 +361,10 @@ impl HostModuleLoader for FilesystemModuleLoader {
         referrer: Option<&ModuleKey>,
         request: &ModuleRequestKeyIr,
     ) -> Result<ModuleKey, ModuleLoadError> {
-        // No import attribute is implemented, `type: "json"` included: see
-        // [`LoadedModuleKind`]. `AllImportAttributesSupported` failing is a
-        // resolution failure, which the caller turns into a link error rather
-        // than aborting the compile.
-        if let Some(attribute) = request.attributes().first() {
-            return Err(ModuleLoadError::UnsupportedAttribute {
-                key: attribute.key.clone(),
-                value: attribute.value.clone(),
-            });
-        }
+        // `AllImportAttributesSupported` failing is a resolution failure,
+        // which the caller turns into a link error rather than aborting the
+        // compile.
+        let module_type = HostModuleType::of_request(request)?;
         let specifier = request.specifier();
         let base = referrer
             .map(|key| PathBuf::from(key.as_str()))
@@ -345,9 +388,7 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 referrer: referrer.cloned(),
             });
         }
-        Ok(ModuleKey::from_host(
-            resolved.to_string_lossy().into_owned(),
-        ))
+        Ok(module_type.key(&resolved))
     }
 
     fn computed_import_specifiers(&self) -> &ComputedImportSpecifiers {
@@ -368,26 +409,34 @@ impl HostModuleLoader for FilesystemModuleLoader {
         // Entry loads and public trait calls need not pass through resolve.
         // Revalidate the path here as well: an earlier resolution is not an
         // enduring authority to read a path that now points outside the root.
-        let path = self.confine(key.as_str(), Path::new(key.as_str()))?;
+        let (module_type, path) = HostModuleType::of_key(key);
+        let path = self.confine(key.as_str(), Path::new(path))?;
         let text = std::fs::read_to_string(&path).map_err(|error| ModuleLoadError::Io {
             key: key.clone(),
             message: error.to_string(),
         })?;
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
-            // A `.json` file is a JSON module whichever way it was imported —
-            // with the attribute (16.2.1.7 module-type check) or without it.
-            // Neither form is implemented; see [`LoadedModuleKind`].
-            return Err(ModuleLoadError::UnsupportedAttribute {
-                key: "type".to_string(),
-                value: "json".to_string(),
-            });
-        }
+        let kind = match module_type {
+            HostModuleType::Json => LoadedModuleKind::Json(text),
+            // A `.json` file is JSON, not a module body. Imported without
+            // `with { type: "json" }` it fails the module-type check instead of
+            // reaching the ECMAScript parser, where `[1, 2]` would parse as a
+            // module with no exports.
+            HostModuleType::JavaScript
+                if path
+                    .extension()
+                    .is_some_and(|extension| extension == "json") =>
+            {
+                return Err(ModuleLoadError::Denied {
+                    specifier: key.as_str().to_string(),
+                    reason: "a JSON module must be imported with `with { type: \"json\" }`"
+                        .to_string(),
+                });
+            }
+            HostModuleType::JavaScript => LoadedModuleKind::Source(text),
+        };
         Ok(LoadedModule {
             meta_url: format!("file://{}", path.display()),
-            kind: LoadedModuleKind::Source(text),
+            kind,
             key: key.clone(),
         })
     }
@@ -417,7 +466,19 @@ pub fn load_module_graph(
         ),
         ModuleEntry::HostLoad { .. } => {
             let loaded = loader.load(&entry_key)?;
-            ModuleSourceIr::new(loaded.key, module_text(loaded.kind), loaded.meta_url)
+            match loaded.kind {
+                LoadedModuleKind::Source(text) => {
+                    ModuleSourceIr::new(loaded.key, text, loaded.meta_url)
+                }
+                // An entry is located, not requested: no `type` attribute
+                // selected JSON for it.
+                LoadedModuleKind::Json(_) => {
+                    return Err(ModuleLoadError::Denied {
+                        specifier: entry_key.as_str().to_string(),
+                        reason: "a module graph entry must be JavaScript".to_string(),
+                    });
+                }
+            }
         }
     };
 
@@ -516,24 +577,35 @@ fn load_module_graph_from_entry(
             let Ok(loaded) = loader.load(&target_key) else {
                 continue;
             };
-            let text = module_text(loaded.kind);
+            let loaded_key = loaded.key.clone();
+            let module = match loaded.kind {
+                LoadedModuleKind::Source(text) => {
+                    ModuleSourceIr::new(loaded.key, text, loaded.meta_url)
+                }
+                // `ParseJSONModule` runs as part of the load, so its
+                // SyntaxError fails the load exactly like a missing file.
+                LoadedModuleKind::Json(text) => {
+                    match ModuleSourceIr::json(loaded.key, &text, loaded.meta_url) {
+                        Ok(module) => module,
+                        Err(_) => continue,
+                    }
+                }
+            };
             // The load may report a key the graph already holds: module map
             // identity is keyed on the loaded key, not on the specifier that
             // reached it. Text that disagrees is pushed through as a duplicate
             // key so `build_graph` reports one `InconsistentLoad` rather than
             // silently running one of the two.
-            let existing = indices.get(&loaded.key).copied();
+            let existing = indices.get(&loaded_key).copied();
             let target = match existing {
-                Some(index) if modules[index as usize].source_text() == text => index,
+                Some(index) if modules[index as usize].source_text() == module.source_text() => {
+                    index
+                }
                 _ => {
                     let index = u32::try_from(modules.len()).unwrap_or(u32::MAX);
-                    modules.push(ModuleSourceIr::new(
-                        loaded.key.clone(),
-                        text,
-                        loaded.meta_url,
-                    ));
+                    modules.push(module);
                     if existing.is_none() {
-                        indices.insert(loaded.key, index);
+                        indices.insert(loaded_key, index);
                     }
                     index
                 }
@@ -548,13 +620,6 @@ fn load_module_graph_from_entry(
         entry: 0,
         resolutions,
     })
-}
-
-/// Source text of a loaded module, whatever kind it is.
-fn module_text(kind: LoadedModuleKind) -> String {
-    match kind {
-        LoadedModuleKind::Source(text) => text,
-    }
 }
 
 #[cfg(test)]
@@ -914,13 +979,26 @@ mod tests {
     }
 
     #[test]
-    fn a_json_module_is_rejected_rather_than_parsed_as_ecmascript() {
+    fn a_json_module_loads_only_under_its_type_attribute() {
         let base = temp_base("json");
         let root = base.join("root");
-        write_tree(&root, &[("data.json", "{\"a\": 1}")]);
+        write_tree(
+            &root,
+            &[
+                ("data.json", "{\"a\": 1}"),
+                ("invalid.json", "{\"a\": 1,}"),
+                (
+                    "entry.js",
+                    "import data from './data.json' with { type: 'json' };\n\
+                     import './invalid.json' with { type: 'json' };\n\
+                     import './data.json';",
+                ),
+            ],
+        );
         let loader = loader_at(&root);
 
-        // With the attribute: `AllImportAttributesSupported` fails.
+        // With the attribute: a JSON module record, keyed apart from the file's
+        // JavaScript identity.
         let request = ModuleRequestKeyIr::try_new(
             "./data.json",
             vec![ImportAttributeIr {
@@ -930,24 +1008,42 @@ mod tests {
         )
         .expect("the test attribute key is unique");
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
-        assert!(
-            matches!(
-                loader.resolve(Some(&referrer), &request),
-                Err(ModuleLoadError::UnsupportedAttribute { .. })
-            ),
-            "type=json must not resolve while JSON modules are unimplemented"
+        let key = loader
+            .resolve(Some(&referrer), &request)
+            .expect("type=json resolves");
+        let javascript_key = ModuleKey::from_host(
+            root.join("data.json")
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
         );
+        assert_ne!(key, javascript_key);
+        assert!(matches!(
+            loader.load(&key).map(|loaded| loaded.kind),
+            Ok(LoadedModuleKind::Json(text)) if text == "{\"a\": 1}"
+        ));
 
         // Without it: the load refuses, so the JSON text never reaches the
         // ECMAScript parser as a module body.
-        let key = ModuleKey::from_host(root.join("data.json").to_string_lossy().into_owned());
         assert!(
             matches!(
-                loader.load(&key),
-                Err(ModuleLoadError::UnsupportedAttribute { .. })
+                loader.load(&javascript_key),
+                Err(ModuleLoadError::Denied { .. })
             ),
             "a .json file must not load as a Source Text Module Record"
         );
+
+        // In a graph: the valid JSON module is synthesized, the invalid one
+        // fails ParseJSONModule and the untyped import fails the type check;
+        // both failures leave their requests unresolved.
+        let sources = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        assert_eq!(sources.modules.len(), 2);
+        assert_eq!(
+            sources.modules[1].source_text(),
+            "export default ({\"a\":1});\n"
+        );
+        assert_eq!(sources.resolutions.len(), 1);
         let _ = fs::remove_dir_all(&base);
     }
 

@@ -64,6 +64,21 @@ impl ModuleSourceIr {
         }
     }
 
+    /// Performs `ParseJSONModule` on a loaded JSON module's text.
+    ///
+    /// # Errors
+    /// Returns the `SyntaxError` `ParseJSONModule` throws when `json_text` is
+    /// not a JSON text. That happens while the host loads the module, so the
+    /// caller treats it as a failed load of the request that named it.
+    pub fn json(
+        key: ModuleKey,
+        json_text: &str,
+        meta_url: String,
+    ) -> Result<Self, super::json_module::JsonModuleSyntaxError> {
+        let source_text = super::json_module::synthesize_json_module_source(json_text)?;
+        Ok(Self::new(key, source_text, meta_url))
+    }
+
     /// Builds a graph entry from a module already parsed by the compilation
     /// front end. This is the route that prevents the entry module from being
     /// parsed again merely because it participates in a graph.
