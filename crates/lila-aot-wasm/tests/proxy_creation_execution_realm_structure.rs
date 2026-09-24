@@ -146,12 +146,14 @@ fn proxy_creation_consumers_cannot_select_entry_realm_prototypes() {
         assert!(!body.contains("OBJECT_PROTOTYPE_GLOBAL_INDEX"));
         assert!(!body.contains("FUNCTION_PROTOTYPE_GLOBAL_INDEX"));
     }
+    // NewTarget undefined (28.2.1.1 step 1), then ProxyCreate's two checks.
     assert_eq!(
         constructor
             .matches("emit_throw_proxy_creation_type_error(")
             .count(),
-        2
+        3
     );
+    assert!(constructor.contains("\"Constructor Proxy requires 'new'\""));
     assert_eq!(
         revocable
             .matches("emit_throw_proxy_creation_type_error(")
@@ -188,7 +190,7 @@ fn proxy_creation_consumers_cannot_select_entry_realm_prototypes() {
 fn created_realm_publication_and_behavior_witness_cover_all_products() {
     let proxy_publication = bounded(
         HOST_SOURCE,
-        "self.emit_function_value_payload_in_realm(\n            &proxy_meta,",
+        "self.emit_realm_proxy_constructor_value_payload(\n            &realm_functions,",
         "self.emit_function_value_payload_in_realm(\n            &map_meta,",
     );
     for local in ["proxy_constructor_local", "revocable_payload_local"] {

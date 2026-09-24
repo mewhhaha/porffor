@@ -95,11 +95,19 @@ fn lowering_selects_owner_and_rejects_initializer_suspension_before_lowering() {
         "    pub(super) fn lower_module_instantiation_boundary(",
     );
     assert!(admission.contains("owner.sync_disposable_scope_owner()"));
-    assert!(admission.contains("matches!("));
-    assert!(admission.contains("FunctionProtocolIr::ModuleActivation"));
-    assert!(admission.contains("FunctionProtocolIr::AsyncModuleActivation"));
-    assert!(admission.contains("owner.parent_owner_id.as_deref()"));
+    assert!(admission
+        .contains("self.owner_is_within_module_activation(self.current_owner_id.as_str())"));
     assert!(admission.contains("return None;"));
+    // The module-activation walk is shared with the root `this` selection.
+    let module_activation = bounded(
+        MODULE_LOWERING_SOURCE,
+        "    fn owner_is_within_module_activation(",
+        "    pub(super) fn root_this_binding_for_owner(",
+    );
+    assert!(module_activation.contains("matches!("));
+    assert!(module_activation.contains("FunctionProtocolIr::ModuleActivation"));
+    assert!(module_activation.contains("FunctionProtocolIr::AsyncModuleActivation"));
+    assert!(module_activation.contains("owner.parent_owner_id.as_deref()"));
 
     let lower = bounded(
         LOWERING_SOURCE,

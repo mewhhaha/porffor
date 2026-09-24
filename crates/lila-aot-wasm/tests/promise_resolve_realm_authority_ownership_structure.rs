@@ -172,7 +172,9 @@ fn resolve_realm_authority_is_the_exact_private_no_capability_domain() {
             !resolve_context.contains(&format!("impl{capability}forPromiseResolveRealmAuthority"))
         );
     }
-    assert_eq!(promise.matches("PromiseResolveRealmAuthority").count(), 4);
+    // Await, the async-generator return, the declaration, and Promise.try's
+    // PromiseResolve (ECMA-262 #3883) each name the authority in promise.rs.
+    assert_eq!(promise.matches("PromiseResolveRealmAuthority").count(), 5);
     assert_eq!(
         resolve_context
             .matches("PromiseResolveRealmAuthority")
@@ -238,7 +240,7 @@ fn three_factories_take_owned_authority_and_forward_it_once() {
 }
 
 #[test]
-fn four_producer_routes_preserve_await_generator_and_finally_ownership() {
+fn producer_routes_preserve_await_generator_finally_and_try_ownership() {
     let promise = lexically_normalized(PROMISE);
     let resolve_context = lexically_normalized(PROMISE_RESOLVE_REALM_CONTEXT);
     let finally_completion = lexically_normalized(PROMISE_FINALLY_COMPLETION);
@@ -252,7 +254,18 @@ fn four_producer_routes_preserve_await_generator_and_finally_ownership() {
             + finally_completion
                 .matches("PromiseResolveRealmAuthority::CurrentFunction")
                 .count(),
-        3
+        4
+    );
+    let promise_try = bounded(
+        &promise,
+        "pub(crate)fnemit_promise_try(",
+        "fnemit_promise_combinator_reject_current_throw(",
+    );
+    assert_eq!(
+        promise_try
+            .matches("PromiseResolveRealmAuthority::CurrentFunction")
+            .count(),
+        1
     );
     assert_eq!(
         promise

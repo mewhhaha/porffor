@@ -40,10 +40,9 @@ impl<'a> ScriptLowerer<'a> {
             .with_environment_chain
             .select_preceding(reference.declarative_position());
         if let Some(objects) = selected {
-            self.lower_with_scoped_identifier_write(source_name, value, objects, reference)
-        } else {
-            self.lower_located_identifier_assign_value(source_name, value, reference)
+            return self.lower_with_scoped_identifier_write(source_name, value, objects, reference);
         }
+        self.lower_located_identifier_assign_value(source_name, value, reference)
     }
 
     pub(super) fn lower_assign(

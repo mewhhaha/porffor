@@ -311,7 +311,9 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
         (
             "builtins/object/get_own_property_descriptor.rs",
             "self.emit_alloc_data_descriptor_from_locals(",
-            10,
+            // ArrayBuffer/DataView @@toStringTag are ordinary prototype data
+            // properties; their hard-coded descriptor branches are gone.
+            8,
         ),
         (
             "builtins/object/get_own_property_descriptor.rs",

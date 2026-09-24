@@ -43,48 +43,61 @@ fn tostring_consumers_use_typed_brand_authorities_before_tag_lookup() {
     assert!(is_array.contains("self.emit_throw_current_function_realm_type_error("));
     assert!(!is_array.contains("self.emit_throw_runtime_error("));
 
+    // The builtin body is a thin receiver adapter over the one shared
+    // Object.prototype.toString algorithm, so the two cannot drift.
     let direct = bounded(
         OBJECT_SOURCE,
         "pub(super) fn compile_object_prototype_to_string_builtin(",
         "pub(super) fn compile_object_prototype_value_of_builtin(",
     );
-    let fallback = bounded(
+    assert_eq!(
+        direct
+            .matches("self.emit_object_prototype_to_string_result_from_locals(")
+            .count(),
+        1
+    );
+    for duplicated in [
+        "self.emit_is_array_i64(",
+        "self.emit_is_callable_i32(",
+        "self.emit_object_read(",
+    ] {
+        assert!(!direct.contains(duplicated), "{duplicated}");
+    }
+
+    let source = bounded(
         ARRAY_SOURCE,
         "pub(crate) fn emit_object_prototype_to_string_result_from_locals(",
         "pub(crate) fn compile_typed_array_prototype_to_string_builtin(",
     );
-
-    for source in [direct, fallback] {
-        assert_eq!(source.matches("self.emit_is_array_i64(").count(), 1);
-        assert_eq!(source.matches("self.emit_is_callable_i32(").count(), 1);
-        assert_before(source, "self.emit_is_array_i64(", "self.emit_object_read(");
-        assert_before(
-            source,
-            "self.emit_is_array_i64(",
-            "self.emit_is_callable_i32(",
+    assert_eq!(source.matches("self.emit_is_array_i64(").count(), 1);
+    assert_eq!(source.matches("self.emit_is_callable_i32(").count(), 1);
+    assert_before(source, "self.emit_is_array_i64(", "self.emit_object_read(");
+    assert_before(
+        source,
+        "self.emit_is_array_i64(",
+        "self.emit_is_callable_i32(",
+    );
+    assert_before(
+        source,
+        "self.emit_is_callable_i32(",
+        "self.emit_object_read(",
+    );
+    for builtin_tag_authority in [
+        "(BOXED_PRIMITIVE_KIND_STRING, \"[object String]\")",
+        "ValueKind::Arguments.tag()",
+        "BOXED_PRIMITIVE_KIND_BOOLEAN",
+        "BOXED_PRIMITIVE_KIND_NUMBER",
+        "OBJECT_INTERNAL_BRAND_ERROR",
+        "OBJECT_INTERNAL_BRAND_DATE",
+        "OBJECT_INTERNAL_BRAND_REGEXP",
+    ] {
+        assert!(
+            source.contains(builtin_tag_authority),
+            "missing builtin-tag authority: {builtin_tag_authority}"
         );
-        assert_before(
-            source,
-            "self.emit_is_callable_i32(",
-            "self.emit_object_read(",
-        );
-        for builtin_tag_authority in [
-            "(ValueKind::String, \"[object String]\")",
-            "(ValueKind::Arguments, \"[object Arguments]\")",
-            "BOXED_PRIMITIVE_KIND_BOOLEAN",
-            "BOXED_PRIMITIVE_KIND_NUMBER",
-            "OBJECT_INTERNAL_BRAND_ERROR",
-            "OBJECT_INTERNAL_BRAND_DATE",
-            "OBJECT_INTERNAL_BRAND_REGEXP",
-        ] {
-            assert!(
-                source.contains(builtin_tag_authority),
-                "missing builtin-tag authority: {builtin_tag_authority}"
-            );
-        }
-        assert!(!source.contains("HEAP_OBJECT_BOXED_PAYLOAD_OFFSET"));
-        assert!(!source.contains("PROXY_HANDLER_PAYLOAD_MIN"));
     }
+    assert!(!source.contains("HEAP_OBJECT_BOXED_PAYLOAD_OFFSET"));
+    assert!(!source.contains("PROXY_HANDLER_PAYLOAD_MIN"));
 }
 
 #[test]

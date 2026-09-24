@@ -18,14 +18,17 @@ bootstrap's no-allocation behavior.
 
 ## Producer and consumer boundary
 
-The seven producer sites remain fixed:
+The nine producer sites remain fixed:
 
 - ordinary function materialization and created-Realm builtin materialization
   select `Automatic`;
-- the created-Realm Array constructor, the created-Realm hidden
-  `%TypedArray%`, the entry hidden `%TypedArray%`, `%GeneratorFunction%`, and
-  the shared `%AsyncFunction%` / `%AsyncGeneratorFunction%` constructor loop
-  select `BootstrapSupplied`.
+- the created-Realm Array constructor, the created-Realm `%Proxy%`, the
+  created-Realm hidden `%TypedArray%`, the entry hidden `%TypedArray%`,
+  `%GeneratorFunction%`, and the shared `%AsyncFunction%` /
+  `%AsyncGeneratorFunction%` constructor loop select `BootstrapSupplied`;
+- the entry standard-constructor installer names both arms: `%Proxy%` has no
+  `prototype` property (28.2.2) and selects `BootstrapSupplied`, every other
+  standard constructor selects `Automatic`.
 
 The single consumer retains the existing HTMLDDA exclusion and the exact
 constructable-or-generator gate. Once admitted, prototype allocation, function
@@ -38,7 +41,7 @@ object is published.
 
 This closure changes no emitted instruction, local reservation, heap store,
 descriptor flag or bootstrap order. The bounded structure guard recursively
-pins all thirteen production mentions, each of the seven producers, the exhaustive
+pins all sixteen production mentions, each of the nine producers, the exhaustive
 projection and the ordered allocation steps. Existing automatic and
 bootstrap-supplied function-prototype CLI fixtures remain the focused runtime
 witnesses. The structure target passes `4/4`; the automatic-prototype and

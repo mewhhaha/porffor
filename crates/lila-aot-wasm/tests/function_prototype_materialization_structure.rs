@@ -76,19 +76,19 @@ pub(crate) enum FunctionPrototypeMaterialization {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionPrototypeMaterialization"),
-        13,
-        "one declaration, one import, two parameters, seven producers and two exhaustive arms own every mention"
+        16,
+        "one declaration, one import, two parameters, nine producers (the entry standard installer names both arms) and two exhaustive arms own every mention"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionPrototypeMaterialization::Automatic"),
-        3
+        4
     );
     assert_eq!(
         count_in_rust_sources(
             &source_root,
             "FunctionPrototypeMaterialization::BootstrapSupplied"
         ),
-        6
+        8
     );
     for forbidden in [
         "impl FunctionPrototypeMaterialization",
@@ -102,7 +102,7 @@ pub(crate) enum FunctionPrototypeMaterialization {
 }
 
 #[test]
-fn seven_producers_select_the_exact_materialization_policy() {
+fn nine_producers_select_the_exact_materialization_policy() {
     let ordinary_wrapper = bounded(
         FUNCTIONS_SOURCE,
         "    pub(crate) fn emit_function_value_payload(\n",
@@ -132,6 +132,10 @@ fn seven_producers_select_the_exact_materialization_policy() {
     for (start, end) in [
         (
             "    pub(crate) fn emit_realm_array_constructor_value_payload(\n",
+            "    /// Materialize the created realm's `%Proxy%` constructor",
+        ),
+        (
+            "    pub(crate) fn emit_realm_proxy_constructor_value_payload(\n",
             "    /// Materialize the created realm's hidden `%TypedArray%` constructor",
         ),
         (
@@ -172,6 +176,26 @@ fn seven_producers_select_the_exact_materialization_policy() {
         );
         assert!(!bootstrap_producer.contains("FunctionPrototypeMaterialization::Automatic"));
     }
+
+    // The entry standard-constructor installer is the one producer that names
+    // both arms: only %Proxy% lacks an own `prototype` (28.2.2).
+    let standard_installer = bounded(
+        BOOTSTRAP_SOURCE,
+        "let prototype_materialization = if matches!(builtin, StandardBuiltinId::ProxyConstructor) {",
+        "self.emit_function_value_payload_with_prototype_materialization(",
+    );
+    assert_eq!(
+        standard_installer
+            .matches("FunctionPrototypeMaterialization::BootstrapSupplied")
+            .count(),
+        1
+    );
+    assert_eq!(
+        standard_installer
+            .matches("FunctionPrototypeMaterialization::Automatic")
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -296,7 +320,7 @@ fn exhaustive_policy_projection_preserves_the_automatic_allocation_gate() {
 #[test]
 fn contract_and_t09_record_the_exhaustive_source_equivalence() {
     for marker in [
-        "seven producer sites",
+        "nine producer sites",
         "exhaustive two-arm projection",
         "changes no emitted instruction",
     ] {
