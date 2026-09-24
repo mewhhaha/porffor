@@ -390,3 +390,18 @@ enclosing();
 "#,
     );
 }
+
+#[test]
+fn strict_eval_for_in_var_heads_declare_in_the_eval_variable_environment() {
+    run_boolean(
+        r#"
+"use strict";
+var arrayKey = eval("for (var ind in [5, 6]) ; ind");
+var objectKey = eval("for (var key in { a: 1, b: 2 }) ; key");
+var patternKey = eval("for (var [first] in { xy: 1 }) ; first");
+var ofValue = eval("for (var item of [5, 6]) ; item");
+arrayKey === "1" && objectKey === "b" && patternKey === "x" && ofValue === 6
+  && typeof ind === "undefined" && typeof key === "undefined";
+"#,
+    );
+}

@@ -2192,6 +2192,18 @@ impl<'a> AnalysisBuilder<'a> {
                             }
                         }
                     }
+                    // A `for (var x in …)` head declares `x` in the owner's
+                    // VariableEnvironment exactly as `var x;` would (14.7.5
+                    // VarDeclaredNames). Omitting it here left strict eval code
+                    // writing the key to storage its runtime environment never
+                    // published, so a later `x` read was an unbound identifier.
+                    IterableLoopInitializer::Var(variable) => {
+                        if let Some(bound_names) =
+                            supported_bound_names(interner, variable.binding())
+                        {
+                            bindings.extend(bound_names.into_iter().map(|bound| bound.source_name));
+                        }
+                    }
                     _ => {}
                 }
                 self.collect_owner_root_bindings_from_statement(interner, for_in.body(), bindings);
@@ -2369,8 +2381,8 @@ impl<'a> AnalysisBuilder<'a> {
             }
             Statement::ForInLoop(for_in) => {
                 if let IterableLoopInitializer::Var(variable) = for_in.initializer() {
-                    if let Binding::Identifier(identifier) = variable.binding() {
-                        bindings.insert(interner.resolve_expect(identifier.sym()).to_string());
+                    if let Some(bound_names) = supported_bound_names(interner, variable.binding()) {
+                        bindings.extend(bound_names.into_iter().map(|bound| bound.source_name));
                     }
                 }
                 self.collect_scoped_bindings_from_statement(interner, for_in.body(), bindings);
