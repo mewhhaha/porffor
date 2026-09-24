@@ -33,9 +33,10 @@ The `DescriptorSourceText` builder now names all six static attribute choices:
 `writable`/`non_writable`, `enumerable`/`non_enumerable`, and
 `configurable`/`non_configurable`. Its public surface has no boolean parameter,
 so explicit false remains a present field without leaving an unlabelled flag at
-the call site. The module-namespace accessor emitter selects `enumerable()` and
-`non_configurable()` directly; generated descriptor text and field order are
-unchanged. The bounded contract is
+the call site. Module namespace exports have since moved to a backend exotic
+object that spells their attributes as labelled fields, so the namespace source
+emitter renders only the complete module-source `@@toStringTag` descriptor. The
+bounded contract is
 `docs/rust-rewrite/contracts/descriptor-source-text-attribute-selection.md`.
 The recursive structure target passes `4/4`, the explicit-false rendering
 witness passes `1/1`, and the shared `cargo xc`, formatting, diff,

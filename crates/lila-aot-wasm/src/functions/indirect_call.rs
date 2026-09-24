@@ -100,26 +100,10 @@ impl FunctionBuilder<'_> {
                 );
             }
         }
-        if let (
-            ExprIr::PropertyRead {
-                key: PropertyKeyIr::StaticString(name),
-                ..
-            },
-            Some(this_arg),
-        ) = (&callee.expr, this_arg)
-        {
-            let string_or_undefined = KindSet::from_kind(ValueKind::String)
-                .union(KindSet::from_kind(ValueKind::Undefined));
-            if name == "split" && this_arg.possible_kinds.is_subset_of(string_or_undefined) {
-                return self.emit_string_split_method_call(
-                    this_arg,
-                    args,
-                    payload_local,
-                    tag_local,
-                    function,
-                );
-            }
-        }
+        // A callee read by the *name* `split` is not `String.prototype.split`:
+        // the program may have replaced it. Only the exact target above, which
+        // lowering grants under an intrinsic-method proof, selects the inline
+        // split; every other read is called through its value.
         let reflect_define_property_function_id =
             StandardBuiltinId::ReflectDefineProperty.function_id();
         let object_define_property_function_id =

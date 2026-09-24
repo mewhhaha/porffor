@@ -127,7 +127,7 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             .lines()
             .filter(|line| line.trim_end().ends_with(','))
             .count(),
-        15
+        17
     );
     for (variant, offset) in [
         ("Object", "HEAP_REALM_INTRINSICS_OBJECT_PROTOTYPE_OFFSET"),
@@ -166,6 +166,14 @@ fn ordinary_default_prototype_domain_exhaustively_owns_every_offset() {
             "SuppressedError",
             "HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET",
         ),
+        (
+            "Generator",
+            "HEAP_REALM_INTRINSICS_GENERATOR_PROTOTYPE_OFFSET",
+        ),
+        (
+            "AsyncGenerator",
+            "HEAP_REALM_INTRINSICS_ASYNC_GENERATOR_PROTOTYPE_OFFSET",
+        ),
     ] {
         assert_eq!(
             offsets
@@ -185,7 +193,7 @@ fn every_resolved_ordinary_prototype_is_loaded_and_installed_as_one_witness() {
     for (call, expected) in [
         (".emit_load_required_resolved_realm_ordinary_prototype(", 4),
         (".emit_install_resolved_realm_ordinary_prototype(", 4),
-        (".emit_required_new_target_realm_ordinary_prototype(", 5),
+        (".emit_required_new_target_realm_ordinary_prototype(", 6),
     ] {
         assert_eq!(
             recursive_rust_source_count(&source_root, call),

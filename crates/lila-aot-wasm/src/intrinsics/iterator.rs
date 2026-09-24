@@ -304,6 +304,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_function_value_payload(constructor_getter_meta, function)?;
         function.instruction(&Instruction::LocalSet(payload_local));
+        // The getter returns its environment slot: bind it to this realm's
+        // %Iterator%, exactly as created-realm installation does. The setter
+        // keeps its realm environment, from which it derives its home object.
+        self.store_i64_local_at_offset(
+            payload_local,
+            HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+            object_local,
+            function,
+        );
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         self.emit_function_value_payload(constructor_setter_meta, function)?;

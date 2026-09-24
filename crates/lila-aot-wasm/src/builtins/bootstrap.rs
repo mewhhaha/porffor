@@ -3455,11 +3455,17 @@ impl<'a> FunctionBuilder<'a> {
             .runtime_bootstrap_plan
             .should_initialize_standard_builtin(StandardBuiltinId::ArrayConstructor)
         {
-            self.init_builtin_constructor_object(
-                StandardBuiltinId::ArrayConstructor,
-                ARRAY_PROTOTYPE_GLOBAL_INDEX,
-                function,
-            )?;
+            // %Array.prototype% is an Array exotic object. Installing the Array
+            // constructor and its prototype is the one place an append may
+            // target it, so it is the one scope that carries the append
+            // helpers' identity check; see `AppendTargetScope`.
+            self.with_realm_bootstrap_appends(|builder| {
+                builder.init_builtin_constructor_object(
+                    StandardBuiltinId::ArrayConstructor,
+                    ARRAY_PROTOTYPE_GLOBAL_INDEX,
+                    function,
+                )
+            })?;
         }
         self.init_array_iterator_prototype(function)?;
         self.init_string_iterator_prototype(function)?;

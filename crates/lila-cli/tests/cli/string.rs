@@ -86,6 +86,29 @@ fn run_wasm_backend_succeeds_for_string_split_boxed_fixture() {
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// A lone high surrogate followed by a lone low surrogate is the same String
+/// value as the literal pair, whichever operation concatenates them.
+#[test]
+fn run_wasm_backend_pairs_surrogates_across_concatenation_seams() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_string_surrogate_seam_concatenation.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_string_split_utf16_units_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

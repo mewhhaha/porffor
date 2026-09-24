@@ -44,3 +44,30 @@ Batch AP verification is green on 2026-08-28: the owner, Arguments neighbor,
 Array neighbor and Proxy ownership structure targets pass `4/4`, `4/4`, `3/3`
 and `4/4`; the exact object-descriptor CLI passes `1/1`; and `cargo xc` is
 green.
+
+## Proxy [[GetOwnProperty]] child
+
+The Proxy step of the target loop is the private child
+`builtins/object/get_own_property_descriptor/proxy.rs`, which implements 10.5.5
+in step order and is the only place the trap is called. The parent declares
+`mod proxy;` and calls `emit_proxy_get_own_property_descriptor` once per loop
+iteration: a handler without the trap forwards to `[[ProxyTarget]]` and the loop
+resolves that object in turn; otherwise the child leaves the answer in the
+result locals.
+
+- `targetDesc` (step 8) comes from a recursive call of this builtin on the
+  target, so a Proxy target runs its own trap and the values that
+  IsCompatiblePropertyDescriptor compares with SameValue are available.
+- IsExtensible(target) (step 10) precedes ToPropertyDescriptor (step 11), whose
+  HasProperty/Get reads of the trap result are observable.
+- The converted descriptor is completed by 6.2.6.6
+  (`emit_complete_property_descriptor`, which derives the side from `classify`),
+  validated by 10.1.6.3 with `O` undefined plus the step 15 invariants, and
+  published as a fresh object by the 6.2.6.4 owner in the executing builtin's
+  Realm. The trap's own object is never the result.
+
+This replaces the earlier behaviour that returned the trap result object itself
+and validated only `configurable`/`writable` own data fields of it.
+`crates/lila-aot-wasm/tests/object_get_own_property_descriptor_owner_structure.rs`
+pins the split and `crates/lila-engine/tests/aot_proxy_get_own_property.rs` the
+behaviour.

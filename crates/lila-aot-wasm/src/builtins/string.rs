@@ -9020,6 +9020,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(dst_offset_local));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(alloc_len_local));
+        // Filler copies, a truncated filler and the receiver meet end to end.
+        self.emit_canonicalize_surrogate_pairs_in_place(
+            dst_offset_local,
+            alloc_len_local,
+            function,
+        );
         self.emit_pack_string_payload(dst_offset_local, alloc_len_local, function);
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::End);
@@ -9184,6 +9190,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(dst_offset_local));
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(alloc_len_local));
+        // Filler copies, a truncated filler and the receiver meet end to end.
+        self.emit_canonicalize_surrogate_pairs_in_place(
+            dst_offset_local,
+            alloc_len_local,
+            function,
+        );
         self.emit_pack_string_payload(dst_offset_local, alloc_len_local, function);
         function.instruction(&Instruction::LocalSet(result_payload_local));
         function.instruction(&Instruction::End);
@@ -9786,6 +9798,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
+        // A copy that ends with an unpaired high surrogate meets the next
+        // copy's unpaired low surrogate at every boundary.
+        self.emit_canonicalize_surrogate_pairs_in_place(
+            dst_offset_local,
+            total_len_local,
+            function,
+        );
         self.emit_pack_string_payload(dst_offset_local, total_len_local, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -16554,6 +16573,16 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Pushes the payload of the concatenation of two String payloads.
+    ///
+    /// The payload encoding is canonical: a UTF-16 surrogate pair is always
+    /// the four-byte UTF-8 scalar and only an unpaired surrogate is
+    /// three-byte WTF-8. Payload byte equality, the scalar decoders and the
+    /// RegExp matchers all depend on that, so concatenation is not a plain
+    /// byte append: when the left operand ends with an unpaired high
+    /// surrogate and the right operand starts with an unpaired low surrogate,
+    /// those two code units form one supplementary scalar in the result
+    /// (`"\uD83D" + "\uDCA9"` must equal `"💩"`).
     pub(crate) fn emit_concat_string_payloads_local(
         &mut self,
         lhs_string_local: u32,
@@ -16568,12 +16597,66 @@ impl<'a> FunctionBuilder<'a> {
         let alloc_len = self.reserve_temp_local();
         let dst_offset = self.reserve_temp_local();
         let rhs_dst_offset = self.reserve_temp_local();
+        let lhs_tail = self.reserve_temp_local();
+        let seam_pairs = self.reserve_temp_local();
+        let high_unit = self.reserve_temp_local();
+        let low_unit = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+        let copy_src = self.reserve_temp_local();
+        let copy_len = self.reserve_temp_local();
 
         self.emit_unpack_string_payload(lhs_string_local, lhs_offset, lhs_len, function);
         self.emit_unpack_string_payload(rhs_string_local, rhs_offset, rhs_len, function);
+
+        // The seam pairs iff lhs ends with ED A0..AF xx (U+D800..U+DBFF) and
+        // rhs starts with ED B0..BF xx (U+DC00..U+DFFF). Both operands are
+        // canonical, so those byte shapes are exactly the unpaired halves.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(seam_pairs));
+        function.instruction(&Instruction::LocalGet(lhs_len));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::LocalGet(rhs_len));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(lhs_offset));
+        function.instruction(&Instruction::LocalGet(lhs_len));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(lhs_tail));
+        for (base_local, delta, mask, expected) in [
+            (lhs_tail, 0, 0xFF, 0xED),
+            (lhs_tail, 1, 0xF0, 0xA0),
+            (rhs_offset, 0, 0xFF, 0xED),
+            (rhs_offset, 1, 0xF0, 0xB0),
+        ] {
+            function.instruction(&Instruction::LocalGet(base_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I32Load8U(Self::memarg8(delta)));
+            function.instruction(&Instruction::I32Const(mask));
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32Const(expected));
+            function.instruction(&Instruction::I32Eq);
+        }
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(seam_pairs));
+        function.instruction(&Instruction::End);
+
+        // Joining two three-byte halves into one four-byte scalar saves two
+        // bytes.
         function.instruction(&Instruction::LocalGet(lhs_len));
         function.instruction(&Instruction::LocalGet(rhs_len));
         function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalGet(seam_pairs));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(total_len));
         function.instruction(&Instruction::LocalGet(total_len));
         function.instruction(&Instruction::I64Const(7));
@@ -16583,14 +16666,81 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(alloc_len));
         self.emit_heap_alloc_from_local(alloc_len, function)?;
         function.instruction(&Instruction::LocalSet(dst_offset));
+
+        function.instruction(&Instruction::LocalGet(seam_pairs));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_copy_bytes(lhs_offset, dst_offset, lhs_len, function);
         function.instruction(&Instruction::LocalGet(dst_offset));
         function.instruction(&Instruction::LocalGet(lhs_len));
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(rhs_dst_offset));
         self.emit_copy_bytes(rhs_offset, rhs_dst_offset, rhs_len, function);
+        function.instruction(&Instruction::Else);
+        // Decode both halves: a surrogate U+D800..U+DFFF is ED 10xxxxxx
+        // 10yyyyyy, so its code unit is 0xD000 | xxxxxx << 6 | yyyyyy.
+        for (unit_local, base_local) in [(high_unit, lhs_tail), (low_unit, rhs_offset)] {
+            function.instruction(&Instruction::LocalGet(base_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load8U(Self::memarg8(1)));
+            function.instruction(&Instruction::I64Const(0x3F));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(6));
+            function.instruction(&Instruction::I64Shl);
+            function.instruction(&Instruction::LocalGet(base_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load8U(Self::memarg8(2)));
+            function.instruction(&Instruction::I64Const(0x3F));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Or);
+            function.instruction(&Instruction::I64Const(0xD000));
+            function.instruction(&Instruction::I64Or);
+            function.instruction(&Instruction::LocalSet(unit_local));
+        }
+        // lhs without its trailing high surrogate.
+        function.instruction(&Instruction::LocalGet(lhs_len));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(copy_len));
+        self.emit_copy_bytes(lhs_offset, dst_offset, copy_len, function);
+        // UTF16SurrogatePairToCodePoint(high, low).
+        function.instruction(&Instruction::LocalGet(high_unit));
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalGet(low_unit));
+        function.instruction(&Instruction::I64Const(0xDC00));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(0x1_0000));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(high_unit));
+        function.instruction(&Instruction::LocalGet(dst_offset));
+        function.instruction(&Instruction::LocalGet(copy_len));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(rhs_dst_offset));
+        self.emit_store_utf8_codepoint(rhs_dst_offset, high_unit, byte_local, function);
+        // rhs without its leading low surrogate.
+        function.instruction(&Instruction::LocalGet(rhs_offset));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(copy_src));
+        function.instruction(&Instruction::LocalGet(rhs_len));
+        function.instruction(&Instruction::I64Const(3));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(copy_len));
+        self.emit_copy_bytes(copy_src, rhs_dst_offset, copy_len, function);
+        function.instruction(&Instruction::End);
         self.emit_pack_string_payload(dst_offset, total_len, function);
 
+        self.release_temp_local(copy_len);
+        self.release_temp_local(copy_src);
+        self.release_temp_local(byte_local);
+        self.release_temp_local(low_unit);
+        self.release_temp_local(high_unit);
+        self.release_temp_local(seam_pairs);
+        self.release_temp_local(lhs_tail);
         self.release_temp_local(rhs_dst_offset);
         self.release_temp_local(dst_offset);
         self.release_temp_local(alloc_len);
@@ -16600,6 +16750,149 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(lhs_len);
         self.release_temp_local(lhs_offset);
         Ok(())
+    }
+
+    /// Rewrites, in place, every unpaired high surrogate immediately
+    /// followed by an unpaired low surrogate in a freshly built payload
+    /// buffer into the pair's four-byte scalar, and shrinks `len_local` by
+    /// the bytes saved.
+    ///
+    /// For builders that lay down UTF-16 code units or whole copies of
+    /// strings end to end (`String.prototype.repeat`, `padStart`/`padEnd`,
+    /// `JSON.parse` string escapes): each piece is canonical on its own, but
+    /// a piece boundary can put two WTF-8 surrogate halves side by side,
+    /// which must become the pair's scalar exactly as in
+    /// [`Self::emit_concat_string_payloads_local`]. The buffer must not be
+    /// published yet; compaction only moves bytes towards the start.
+    pub(crate) fn emit_canonicalize_surrogate_pairs_in_place(
+        &mut self,
+        offset_local: u32,
+        len_local: u32,
+        function: &mut Function,
+    ) {
+        let read_local = self.reserve_temp_local();
+        let write_local = self.reserve_temp_local();
+        let address_local = self.reserve_temp_local();
+        let pairs_local = self.reserve_temp_local();
+        let scalar_local = self.reserve_temp_local();
+        let low_local = self.reserve_temp_local();
+        let dst_local = self.reserve_temp_local();
+        let byte_local = self.reserve_temp_local();
+
+        for local in [read_local, write_local] {
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(read_local));
+        function.instruction(&Instruction::LocalGet(len_local));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(offset_local));
+        function.instruction(&Instruction::LocalGet(read_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(address_local));
+
+        // ED A0..AF xx ED B0..BF yy: U+D800..U+DBFF then U+DC00..U+DFFF.
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(pairs_local));
+        function.instruction(&Instruction::LocalGet(len_local));
+        function.instruction(&Instruction::LocalGet(read_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(6));
+        function.instruction(&Instruction::I64GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        for (delta, mask, expected) in [
+            (0, 0xFF, 0xED),
+            (1, 0xF0, 0xA0),
+            (3, 0xFF, 0xED),
+            (4, 0xF0, 0xB0),
+        ] {
+            function.instruction(&Instruction::LocalGet(address_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I32Load8U(Self::memarg8(delta)));
+            function.instruction(&Instruction::I32Const(mask));
+            function.instruction(&Instruction::I32And);
+            function.instruction(&Instruction::I32Const(expected));
+            function.instruction(&Instruction::I32Eq);
+        }
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(pairs_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(offset_local));
+        function.instruction(&Instruction::LocalGet(write_local));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(dst_local));
+        function.instruction(&Instruction::LocalGet(pairs_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load8U(Self::memarg8(0)));
+        function.instruction(&Instruction::LocalSet(byte_local));
+        self.emit_store_byte_local(dst_local, byte_local, function);
+        self.emit_increment_local(read_local, 1, function);
+        self.emit_increment_local(write_local, 1, function);
+        function.instruction(&Instruction::Else);
+        // Each half is ED 10xxxxxx 10yyyyyy = 0xD000 | xxxxxx << 6 | yyyyyy.
+        for (unit_local, delta) in [(scalar_local, 1), (low_local, 4)] {
+            function.instruction(&Instruction::LocalGet(address_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load8U(Self::memarg8(delta)));
+            function.instruction(&Instruction::I64Const(0x3F));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Const(6));
+            function.instruction(&Instruction::I64Shl);
+            function.instruction(&Instruction::LocalGet(address_local));
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I64Load8U(Self::memarg8(delta + 1)));
+            function.instruction(&Instruction::I64Const(0x3F));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Or);
+            function.instruction(&Instruction::I64Const(0xD000));
+            function.instruction(&Instruction::I64Or);
+            function.instruction(&Instruction::LocalSet(unit_local));
+        }
+        // UTF16SurrogatePairToCodePoint(high, low).
+        function.instruction(&Instruction::LocalGet(scalar_local));
+        function.instruction(&Instruction::I64Const(0xD800));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Const(10));
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::LocalGet(low_local));
+        function.instruction(&Instruction::I64Const(0xDC00));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(0x1_0000));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(scalar_local));
+        self.emit_store_utf8_codepoint(dst_local, scalar_local, byte_local, function);
+        self.emit_increment_local(read_local, 6, function);
+        self.emit_increment_local(write_local, 4, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(write_local));
+        function.instruction(&Instruction::LocalSet(len_local));
+
+        for local in [
+            byte_local,
+            dst_local,
+            low_local,
+            scalar_local,
+            pairs_local,
+            address_local,
+            write_local,
+            read_local,
+        ] {
+            self.release_temp_local(local);
+        }
     }
 
     pub(crate) fn emit_uri_encode_string_payload(

@@ -41,7 +41,7 @@ fn create_realm_host() -> &'static str {
     bounded(
         HOST_SOURCE,
         "    pub(crate) fn compile_host_create_realm_builtin(",
-        "    /// Defensive body for the Test262 realm-evaluation capability.",
+        "    pub(crate) fn compile_host_agent_start_builtin(",
     )
 }
 
@@ -388,7 +388,7 @@ fn created_and_entry_realms_publish_the_same_weak_collection_methods() {
             .split_once("    }")
             .expect("catalog constructor end")
             .0;
-        assert!(entry.contains("flags: [CONSTRUCTABLE],"));
+        assert!(entry.contains("flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],"));
     }
     for method in [
         "WeakMapPrototypeDelete",

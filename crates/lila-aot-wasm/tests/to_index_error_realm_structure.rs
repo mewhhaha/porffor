@@ -33,7 +33,7 @@ fn to_index_range_errors_use_the_closed_numeric_realm_projection() {
     let range_error = bounded(
         OPERATIONS_SOURCE,
         "fn emit_numeric_conversion_range_error(",
-        "fn finish_may_throw_operation(",
+        "fn finish_to_primitive_operation(",
     );
     assert_eq!(
         range_error
@@ -84,8 +84,8 @@ fn to_index_cannot_bypass_the_numeric_realm_projection() {
         constructors
             .matches("NumericErrorRealmSource::GlobalFallback")
             .count(),
-        4,
-        "main, user, host and ordinary runtime-operation bodies must keep the main-Realm fallback"
+        5,
+        "main, prepared-script, user, host and ordinary runtime-operation bodies must keep the main-Realm fallback"
     );
     assert_eq!(
         constructors

@@ -1,8 +1,12 @@
+use std::fs;
+use std::path::Path;
+
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const ENUMERABLE_OWN_PROPERTIES_SOURCE: &str =
+    include_str!("../src/builtins/object/enumerable_own_properties.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-named-string-key-selection.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -14,107 +18,120 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
-#[test]
-fn array_named_string_key_selection_is_a_closed_two_variant_domain() {
-    let authority_header = bounded(
-        ARRAY_SOURCE,
-        "fn array_descriptor_field<T>",
-        "\n\npub(crate) enum ArraySortOutput",
-    );
-    let declaration = bounded(
-        ARRAY_SOURCE,
-        "enum ArrayNamedStringKeySelection {",
-        "\n}\n\npub(crate) enum ArraySortOutput",
-    );
-    let variants = declaration
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
+fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
+    fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
+        .map(|entry| entry.expect("failed to read Rust source entry").path())
+        .map(|path| {
+            if path.is_dir() {
+                return count_in_rust_sources(&path, needle);
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                return 0;
+            }
+            fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+                .matches(needle)
+                .count()
+        })
+        .sum()
+}
 
-    assert_eq!(variants, ["All,", "EnumerableOnly,"]);
-    assert!(!authority_header.contains("#[derive"));
-    for capability in [
-        "Clone",
-        "Copy",
-        "Debug",
-        "Default",
-        "PartialEq",
-        "Eq",
-        "PartialOrd",
-        "Ord",
-        "Hash",
+#[test]
+fn retired_named_string_key_selection_cannot_return() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for retired in [
+        "ArrayNamedStringKeySelection",
+        "emit_array_named_string_props_count",
+        "emit_array_named_string_props_write_keys",
+        "emit_array_enumerable_named_string_props_",
     ] {
-        assert!(
-            !ARRAY_SOURCE.contains(&format!(
-                "impl {capability} for ArrayNamedStringKeySelection"
-            )),
-            "named-string key selection must not implement {capability}"
+        assert_eq!(
+            count_in_rust_sources(&source_root, retired),
+            0,
+            "retired named-string selection `{retired}` must stay deleted"
         );
+    }
+    for owner in [
+        "fn emit_array_all_named_string_props_count(",
+        "fn emit_array_all_named_string_props_write_keys(",
+    ] {
+        assert_eq!(count_in_rust_sources(&source_root, owner), 1, "{owner}");
     }
 }
 
 #[test]
-fn both_array_named_string_key_consumers_project_the_mode_exhaustively() {
-    let consumers = bounded(
-        ARRAY_SOURCE,
-        "    fn emit_array_named_string_props_count(",
-        "    pub(super) fn emit_array_all_named_string_props_count(",
-    );
-
-    assert_eq!(
-        consumers
-            .matches("selection: ArrayNamedStringKeySelection,")
-            .count(),
-        2
-    );
-    assert_eq!(consumers.matches("match &selection {").count(), 4);
-    assert_eq!(
-        consumers
-            .matches("ArrayNamedStringKeySelection::All")
-            .count(),
-        4
-    );
-    assert_eq!(
-        consumers
-            .matches("ArrayNamedStringKeySelection::EnumerableOnly")
-            .count(),
-        4
-    );
-    assert!(!consumers.contains("enumerable_only"));
-    assert!(!consumers.contains("selection: bool"));
-    assert!(!consumers.contains("matches!(selection"));
-    assert!(!consumers.contains("if selection"));
-    assert!(!consumers.contains("match selection"));
-    assert!(!consumers.contains("selection.clone()"));
-    assert!(!consumers.contains("selection =="));
-    assert!(!consumers.contains("selection !="));
-    assert!(!consumers.contains("=> true"));
-    assert!(!consumers.contains("=> false"));
-    assert!(!consumers.contains("_ =>"));
-    assert!(!consumers.contains("unreachable!"));
-
+fn count_and_write_phases_share_one_unconditional_string_key_filter() {
     let count = bounded(
-        consumers,
-        "        selection: ArrayNamedStringKeySelection,",
-        "    fn emit_array_named_string_props_write_keys(",
+        ARRAY_SOURCE,
+        "    pub(super) fn emit_array_all_named_string_props_count(",
+        "    pub(super) fn emit_array_all_named_string_props_write_keys(",
     );
-    assert_eq!(count.matches("match &selection {").count(), 2);
-
     let write = bounded(
         ARRAY_SOURCE,
-        "    fn emit_array_named_string_props_write_keys(",
-        "    pub(super) fn emit_array_all_named_string_props_count(",
+        "    pub(super) fn emit_array_all_named_string_props_write_keys(",
+        "    pub(crate) fn emit_array_delete_property_key(",
     );
-    assert_eq!(write.matches("match &selection {").count(), 2);
+
+    assert!(count.starts_with(concat!(
+        "\n        &mut self,\n",
+        "        array_local: u32,\n",
+        "        count_local: u32,\n",
+        "        function: &mut Function,\n",
+        "    ) {\n",
+    )));
+    assert!(write.starts_with(concat!(
+        "\n        &mut self,\n",
+        "        array_local: u32,\n",
+        "        result_payload_local: u32,\n",
+        "        write_index_local: u32,\n",
+        "        function: &mut Function,\n",
+        "    ) -> Result<(), EmitError> {\n",
+    )));
+
+    for phase in [count, write] {
+        assert_eq!(
+            phase
+                .matches("self.emit_property_key_payload_is_symbol_i32(")
+                .count(),
+            1
+        );
+        assert_eq!(
+            phase.matches("HEAP_ARRAY_NAMED_PROPS_PTR_OFFSET").count(),
+            1
+        );
+        assert_eq!(
+            phase.matches("HEAP_ARRAY_NAMED_PROPS_LEN_OFFSET").count(),
+            1
+        );
+        for forbidden in [
+            "selection",
+            "enumerable",
+            "HEAP_OBJECT_DESCRIPTOR_KIND_OFFSET",
+            "OBJECT_DESCRIPTOR_ENUMERABLE",
+            "match ",
+            "matches!(",
+            "_ =>",
+            "unreachable!",
+        ] {
+            assert!(
+                !phase.contains(forbidden),
+                "named-string phase must not reintroduce `{forbidden}`"
+            );
+        }
+    }
+    assert_eq!(write.matches("self.emit_array_write(").count(), 1);
+    assert!(!count.contains("self.emit_array_write("));
 }
 
 #[test]
-fn exactly_four_object_producers_choose_their_named_selection() {
-    assert!(!OBJECT_SOURCE.contains("ArrayNamedStringKeySelection"));
-    assert!(!OBJECT_SOURCE.contains("self.emit_array_named_string_props_count("));
-    assert!(!OBJECT_SOURCE.contains("self.emit_array_named_string_props_write_keys("));
-
+fn only_get_own_property_names_consumes_array_named_string_storage() {
+    assert_eq!(
+        OBJECT_SOURCE
+            .matches("self.emit_array_all_named_string_props_")
+            .count(),
+        2
+    );
     let own_property_names = bounded(
         OBJECT_SOURCE,
         "    pub(super) fn compile_object_get_own_property_names_builtin(",
@@ -122,73 +139,43 @@ fn exactly_four_object_producers_choose_their_named_selection() {
     );
     assert_eq!(
         own_property_names
-            .matches("self.emit_array_all_named_string_props_")
+            .matches("self.emit_array_all_named_string_props_count(")
             .count(),
-        2,
-    );
-    assert!(!own_property_names.contains("emit_array_enumerable_named_string_props_"));
-
-    let keys = bounded(
-        OBJECT_SOURCE,
-        "    pub(super) fn compile_object_keys_builtin(",
-        "    pub(super) fn compile_object_is_builtin(",
+        1
     );
     assert_eq!(
-        keys.matches("self.emit_array_enumerable_named_string_props_")
+        own_property_names
+            .matches("self.emit_array_all_named_string_props_write_keys(")
             .count(),
-        2,
+        1
     );
-    assert!(!keys.contains("emit_array_all_named_string_props_"));
 
-    for evidence in [CONTRACT, TASK] {
-        assert!(evidence.contains("capability-free `ArrayNamedStringKeySelection`"));
-    }
+    assert!(!OBJECT_SOURCE.contains("fn compile_object_keys_builtin("));
+    let keys = bounded(
+        ENUMERABLE_OWN_PROPERTIES_SOURCE,
+        "    pub(in crate::builtins) fn compile_object_keys_builtin(",
+        "    pub(in crate::builtins) fn compile_object_entries_builtin(",
+    );
+    assert_eq!(
+        keys.matches("self.compile_object_enumerable_own_properties_builtin(")
+            .count(),
+        1
+    );
+    assert_eq!(keys.matches("EnumerableOwnProperties::Keys,").count(), 1);
+    assert!(!ENUMERABLE_OWN_PROPERTIES_SOURCE.contains("named_string_props"));
 }
 
 #[test]
-fn raw_selection_is_private_to_four_fixed_array_operations() {
-    assert!(!ARRAY_SOURCE.contains("pub(super) enum ArrayNamedStringKeySelection"));
-    assert!(!ARRAY_SOURCE.contains("pub(crate) enum ArrayNamedStringKeySelection"));
-    assert_eq!(
-        ARRAY_SOURCE
-            .matches("fn emit_array_named_string_props_count(")
-            .count(),
-        1
-    );
-    assert_eq!(
-        ARRAY_SOURCE
-            .matches("fn emit_array_named_string_props_write_keys(")
-            .count(),
-        1
-    );
-    for (wrapper, variant) in [
-        ("emit_array_all_named_string_props_count", "All"),
-        (
-            "emit_array_enumerable_named_string_props_count",
-            "EnumerableOnly",
-        ),
-        ("emit_array_all_named_string_props_write_keys", "All"),
-        (
-            "emit_array_enumerable_named_string_props_write_keys",
-            "EnumerableOnly",
-        ),
+fn contract_records_the_selection_retirement() {
+    let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
+    for marker in [
+        "## Retirement",
+        "`Object.keys` now runs the shared `EnumerableOwnProperties::Keys` algorithm",
+        "`ArrayNamedStringKeySelection` was deleted",
     ] {
-        let wrapper = bounded(
-            ARRAY_SOURCE,
-            &format!("    pub(super) fn {wrapper}("),
-            "\n    }",
-        );
-        assert_eq!(
-            wrapper
-                .matches("self.emit_array_named_string_props_")
-                .count(),
-            1
-        );
-        assert_eq!(
-            wrapper
-                .matches(&format!("ArrayNamedStringKeySelection::{variant}"))
-                .count(),
-            1
+        assert!(
+            contract_words.contains(marker),
+            "missing contract retirement marker: {marker}"
         );
     }
 }

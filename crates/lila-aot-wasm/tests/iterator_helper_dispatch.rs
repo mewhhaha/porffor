@@ -62,9 +62,20 @@
 //!
 //! [`iterator_helper_dispatch_differential_separates_two_emitters`] is what
 //! stops that from being the whole story. It runs the identical comparison over
-//! a receiver that genuinely reaches neither guard and asserts the difference is
-//! **larger** than the slack. Without it, `assert_dispatched_alike` is an
-//! instrument nobody has shown can move.
+//! two statements that genuinely reach different emitters and asserts the
+//! difference is **larger** than the slack. Without it, `assert_dispatched_alike`
+//! is an instrument nobody has shown can move.
+//!
+//! # Routing since the intrinsic-method gate
+//!
+//! Lowering now emits the helper `CallMethod` only for a receiver whose shape
+//! names the `%Iterator.prototype%` builtin while that prototype provably still
+//! holds it. Every other receiver — this nullish-typed class receiver included,
+//! and `drop`/`flatMap` exactly like `take`/`map` — is lowered as an ordinary
+//! property read and call, because the name alone does not say which function
+//! the program installed. Both members of each pair therefore reach the same
+//! generic emitter, and the pairs now guard against either name regaining a
+//! name-based route of its own.
 
 use lila_aot_wasm::emit;
 use lila_front::{parse, ParseOptions};
@@ -172,40 +183,34 @@ fn iterator_helper_map_dispatches_like_flat_map_on_a_class_receiver() {
 /// Both of those pairs are emitter-identical under every configuration
 /// reachable from this head (see the module doc), so on their own they show
 /// only that `assert_dispatched_alike` returns. This runs the same instrument
-/// over a receiver that reaches **neither** helper guard and requires it to
-/// separate the two emitters:
+/// over two statements that differ only in the method name and reach different
+/// emitters:
 ///
-/// * `"abc".take(1)` — `possible_kinds == {String}` is not a subset of
-///   `{Object, Function} ∪ NULLISH`, so `receiver_needs_dynamic_helper_dispatch`
-///   is false, and a string prototype carries no `take`, so
-///   `receiver_shape_targets_iterator_helper` is false too. It falls through to
-///   `emit_method_call`'s generic tail and takes its `ValueKind::String` arm.
-/// * `"abc".drop(1)` — `drop`'s guard is `receiver_is_iterator ||
-///   !receiver_is_array` and a string is not array-shaped, so it goes to the
-///   shared dispatch unconditionally.
+/// * `"abc".at(1)` — with no earlier effect to erase the proof,
+///   `%String.prototype%.at` is provably the builtin, so lowering emits its
+///   `CallMethod` and `emit_method_call` takes the inline string `at` path.
+/// * `"abc".take(1)` — `take` is not a `%String.prototype%` method, so lowering
+///   emits an ordinary property read and call through the generic emitter.
 ///
-/// The two emissions therefore differ structurally: the dispatch emits a runtime
-/// RequireObjectCoercible test with a full `emit_throw_runtime_error` body and
-/// no callee `Unreachable`, while the String arm resolves the string prototype
-/// and emits the tail's callable check. Neither program is ever run — `"abc"`
-/// has no such methods at run time — and neither needs to be: the claim is
-/// about which emitter produced the bytes.
+/// There is no prelude here on purpose: the prelude's opaque calls erase the
+/// proof, which would route `at` to the generic emitter as well. Neither
+/// program is ever run; the claim is about which emitter produced the bytes.
 ///
 /// If this ever goes red because the difference fell inside the slack, do not
 /// widen the slack. It means the two emitters converged, and the two tests above
 /// stopped being able to say anything.
 #[test]
 fn iterator_helper_dispatch_differential_separates_two_emitters() {
-    let (tail_bytes, _) = main_body_bytes_and_module(probe("\"abc\".take(1);"));
-    let (dispatch_bytes, _) = main_body_bytes_and_module(probe("\"abc\".drop(1);"));
-    let difference = tail_bytes.abs_diff(dispatch_bytes);
+    let (inline_bytes, _) = main_body_bytes_and_module("\"abc\".at(1);\n".to_string());
+    let (generic_bytes, _) = main_body_bytes_and_module("\"abc\".take(1);\n".to_string());
+    let difference = inline_bytes.abs_diff(generic_bytes);
     assert!(
         difference > PAYLOAD_ENCODING_SLACK,
-        "a receiver that reaches neither helper guard must be emitted differently \
-         from one routed to the shared dispatch, or `assert_dispatched_alike` \
-         cannot distinguish an emitter it never moved: \
-         tail(`\"abc\".take(1)`)={tail_bytes} \
-         dispatch(`\"abc\".drop(1)`)={dispatch_bytes} \
+        "a proven intrinsic method and an ordinary property call must be emitted \
+         differently, or `assert_dispatched_alike` cannot distinguish an emitter \
+         it never moved: \
+         inline(`\"abc\".at(1)`)={inline_bytes} \
+         generic(`\"abc\".take(1)`)={generic_bytes} \
          difference={difference} slack={PAYLOAD_ENCODING_SLACK}"
     );
 }

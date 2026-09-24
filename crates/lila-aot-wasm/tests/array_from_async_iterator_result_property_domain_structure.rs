@@ -349,22 +349,22 @@ fn four_continuations_own_one_done_then_value_pair_each() {
         (
             "fn emit_array_from_async_iterable_start(",
             "pub(crate) fn emit_array_from_async_fulfilled(",
-            (9610, 16_735_338_314_939_235_615),
+            (9629, 5_963_205_854_144_443_383),
         ),
         (
             "pub(crate) fn emit_array_from_async_fulfilled(",
             "pub(crate) fn emit_array_from_async_rejected(",
-            (9971, 6_392_141_318_506_301_516),
+            (10012, 17_490_357_706_665_119_708),
         ),
         (
             "fn emit_array_from_async_schedule_iterator_step_callback(",
             "fn emit_array_from_async_close_or_reject_callback_current_throw(",
-            (3819, 585_541_180_704_700_588),
+            (3838, 9_901_677_353_920_337_468),
         ),
         (
             "fn emit_array_from_async_begin_close_current_throw(",
             "fn emit_array_from_async_reject_saved_error_on_current_throw(",
-            (4963, 15_084_420_027_097_662_195),
+            (4979, 17_642_313_897_890_147_097),
         ),
     ];
 

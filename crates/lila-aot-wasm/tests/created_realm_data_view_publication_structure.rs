@@ -48,7 +48,7 @@ fn publication_installer() -> &'static str {
         .expect("created-Realm DataView publication installer")
         .1
         .split_once(
-            "        self.emit_function_value_payload_in_realm(\n            &function_meta,\n            &realm_functions,\n            typed_array_constructor_local,",
+            "        self.emit_realm_typed_array_constructor_value_payload(\n            &realm_functions,\n            typed_array_constructor_local,",
         )
         .expect("created-Realm DataView publication installer end")
         .0
@@ -144,13 +144,14 @@ fn created_realm_data_view_plan_is_complete_and_matches_main_realm_order() {
 fn created_realm_data_view_plan_has_one_move_only_publication_lifecycle() {
     let declarations = without_whitespace(bounded_source(
         HOST_SOURCE,
-        "mod html_dda;",
+        "use created_realm_iterator_next::{",
         "const CREATED_REALM_DATA_VIEW_PROTOTYPE_PUBLICATIONS:",
     ));
     assert_eq!(
         declarations,
         concat!(
-            "modhtml_dda;",
+            "usecreated_realm_iterator_next::{",
+            "CreatedRealmIteratorNextPublicationContext,CreatedRealmIteratorNextTarget,};",
             "enumCreatedRealmDataViewPropertyKind{Accessor,Method,}",
             "enumCreatedRealmDataViewPrototypePublication{",
             "Callable{builtin:StandardBuiltinId,",
@@ -214,8 +215,7 @@ fn created_realm_data_view_plan_has_one_move_only_publication_lifecycle() {
         HOST_SOURCE,
         "        for publication in CREATED_REALM_DATA_VIEW_PROTOTYPE_PUBLICATIONS {",
         concat!(
-            "        self.emit_function_value_payload_in_realm(\n",
-            "            &function_meta,\n",
+            "        self.emit_realm_typed_array_constructor_value_payload(\n",
             "            &realm_functions,\n",
             "            typed_array_constructor_local,"
         ),

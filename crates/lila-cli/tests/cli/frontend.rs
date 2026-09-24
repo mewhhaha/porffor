@@ -269,9 +269,17 @@ fn inspect_reports_phase_seven_function_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("functions=2"));
+    // `functions` and `returns` count every lowered `FunctionIr`, and that
+    // includes the exact-context specialization clones lowering adds per
+    // distinct canonical argument context (`exact_context_function_specializations`,
+    // `lowering/call_candidate_analysis.rs`). Since 8c80a8b8f `inc` is observed
+    // in two contexts -- `add2`'s `x` and the inner `inc(x)` result -- so the
+    // two source functions lower to `inc`, `inc$exact_helper_context$0`,
+    // `inc$exact_helper_context$1` and `add2`. `calls` is unaffected: the three
+    // call sites are all in the uncloned `add2` and the script body.
+    assert!(stdout.contains(" functions=4 "), "{stdout}");
     assert!(stdout.contains("calls=3"));
-    assert!(stdout.contains("returns=2"));
+    assert!(stdout.contains("returns=4"), "{stdout}");
 }
 
 #[test]
@@ -332,7 +340,17 @@ fn inspect_reports_phase_fourteen_param_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("default_params=4"));
+    // Source parameter defaults are `outer`'s `x = 1` and `f`'s `y = this.x`
+    // (`pick`'s `{ value = 2 }` is a binding-pattern default, not a parameter
+    // default), and `outer`'s `...xs` is the only rest parameter. Both counts
+    // also include `outer`'s exact-context specialization clone, which repeats
+    // its parameter list. `f` has no clone since 5eca93e67: calling `outer`
+    // (whose body invokes a closure) is treated as unknown user code, which
+    // erases `o`'s heap shape before `o.f()`, so that call is no longer an
+    // exact-target call and `f` is never specialized. That moved
+    // `default_params` 4 -> 3; `f` still lowers its default, which
+    // `run_wasm_backend_succeeds_for_supported_param_fixture` observes.
+    assert!(stdout.contains("default_params=3"), "{stdout}");
     assert!(stdout.contains("rest_params=2"));
     assert!(stdout.contains("arguments_uses=1"));
     assert!(stdout.contains("lexical_arguments_captures=1"));
@@ -365,9 +383,19 @@ fn inspect_reports_phase_eighteen_global_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("global_bindings=66"));
-    assert!(stdout.contains("global_this_uses=4"));
-    assert!(stdout.contains("top_level_this_uses=1"));
+    // `global_bindings` is a function of the global environment, not only of
+    // this fixture: 66 -> 67 for `%DisposableStack%` (34c274fbb) and 67 -> 68
+    // for `%Float16Array%` (7a7610705). Recount with `lila inspect` rather
+    // than guessing the delta.
+    assert!(stdout.contains("global_bindings=68"), "{stdout}");
+    // The three `=== globalThis` operands. `globalThis.x` lowers to a
+    // `GlobalPropertyRead` that carries no `globalThis` identifier operand, so
+    // it is not a use here (4 -> 3 at 5eca93e67).
+    assert!(stdout.contains("global_this_uses=3"), "{stdout}");
+    // The script's own `this` plus the one inherited by the arrow `g`, which
+    // 37ba2cdd3 resolves to the Script root binding and counts; `g`'s
+    // exact-context specialization clone lowers that arrow body a second time.
+    assert!(stdout.contains("top_level_this_uses=3"), "{stdout}");
     assert!(stdout.contains("global_default_this_calls=2"));
 }
 
@@ -912,7 +940,7 @@ fn test262_shard_exits_unsuccessfully_and_keeps_failure_snapshot() {
     assert_eq!(
         snapshot_paths.len(),
         2,
-        "failed shard should retain its JSON and text snapshots"
+        "failed shard should retain exactly its JSON and text snapshots: {snapshot_paths:?}"
     );
     let json_path = snapshot_paths
         .iter()

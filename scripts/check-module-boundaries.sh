@@ -217,6 +217,23 @@ check_no_inline_legacy_includes "$ir_lib"
 ir_builtin_shapes="crates/lila-ir/src/lowering/builtin_shapes.rs"
 require_file "$ir_builtin_shapes"
 require_module_decl "$ir_lowering" "builtin_shapes"
+# The intrinsic-method gate owns the one name -> prototype-builtin catalogue and
+# the only construction of its proof token, so a static method resolution that
+# wants the exact builtin cannot skip the live-prototype proof.
+ir_intrinsic_method_lowering="crates/lila-ir/src/lowering/intrinsic_method.rs"
+require_file "$ir_intrinsic_method_lowering"
+require_module_decl "$ir_lowering" "intrinsic_method"
+require_fixed_string_count \
+  "$ir_intrinsic_method_lowering" \
+  'pub(super) fn catalogued_method(' \
+  1 \
+  'intrinsic-method catalogue owner'
+require_fixed_string_count \
+  "$ir_intrinsic_method_lowering" \
+  'IntrinsicMethod { builtin }' \
+  1 \
+  'intrinsic-method proof construction'
+check_no_inline_legacy_includes "$ir_intrinsic_method_lowering"
 # T02's assignment-expression boundary owns the exhaustive AssignOp/target
 # dispatch across identifier, property, private, destructuring, logical and
 # eager compound writes. Its specialized Reference lifecycles remain in their
@@ -1059,10 +1076,10 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
-# likely-subtag entries, legacy accessor definers and five Instant methods:
-# 2,272 raw lines.
+# likely-subtag entries, legacy accessor definers and six Instant methods
+# (including toLocaleString): 2,273 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2272
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2273
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -5339,6 +5356,23 @@ require_fixed_string_count \
 check_raw_line_budget "$object_get_own_descriptor_parent" 4400
 check_raw_line_budget "$object_get_own_descriptor_file" 1480
 
+# 10.5.5 Proxy [[GetOwnProperty]] is the descriptor owner's private child: the
+# parent declares it privately and calls its one entry, and the child owns the
+# live-slot read, the trap call, the recursive targetDesc and the conversion.
+object_get_own_descriptor_proxy_file="crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs"
+require_file "$object_get_own_descriptor_proxy_file"
+check_no_inline_legacy_includes "$object_get_own_descriptor_proxy_file"
+require_exact_line_count "$object_get_own_descriptor_file" 'mod proxy;' 1 'private Proxy [[GetOwnProperty]] module declaration'
+require_fixed_string_count "$object_get_own_descriptor_file" 'self.emit_proxy_get_own_property_descriptor(' 1 'Proxy [[GetOwnProperty]] step call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'pub(super) fn emit_proxy_get_own_property_descriptor(' 1 'Proxy [[GetOwnProperty]] step entry'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_to_property_descriptor(' 1 'Proxy trap-result ToPropertyDescriptor call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_complete_property_descriptor(' 1 'Proxy trap-result CompletePropertyDescriptor call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_from_property_descriptor(' 1 'Proxy result FromPropertyDescriptor call'
+if grep -Eq 'emit_function_or_proxy_call|emit_to_property_descriptor|getOwnPropertyDescriptor trap' "$object_get_own_descriptor_file"; then
+  fail "$object_get_own_descriptor_file must leave the Proxy trap step to its private child"
+fi
+check_raw_line_budget "$object_get_own_descriptor_proxy_file" 560
+
 # T10's complete Object.getOwnPropertyDescriptors compiler has one private
 # owner. The parent retains only its module declaration and the standard
 # dispatcher retains one fixed builtin call.
@@ -5600,10 +5634,10 @@ do
   fi
 done
 require_fixed_string_count "$enumerable_own_properties_file" 'enum EnumerableOwnProperties {' 1 'closed enumerable-own-properties domain'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 12 'enumerable-own-properties policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties' 13 'enumerable-own-properties policy uses'
 require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Keys' 4 'keys policy uses'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Entries' 3 'entries policy uses'
-require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Values' 3 'values policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Entries' 4 'entries policy uses'
+require_fixed_string_count "$enumerable_own_properties_file" 'EnumerableOwnProperties::Values' 4 'values policy uses'
 require_fixed_string_count \
   "$enumerable_own_properties_file" \
   'compile_object_enumerable_own_properties_builtin(' \
@@ -5617,9 +5651,11 @@ require_regex_count \
 enumerable_own_properties_body="$(sed -n \
   '/^    fn compile_object_enumerable_own_properties_builtin(/,/^    pub(in crate::builtins) fn compile_object_keys_builtin(/p' \
   "$enumerable_own_properties_file")"
-if [ "$(grep -Fc 'match &mode {' <<<"$enumerable_own_properties_body" || true)" -ne 2 ] \
-  || grep -Eq 'match mode|mode[[:space:]]*[!=]=|^[[:space:]]*_ =>|unreachable!\(' <<<"$enumerable_own_properties_body"; then
-  fail 'enumerable-own-properties compiler must borrow and exhaustively project both policy decisions'
+# Three exhaustive decisions: the nullish diagnostic, whether Get runs, and
+# the result projection. `matches!` would hide a wildcard arm.
+if [ "$(grep -Fc 'match &mode {' <<<"$enumerable_own_properties_body" || true)" -ne 3 ] \
+  || grep -Eq 'match mode|mode[[:space:]]*[!=]=|matches!\(|^[[:space:]]*_ =>|unreachable!\(' <<<"$enumerable_own_properties_body"; then
+  fail 'enumerable-own-properties compiler must borrow and exhaustively project all three policy decisions'
 fi
 for enumerable_own_properties_capability in Clone Copy Debug PartialEq Eq PartialOrd Ord Hash Default
 do
@@ -5897,7 +5933,11 @@ require_fixed_string_count \
   1 \
   'closed HasProperty branch consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 3 'own-descriptor fact definition/HasProperty/Proxy Delete call'
-require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
+# Object.getOwnPropertyDescriptor's Proxy step needs targetDesc's values for
+# SameValue and a Proxy target's own trap, so it recurses through the builtin
+# instead of reading the value-free fact.
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$own_descriptor_fact" 0 'Object.getOwnPropertyDescriptor value-free fact'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs "$own_descriptor_fact" 0 'Proxy [[GetOwnProperty]] value-free fact'
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'enum DirectOwnDescriptorProjectionLocals {' \
@@ -6148,7 +6188,8 @@ require_fixed_string_count \
   'typed live-Proxy-slot reader authority'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 8 'live-Proxy-slot reader definition/internal call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs "$proxy_slot_reader" 1 'shared HasProperty live-Proxy-slot reader call'
-require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$proxy_slot_reader" 0 'public descriptor parent live-Proxy-slot reader call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs "$proxy_slot_reader" 1 'public descriptor Proxy live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs "$proxy_slot_reader" 1 'live-Proxy-slot reader call in Reflect builtins'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
 proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"
@@ -6646,13 +6687,13 @@ ordinary_default_prototype_domain="$(sed -n '/^pub(crate) enum OrdinaryDefaultPr
 require_text_regex_count \
   "$ordinary_default_prototype_domain" \
   '^[[:space:]]{4}([[:alnum:]]+|MessageError\(ErrorMessageConstructorKind\)),[[:space:]]*$' \
-  15 \
+  17 \
   'complete ordinary default-prototype domain'
 ordinary_default_prototype_offsets="$(sed -n '/^impl OrdinaryDefaultPrototype {$/,/^}$/p' "$wasm_required_resolved_realm_ordinary_prototype")"
 if grep -Eq '(^|[^[:alnum:]])_[[:space:]]*=>' <<<"$ordinary_default_prototype_offsets"; then
   fail "$wasm_required_resolved_realm_ordinary_prototype must map every ordinary default prototype exhaustively"
 fi
-for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat IntlNumberFormat; do
+for ordinary_default_prototype_variant in Object MessageError String Number Boolean Date Iterator RegExp Promise DisposableStack AggregateError SuppressedError IntlLocale IntlDateTimeFormat IntlNumberFormat Generator AsyncGenerator; do
   require_text_regex_count \
     "$ordinary_default_prototype_offsets" \
     "Self::${ordinary_default_prototype_variant}(\\(kind\\))?[[:space:]]*=>" \
@@ -6686,7 +6727,7 @@ done
 for required_ordinary_prototype_call_census in \
   'emit_load_required_resolved_realm_ordinary_prototype 4' \
   'emit_install_resolved_realm_ordinary_prototype 4' \
-  'emit_required_new_target_realm_ordinary_prototype 5'
+  'emit_required_new_target_realm_ordinary_prototype 6'
 do
   set -- $required_ordinary_prototype_call_census
   require_tree_regex_count \

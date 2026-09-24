@@ -11,10 +11,9 @@ use lila_ir::{
     AsyncFunctionForOfIteratorValueStorageIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
     AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
-    IdentifierWriteReferenceIr, ObjectDestructuringPatternIr,
-    PlainGeneratorSyncDisposableCapabilityIr, ResumableLoopIterationEnvironmentIr,
-    SyncDisposableForOfHeadIr, SyncDisposableResourceIr, SyncDisposableResourcesIr,
-    SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
+    IdentifierWriteErrorIr, ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
+    ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
+    SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
 };
 
 mod annex_b_function_copy;
@@ -521,6 +520,25 @@ impl DestructuringIteratorLocals {
     }
 }
 
+/// An identifier PutValue that needs no runtime environment lookup. An
+/// environment Reference is resolved before the value is read and prepared as
+/// `PreparedDestructuringTarget::EnvironmentIdentifier`, so this domain cannot
+/// spell it and the write cannot meet it again.
+#[must_use = "a prepared identifier write must be consumed by its write"]
+enum PreparedIdentifierWrite<'a> {
+    MutableBinding {
+        storage_name: &'a str,
+    },
+    IgnoreImmutableBinding,
+    Throw {
+        error: IdentifierWriteErrorIr,
+    },
+    Global {
+        referenced_name: &'a str,
+        strictness: Strictness,
+    },
+}
+
 enum DestructuringIteratorStepKind {
     Elision,
     Value,
@@ -532,7 +550,7 @@ enum PreparedDestructuringTarget<'a> {
         mode: BindingMode,
         name: &'a str,
     },
-    AssignmentIdentifier(&'a IdentifierWriteReferenceIr),
+    AssignmentIdentifier(PreparedIdentifierWrite<'a>),
     EnvironmentIdentifier {
         key: u32,
         reference: crate::environments::environment_reference::EnvironmentIdentifierReference,
@@ -12060,24 +12078,41 @@ impl<'a> FunctionBuilder<'a> {
                 Ok(PreparedDestructuringTarget::Binding { mode: *mode, name })
             }
             DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                if let IdentifierWriteDisposition::Environment {
-                    referenced_name,
-                    strictness,
-                } = reference.write_disposition()
-                {
-                    let key = self.reserve_temp_local();
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload(referenced_name),
-                    ));
-                    function.instruction(&Instruction::LocalSet(key));
-                    let reference =
-                        self.emit_resolve_environment_identifier(key, strictness, function)?;
-                    return Ok(PreparedDestructuringTarget::EnvironmentIdentifier {
-                        key,
-                        reference,
-                    });
-                }
-                Ok(PreparedDestructuringTarget::AssignmentIdentifier(reference))
+                let write = match reference.write_disposition() {
+                    IdentifierWriteDisposition::Environment {
+                        referenced_name,
+                        strictness,
+                    } => {
+                        let key = self.reserve_temp_local();
+                        function.instruction(&Instruction::I64Const(
+                            self.strings.payload(referenced_name),
+                        ));
+                        function.instruction(&Instruction::LocalSet(key));
+                        let reference =
+                            self.emit_resolve_environment_identifier(key, strictness, function)?;
+                        return Ok(PreparedDestructuringTarget::EnvironmentIdentifier {
+                            key,
+                            reference,
+                        });
+                    }
+                    IdentifierWriteDisposition::MutableBinding { storage_name } => {
+                        PreparedIdentifierWrite::MutableBinding { storage_name }
+                    }
+                    IdentifierWriteDisposition::IgnoreImmutableBinding => {
+                        PreparedIdentifierWrite::IgnoreImmutableBinding
+                    }
+                    IdentifierWriteDisposition::Throw { error } => {
+                        PreparedIdentifierWrite::Throw { error }
+                    }
+                    IdentifierWriteDisposition::Global {
+                        referenced_name,
+                        strictness,
+                    } => PreparedIdentifierWrite::Global {
+                        referenced_name,
+                        strictness,
+                    },
+                };
+                Ok(PreparedDestructuringTarget::AssignmentIdentifier(write))
             }
             DestructuringTargetIr::AssignmentProperty {
                 target,
@@ -12175,12 +12210,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_environment_identifier_reference(reference);
                 self.release_temp_local(key);
             }
-            PreparedDestructuringTarget::AssignmentIdentifier(reference) => {
-                match reference.write_disposition() {
-                    IdentifierWriteDisposition::Environment { .. } => {
-                        unreachable!("environment reference prepared before value")
-                    }
-                    IdentifierWriteDisposition::MutableBinding { storage_name } => {
+            PreparedDestructuringTarget::AssignmentIdentifier(write) => {
+                match write {
+                    PreparedIdentifierWrite::MutableBinding { storage_name } => {
                         let storage = self.lookup_binding(storage_name).ok_or_else(|| {
                             EmitError::unsupported(format!(
                                 "unsupported in lila wasm-aot first slice: unbound destructuring assignment `{storage_name}`"
@@ -12189,8 +12221,8 @@ impl<'a> FunctionBuilder<'a> {
                         self.write_binding_from_locals(storage, value_payload, value_tag, function);
                         self.mirror_binding_to_global_object(storage_name, storage, function)?;
                     }
-                    IdentifierWriteDisposition::IgnoreImmutableBinding => {}
-                    IdentifierWriteDisposition::Throw { error } => {
+                    PreparedIdentifierWrite::IgnoreImmutableBinding => {}
+                    PreparedIdentifierWrite::Throw { error } => {
                         // The value and any default initializer have already
                         // been evaluated. Emitting the abrupt completion here
                         // is 13.15.5.3's PutValue position, not an eager target
@@ -12204,7 +12236,7 @@ impl<'a> FunctionBuilder<'a> {
                         )?;
                         self.emit_propagate_current_throw(function);
                     }
-                    IdentifierWriteDisposition::Global {
+                    PreparedIdentifierWrite::Global {
                         referenced_name,
                         strictness,
                     } => {

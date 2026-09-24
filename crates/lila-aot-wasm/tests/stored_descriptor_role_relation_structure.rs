@@ -4,6 +4,7 @@ use std::path::Path;
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
+const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/stored-descriptor-role-relation.md");
 const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
@@ -282,7 +283,12 @@ fn all_three_producers_label_every_stored_descriptor_role() {
         assert!(named_producer.contains(expected_value));
     }
 
-    for source in [ARRAY_SOURCE, OBJECT_SOURCE] {
+    assert!(!OBJECT_SOURCE.contains("StoredDescriptorLocals::new("));
+    for role in ["Data", "Getter", "Setter"] {
+        assert!(!OBJECT_SOURCE.contains(&format!("StoredDescriptor{role}Locals::new(")));
+    }
+    for source in [ARRAY_SOURCE, DEFINE_PROPERTY_SOURCE] {
+        assert_eq!(source.matches("StoredDescriptorLocals::new(").count(), 1);
         assert_eq!(
             source
                 .matches("StoredDescriptorDataLocals::new(existing_value)")

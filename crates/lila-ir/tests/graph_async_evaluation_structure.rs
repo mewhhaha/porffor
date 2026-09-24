@@ -2,6 +2,7 @@ const MODULES_SOURCE: &str = include_str!("../src/modules/mod.rs");
 const OWNER_SOURCE: &str = include_str!("../src/modules/graph_async_evaluation.rs");
 const GRAPH_SOURCE: &str = include_str!("../src/modules/graph.rs");
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
+const GRAPH_TESTS_SOURCE: &str = include_str!("../src/modules/graph_tests.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -36,9 +37,19 @@ fn graph_async_evaluation_has_one_private_owner_with_the_public_inherent_api() {
     assert!(!GRAPH_SOURCE.contains("pub fn async_evaluation("));
     assert!(!GRAPH_SOURCE.contains("pub fn pending_async_dependencies("));
     assert_eq!(LINK_SOURCE.matches("async_evaluation(").count(), 2);
+    // Link-time activation kinds come from each unit's own top-level `await`;
+    // the runtime module record carries `[[PendingAsyncDependencies]]`. The
+    // linker therefore no longer witnesses this query, which `graph_tests.rs`
+    // exercises instead.
     assert_eq!(
         LINK_SOURCE.matches("pending_async_dependencies(").count(),
-        1
+        0
+    );
+    assert_eq!(
+        GRAPH_TESTS_SOURCE
+            .matches("graph.pending_async_dependencies(")
+            .count(),
+        9
     );
 }
 

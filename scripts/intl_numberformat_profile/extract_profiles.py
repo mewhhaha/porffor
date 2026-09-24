@@ -397,6 +397,13 @@ class Extractor:
         })
 
 
+def product_content(name, content):
+    """The reproducible bytes of a product: gzip streams are compared and hashed
+    by their decompressed content, because zlib implementations (zlib, zlib-ng)
+    compress identical input to different bytes."""
+    return gzip.decompress(content) if name.endswith(".gz") else content
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--locales", help="diagnostic extraction only, comma-separated raw CLDR IDs")
@@ -462,12 +469,13 @@ def main():
                "precomposed_pairs": len(extractor.unit_pairs), "currency_codes": len(extractor.currency_codes),
                "table_rows": {name: len(pool.rows) for name, pool in extractor.pools.items()},
                "source_diagnostics": diagnostics,
-               "products": [{"path": name, "sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)} for name, content in products.items()]}
+               "products": [{"path": name, "sha256": hashlib.sha256(product_content(name, content)).hexdigest(),
+                             "bytes": len(product_content(name, content))} for name, content in products.items()]}
     products["coverage.json"] = (json.dumps(summary, indent=2) + "\n").encode()
     for name, content in products.items():
         path = output / name
         if args.check:
-            if path.read_bytes() != content:
+            if product_content(name, path.read_bytes()) != product_content(name, content):
                 raise ValueError(f"non-reproducible generated profile: {path}")
         else:
             path.write_bytes(content)

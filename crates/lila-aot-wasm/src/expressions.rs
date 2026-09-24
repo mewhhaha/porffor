@@ -1993,13 +1993,8 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I64Const(1));
             }
-            ExprIr::DeleteIdentifier { kind, .. } => {
-                let value = if matches!(kind, DeleteIdentifierKindIr::NonDeletable) {
-                    0
-                } else {
-                    1
-                };
-                function.instruction(&Instruction::I64Const(value));
+            ExprIr::DeleteIdentifier { .. } => {
+                function.instruction(&Instruction::I64Const(0));
             }
             ExprIr::DeleteGlobalProperty { name, strictness } => {
                 let result_local = self.reserve_temp_local();

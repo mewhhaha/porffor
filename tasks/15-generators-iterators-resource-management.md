@@ -905,6 +905,13 @@ private-reference-order CLI witnesses pass `3/3`. No Test262 cohort or semantic
 golden was run because this invariant claims no new destructuring,
 IteratorClose or conformance behavior.
 
+The prepared-source work later added `EnvironmentIdentifier`, making the target
+seven-variant, but left `AssignmentIdentifier` carrying the IR Reference, so the
+write re-matched its disposition and rejected the already-prepared environment
+case with `unreachable!`. `AssignmentIdentifier` now carries the private,
+must-use `PreparedIdentifierWrite` domain, which cannot spell the environment
+case; the parallel IR discriminant is gone again.
+
 Batch AE made the then-two-variant synchronous iterator error authority
 capability-free. Iterator acquisition and stepping owned their selection, and
 every internal protocol check, iterator-completion helper, and exhaustive
@@ -1286,6 +1293,24 @@ green. No semantic golden, published-status refresh, complete Test262 prefix,
 or broad workspace suite was run. See the
 [`sync-iterator-consumer-capability.md`](../docs/rust-rewrite/contracts/sync-iterator-consumer-capability.md)
 contract and §26 of the combined iterator evidence contract.
+
+Generator and async-generator calls now select the instance `[[Prototype]]`
+the way EvaluateGeneratorBody and EvaluateAsyncGeneratorBody do: after
+FunctionDeclarationInstantiation completes normally, one observable
+`Get(functionObject, "prototype")` runs, and a non-Object result selects
+`%GeneratorPrototype%` or `%AsyncGeneratorPrototype%` from the generator
+function's own Realm. Previously the call path read the function header's
+creation-time prototype snapshot, which assignments did not update, and fell
+back to the entry-realm global. The private `GeneratorInstanceFamily` domain
+projects exhaustively onto two new `OrdinaryDefaultPrototype` variants and
+reuses the required resolved-Realm fallback. The instance is allocated with a
+null placeholder, and the prototype payload and tag are stored together, so a
+callable `prototype` keeps its identity. The
+`generator_instance_prototype_structure` guard pins the owner, the ordering
+after parameter initialization and the absence of header or global reads. The
+`aot_generator_instance_prototype` engine target covers replaced, null and
+primitive prototypes, class and literal methods, initializer-time replacement,
+abrupt initialization and cross-Realm fallback for both families.
 
 ## Objective
 

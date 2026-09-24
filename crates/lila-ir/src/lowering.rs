@@ -32,6 +32,7 @@ mod for_of;
 mod function_definition;
 mod function_environment;
 mod if_statement;
+mod intrinsic_method;
 mod invocation_effects;
 mod labelled_statement;
 mod module_graph;
@@ -72,6 +73,7 @@ use dynamic_source::{
     already_accounted_optional_calls, BuiltinCallContext, OptionalCallSource,
     ResolvedDynamicSourceCall,
 };
+use intrinsic_method::IntrinsicPrototype;
 use invocation_effects::{AnalyzedInvocationEffects, InvocationCallerFlowEffects};
 use object_environment_logical::LogicalAssignmentReachability;
 use ordinary_property_compound::BuiltinGetterReceiverProvenance;
@@ -12787,59 +12789,12 @@ impl<'a> ScriptLowerer<'a> {
         )
     }
 
-    fn function_prototype_call_is_intrinsic(&self, receiver: &TypedExpr) -> bool {
-        if receiver.heap_shape.is_none() {
-            return false;
-        }
-        let Some(function_constructor) = self.lookup_global_property(FUNCTION_NAME) else {
-            return false;
-        };
-        if function_constructor.function_targets.exact_single_target()
-            != Some(&StandardBuiltinId::FunctionConstructor.function_id())
-        {
-            return false;
-        }
-        let Some(HeapShape::Object(constructor_shape)) = function_constructor.heap_shape.as_deref()
-        else {
-            return false;
-        };
-        let Some(ObjectShapeProperty::Data(function_prototype)) =
-            constructor_shape.properties.get("prototype")
-        else {
-            return false;
-        };
-        if function_prototype.function_targets.exact_single_target()
-            != Some(&StandardBuiltinId::FunctionPrototype.function_id())
-        {
-            return false;
-        }
-        let Some(HeapShape::Object(prototype_shape)) = function_prototype.heap_shape.as_deref()
-        else {
-            return false;
-        };
-        // The pristine `%Function.prototype%` shape omits catalogued method
-        // properties. Writes add an explicit fact, while delete and unknown
-        // effects erase the shape, so absence here is the intrinsic state.
-        match prototype_shape.properties.get("call") {
-            None => true,
-            Some(ObjectShapeProperty::Data(call)) => {
-                call.function_targets.exact_single_target()
-                    == Some(&StandardBuiltinId::FunctionPrototypeCall.function_id())
-            }
-            Some(ObjectShapeProperty::Accessor { .. }) => false,
-        }
-    }
-
-    // `is_error_prototype_expr` used to sit here: a second hand-kept nine-row
-    // list of the same closed domain, with zero call sites anywhere in the
-    // workspace. AGENTS.md: code unreachable from the product path should fail
-    // to build, not merely fail to run. It was deleted rather than migrated.
-
-    fn is_error_constructor_expr(&self, expr: &TypedExpr) -> bool {
-        NativeErrorKind::ALL
-            .into_iter()
-            .any(|kind| self.is_builtin_reference_expr(expr, kind.as_str()))
-    }
+    // `is_error_prototype_expr` and `is_error_constructor_expr` used to sit
+    // here. The latter's only caller rejected `Error.stack` (and every native
+    // error constructor's `.stack`) as an unsupported compiler slice. ECMA-262
+    // defines no `stack` property on those constructors or their prototypes, so
+    // the read is an ordinary [[Get]] that yields undefined unless the program
+    // defined the property itself; it now lowers like any other property read.
 
     fn property_access_field_is_proven_numeric(&self, field: &PropertyAccessField) -> bool {
         let PropertyAccessField::Expr(expr) = field else {
@@ -13168,17 +13123,6 @@ impl<'a> ScriptLowerer<'a> {
             && (Self::has_array_prototype_shape(&target)
                 || self.is_builtin_property_expr(&target, ARRAY_NAME, "prototype"));
         if let PropertyKeyIr::StaticString(name) = &key {
-            if name == "toString"
-                && self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype")
-            {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::FunctionPrototypeToString),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: key.clone(),
-                    },
-                );
-            }
             let observable_array_prototype_lookup = self.array_prototype_mutated
                 && (target.possible_kinds.contains(ValueKind::Array)
                     || mutable_array_prototype_target);
@@ -13227,42 +13171,33 @@ impl<'a> ScriptLowerer<'a> {
                 );
                 return result;
             }
-            if name == "stack" && self.is_error_constructor_expr(&target) {
-                return self.unsupported_expr("Error.stack");
-            }
-            if name == "call"
-                && self.function_prototype_call_is_intrinsic(&target)
-                && (target.kind == ValueKind::Function
-                    || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
-            {
-                return self
-                    .function_value_expr(StandardBuiltinId::FunctionPrototypeCall.function_id());
-            }
-            if name == "apply"
-                && (target.kind == ValueKind::Function
-                    || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
-            {
-                return self
-                    .function_value_expr(StandardBuiltinId::FunctionPrototypeApply.function_id());
-            }
-            if name == "bind"
-                && (target.kind == ValueKind::Function
-                    || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
-            {
-                return self
-                    .function_value_expr(StandardBuiltinId::FunctionPrototypeBind.function_id());
-            }
-            if name == "toString"
-                && (target.kind == ValueKind::Function
-                    || self.is_builtin_property_expr(&target, FUNCTION_NAME, "prototype"))
-            {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(StandardBuiltinId::FunctionPrototypeToString),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: key.clone(),
-                    },
-                );
+            // 20.2.3: a function reaches `call`, `apply`, `bind` and
+            // `toString` through `%Function.prototype%`. Its own properties are
+            // known only through its shape (consulted above), and the
+            // prototype's only through the recorded `Function.prototype` fact.
+            let target_is_function_prototype = target.function_targets.exact_single_target()
+                == Some(&StandardBuiltinId::FunctionPrototype.function_id());
+            if target.kind == ValueKind::Function || target_is_function_prototype {
+                let lookup = self.intrinsic_method(IntrinsicPrototype::Function, name);
+                if let Some(method) = lookup.proven().filter(|_| target.heap_shape.is_some()) {
+                    if method.builtin() != StandardBuiltinId::FunctionPrototypeToString {
+                        return self.function_value_expr(method.builtin().function_id());
+                    }
+                }
+                let lookup = if target.heap_shape.is_some() {
+                    lookup
+                } else {
+                    lookup.unclaimed()
+                };
+                if let Some(info) = lookup.callee_info() {
+                    return TypedExpr::from_info(
+                        info,
+                        ExprIr::PropertyRead {
+                            target: Box::new(target),
+                            key: key.clone(),
+                        },
+                    );
+                }
             }
             if name == "of" && self.is_builtin_reference_expr(&target, ARRAY_NAME) {
                 return self.function_value_expr(StandardBuiltinId::ArrayOf.function_id());
@@ -13892,40 +13827,10 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 );
             }
-            let builtin = match name.as_str() {
-                "toString" => Some(StandardBuiltinId::StringPrototypeToString),
-                "valueOf" => Some(StandardBuiltinId::StringPrototypeValueOf),
-                "charAt" => Some(StandardBuiltinId::StringPrototypeCharAt),
-                "concat" => Some(StandardBuiltinId::StringPrototypeConcat),
-                "charCodeAt" => Some(StandardBuiltinId::StringPrototypeCharCodeAt),
-                "codePointAt" => Some(StandardBuiltinId::StringPrototypeCodePointAt),
-                "at" => Some(StandardBuiltinId::StringPrototypeAt),
-                "indexOf" => Some(StandardBuiltinId::StringPrototypeIndexOf),
-                "lastIndexOf" => Some(StandardBuiltinId::StringPrototypeLastIndexOf),
-                "endsWith" => Some(StandardBuiltinId::StringPrototypeEndsWith),
-                "includes" => Some(StandardBuiltinId::StringPrototypeIncludes),
-                "startsWith" => Some(StandardBuiltinId::StringPrototypeStartsWith),
-                "padStart" => Some(StandardBuiltinId::StringPrototypePadStart),
-                "padEnd" => Some(StandardBuiltinId::StringPrototypePadEnd),
-                "repeat" => Some(StandardBuiltinId::StringPrototypeRepeat),
-                "normalize" => Some(StandardBuiltinId::StringPrototypeNormalize),
-                "localeCompare" => Some(StandardBuiltinId::StringPrototypeLocaleCompare),
-                "toLocaleLowerCase" => Some(StandardBuiltinId::StringPrototypeToLocaleLowerCase),
-                "toLocaleUpperCase" => Some(StandardBuiltinId::StringPrototypeToLocaleUpperCase),
-                "toLowerCase" => Some(StandardBuiltinId::StringPrototypeToLowerCase),
-                "toUpperCase" => Some(StandardBuiltinId::StringPrototypeToUpperCase),
-                "isWellFormed" => Some(StandardBuiltinId::StringPrototypeIsWellFormed),
-                "toWellFormed" => Some(StandardBuiltinId::StringPrototypeToWellFormed),
-                _ => None,
-            };
-            if let Some(builtin) = builtin {
-                return TypedExpr::from_info(
-                    Self::standard_builtin_value_info(builtin),
-                    ExprIr::PropertyRead {
-                        target: Box::new(target),
-                        key: PropertyKeyIr::StaticString(name),
-                    },
-                );
+            if let Some(read) =
+                self.intrinsic_method_read(IntrinsicPrototype::String, &target, &name)
+            {
+                return read;
             }
             return TypedExpr::from_info(
                 ValueInfo {
@@ -19592,14 +19497,21 @@ impl<'a> ScriptLowerer<'a> {
             return None;
         };
         let field_name = self.interner.resolve_expect(field.sym()).to_string();
+        // Both spellings fold `%Iterator.prototype%.toArray`, and the second
+        // also reaches it through `%Function.prototype%.call`.
         if field_name == "toArray" && args.is_empty() {
+            if !self.intrinsic_method_is_proven(IntrinsicPrototype::Iterator, "toArray") {
+                return None;
+            }
             return self
                 .static_iterator_values_expr(access.target())
                 .map(<[f64]>::to_vec);
         }
         if field_name != "call"
-            || !self.is_iterator_prototype_method_expr(access.target(), "toArray")
             || args.len() != 1
+            || !self.is_iterator_prototype_method_expr(access.target(), "toArray")
+            || !self.intrinsic_method_is_proven(IntrinsicPrototype::Function, "call")
+            || !self.intrinsic_method_is_proven(IntrinsicPrototype::Iterator, "toArray")
         {
             return None;
         }
@@ -19972,6 +19884,7 @@ impl<'a> ScriptLowerer<'a> {
             Self::unwrap_parenthesized_expr(prototype_access.target()),
             Expression::Identifier(identifier)
                 if self.interner.resolve_expect(identifier.sym()).to_string() == "Iterator"
+                    && self.identifier_resolves_to_intrinsic_global("Iterator")
         )
     }
 

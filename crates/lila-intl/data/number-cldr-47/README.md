@@ -30,7 +30,10 @@ python3 scripts/generate-intl-numberformat-profile.py
 ```
 
 The last command rewrites generated output only after the complete candidate
-inventory succeeds. The binary contains no JavaScript or executable code. A
+inventory succeeds. The two `.json.gz` products are compared, and hashed in
+coverage.json and payload-manifest.json, by their decompressed content: zlib
+and zlib-ng compress identical input to different bytes, so the compressed
+bytes are not a reproducible identity. The binary contains no JavaScript or executable code. A
 closed decoder validates references, ordering, cardinality, scalar values,
 pattern roles, Unicode intervals, plural predicates and the complete locale
 inventory before exposing NumberProfiles.

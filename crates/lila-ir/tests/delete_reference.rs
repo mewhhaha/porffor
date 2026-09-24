@@ -78,13 +78,7 @@ fn an_inner_lexical_binding_stops_with_resolution_for_delete() {
         lower_remove("function remove(scope) { with(scope) { let x = 1; return delete (x); } }");
     let value = returned(&function.body.statements).expect("return");
     assert!(
-        matches!(
-            &value.expr,
-            ExprIr::DeleteIdentifier {
-                kind: lila_ir::DeleteIdentifierKindIr::NonDeletable,
-                ..
-            }
-        ),
+        matches!(&value.expr, ExprIr::DeleteIdentifier { .. }),
         "lexical binding remains nondeletable: {value:?}"
     );
 }

@@ -86,3 +86,17 @@ and `6fe2c42ae5df23a983b0e418974e7fe6c51f20ede96b3165e786235334119acf`.
 Batch AP verification is green on 2026-08-28: the strengthened structure target
 passes `4/4`, the exact module-qualified CLI witness passes `1/1`, and
 `cargo xc` is green.
+
+## Retirement
+
+Commit `f1fe521f4` removed the `EnumerableOnly` producer: `Object.keys` now runs
+the shared `EnumerableOwnProperties::Keys` algorithm in
+`builtins/object/enumerable_own_properties.rs`, which reads each own key's
+descriptor through the ordinary `[[GetOwnProperty]]` path instead of Array
+named storage. With `Object.getOwnPropertyNames` as the only remaining consumer,
+`ArrayNamedStringKeySelection` was deleted rather than kept as a one-variant
+domain. The two `emit_array_all_named_string_props_*` count and write phases now
+share one unconditional Symbol filter with no enumerability guard, so their
+allocated length and written keys agree by construction.
+`array_named_string_key_selection_structure.rs` pins the deletion, the shared
+filter and the single `Object.getOwnPropertyNames` consumer.

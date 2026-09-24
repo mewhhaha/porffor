@@ -141,9 +141,13 @@ function mappedArgument(value) {
     configurable: false,
   });
   var proxy = returningGetProxy(arguments, 9);
-  return proxy[0] === 9 && throwsTypeError(function () {
-    return Reflect.get(returningGetProxy(arguments, 10), "0");
-  });
+  // An arrow function has no `arguments` binding of its own (10.2.11 step 16),
+  // so this observes mappedArgument's object. A `function` expression here
+  // would observe its own empty arguments object, which has no "0" property and
+  // therefore imposes no [[Get]] invariant (10.5.8 step 9).
+  return proxy[0] === 9 && throwsTypeError(() =>
+    Reflect.get(returningGetProxy(arguments, 10), "0")
+  );
 }
 assert(mappedArgument(1), "mapped arguments current value");
 

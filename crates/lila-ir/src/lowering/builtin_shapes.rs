@@ -3003,13 +3003,18 @@ impl<'a> ScriptLowerer<'a> {
             "name".to_string(),
             ObjectShapeProperty::Data(Self::string_value_info(builtin.debug_name())),
         );
-        properties.insert(
-            "toString".to_string(),
-            ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
-                StandardBuiltinId::ErrorPrototypeToString.function_id(),
-                false,
-            )),
-        );
+        // 20.5.3.4 and 20.5.6.3: only `%Error.prototype%` owns `toString`.
+        // An own copy on every NativeError prototype hid a replaced
+        // `Error.prototype.toString` from every TypeError, RangeError, ...
+        if builtin == StandardBuiltinId::ErrorConstructor {
+            properties.insert(
+                "toString".to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    StandardBuiltinId::ErrorPrototypeToString.function_id(),
+                    false,
+                )),
+            );
+        }
         Box::new(HeapShape::Object(ObjectShape {
             prototype,
             properties,
@@ -3018,7 +3023,34 @@ impl<'a> ScriptLowerer<'a> {
         }))
     }
 
-    pub(super) fn standard_error_instance_info(builtin: StandardBuiltinId) -> ValueInfo {
+    /// A fresh object of the intrinsic error constructor `builtin`.
+    ///
+    /// Its `[[Prototype]]` is the intrinsic `%NativeError.prototype%`, whose
+    /// state here is the recorded global fact rather than the fresh-realm
+    /// catalogue: after `Error.prototype.toString = f` a new error must reach
+    /// `f`, not the builtin. Without that fact — or when an aliasing write cut
+    /// the recorded link from a NativeError prototype to `%Error.prototype%` —
+    /// the prototype chain is unknown. A shape whose `prototype` is `None`
+    /// reads as a plain object inheriting `%Object.prototype%`, so the object
+    /// is left unshaped instead.
+    pub(super) fn standard_error_instance_info(&self, builtin: StandardBuiltinId) -> ValueInfo {
+        let prototype = self
+            .live_intrinsic_prototype(builtin)
+            .and_then(|prototype| prototype.heap_shape.clone())
+            .filter(|prototype| match prototype.as_ref() {
+                HeapShape::Object(prototype) => {
+                    builtin == StandardBuiltinId::ErrorConstructor || prototype.prototype.is_some()
+                }
+                HeapShape::Array(_) => false,
+            });
+        let Some(prototype) = prototype else {
+            return ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            };
+        };
         let mut properties = BTreeMap::new();
         properties.insert(
             "message".to_string(),
@@ -3049,7 +3081,7 @@ impl<'a> ScriptLowerer<'a> {
             kind: ValueKind::Object,
             possible_kinds: KindSet::from_kind(ValueKind::Object),
             heap_shape: Some(Box::new(HeapShape::Object(ObjectShape {
-                prototype: Some(Self::standard_error_prototype_shape(builtin)),
+                prototype: Some(prototype),
                 properties,
                 private_brands: BTreeSet::new(),
                 boxed_primitive: None,
@@ -4032,6 +4064,21 @@ impl<'a> ScriptLowerer<'a> {
                         "prototype".to_string(),
                         ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
                             Self::typed_array_constructor_prototype_shape(builtin),
+                        ))),
+                    );
+                }
+                StandardBuiltinId::EvalErrorConstructor
+                | StandardBuiltinId::AggregateErrorConstructor
+                | StandardBuiltinId::SuppressedErrorConstructor
+                | StandardBuiltinId::RangeErrorConstructor
+                | StandardBuiltinId::SyntaxErrorConstructor
+                | StandardBuiltinId::TypeErrorConstructor
+                | StandardBuiltinId::URIErrorConstructor
+                | StandardBuiltinId::ReferenceErrorConstructor => {
+                    object.properties.insert(
+                        "prototype".to_string(),
+                        ObjectShapeProperty::Data(Self::value_info_from_shape(Some(
+                            Self::standard_error_prototype_shape(builtin),
                         ))),
                     );
                 }
@@ -7221,9 +7268,12 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TypeErrorConstructor
             | StandardBuiltinId::URIErrorConstructor
             | StandardBuiltinId::ReferenceErrorConstructor => (
+                // A catalogue signature has no program point, so it cannot
+                // name the error's current prototype chain; call analysis
+                // uses `standard_error_instance_info` for that.
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
-                Self::standard_error_instance_info(builtin).heap_shape,
+                None,
                 Self::fresh_constructed_instance_info(),
             ),
             StandardBuiltinId::PromiseConstructor => (

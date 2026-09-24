@@ -327,21 +327,30 @@ fn snapshot_dir() -> String {
         .to_string()
 }
 
+// Per-test snapshot directories and project/suite roots live in two disjoint
+// temp namespaces, `lila-cli-snapshot-*` and `lila-cli-project-*`. They used to
+// be `lila-cli-test262-{name}` and `lila-cli-{name}`, so
+// `unique_project_dir("test262-failing-shard")` and
+// `unique_snapshot_dir("failing-shard")` were the SAME directory: the suite's
+// `test/` tree sat inside the snapshot directory and a test counting snapshot
+// files counted it. The fixed `snapshot-`/`project-` segments make that aliasing
+// impossible for every pair of names, rather than for the names in use today.
+
 fn unique_snapshot_dir(name: &str) -> String {
-    std::env::temp_dir()
-        .join(format!(
-            "lila-cli-test262-{}-{}-{}",
-            name,
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ))
-        .display()
-        .to_string()
+    let dir = std::env::temp_dir().join(format!(
+        "lila-cli-snapshot-{}-{}-{}",
+        name,
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    // A reused pid and test name must not hand this test a previous run's files.
+    let _ = fs::remove_dir_all(&dir);
+    dir.display().to_string()
 }
 
 fn unique_project_dir(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!(
-        "lila-cli-{}-{}-{}",
+        "lila-cli-project-{}-{}-{}",
         name,
         std::process::id(),
         std::thread::current().name().unwrap_or("test")

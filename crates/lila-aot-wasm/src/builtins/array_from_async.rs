@@ -2170,8 +2170,6 @@ impl<'a> FunctionBuilder<'a> {
         let key_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
-        let boolean_payload_local = self.reserve_temp_local();
-        let boolean_tag_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let define_property_payload_local = self.reserve_temp_local();
         let define_property_tag_local = self.reserve_temp_local();
@@ -2202,34 +2200,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_payload_local));
         self.emit_number_to_string_payload(index_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(key_local));
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        self.emit_create_data_property_descriptor_carrier(
+            crate::objects::TaggedLocals::new(value_payload_local, value_tag_local),
+            descriptor_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(boolean_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(boolean_tag_local));
-        for (name, payload, tag) in [
-            ("value", value_payload_local, value_tag_local),
-            ("writable", boolean_payload_local, boolean_tag_local),
-            ("enumerable", boolean_payload_local, boolean_tag_local),
-            ("configurable", boolean_payload_local, boolean_tag_local),
-        ] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(self.scratch_local));
-            self.emit_object_define_data(
-                descriptor_payload_local,
-                self.scratch_local,
-                payload,
-                tag,
-                function,
-            )?;
-        }
         let define_property_meta = self
             .functions
             .get(&StandardBuiltinId::ObjectDefineProperty.function_id())
@@ -2264,8 +2241,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(define_property_tag_local);
         self.release_temp_local(define_property_payload_local);
         self.release_temp_local(key_tag_local);
-        self.release_temp_local(boolean_tag_local);
-        self.release_temp_local(boolean_payload_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
         self.release_temp_local(key_local);

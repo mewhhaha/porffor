@@ -122,6 +122,10 @@ fn run_wasm_backend_succeeds_for_date_to_utc_string_fixture() {
     assert!(stdout.contains("number(262"));
 }
 
+/// ECMA-402 20.4.1-3 supersede ECMA-262's implementation-defined
+/// `toLocale*String` bodies once Intl is present, so the fixture pins each
+/// default result to the equivalent explicit `Intl.DateTimeFormat` rather than
+/// to `toDateString` / `toString` / `toTimeString`.
 #[test]
 fn run_wasm_backend_succeeds_for_date_locale_strings_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

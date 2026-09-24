@@ -156,13 +156,13 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 fn prepared_key_is_the_exact_private_no_capability_domain() {
     let declaration = normalized_rust(bounded(
         SOURCE,
-        "enum PreparedDestructuringPropertyKey {",
+        "enum PreparedDestructuringPropertyKey<'a> {",
         "impl<'a> FunctionBuilder<'a> {",
     ));
     assert_eq!(
         declaration,
         concat!(
-            "Static(String),Computed{raw_key:TypedExpr,payload_local:u32,",
+            "Static(&'astr),Computed{raw_key:&'aTypedExpr,payload_local:u32,",
             "tag_local:u32,},}"
         )
     );
@@ -190,7 +190,7 @@ fn prepared_key_is_the_exact_private_no_capability_domain() {
 fn producer_constructs_computed_authority_after_both_locals_are_populated() {
     let producer = normalized_rust(bounded(
         SOURCE,
-        "fn prepare_destructuring_target(",
+        "fn prepare_destructuring_target<'b>(",
         "fn put_destructuring_target(",
     ));
     let reserve_payload = producer
@@ -209,7 +209,7 @@ fn producer_constructs_computed_authority_after_both_locals_are_populated() {
         .expect("computed-key abrupt completion must precede authority construction");
     let construct = producer
         .find(concat!(
-            "PreparedDestructuringPropertyKey::Computed{raw_key:key.clone(),",
+            "PreparedDestructuringPropertyKey::Computed{raw_key:key,",
             "payload_local,tag_local,}"
         ))
         .expect("computed authority must own the populated local pair");
@@ -219,7 +219,7 @@ fn producer_constructs_computed_authority_after_both_locals_are_populated() {
     assert!(propagate < construct);
     assert_eq!(
         producer
-            .matches("PreparedDestructuringPropertyKey::Static(name.clone())")
+            .matches("PreparedDestructuringPropertyKey::Static(name)")
             .count(),
         1
     );
@@ -227,10 +227,17 @@ fn producer_constructs_computed_authority_after_both_locals_are_populated() {
 
 #[test]
 fn write_installs_and_releases_computed_key_locals_exhaustively() {
-    let consumer = normalized_rust(bounded(
+    // The write consumes only the prepared target, so the property arm is
+    // bounded inside `put_destructuring_target`.
+    let write = bounded(
         SOURCE,
-        "DestructuringTargetIr::AssignmentProperty { .. } => {",
-        "DestructuringTargetIr::AssignmentPrivate { .. } => {",
+        "fn put_destructuring_target(",
+        "fn emit_iterator_close_condition_i32(",
+    );
+    let consumer = normalized_rust(bounded(
+        write,
+        "PreparedDestructuringTarget::Property {",
+        "PreparedDestructuringTarget::Private {",
     ));
     let install = consumer
         .find(concat!(

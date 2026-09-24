@@ -8,6 +8,8 @@ const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
 const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
 const RECORD_SOURCE: &str = include_str!("../src/modules/record.rs");
+const SYNCHRONOUS_DEFINITION_SOURCE: &str =
+    include_str!("../src/modules/synchronous_definition.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -68,7 +70,7 @@ fn resolved_binding_preserves_the_closed_binding_and_resolution_domains() {
     );
     assert_eq!(
         code_without_whitespace(binding_domain),
-        "Namespace,Name(LocalName),ModuleSource,}"
+        "Namespace(ModuleNamespaceModeIr),Name(LocalName),ModuleSource,}"
     );
 
     let resolution_domain = OWNER_SOURCE
@@ -116,10 +118,26 @@ fn resolution_algorithms_and_existing_consumers_keep_their_owners() {
         15
     );
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ResolvedBindingIr").count(), 3);
-    assert_eq!(LINK_SOURCE.matches("ModuleBindingNameIr").count(), 3);
-    assert_eq!(LINK_SOURCE.matches("ResolvedBindingIr").count(), 2);
-    assert_eq!(NAMESPACE_SOURCE.matches("ModuleBindingNameIr").count(), 8);
-    assert_eq!(NAMESPACE_SOURCE.matches("ResolvedBindingIr").count(), 20);
+    assert_eq!(LINK_SOURCE.matches("ModuleBindingNameIr").count(), 4);
+    assert_eq!(LINK_SOURCE.matches("ResolvedBindingIr").count(), 3);
+    assert_eq!(NAMESPACE_SOURCE.matches("ModuleBindingNameIr").count(), 9);
+    assert_eq!(NAMESPACE_SOURCE.matches("ResolvedBindingIr").count(), 21);
+    assert_eq!(
+        SYNCHRONOUS_DEFINITION_SOURCE
+            .matches("ModuleBindingNameIr")
+            .count(),
+        3
+    );
+    assert_eq!(
+        SYNCHRONOUS_DEFINITION_SOURCE
+            .matches("ResolvedBindingIr")
+            .count(),
+        8
+    );
+    // Instantiation spells every resolution it cannot link, so a new binding
+    // or resolution kind fails to compile instead of reaching a panic.
+    assert!(!SYNCHRONOUS_DEFINITION_SOURCE.contains("_ => panic!"));
+    assert!(!SYNCHRONOUS_DEFINITION_SOURCE.contains("fn resolve_export"));
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleBindingNameIr").count(), 1);
     assert_eq!(DYNAMIC_SOURCE.matches("ResolvedBindingIr").count(), 4);
     assert!(!RECORD_SOURCE.contains("ModuleBindingNameIr"));

@@ -671,8 +671,11 @@ fn static_and_dynamic_revivers_share_one_post_call_result_owner() {
     );
     assert!(definition_owner.contains("StandardBuiltinId::ReflectDefineProperty.function_id()"));
     assert!(definition_owner.contains("self.emit_direct_js_call("));
-    assert!(definition_owner
-        .contains("self.emit_alloc_plain_object_with_prototype(None, None, function)?;"));
+    // The private null-prototype carrier is the 6.2.6.4 owner's
+    // `DescriptorObjectPrototype::PrivateCarrier` form.
+    assert!(definition_owner.contains("self.emit_create_data_property_descriptor_carrier("));
+    assert!(!definition_owner.contains("emit_alloc_plain_object_with_prototype("));
+    assert!(!definition_owner.contains("OBJECT_PROTOTYPE_GLOBAL_INDEX"));
     assert!(!definition_owner.contains("emit_create_data_property_or_throw("));
     assert!(!definition_owner.contains("emit_object_create_data_property_silent("));
 

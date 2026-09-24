@@ -8,7 +8,11 @@ const GRAPH_RESOLUTION_SOURCE: &str = include_str!("../src/modules/graph_resolut
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
 const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
+const ADMISSION_SOURCE: &str = include_str!("../src/modules/admission.rs");
+const ADMISSION_CLOSURE_SOURCE: &str = include_str!("../src/modules/admission/closure.rs");
+const SYNCHRONOUS_SOURCE: &str = include_str!("../src/modules/synchronous_source.rs");
 const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const LOWERING_MODULE_GRAPH_SOURCE: &str = include_str!("../src/lowering/module_graph.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const ENGINE_LOADER_SOURCE: &str = include_str!("../../lila-engine/src/module_loader.rs");
 const ENGINE_LIB_SOURCE: &str = include_str!("../../lila-engine/src/lib.rs");
@@ -169,12 +173,34 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
     assert_eq!(LINK_SOURCE.matches("ModuleGraphSources").count(), 4);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleGraphSources").count(), 2);
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleGraphSources").count(), 3);
-    assert_eq!(LOWERING_SOURCE.matches("ModuleGraphSources").count(), 6);
+    assert_eq!(ADMISSION_SOURCE.matches("ModuleGraphSources").count(), 3);
+    assert_eq!(
+        ADMISSION_CLOSURE_SOURCE
+            .matches("ModuleGraphSources")
+            .count(),
+        4
+    );
+    assert_eq!(SYNCHRONOUS_SOURCE.matches("ModuleGraphSources").count(), 1);
+    // The public graph-lowering entry points live in `lowering/module_graph.rs`;
+    // `lowering.rs` keeps only the one-node `ModuleGraphSources::single` path.
+    assert_eq!(LOWERING_SOURCE.matches("ModuleGraphSources").count(), 1);
+    assert_eq!(
+        LOWERING_SOURCE
+            .matches("&ModuleGraphSources::single(source)")
+            .count(),
+        1
+    );
+    assert_eq!(
+        LOWERING_MODULE_GRAPH_SOURCE
+            .matches("ModuleGraphSources")
+            .count(),
+        6
+    );
     assert_eq!(
         ENGINE_LOADER_SOURCE.matches("ModuleGraphSources").count(),
         6
     );
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 6);
+    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 7);
 
     assert_eq!(OWNER_SOURCE.matches("ModuleSourceIr").count(), 4);
     assert_eq!(GRAPH_SOURCE.matches("ModuleSourceIr").count(), 1);
@@ -186,6 +212,14 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
 
     assert!(GRAPH_BUILD_SOURCE.contains("pub(crate) fn build_graph("));
     assert!(!GRAPH_SOURCE.contains("pub(crate) fn build_graph("));
+    for source in [
+        ADMISSION_SOURCE,
+        ADMISSION_CLOSURE_SOURCE,
+        SYNCHRONOUS_SOURCE,
+    ] {
+        assert!(!source.contains("fn build_graph("));
+        assert!(!source.contains("ModuleSourceIr"));
+    }
     assert!(GRAPH_SOURCE.contains("pub(crate) fn link(graph: &mut ModuleGraphIr)"));
     assert!(GRAPH_RESOLUTION_SOURCE.contains("pub fn resolve_export("));
     assert!(!GRAPH_SOURCE.contains("pub fn resolve_export("));

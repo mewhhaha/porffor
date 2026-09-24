@@ -695,9 +695,9 @@ fn module_source_object_source(module: ModuleUnitId) -> String {
     text.push_str(", ");
     text.push_str(SYMBOL_NAME);
     text.push_str(".toStringTag, ");
-    // Same complete-descriptor shape as the namespace object's, and now
-    // literally the same code path: the two used to be two hand-written key
-    // lists that happened to agree.
+    // A complete descriptor (10.1.6.3 step 3's "fully populated"): the three
+    // flags are 6.2.6.6's defaults and the four keys and their order come from
+    // `CompleteDescriptor::keys()`, so no key list is spelled out here.
     let mut to_string_tag = String::new();
     push_js_string_literal(&mut to_string_tag, MODULE_SOURCE_TO_STRING_TAG);
     text.push_str(

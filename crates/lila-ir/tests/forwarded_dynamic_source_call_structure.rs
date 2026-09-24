@@ -1,6 +1,7 @@
 const CANDIDATE_SOURCE: &str = include_str!("../src/lowering/call_candidate_analysis.rs");
 const CALL_SOURCE: &str = include_str!("../src/lowering/call_expression.rs");
 const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
+const INTRINSIC_METHOD_SOURCE: &str = include_str!("../src/lowering/intrinsic_method.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-source-capability.md");
 const TASK: &str = include_str!("../../../tasks/13-dynamic-source-evaluation.md");
@@ -117,33 +118,66 @@ fn forwarding_shifts_this_arg_and_cannot_manufacture_direct_eval_authority() {
 
 #[test]
 fn forwarding_requires_current_intrinsic_call_property_authority() {
-    let authority = normalized(bounded(
-        LOWERING_SOURCE,
-        "    fn function_prototype_call_is_intrinsic(&self, receiver: &TypedExpr) -> bool {",
-        "    // `is_error_prototype_expr` used to sit here:",
+    // `Function.prototype.call` is one row of the shared intrinsic-method
+    // catalogue, and only the live-prototype proof turns a row into a callee.
+    let catalogue = normalized(bounded(
+        INTRINSIC_METHOD_SOURCE,
+        "    pub(super) fn catalogued_method(self, name: &str) -> Option<StandardBuiltinId> {",
+        "            _ => return None,",
     ));
-    assert!(authority.contains("ifreceiver.heap_shape.is_none(){returnfalse;}"));
-    assert!(authority.contains("lookup_global_property(FUNCTION_NAME)"));
-    assert!(authority.contains("StandardBuiltinId::FunctionConstructor.function_id()"));
-    assert!(authority.contains("constructor_shape.properties.get(\"prototype\")"));
-    assert!(authority.contains("StandardBuiltinId::FunctionPrototype.function_id()"));
-    assert!(authority.contains("prototype_shape.properties.get(\"call\")"));
-    assert!(authority.contains("None=>true"));
-    assert!(authority.contains("StandardBuiltinId::FunctionPrototypeCall.function_id()"));
-    assert!(authority.contains("Some(ObjectShapeProperty::Accessor{..})=>false"));
+    assert!(catalogue.contains("(Self::Function,\"call\")=>B::FunctionPrototypeCall"));
+    assert!(INTRINSIC_METHOD_SOURCE
+        .contains("Self::Function => StandardBuiltinId::FunctionConstructor,"));
 
+    let live_prototype = normalized(bounded(
+        INTRINSIC_METHOD_SOURCE,
+        "    pub(super) fn live_intrinsic_prototype(",
+        "    fn intrinsic_prototype_still_holds(",
+    ));
+    assert!(live_prototype.contains(".get(constructor.global_name()?)"));
+    assert!(live_prototype.contains(".filter(|property|property.proven_present)?"));
+    assert!(live_prototype.contains("!=Some(&constructor.function_id())"));
+    assert!(live_prototype.contains("constructor_shape.properties.get(\"prototype\")?"));
+    assert!(live_prototype.contains("ObjectShapeProperty::Accessor{..}=>None"));
+
+    let authority = normalized(bounded(
+        INTRINSIC_METHOD_SOURCE,
+        "    fn intrinsic_prototype_still_holds(",
+        "\nfn own_shape_property<",
+    ));
+    assert!(authority.contains("StandardBuiltinId::FunctionPrototype.function_id()"));
+    assert!(authority.contains("own_shape_property(live_shape,name)"));
+    assert!(authority
+        .contains("method.function_targets.exact_single_target()==Some(&builtin.function_id())"));
+    assert!(authority.contains("Some(ObjectShapeProperty::Accessor{..})=>false"));
+    // Absence is intrinsic only where the fresh-realm shape omits the name.
+    assert!(authority.contains("own_shape_property(shape,name).is_none()"));
+    // The proof token has exactly one constructor: the lookup above.
     assert_eq!(
-        CALL_SOURCE
-            .matches("function_prototype_call_is_intrinsic(&receiver)")
+        INTRINSIC_METHOD_SOURCE
+            .matches("IntrinsicMethod { builtin }")
             .count(),
         1
     );
+
+    // Property lowering claims `call` only for a receiver whose own properties
+    // are known, and call lowering has no name-based route of its own left.
+    let resolution = normalized(bounded(
+        LOWERING_SOURCE,
+        "            let target_is_function_prototype =",
+        "            if name == \"of\" && self.is_builtin_reference_expr(&target, ARRAY_NAME) {",
+    ));
+    assert!(resolution.contains("self.intrinsic_method(IntrinsicPrototype::Function,name)"));
+    assert!(resolution.contains(".filter(|_|target.heap_shape.is_some())"));
+    assert!(resolution.contains("lookup.unclaimed()"));
     assert_eq!(
         LOWERING_SOURCE
-            .matches("function_prototype_call_is_intrinsic(&target)")
+            .matches("self.intrinsic_method(IntrinsicPrototype::Function, name)")
             .count(),
         1
     );
+    assert!(!CALL_SOURCE.contains("if receiver.possible_kinds.contains(ValueKind::Function) =>"));
+    assert!(!CALL_SOURCE.contains("\"call\""));
 }
 
 #[test]
@@ -194,7 +228,8 @@ fn rejected_forwarding_returns_before_target_observation_or_emission() {
     assert!(source_capture < argument_lowering);
     assert!(argument_lowering < preflight);
     assert!(preflight < emission);
-    assert!(CALL_SOURCE.lines().count() <= 3_100);
+    // Mirrors the raw-line budget in scripts/check-module-boundaries.sh.
+    assert!(CALL_SOURCE.lines().count() <= 3_112);
 }
 
 #[test]

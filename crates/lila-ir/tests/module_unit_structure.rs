@@ -45,7 +45,7 @@ fn module_unit_preserves_the_exact_public_field_record() {
         "pubrecord:SourceTextModuleRecordIr,pubsource_text:String,pubmeta_url:String,\
          pubhoist:Option<BlockIr>,pubbody:Option<BlockIr>,pubfunctions:Vec<FunctionIr>,\
          pubowned_env_bindings:Vec<OwnedEnvBindingIr>,\
-         pubnamespace:Option<ModuleNamespaceIr>,\
+         pubnamespaces:BTreeMap<ModuleNamespaceModeIr,ModuleNamespaceIr>,\
          pubresolved_imports:Vec<ResolvedBindingIr>,\
          pubresolved_indirect_exports:Vec<ResolvedBindingIr>,}"
     );

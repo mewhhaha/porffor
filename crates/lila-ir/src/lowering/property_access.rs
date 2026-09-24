@@ -32,22 +32,14 @@ impl<'a> ScriptLowerer<'a> {
                     ValueKind::Boolean => {
                         if let PropertyAccessField::Const(field) = access.field() {
                             let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            let builtin = match field_name.as_str() {
-                                "toString" => Some(StandardBuiltinId::BooleanPrototypeToString),
-                                "valueOf" => Some(StandardBuiltinId::BooleanPrototypeValueOf),
-                                _ => None,
-                            };
-                            if let Some(builtin) = builtin {
-                                TypedExpr::from_info(
-                                    Self::standard_builtin_value_info(builtin),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(target),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
+                            self.intrinsic_method_read(
+                                IntrinsicPrototype::Boolean,
+                                &target,
+                                &field_name,
+                            )
+                            .unwrap_or_else(|| {
                                 self.unsupported_expr("property access on boolean target")
-                            }
+                            })
                         } else {
                             self.unsupported_expr("dynamic property access on boolean target")
                         }
@@ -55,25 +47,14 @@ impl<'a> ScriptLowerer<'a> {
                     ValueKind::BigInt => {
                         if let PropertyAccessField::Const(field) = access.field() {
                             let field_name = self.interner.resolve_expect(field.sym()).to_string();
-                            let builtin = match field_name.as_str() {
-                                "toString" => Some(StandardBuiltinId::BigIntPrototypeToString),
-                                "toLocaleString" => {
-                                    Some(StandardBuiltinId::BigIntPrototypeToLocaleString)
-                                }
-                                "valueOf" => Some(StandardBuiltinId::BigIntPrototypeValueOf),
-                                _ => None,
-                            };
-                            if let Some(builtin) = builtin {
-                                TypedExpr::from_info(
-                                    Self::standard_builtin_value_info(builtin),
-                                    ExprIr::PropertyRead {
-                                        target: Box::new(target),
-                                        key: PropertyKeyIr::StaticString(field_name),
-                                    },
-                                )
-                            } else {
+                            self.intrinsic_method_read(
+                                IntrinsicPrototype::BigInt,
+                                &target,
+                                &field_name,
+                            )
+                            .unwrap_or_else(|| {
                                 self.unsupported_expr("property access on bigint target")
-                            }
+                            })
                         } else {
                             self.unsupported_expr("dynamic property access on bigint target")
                         }
@@ -101,19 +82,12 @@ impl<'a> ScriptLowerer<'a> {
                                     },
                                 )
                             } else {
-                                let builtin = match field_name.as_str() {
-                                    "toString" => Some(StandardBuiltinId::SymbolPrototypeToString),
-                                    "valueOf" => Some(StandardBuiltinId::SymbolPrototypeValueOf),
-                                    _ => None,
-                                };
-                                if let Some(builtin) = builtin {
-                                    TypedExpr::from_info(
-                                        Self::standard_builtin_value_info(builtin),
-                                        ExprIr::PropertyRead {
-                                            target: Box::new(target),
-                                            key: PropertyKeyIr::StaticString(field_name),
-                                        },
-                                    )
+                                if let Some(read) = self.intrinsic_method_read(
+                                    IntrinsicPrototype::Symbol,
+                                    &target,
+                                    &field_name,
+                                ) {
+                                    read
                                 } else {
                                     // Anything else is inherited from
                                     // `Object.prototype` via

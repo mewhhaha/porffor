@@ -38,7 +38,7 @@ fn enum_variants(source: &'static str, name: &str) -> Vec<&'static str> {
 fn object_builtin_policy_domains_are_exact_and_capability_free() {
     assert_eq!(
         enum_variants(ENUMERABLE_OWN_PROPERTIES_SOURCE, "EnumerableOwnProperties"),
-        ["Entries,", "Values,"]
+        ["Keys,", "Entries,", "Values,"]
     );
     assert_eq!(
         enum_variants(INTEGRITY_TEST_SOURCE, "IntegrityTest"),
@@ -95,7 +95,7 @@ fn object_builtin_policy_domains_are_exact_and_capability_free() {
 }
 
 #[test]
-fn object_builtin_dispatch_pins_all_six_semantic_policy_routes() {
+fn object_builtin_dispatch_pins_all_seven_semantic_policy_routes() {
     assert_eq!(
         OBJECT_SOURCE
             .matches("mod enumerable_own_properties;")
@@ -116,31 +116,42 @@ fn object_builtin_dispatch_pins_all_six_semantic_policy_routes() {
         assert_eq!(OBJECT_SOURCE.matches(escaped_raw_name).count(), 0);
         assert_eq!(STANDARD_SOURCE.matches(escaped_raw_name).count(), 0);
     }
+    // Fourteen mentions: the declaration, the borrowed parameter, three
+    // nullish-diagnostic arms, three value-read arms, three result-projection
+    // arms and three wrappers.
     assert_eq!(
         ENUMERABLE_OWN_PROPERTIES_SOURCE
             .matches("EnumerableOwnProperties")
             .count(),
-        8
+        14
+    );
+    assert_eq!(
+        ENUMERABLE_OWN_PROPERTIES_SOURCE
+            .matches("EnumerableOwnProperties::Keys")
+            .count(),
+        4
     );
     assert_eq!(
         ENUMERABLE_OWN_PROPERTIES_SOURCE
             .matches("EnumerableOwnProperties::Entries")
             .count(),
-        3
+        4
     );
     assert_eq!(
         ENUMERABLE_OWN_PROPERTIES_SOURCE
             .matches("EnumerableOwnProperties::Values")
             .count(),
-        3
+        4
     );
     assert_eq!(
         ENUMERABLE_OWN_PROPERTIES_SOURCE
             .matches("compile_object_enumerable_own_properties_builtin(")
             .count(),
-        3
+        4
     );
+    assert!(!OBJECT_SOURCE.contains("compile_object_keys_builtin("));
     for wrapper in [
+        "compile_object_keys_builtin(",
         "compile_object_entries_builtin(",
         "compile_object_values_builtin(",
     ] {
@@ -151,7 +162,13 @@ fn object_builtin_dispatch_pins_all_six_semantic_policy_routes() {
         ENUMERABLE_OWN_PROPERTIES_SOURCE
             .matches("pub(in crate::builtins) fn compile_object_")
             .count(),
-        2
+        3
+    );
+    assert_eq!(
+        STANDARD_SOURCE
+            .matches("StandardBuiltinId::ObjectKeys => self.compile_object_keys_builtin(function)?",)
+            .count(),
+        1
     );
     assert_eq!(
         STANDARD_SOURCE
@@ -307,20 +324,47 @@ fn enumerable_own_properties_projects_each_policy_exhaustively() {
     let body = bounded(
         ENUMERABLE_OWN_PROPERTIES_SOURCE,
         "    fn compile_object_enumerable_own_properties_builtin(",
-        "    pub(in crate::builtins) fn compile_object_entries_builtin(",
+        "    pub(in crate::builtins) fn compile_object_keys_builtin(",
     );
 
     assert!(body.contains("mode: EnumerableOwnProperties,"));
-    assert_eq!(body.matches("match &mode").count(), 2);
+    assert_eq!(body.matches("match &mode").count(), 3);
     assert_eq!(body.matches("match mode").count(), 0);
-    assert_eq!(body.matches("EnumerableOwnProperties::Entries").count(), 2);
-    assert_eq!(body.matches("EnumerableOwnProperties::Values").count(), 2);
+    assert_eq!(body.matches("EnumerableOwnProperties::Entries").count(), 3);
+    assert_eq!(body.matches("EnumerableOwnProperties::Values").count(), 3);
+    assert!(body
+        .contains("EnumerableOwnProperties::Keys => \"Object.keys called on null or undefined\""));
     assert!(body.contains(
         "EnumerableOwnProperties::Entries => \"Object.entries called on null or undefined\""
     ));
     assert!(body.contains(
         "EnumerableOwnProperties::Values => \"Object.values called on null or undefined\""
     ));
+
+    // Whether `Get` runs is its own exhaustive decision: `key` results never
+    // read the property, `value` and `key+value` results read it exactly once.
+    let read_policy = bounded(
+        body,
+        "function.instruction(&Instruction::If(BlockType::Empty));\n\n        match &mode {",
+        "\n        }\n        match &mode {",
+    );
+    let (keys_read, value_reads) = read_policy
+        .split_once("EnumerableOwnProperties::Entries | EnumerableOwnProperties::Values =>")
+        .expect("Enumerable value-read arm");
+    assert!(keys_read.contains("EnumerableOwnProperties::Keys => {}"));
+    assert!(!keys_read.contains("emit_object_read"));
+    assert_eq!(
+        value_reads
+            .matches("self.emit_object_read_with_key_tag(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        value_reads
+            .matches("self.emit_return_current_completion_if_throw(function);")
+            .count(),
+        1
+    );
 
     let result_policy = body
         .rsplit_once("        match &mode {")
@@ -329,9 +373,17 @@ fn enumerable_own_properties_projects_each_policy_exhaustively() {
         .split_once("        function.instruction(&Instruction::LocalGet(write_index_local));")
         .expect("Enumerable result policy end")
         .0;
-    let (entries_policy, values_policy) = result_policy
+    let (keys_policy, value_policies) = result_policy
+        .split_once("EnumerableOwnProperties::Entries =>")
+        .expect("Enumerable Entries policy");
+    let (entries_policy, values_policy) = value_policies
         .split_once("EnumerableOwnProperties::Values =>")
         .expect("Enumerable Values policy");
+    assert!(keys_policy.contains("EnumerableOwnProperties::Keys =>"));
+    assert_eq!(keys_policy.matches("self.emit_array_write(").count(), 1);
+    assert!(keys_policy.contains("own_key_payload_local,"));
+    assert!(!keys_policy.contains("value_payload_local"));
+    assert!(!keys_policy.contains("emit_alloc_array_payload_with_length("));
     assert_eq!(
         entries_policy
             .matches("emit_alloc_array_payload_with_length(")
@@ -340,12 +392,16 @@ fn enumerable_own_properties_projects_each_policy_exhaustively() {
         "only Entries materializes a key-value pair"
     );
     assert!(!values_policy.contains("emit_alloc_array_payload_with_length("));
-    assert_eq!(result_policy.matches("self.emit_array_write(").count(), 4);
+    assert_eq!(result_policy.matches("self.emit_array_write(").count(), 5);
 
+    // `matches!` is a Boolean projection with a hidden wildcard arm: a new
+    // variant would silently join the value-reading side. Whether `Get` runs
+    // must be an exhaustive decision like the other two.
     for forbidden in [
         "include_keys",
         "mode ==",
         "mode !=",
+        "matches!(",
         "=> true",
         "=> false",
         "_ =>",

@@ -26,8 +26,9 @@ obligations are first split apart, which is what
 | `DescriptorSourceText<DataSide \| AccessorSide>` | same |
 | `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` | `crates/lila-aot-wasm/src/heap.rs` |
 | `TaggedLocals`, `WasmLocals`, `StoredDescriptorKind`, `AttributeBit`, `DescriptorKindLocal<K>`, `DescriptorKindWord` | `crates/lila-aot-wasm/src/objects.rs` |
+| `DescriptorObjectFields`, `DescriptorFlag`, `DescriptorObjectPrototype`, `emit_from_property_descriptor` (6.2.6.4) | `crates/lila-aot-wasm/src/objects/descriptor_object.rs` |
 
-## The six rules a later change must not break
+## The seven rules a later change must not break
 
 1. **`classify` is the only derivation of 6.2.6.1/6.2.6.2/6.2.6.3.** There is no
    second `if data.is_some()`, no second `accessor: bool`, no second `bool`
@@ -61,6 +62,18 @@ obligations are first split apart, which is what
    the check from `runtime_flags().is_empty()` alone conflates "the antecedent is
    false" with "the antecedent is unconditionally true"; the four cases are
    matched exhaustively in `emit_descriptor_kind_change_throw`.
+
+7. **Descriptor objects have one owner.** Every object whose own properties
+   spell a descriptor — `Object.getOwnPropertyDescriptor(s)` and
+   `Reflect.getOwnPropertyDescriptor` results, module namespace descriptors,
+   Proxy `defineProperty` trap arguments, and the engine's private
+   null-prototype arguments to its canonical definition builtins — is built by
+   `objects/descriptor_object.rs`. Its private field writer takes no attribute
+   argument and always applies 6.2.6.4's CreateDataPropertyOrThrow attributes
+   (writable, **enumerable**, configurable), in `DescriptorField::ALL` order.
+   Producers choose only the descriptor (`DescriptorObjectFields` or a
+   `CompleteDescriptor`) and the prototype (`DescriptorObjectPrototype`);
+   `tests/descriptor_object_owner_structure.rs` keeps the producer census.
 
 ## What remains runtime-checked
 

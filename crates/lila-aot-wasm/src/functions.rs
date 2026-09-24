@@ -18,7 +18,9 @@ pub(crate) mod direct_eval_invocation;
 mod eval_intrinsic;
 mod function_name;
 mod function_realm;
+mod generator_instance_prototype;
 pub(crate) use function_name::FunctionNamePrefix;
+use generator_instance_prototype::GeneratorInstanceFamily;
 mod indirect_call;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
@@ -2391,9 +2393,29 @@ impl<'a> FunctionBuilder<'a> {
             .functions
             .get(&StandardBuiltinId::BooleanConstructor.function_id())
             .map(|meta| meta.table_index as i64);
+        // Built-in [[Construct]] bodies that obtain their own result object
+        // (or throw) must be entered before the generic OrdinaryCreateFrom-
+        // Constructor below: that path performs an observable
+        // Get(newTarget, "prototype") and the callee would then perform its
+        // own, at its own spec step. Date and the Temporal constructors read
+        // it only after argument coercion; BigInt, Symbol and %TypedArray%
+        // throw before reading it at all; a bound function forwards
+        // Construct(target, args, newTarget) and never reads it itself.
         let direct_returning_constructor_table_indices: Vec<i64> = [
             StandardBuiltinId::StringConstructor,
             StandardBuiltinId::FunctionConstructor,
+            StandardBuiltinId::DateConstructor,
+            StandardBuiltinId::TemporalInstantConstructor,
+            StandardBuiltinId::TemporalPlainDateConstructor,
+            StandardBuiltinId::TemporalPlainTimeConstructor,
+            StandardBuiltinId::TemporalPlainDateTimeConstructor,
+            StandardBuiltinId::TemporalPlainYearMonthConstructor,
+            StandardBuiltinId::TemporalPlainMonthDayConstructor,
+            StandardBuiltinId::TemporalDurationConstructor,
+            StandardBuiltinId::BigIntConstructor,
+            StandardBuiltinId::SymbolConstructor,
+            StandardBuiltinId::TypedArrayConstructor,
+            StandardBuiltinId::BoundFunctionInvoker,
             StandardBuiltinId::Float64ArrayConstructor,
             StandardBuiltinId::Float32ArrayConstructor,
             StandardBuiltinId::Float16ArrayConstructor,
@@ -4268,60 +4290,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(intrinsics_local);
     }
 
-    pub(crate) fn emit_load_function_defining_realm_array_iterator_prototype(
-        &mut self,
-        function_object_local: u32,
-        result_local: u32,
-        function: &mut Function,
-    ) {
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::GlobalGet(
-            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(result_local));
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_ARRAY_ITERATOR_PROTOTYPE_OFFSET,
-            result_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(
-            ARRAY_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-    }
-
     pub(crate) fn emit_load_function_defining_realm_map_iterator_prototype(
         &mut self,
         function_object_local: u32,
@@ -4413,60 +4381,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::GlobalGet(SET_ITERATOR_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(intrinsics_local);
-        self.release_temp_local(realm_local);
-    }
-
-    pub(crate) fn emit_load_function_defining_realm_string_iterator_prototype(
-        &mut self,
-        function_object_local: u32,
-        result_local: u32,
-        function: &mut Function,
-    ) {
-        let realm_local = self.reserve_temp_local();
-        let intrinsics_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::GlobalGet(
-            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(result_local));
-        self.load_i64_to_local_from_offset(
-            function_object_local,
-            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
-            realm_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(realm_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            realm_local,
-            HEAP_REALM_INTRINSICS_OFFSET,
-            intrinsics_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(intrinsics_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            intrinsics_local,
-            HEAP_REALM_INTRINSICS_STRING_ITERATOR_PROTOTYPE_OFFSET,
-            result_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(
-            STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX,
-        ));
         function.instruction(&Instruction::LocalSet(result_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -5704,12 +5618,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(0));
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
-            let generator_prototype_local = self.reserve_temp_local();
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(GENERATOR_PROTOTYPE_GLOBAL_INDEX),
-                function,
-            )?;
+            // The instance is unobservable until parameter initialization
+            // completes; its [[Prototype]] is selected only after that.
+            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
             function.instruction(&Instruction::LocalSet(payload_local));
             self.store_i64_const_at_offset(
                 payload_local,
@@ -5874,39 +5785,19 @@ impl<'a> FunctionBuilder<'a> {
                 0,
                 function,
             );
-            let generator_prototype_tag_local = self.reserve_temp_local();
-            self.load_i64_to_local_from_offset(
+            self.emit_install_generator_instance_prototype(
+                GeneratorInstanceFamily::Generator,
                 callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                generator_prototype_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                generator_prototype_tag_local,
-                function,
-            );
-            self.emit_is_heap_object_like_tag_i32(generator_prototype_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::GlobalGet(GENERATOR_PROTOTYPE_GLOBAL_INDEX));
-            function.instruction(&Instruction::LocalSet(generator_prototype_local));
-            function.instruction(&Instruction::End);
-            self.store_i64_local_at_offset(
+                callee_tag_local,
                 payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                generator_prototype_local,
                 function,
-            );
-            self.release_temp_local(generator_prototype_tag_local);
+            )?;
             self.release_temp_local(initialization_tag_local);
             self.release_temp_local(initialization_payload_local);
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
-            self.release_temp_local(generator_prototype_local);
             function.instruction(&Instruction::End);
         }
 
@@ -5918,14 +5809,10 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
             let async_generator_activation_local = self.reserve_temp_local();
-            let async_generator_prototype_local = self.reserve_temp_local();
-            let async_generator_prototype_tag_local = self.reserve_temp_local();
 
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX),
-                function,
-            )?;
+            // The instance is unobservable until parameter initialization
+            // completes; its [[Prototype]] is selected only after that.
+            self.emit_alloc_plain_object_with_prototype(None, None, function)?;
             function.instruction(&Instruction::LocalSet(payload_local));
             self.store_i64_const_at_offset(
                 payload_local,
@@ -6046,39 +5933,18 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(initialization_tag_local);
             self.release_temp_local(initialization_payload_local);
 
-            self.load_i64_to_local_from_offset(
+            self.emit_install_generator_instance_prototype(
+                GeneratorInstanceFamily::AsyncGenerator,
                 callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_PAYLOAD_OFFSET,
-                async_generator_prototype_local,
-                function,
-            );
-            self.load_i64_to_local_from_offset(
-                callee_payload_local,
-                HEAP_FUNCTION_PROTOTYPE_TAG_OFFSET,
-                async_generator_prototype_tag_local,
-                function,
-            );
-            self.emit_is_heap_object_like_tag_i32(async_generator_prototype_tag_local, function);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::GlobalGet(
-                ASYNC_GENERATOR_PROTOTYPE_GLOBAL_INDEX,
-            ));
-            function.instruction(&Instruction::LocalSet(async_generator_prototype_local));
-            function.instruction(&Instruction::End);
-            self.store_i64_local_at_offset(
+                callee_tag_local,
                 payload_local,
-                HEAP_PROTOTYPE_OFFSET,
-                async_generator_prototype_local,
                 function,
-            );
+            )?;
             function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
             function.instruction(&Instruction::LocalSet(tag_local));
             self.set_completion_kind(CompletionKind::Normal, function);
             self.emit_return_current_completion(function);
 
-            self.release_temp_local(async_generator_prototype_tag_local);
-            self.release_temp_local(async_generator_prototype_local);
             self.release_temp_local(async_generator_activation_local);
             function.instruction(&Instruction::End);
         }
@@ -8953,6 +8819,11 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Calls a pre-evaluated callee and leaves an abrupt completion for the
+    /// caller, which must propagate it (`instanceof`'s @@hasInstance and the
+    /// JSON reviver do). These sites can be inline in user code, so returning
+    /// the current function's completion here would skip an enclosing user
+    /// `catch` or `finally`.
     pub(crate) fn emit_indirect_call_from_locals(
         &mut self,
         callee_payload_local: u32,
@@ -8981,7 +8852,7 @@ impl<'a> FunctionBuilder<'a> {
                 (default_this_payload_local, default_this_tag_local)
             };
 
-        self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
+        self.emit_function_or_proxy_call_with_argv_leave_throw_completion(
             callee_payload_local,
             callee_tag_local,
             this_payload_local,

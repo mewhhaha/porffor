@@ -94,7 +94,9 @@ fn environment_kind_keeps_the_reviewed_projection_and_external_census() {
         1
     );
     assert_eq!(ANALYSIS_SOURCE.matches(".is_materialized()").count(), 3);
-    assert_eq!(ANALYSIS_SOURCE.matches("EnvironmentKind").count(), 26);
+    // 27 since the capture-hop storage query treats every resumable
+    // `EnvironmentKind::Activation` as frame-owning (b2182bfe7).
+    assert_eq!(ANALYSIS_SOURCE.matches("EnvironmentKind").count(), 27);
     assert_eq!(LOWERING_SOURCE.matches("EnvironmentKind").count(), 1);
     assert_eq!(
         FUNCTION_DEFINITION_SOURCE

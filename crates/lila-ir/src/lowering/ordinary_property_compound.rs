@@ -792,11 +792,47 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
 
+        /// Whether invalidation left a shape's prototype chain unknown.
+        ///
+        /// A shape with `prototype: None` reads as inheriting
+        /// `%Object.prototype%`, so cutting the link to the empty
+        /// `%Object.prototype%` placeholder keeps its meaning. Cutting any other
+        /// link would make the rest of the chain read as `%Object.prototype%`
+        /// too — a TypeError whose `%Error.prototype%` was written would then
+        /// resolve `toString` to `Object.prototype.toString` — so every shape
+        /// whose chain passes through that link has to be dropped instead.
+        #[must_use]
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum PrototypeChain {
+            Described,
+            Unknown,
+        }
+
+        fn invalidate_prototype_link(
+            prototype: &mut Option<Box<HeapShape>>,
+            alias: &ValueInfo,
+            canonical_targets: &BTreeMap<FunctionId, FunctionId>,
+        ) -> PrototypeChain {
+            let Some(linked) = prototype.as_deref_mut() else {
+                return PrototypeChain::Described;
+            };
+            if alias.heap_shape.as_deref() != Some(&*linked) {
+                return invalidate_nested_aliases(linked, alias, canonical_targets);
+            }
+            let chain = if *linked == ScriptLowerer::empty_object_shape() {
+                PrototypeChain::Described
+            } else {
+                PrototypeChain::Unknown
+            };
+            *prototype = None;
+            chain
+        }
+
         fn invalidate_nested_aliases(
             shape: &mut HeapShape,
             alias: &ValueInfo,
             canonical_targets: &BTreeMap<FunctionId, FunctionId>,
-        ) {
+        ) -> PrototypeChain {
             match shape {
                 HeapShape::Object(shape) => {
                     for property in shape.properties.values_mut() {
@@ -804,18 +840,10 @@ impl<'a> ScriptLowerer<'a> {
                             invalidate_value_alias(value, alias, canonical_targets);
                         }
                     }
-                    if shape
-                        .prototype
-                        .as_deref()
-                        .is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))
-                    {
-                        shape.prototype = None;
-                    } else if let Some(prototype) = shape.prototype.as_deref_mut() {
-                        invalidate_nested_aliases(prototype, alias, canonical_targets);
-                    }
                     if let Some(boxed_primitive) = shape.boxed_primitive.as_deref_mut() {
                         invalidate_value_alias(boxed_primitive, alias, canonical_targets);
                     }
+                    invalidate_prototype_link(&mut shape.prototype, alias, canonical_targets)
                 }
                 HeapShape::Array(shape) => {
                     for property in shape.properties.values_mut() {
@@ -823,18 +851,10 @@ impl<'a> ScriptLowerer<'a> {
                             invalidate_value_alias(value, alias, canonical_targets);
                         }
                     }
-                    if shape
-                        .prototype
-                        .as_deref()
-                        .is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))
-                    {
-                        shape.prototype = None;
-                    } else if let Some(prototype) = shape.prototype.as_deref_mut() {
-                        invalidate_nested_aliases(prototype, alias, canonical_targets);
-                    }
                     for element in &mut shape.elements {
                         invalidate_value_alias(element, alias, canonical_targets);
                     }
+                    invalidate_prototype_link(&mut shape.prototype, alias, canonical_targets)
                 }
             }
         }
@@ -865,7 +885,10 @@ impl<'a> ScriptLowerer<'a> {
                 .heap_shape
                 .as_deref_mut()
                 .expect("checked nested alias shape must still exist");
-            invalidate_nested_aliases(shape, alias, canonical_targets);
+            match invalidate_nested_aliases(shape, alias, canonical_targets) {
+                PrototypeChain::Described => {}
+                PrototypeChain::Unknown => value.heap_shape = None,
+            }
         }
 
         let canonical_targets = self
@@ -897,7 +920,10 @@ impl<'a> ScriptLowerer<'a> {
                 let root_shape = shape
                     .as_deref_mut()
                     .expect("checked live root shape must still exist");
-                invalidate_nested_aliases(root_shape, base, &canonical_targets);
+                match invalidate_nested_aliases(root_shape, base, &canonical_targets) {
+                    PrototypeChain::Described => {}
+                    PrototypeChain::Unknown => *shape = None,
+                }
             };
         self.visit_live_heap_shape_roots(clear_if_alias_is_reachable);
         self.static_to_string_regexp_object_bindings.clear();

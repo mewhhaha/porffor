@@ -1,5 +1,7 @@
-// Constructor-only oracle for %DisposableStack%. Synchronous disposal
-// methods intentionally remain absent until their algorithms exist.
+// Constructor-surface oracle for %DisposableStack%. The
+// synchronous disposal algorithms themselves are pinned by
+// wasm_disposable_stack_lifecycle.js; this fixture only requires that every
+// prototype member exists and that the async brand checks reject it.
 "use strict";
 
 // Strict global PutValue performs an observable HasProperty before Set. Keep
@@ -94,15 +96,17 @@ try {
 }
 if (!sawSentinel || prototypeGets !== 1) throw "prototype Get";
 
-// No placeholders: these properties stay absent until the real synchronous
-// disposal algorithms land.
+// Properties of the DisposableStack Prototype Object: adopt, defer, dispose,
+// the `disposed` accessor, move, use and @@dispose, whose initial value is the
+// same function object as `dispose`. Their descriptors and algorithms are
+// pinned by the lifecycle fixture.
 for (let name of ["use", "adopt", "defer", "move", "dispose", "disposed"]) {
-  if (Object.prototype.hasOwnProperty.call(DisposableStack.prototype, name)) {
-    throw "placeholder " + name;
+  if (!Object.prototype.hasOwnProperty.call(DisposableStack.prototype, name)) {
+    throw "missing " + name;
   }
 }
-if (Object.prototype.hasOwnProperty.call(DisposableStack.prototype, Symbol.dispose)) {
-  throw "placeholder Symbol.dispose";
+if (DisposableStack.prototype[Symbol.dispose] !== DisposableStack.prototype.dispose) {
+  throw "Symbol.dispose alias";
 }
 
 for (let name of ["use", "adopt", "defer", "move"]) {

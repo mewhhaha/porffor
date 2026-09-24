@@ -155,7 +155,15 @@ impl ModuleExecutionDefinitions {
                 module: *module,
                 mode: *mode,
             },
-            _ => panic!("module instantiation requires resolved environment or namespace bindings"),
+            // Admission rejects graphs with source-phase imports, and linking
+            // rejects unresolved or ambiguous imports, before instantiation.
+            ResolvedBindingIr::Resolved {
+                binding: ModuleBindingNameIr::ModuleSource,
+                ..
+            } => panic!("module instantiation admits no source-phase import bindings"),
+            ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => {
+                panic!("module instantiation requires resolved environment or namespace bindings")
+            }
         };
         for ((unit, owner), function) in self.units.iter().zip(&owners).zip(&functions) {
             let mut statements = owner.body().statements().iter();

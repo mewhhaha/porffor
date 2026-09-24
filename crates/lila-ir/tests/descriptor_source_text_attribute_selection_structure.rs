@@ -1,5 +1,7 @@
 const DESCRIPTOR_SOURCE: &str = include_str!("../src/property_descriptor.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
+const BACKEND_NAMESPACE_SOURCE: &str =
+    include_str!("../../lila-aot-wasm/src/objects/module_namespace.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/descriptor-source-text-attribute-selection.md"
 );
@@ -73,9 +75,56 @@ fn each_named_attribute_method_owns_one_explicit_presence_value() {
 }
 
 #[test]
-fn module_namespace_uses_named_attribute_selections() {
-    assert_eq!(NAMESPACE_SOURCE.matches(".enumerable()").count(), 1);
-    assert_eq!(NAMESPACE_SOURCE.matches(".non_configurable()").count(), 1);
+fn module_namespace_source_renders_only_the_complete_module_source_tag_descriptor() {
+    // Namespace exports are no longer `Object.defineProperty` accessors: the
+    // namespace cell is a linker-recognized export-reader table and the module
+    // namespace exotic object owns the writable/enumerable/non-configurable
+    // export attributes. The one descriptor this file still renders is the
+    // module source object's `@@toStringTag`, a complete data descriptor whose
+    // attributes are 6.2.6.6 defaults rather than per-call selections.
+    assert_eq!(
+        NAMESPACE_SOURCE.matches("DescriptorSourceText::").count(),
+        1
+    );
+    let to_string_tag = bounded(
+        NAMESPACE_SOURCE,
+        "fn module_source_object_source(module: ModuleUnitId) -> String {",
+        "pub const MODULE_SOURCE_TO_STRING_TAG: &str = \"Module Source\";",
+    );
+    assert!(code_without_whitespace(to_string_tag)
+        .contains("&DescriptorSourceText::data().value(to_string_tag).complete().render(),"));
+    assert!(!NAMESPACE_SOURCE.contains("DescriptorSourceText::accessor()"));
+    for selection in [
+        ".enumerable()",
+        ".non_enumerable()",
+        ".configurable()",
+        ".non_configurable()",
+        ".writable()",
+        ".non_writable()",
+    ] {
+        assert!(!NAMESPACE_SOURCE.contains(selection), "{selection}");
+    }
+
+    // The exotic object's attributes stay labelled at their new owner: one
+    // export shape and one `@@toStringTag` shape, each spelled by field name.
+    let backend = code_without_whitespace(BACKEND_NAMESPACE_SOURCE);
+    assert_eq!(backend.matches("StoredPropertyAttributes::").count(), 2);
+    assert_eq!(
+        backend
+            .matches(
+                "StoredPropertyAttributes::Data{writable:true,enumerable:true,configurable:false,}"
+            )
+            .count(),
+        1
+    );
+    assert_eq!(
+        backend
+            .matches(
+                "StoredPropertyAttributes::Data{writable:false,enumerable:false,configurable:false,}"
+            )
+            .count(),
+        1
+    );
     for obsolete in [
         ".enumerable(true)",
         ".enumerable(false)",

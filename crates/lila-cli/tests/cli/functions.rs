@@ -43,9 +43,22 @@ fn inspect_reports_phase_twenty_seven_boxed_builtin_ir_shape() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("boxed_builtin_globals=3"));
-    assert!(stdout.contains("boxed_builtin_calls=3"));
+    // The fixture never calls `Number`, `String` or `Boolean` as a function.
+    // Before c4e15caf5 each `new Number(1)`/`new String("x")`/`new Boolean(false)`
+    // was recorded both as a construct and as a call, which is where the old
+    // `boxed_builtin_calls=3` came from; they are now constructs only.
+    assert!(stdout.contains("boxed_builtin_calls=0"), "{stdout}");
     assert!(stdout.contains("boxed_builtin_constructs=3"));
-    assert!(stdout.contains("boxed_receiver_adaptations=3"));
+    // None of the three receiver adaptations is resolved statically. `call`,
+    // `apply` and `bind` resolve to their intrinsics only under the
+    // live-prototype proof in `lowering/intrinsic_method.rs`, and the earlier
+    // `instanceof` operands in this `&&` chain (which may run a user
+    // `@@hasInstance`) erase the recorded `%Function.prototype%` facts first,
+    // so `isNumberBox.call(1)`, `isBooleanBox.call(false)` and
+    // `isStringBox.apply("x", [])` stay dynamic calls.
+    // `run_wasm_backend_succeeds_for_supported_boxed_builtin_fixture` checks
+    // that all three still box their primitive receiver.
+    assert!(stdout.contains("boxed_receiver_adaptations=0"), "{stdout}");
 }
 
 #[test]
@@ -199,7 +212,15 @@ fn inspect_reports_phase_twenty_eight_bind_builtin_ir_shape() {
     assert!(stdout.contains("function_proto_binds=6"));
     assert!(stdout.contains("bound_functions=6"));
     assert!(stdout.contains("bound_function_constructs=6"));
-    assert!(stdout.contains("error_proto_to_strings=2"));
+    // Neither `err.toString()` nor `TypeError("y").toString()` resolves to
+    // `%Error.prototype.toString%` statically any more: since 5eca93e67 the
+    // user-code calls earlier in this `&&` chain (`inc(2)`, `new G()`, ...)
+    // invalidate what lowering knew, erasing `err`'s heap shape and widening
+    // the global `TypeError` binding, so both calls read `toString` from their
+    // receiver at run time. Without those calls both still resolve.
+    // `run_wasm_backend_succeeds_for_supported_bind_builtin_fixture` checks
+    // both results.
+    assert!(stdout.contains("error_proto_to_strings=0"), "{stdout}");
 }
 
 #[test]
@@ -1157,6 +1178,34 @@ fn run_wasm_backend_uses_created_realm_builtin_function_prototypes() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("number(123"), "{stdout}");
+}
+
+/// Built-in constructors that allocate their own result read
+/// `Get(newTarget, "prototype")` once, at their own spec step (Date and the
+/// Temporal constructors after argument coercion), and BigInt, Symbol and
+/// %TypedArray% never read it. A bound function forwards `Construct` to its
+/// target, so only the target reads it.
+#[test]
+fn run_wasm_backend_reads_builtin_construct_new_target_prototype_once() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_builtin_construct_prototype_read_order.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
 #[test]

@@ -1,6 +1,6 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const ORDINARY_PROPERTY_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/ordinary_property_compound.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
@@ -152,7 +152,7 @@ fn lowering_builds_the_reference_before_rhs_and_intercepts_the_closed_ast_arm() 
     assert!(!helper.contains("ExprIr::PropertyWrite"));
 
     let assign_target = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "                AssignTarget::Access(access) => match access {",
         "                AssignTarget::Pattern(pattern)",
     );
@@ -202,7 +202,7 @@ fn backend_typestate_orders_rhs_before_to_object_key_coercion_and_set() {
     let sealed_sources = bounded(
         EXPRESSIONS_SOURCE,
         "trait OrdinaryPropertyReferenceSource {",
-        "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference must be consumed by GetValue\"]",
+        "impl<'a> FunctionBuilder<'a> {",
     );
     assert_eq!(
         sealed_sources
@@ -382,7 +382,7 @@ fn exhaustive_consumers_and_budget_name_every_plain_assignment_phase() {
         PLANNING_SOURCE
             .matches("ExprIr::OrdinaryPropertyAssignment(assignment) =>")
             .count(),
-        7
+        5
     );
     assert_eq!(
         DATA_SOURCE

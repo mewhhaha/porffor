@@ -1,5 +1,5 @@
 const REFERENCE_SOURCE: &str = include_str!("../../lila-ir/src/reference.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const ASSIGNMENT_SOURCE: &str = include_str!("../../lila-ir/src/lowering/assignment.rs");
 const COMPOUND_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/with_environment_compound.rs");
 const FIXTURE: &str = include_str!(
@@ -339,15 +339,17 @@ fn lowering_routes_the_closed_eager_domain_through_the_global_plan() {
     }
     assert!(!apply.contains("_ =>"));
 
+    // `lower_assign` lives in `lowering/assignment.rs`; the bitwise arm is
+    // its last arm, so it is bounded by the end of the function and impl.
     let arithmetic = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::Add\n            | AssignOp::Sub",
         "            AssignOp::BoolAnd | AssignOp::BoolOr | AssignOp::Coalesce => {",
     );
     let bitwise = bounded(
-        LOWERING_SOURCE,
+        ASSIGNMENT_SOURCE,
         "            AssignOp::And\n            | AssignOp::Or",
-        "    fn lower_web_compat_call_assignment_target(&mut self, call: &Call) -> TypedExpr {",
+        "\n        }\n    }\n}\n",
     );
     for arm in [arithmetic, bitwise] {
         assert!(arm.contains("self.locate_identifier_reference(&name)"));

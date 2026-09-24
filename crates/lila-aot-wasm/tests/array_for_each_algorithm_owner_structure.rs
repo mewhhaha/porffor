@@ -58,38 +58,63 @@ fn removed_direct_for_each_owner_cannot_be_called() {
             .count(),
         0
     );
-    assert_eq!(
-        rust_source
-            .matches("fn compile_array_like_for_each_builtin(")
-            .count(),
-        1
-    );
+    for owner in [
+        "fn compile_array_like_for_each_builtin(",
+        "fn compile_array_prototype_for_each_builtin(",
+        "fn compile_typed_array_prototype_for_each_builtin(",
+    ] {
+        assert_eq!(rust_source.matches(owner).count(), 1, "{owner}");
+    }
 }
 
 #[test]
 fn standard_dispatch_owns_array_like_and_typed_array_for_each() {
-    for (start, end, receiver_kind) in [
+    for (start, end, entry) in [
         (
             "            StandardBuiltinId::ArrayPrototypeForEach => {",
             "            StandardBuiltinId::TypedArrayPrototypeForEach => {",
-            "ArrayCallbackReceiverKind::ArrayLike",
+            "self.compile_array_prototype_for_each_builtin(function)?;",
         ),
         (
             "            StandardBuiltinId::TypedArrayPrototypeForEach => {",
             "            StandardBuiltinId::ArrayPrototypeFilter => {",
-            "ArrayCallbackReceiverKind::TypedArray",
+            "self.compile_typed_array_prototype_for_each_builtin(function)?;",
         ),
     ] {
         let standard_arm = bounded(STANDARD_SOURCE, start, end);
+        assert_eq!(standard_arm.matches(entry).count(), 1, "{start}");
+        assert_eq!(standard_arm.matches("self.").count(), 1, "{start}");
+        assert!(!standard_arm.contains("ArrayCallbackReceiverKind"));
+        assert!(!standard_arm.contains("emit_array_for_each_method_call"));
+    }
+
+    for (start, end, receiver_kind) in [
+        (
+            "    pub(super) fn compile_array_prototype_for_each_builtin(",
+            "    pub(super) fn compile_typed_array_prototype_for_each_builtin(",
+            "ArrayCallbackReceiverKind::ArrayLike",
+        ),
+        (
+            "    pub(super) fn compile_typed_array_prototype_for_each_builtin(",
+            "    fn compile_array_like_for_each_builtin(",
+            "ArrayCallbackReceiverKind::TypedArray",
+        ),
+    ] {
+        let entry = bounded(ARRAY_SOURCE, start, end);
         assert_eq!(
-            standard_arm
-                .matches("self.compile_array_like_for_each_builtin(")
+            entry
+                .matches(&format!(
+                    "self.compile_array_like_for_each_builtin(function, {receiver_kind})"
+                ))
                 .count(),
             1,
             "{start}"
         );
-        assert_eq!(standard_arm.matches(receiver_kind).count(), 1, "{start}");
-        assert!(!standard_arm.contains("emit_array_for_each_method_call"));
+        assert_eq!(
+            entry.matches("ArrayCallbackReceiverKind::").count(),
+            1,
+            "{start}"
+        );
     }
 }
 
@@ -127,7 +152,7 @@ fn iterator_for_each_dispatch_remains_a_distinct_owner() {
 fn canonical_for_each_order_and_focused_control_remain_owned() {
     let canonical = bounded(
         ARRAY_SOURCE,
-        "    pub(crate) fn compile_array_like_for_each_builtin(",
+        "    fn compile_array_like_for_each_builtin(",
         "    pub(crate) fn emit_alloc_array_payload_with_length(",
     );
     assert_eq!(

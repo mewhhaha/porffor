@@ -16,41 +16,18 @@ impl FunctionBuilder<'_> {
         // dispatcher so DefineField observes its [[DefineOwnProperty]].
         let descriptor = self.reserve_temp_local();
         let descriptor_tag = self.reserve_temp_local();
-        let attribute_key = self.reserve_temp_local();
-        let attribute_value = self.reserve_temp_local();
-        let attribute_tag = self.reserve_temp_local();
         let key_value = self.reserve_temp_local();
         let key_tag = self.reserve_temp_local();
         let result = self.reserve_temp_local();
         let result_tag = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(descriptor));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(descriptor_tag));
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(attribute_key));
-        self.emit_object_define_enumerable_data(
+        // DefineField is CreateDataPropertyOrThrow.
+        self.emit_create_data_property_descriptor_carrier(
+            TaggedLocals::new(value, value_tag),
             descriptor,
-            attribute_key,
-            value,
-            value_tag,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(attribute_value));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(attribute_tag));
-        for name in ["writable", "enumerable", "configurable"] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(attribute_key));
-            self.emit_object_define_enumerable_data(
-                descriptor,
-                attribute_key,
-                attribute_value,
-                attribute_tag,
-                function,
-            )?;
-        }
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(descriptor_tag));
         self.emit_property_key_tag_from_payload(key, key_tag, function);
         self.emit_property_key_value_payload_to_local(key, key_value, function);
         let define_property = self
@@ -75,9 +52,6 @@ impl FunctionBuilder<'_> {
             result,
             key_tag,
             key_value,
-            attribute_tag,
-            attribute_value,
-            attribute_key,
             descriptor_tag,
             descriptor,
         ] {

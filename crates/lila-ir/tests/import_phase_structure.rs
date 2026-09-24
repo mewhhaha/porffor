@@ -7,6 +7,8 @@ const GRAPH_TESTS_SOURCE: &str = include_str!("../src/modules/graph_tests.rs");
 const GRAPH_CLASSIFICATION_SOURCE: &str =
     include_str!("../src/modules/graph_evaluation_classification.rs");
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
+const ADMISSION_SOURCE: &str = include_str!("../src/modules/admission.rs");
+const SYNCHRONOUS_SOURCE: &str = include_str!("../src/modules/synchronous_source.rs");
 const LINK_ERROR_SOURCE: &str = include_str!("../src/modules/link_error.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
 const IR_SOURCE: &str = include_str!("../src/ir.rs");
@@ -62,6 +64,17 @@ fn import_phase_preserves_the_closed_default_diagnostic_and_ast_domains() {
         "#[default]Evaluation,Defer,Source,}"
     );
 
+    let namespace_mode = bounded(
+        OWNER_SOURCE,
+        "pub(crate) const fn namespace_mode(self) -> Option<crate::ModuleNamespaceModeIr> {",
+        "/// Name used in diagnostics.",
+    );
+    assert_eq!(
+        code_without_whitespace(namespace_mode),
+        "matchself{Self::Evaluation=>Some(crate::ModuleNamespaceModeIr::Eager),\
+         Self::Defer=>Some(crate::ModuleNamespaceModeIr::Deferred),Self::Source=>None,}}"
+    );
+
     let diagnostic_names = bounded(
         OWNER_SOURCE,
         "pub const fn as_str(self) -> &'static str {",
@@ -99,6 +112,8 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
         LINK_SOURCE,
         LINK_ERROR_SOURCE,
         NAMESPACE_SOURCE,
+        ADMISSION_SOURCE,
+        SYNCHRONOUS_SOURCE,
         IR_SOURCE,
         LIB_SOURCE,
     ] {
@@ -106,16 +121,18 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
         assert!(!source.contains("enum ImportPhaseIr"));
         assert!(!source.contains("impl ImportPhaseIr"));
     }
-    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 30);
-    assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 25);
+    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 31);
+    assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 27);
     assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 1);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 4);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 3);
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE.matches("ImportPhaseIr").count(),
-        7
+        8
     );
     assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(LINK_ERROR_SOURCE.matches("ImportPhaseIr").count(), 2);
-    assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 3);
+    assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 4);
+    assert_eq!(ADMISSION_SOURCE.matches("ImportPhaseIr").count(), 2);
+    assert_eq!(SYNCHRONOUS_SOURCE.matches("ImportPhaseIr").count(), 4);
     assert_eq!(IR_SOURCE.matches("ImportPhaseIr").count(), 2);
 }

@@ -14,7 +14,9 @@ numeric conversion semantics or completion routing.
 
 The operation emitter has one private, non-derived
 `NumericConversionRealmAccess` domain. Its two consumers remain distinct:
-helper ABI parameter 6 emits the trusted current environment or zero, while
+helper ABI parameter 6 emits the trusted current environment or, on the
+fallback row, the source Realm's function context in source bodies and zero
+elsewhere (never `current_env_local` read as Realm metadata), while
 direct TypeError and RangeError construction selects the current function's
 Realm or the main-Realm runtime fallback. Sharing the access decision does not
 combine those effects; it prevents two identical source projections from

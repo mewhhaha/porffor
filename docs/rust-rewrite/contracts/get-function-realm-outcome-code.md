@@ -37,11 +37,12 @@ It does not claim that arbitrary numeric corruption is unrepresentable in Wasm.
 ## Consumer closure
 
 Every `emit_get_function_realm` result is immediately consumed by
-`emit_route_function_realm_result`. The five product pairs select exactly:
+`emit_route_function_realm_result`. The seven product pairs select exactly:
 
 - one `ThrowTypeErrorAndBranch` route in generic construction;
-- three `ThrowTypeErrorAndReturn` routes for required constructor prototypes;
-  and
+- five `ThrowTypeErrorAndReturn` routes for required constructor prototypes,
+  including the ordinary and derived dynamic-function constructors'
+  `GetPrototypeFromConstructor`; and
 - one `UseCurrentRealm` route for Promise-job callbacks.
 
 The migration changes no caller policy, Realm selection, Proxy traversal,
@@ -53,7 +54,7 @@ instruction order.
 `crates/lila-aot-wasm/tests/function_realm_outcome_structure.rs` uses a
 Rust-lexical recursive census to pin the private no-capability declaration, the
 exhaustive 0/1/2 projection, all five projection sites, the three writers, the
-Revoked-before-Invalid router and the five Get/route pairs with their exact
+Revoked-before-Invalid router and the seven Get/route pairs with their exact
 policy census. It also pins the private file module, sole type and method owner,
 narrow route re-export and private resolved-witness import. The extracted 272
 source lines retain SHA-256

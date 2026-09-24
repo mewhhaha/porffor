@@ -9,26 +9,25 @@ use lila_ir::{
     BitwiseBinaryOp, BlockIr, CallableToStringRepresentation, ClassDefinitionIr,
     ClassElementDefinitionIr, ClassElementExecutionKind, ClassFieldKeyIr, ClassFunctionKind,
     ClassHeritageKind, ClassInstanceElementIr, ClassInstanceElementPlanIr, ClassMethodPlacementIr,
-    ClassStaticElementIr, DeleteIdentifierKindIr, DestructuringPropertyKeyIr,
-    DestructuringTargetIr, DynamicFunctionKind, DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr,
-    ForInOfEnvironmentIr, ForInitIr, ForLexicalEnvironmentIr, ForOfIteratorHeadIr,
-    FunctionExecutionKind, FunctionFlavor, FunctionId, FunctionIr, FunctionParamIr,
-    FunctionProtocolIr, GeneratorResumeModeIr, GeneratorTryPlanIr, GlobalBindingPlan,
-    GlobalPropertyInitializerIr, HeapShape, HostBuiltinId, IdentifierWriteDisposition,
-    JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp, NumericUpdateOp,
-    NumericUpdateValueKind, ObjectPropertyIr, ObjectShapeProperty, OrdinaryPropertyAssignmentIr,
-    OrdinaryPropertyEagerCompoundAssignmentIr, OrdinaryPropertyLogicalAssignmentIr,
-    OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr, PrivateNameId, PropertyKeyIr,
-    RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr, StandardBuiltinId,
-    StatementIr, Strictness, SuspendedPropertyReferenceIr, SuspendedPropertyReferenceUse,
-    SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint, TypedExpr, UnaryBitwiseOp,
-    UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm, AGGREGATE_ERROR_NAME,
-    ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME, DATA_VIEW_NAME, DATE_NAME,
-    DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME, FLOAT32_ARRAY_NAME,
-    FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME, HOST_PARSE_FLOAT_FUNCTION_ID,
-    INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME, INTL_NAMESPACE_CONSTRUCTORS,
-    IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL, LEXICAL_ARGUMENTS_NAME,
-    LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
+    ClassStaticElementIr, DestructuringPropertyKeyIr, DestructuringTargetIr, DynamicFunctionKind,
+    DynamicSourceIntrinsic, EqualityBinaryOp, ExprIr, ForInOfEnvironmentIr, ForInitIr,
+    ForLexicalEnvironmentIr, ForOfIteratorHeadIr, FunctionExecutionKind, FunctionFlavor,
+    FunctionId, FunctionIr, FunctionParamIr, FunctionProtocolIr, GeneratorResumeModeIr,
+    GeneratorTryPlanIr, GlobalBindingPlan, GlobalPropertyInitializerIr, HeapShape, HostBuiltinId,
+    IdentifierWriteDisposition, JsonStaticValueIr, KindSet, LexicalEnvironmentIr, LogicalBinaryOp,
+    NumericUpdateOp, NumericUpdateValueKind, ObjectPropertyIr, ObjectShapeProperty,
+    OrdinaryPropertyAssignmentIr, OrdinaryPropertyEagerCompoundAssignmentIr,
+    OrdinaryPropertyLogicalAssignmentIr, OrdinaryPropertyNumericUpdateIr, OwnedEnvBindingIr,
+    PrivateNameId, PropertyKeyIr, RelationalBinaryOp, ScriptIr, SpecOperationIr, SpreadArgumentIr,
+    StandardBuiltinId, StatementIr, Strictness, SuspendedPropertyReferenceIr,
+    SuspendedPropertyReferenceUse, SwitchCaseIr, SyncDisposableResourcesIr, ToPrimitiveHint,
+    TypedExpr, UnaryBitwiseOp, UpdateReturnMode, ValueInfo, ValueKind, VarDeclaratorIr, YieldForm,
+    AGGREGATE_ERROR_NAME, ARRAY_BUFFER_NAME, ARRAY_NAME, ATOMICS_NAME, BOOLEAN_NAME,
+    DATA_VIEW_NAME, DATE_NAME, DATE_VALUE_SLOT, ERROR_NAME, EVAL_ERROR_NAME, FLOAT16_ARRAY_NAME,
+    FLOAT32_ARRAY_NAME, FLOAT64_ARRAY_NAME, FUNCTION_NAME, GLOBAL_THIS_NAME,
+    HOST_PARSE_FLOAT_FUNCTION_ID, INT16_ARRAY_NAME, INT32_ARRAY_NAME, INT8_ARRAY_NAME,
+    INTL_NAMESPACE_CONSTRUCTORS, IS_CONSTRUCTOR_NAME, JSON_NAME, JS_STRING_SURROGATE_SENTINEL,
+    LEXICAL_ARGUMENTS_NAME, LEXICAL_HOME_OBJECT_NAME, LEXICAL_NEW_TARGET_NAME, LEXICAL_THIS_NAME,
     LILA_GENERATOR_THROW_SLOT, MAP_NAME, MATH_NAME, NUMBER_NAME, OBJECT_NAME, PRINT_NAME,
     PROMISE_NAME, PROXY_NAME, RANGE_ERROR_NAME, REFERENCE_ERROR_NAME, REFLECT_NAME, REGEXP_NAME,
     SET_NAME, SHARED_ARRAY_BUFFER_NAME, STRING_NAME, SUPPRESSED_ERROR_NAME, SYMBOL_NAME,
@@ -931,6 +930,8 @@ mod tests {
             ("IntlLocale", "INTL_LOCALE"),
             ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
             ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
+            ("Generator", "GENERATOR"),
+            ("AsyncGenerator", "ASYNC_GENERATOR"),
         ] {
             assert_eq!(domain.matches(&format!("    {variant},")).count(), 1);
             assert_eq!(
@@ -947,8 +948,8 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            15,
-            "the closed domain count must include disposal, aggregate errors and Intl prototypes"
+            17,
+            "the closed domain count must include disposal, aggregate errors, Intl and generator prototypes"
         );
     }
 
@@ -1877,6 +1878,62 @@ mod tests {
                 .count(),
             1
         );
+
+        // The ordering above is only observable if [[Construct]] enters the
+        // Date body directly: the shared dispatcher's generic path performs
+        // its own Get(newTarget, "prototype") before any argument coercion.
+        let direct_returning_domain = include_str!("functions.rs")
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        assert_eq!(
+            direct_returning_domain
+                .matches("StandardBuiltinId::DateConstructor,")
+                .count(),
+            1,
+            "Date must route to its body before generic prototype Get and allocation"
+        );
+    }
+
+    /// Built-in constructors that allocate their own result (or throw before
+    /// reading NewTarget.prototype) must not pass through the dispatcher's
+    /// generic OrdinaryCreateFromConstructor: it would add an observable
+    /// Get(newTarget, "prototype") ahead of their own spec-ordered one.
+    #[test]
+    fn self_allocating_builtin_constructors_bypass_generic_construct_allocation() {
+        let direct_returning_domain = include_str!("functions.rs")
+            .split_once("let direct_returning_constructor_table_indices: Vec<i64> = [")
+            .expect("direct-returning constructor domain should exist")
+            .1
+            .split_once("]\n        .into_iter()")
+            .expect("direct-returning constructor domain should be bounded")
+            .0;
+        for builtin in [
+            "DateConstructor",
+            "TemporalInstantConstructor",
+            "TemporalPlainDateConstructor",
+            "TemporalPlainTimeConstructor",
+            "TemporalPlainDateTimeConstructor",
+            "TemporalPlainYearMonthConstructor",
+            "TemporalPlainMonthDayConstructor",
+            "TemporalDurationConstructor",
+            "TemporalZonedDateTimeConstructor",
+            "BigIntConstructor",
+            "SymbolConstructor",
+            "TypedArrayConstructor",
+            "BoundFunctionInvoker",
+        ] {
+            assert_eq!(
+                direct_returning_domain
+                    .matches(&format!("StandardBuiltinId::{builtin},"))
+                    .count(),
+                1,
+                "{builtin} must be entered directly by [[Construct]]"
+            );
+        }
     }
 
     #[test]
@@ -6727,7 +6784,8 @@ try {
   proxy();
 } catch (error) {
   caught = true;
-  if (Object.getPrototypeOf(error) !== other.global.TypeError.prototype) {
+  // ValidateNonRevokedProxy throws in the running (caller's) Realm.
+  if (Object.getPrototypeOf(error) !== TypeError.prototype) {
     throw "revoked proxy wrong realm";
   }
 }

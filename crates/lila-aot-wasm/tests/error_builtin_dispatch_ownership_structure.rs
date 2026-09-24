@@ -214,11 +214,7 @@ fn error_builtin_is_the_exact_non_capability_dispatch_authority() {
     assert_eq!(exact_identifier_count(&lexical_probe, "ErrorBuiltin"), 1);
 
     let declaration = rust_code(
-        bounded(
-            ERROR_SOURCE,
-            "mod prototype_to_string;",
-            "fn native_error_kind",
-        ),
+        bounded(ERROR_SOURCE, "mod runtime_error;", "fn native_error_kind"),
         true,
     );
     assert_eq!(

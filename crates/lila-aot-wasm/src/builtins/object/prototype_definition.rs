@@ -25,9 +25,6 @@ impl FunctionBuilder<'_> {
         let callable_tag = self.reserve_temp_local();
         let descriptor = self.reserve_temp_local();
         let descriptor_tag = self.reserve_temp_local();
-        let attribute_key = self.reserve_temp_local();
-        let attribute_value = self.reserve_temp_local();
-        let attribute_tag = self.reserve_temp_local();
 
         self.emit_builtin_arg_to_locals(0, key, key_tag, function);
         self.emit_builtin_arg_to_locals(1, callable, callable_tag, function);
@@ -57,38 +54,25 @@ impl FunctionBuilder<'_> {
         // A partial descriptor must omit the opposite accessor. Its private
         // null prototype also keeps Object.prototype changes out of the
         // descriptor conversion performed by the canonical definition path.
-        self.emit_alloc_plain_object_with_prototype(None, None, function)?;
-        function.instruction(&Instruction::LocalSet(descriptor));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(descriptor_tag));
-        let accessor_name = match accessor {
-            AccessorDefinition::Getter => "get",
-            AccessorDefinition::Setter => "set",
+        let accessor_field = Presence::Present(TaggedLocals::new(callable, callable_tag));
+        let (get, set) = match accessor {
+            AccessorDefinition::Getter => (accessor_field, Presence::Absent),
+            AccessorDefinition::Setter => (Presence::Absent, accessor_field),
         };
-        function.instruction(&Instruction::I64Const(self.strings.payload(accessor_name)));
-        function.instruction(&Instruction::LocalSet(attribute_key));
-        self.emit_object_define_enumerable_data(
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::PrivateCarrier,
+            &DescriptorObjectFields {
+                get,
+                set,
+                enumerable: Presence::Present(DescriptorFlag::Known(true)),
+                configurable: Presence::Present(DescriptorFlag::Known(true)),
+                ..DescriptorObjectFields::empty()
+            },
             descriptor,
-            attribute_key,
-            callable,
-            callable_tag,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(attribute_value));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(attribute_tag));
-        for name in ["enumerable", "configurable"] {
-            function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-            function.instruction(&Instruction::LocalSet(attribute_key));
-            self.emit_object_define_enumerable_data(
-                descriptor,
-                attribute_key,
-                attribute_value,
-                attribute_tag,
-                function,
-            )?;
-        }
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(descriptor_tag));
         let define_property = self
             .functions
             .get(&StandardBuiltinId::ObjectDefineProperty.function_id())
@@ -112,9 +96,6 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
         for local in [
-            attribute_tag,
-            attribute_value,
-            attribute_key,
             descriptor_tag,
             descriptor,
             callable_tag,

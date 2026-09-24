@@ -232,7 +232,7 @@ fn lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_op
             "PropertyAccess::Simple(access) =>",
             "self.lower_ordinary_property_numeric_update(op, access)",
             "PropertyAccess::Super(access) => self.lower_super_property_numeric_update(op, access)",
-            "PropertyAccess::Private(_) => self.unsupported_expr(\"private field update target\")",
+            "PropertyAccess::Private(access) => self.lower_private_numeric_update(op, access)",
         ],
     );
     assert!(!property_update.contains("_ =>"));

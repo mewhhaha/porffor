@@ -18,8 +18,13 @@ use lila_ir::property_descriptor::{
 };
 
 mod arguments_properties;
+mod descriptor_object;
 mod has_property;
 mod module_namespace;
+
+pub(crate) use descriptor_object::{
+    DescriptorFlag, DescriptorObjectFields, DescriptorObjectPrototype,
+};
 
 use module_namespace::NamespaceBindingRead;
 pub(crate) use module_namespace::NamespaceOwnKeys;
@@ -808,6 +813,94 @@ impl DescriptorCarrier for ReservedPropertyDescriptorCarrier {
 #[must_use = "a converted property descriptor must be materialized so its locals are released"]
 pub(crate) struct ReservedPropertyDescriptorLocals {
     descriptor: ValidatedDescriptor<ReservedPropertyDescriptorCarrier>,
+}
+
+/// 6.2.6.6 CompletePropertyDescriptor applied to a converted descriptor whose
+/// field presence is decided when the program runs.
+///
+/// Completion fixes the descriptor's side: step 3 completes a generic
+/// descriptor to a *data* descriptor, so exactly one of `accessor` and `data`
+/// is non-zero, and every field of that side, plus `[[Enumerable]]` and
+/// `[[Configurable]]`, holds a value (the step 2 default when it was absent).
+/// The fields of the other side are not part of the record: the only way to
+/// publish it, [`Self::object_fields`], gates them on the side flags.
+#[must_use = "a completed property descriptor owns its locals and must be released"]
+pub(crate) struct CompletedPropertyDescriptorLocals {
+    accessor: u32,
+    data: u32,
+    value: TaggedLocals,
+    writable: TaggedLocals,
+    get: TaggedLocals,
+    set: TaggedLocals,
+    enumerable: TaggedLocals,
+    configurable: TaggedLocals,
+    owned_locals: Vec<u32>,
+}
+
+impl CompletedPropertyDescriptorLocals {
+    /// 6.2.6.1 IsAccessorDescriptor of the completed descriptor.
+    pub(crate) fn emit_accessor_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.accessor, function);
+    }
+
+    pub(crate) fn emit_writable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.writable.payload, function);
+    }
+
+    pub(crate) fn emit_enumerable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.enumerable.payload, function);
+    }
+
+    pub(crate) fn emit_configurable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.configurable.payload, function);
+    }
+
+    /// `[[Value]]`; meaningful only for a data descriptor.
+    pub(crate) fn value(&self) -> TaggedLocals {
+        self.value
+    }
+
+    /// `[[Get]]`; meaningful only for an accessor descriptor.
+    pub(crate) fn getter(&self) -> TaggedLocals {
+        self.get
+    }
+
+    /// `[[Set]]`; meaningful only for an accessor descriptor.
+    pub(crate) fn setter(&self) -> TaggedLocals {
+        self.set
+    }
+
+    /// The 6.2.6.4 FromPropertyDescriptor input: the four fields of whichever
+    /// side the descriptor completed to.
+    pub(crate) fn object_fields(&self) -> DescriptorObjectFields {
+        let data_field = |value| Presence::Runtime {
+            present: self.data,
+            value,
+        };
+        let accessor_field = |value| Presence::Runtime {
+            present: self.accessor,
+            value,
+        };
+        DescriptorObjectFields {
+            value: data_field(self.value),
+            writable: Presence::Runtime {
+                present: self.data,
+                value: DescriptorFlag::BooleanPayload(self.writable.payload),
+            },
+            get: accessor_field(self.get),
+            set: accessor_field(self.set),
+            enumerable: Presence::Present(DescriptorFlag::BooleanPayload(self.enumerable.payload)),
+            configurable: Presence::Present(DescriptorFlag::BooleanPayload(
+                self.configurable.payload,
+            )),
+        }
+    }
+
+    fn emit_nonzero_i32(local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+    }
 }
 
 /// The kind an entry is **stored** as.
@@ -2649,7 +2742,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         if let Some(append_function_index) = self.object_append_data_property_function_index {
-            if self.is_main() {
+            let may_target_array_prototype =
+                self.append_target_scope().may_target_array_prototype();
+            if may_target_array_prototype {
                 function.instruction(&Instruction::LocalGet(object_local));
                 function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::I64Eq);
@@ -2696,7 +2791,7 @@ impl<'a> FunctionBuilder<'a> {
                 .descriptor_kind_bits() as i64,
             ));
             function.instruction(&Instruction::Call(append_function_index));
-            if self.is_main() {
+            if may_target_array_prototype {
                 function.instruction(&Instruction::End);
             }
             return Ok(());
@@ -2811,7 +2906,9 @@ impl<'a> FunctionBuilder<'a> {
             setter.expect("setter locals must be materialized");
 
         if let Some(append_function_index) = self.object_append_accessor_property_function_index {
-            if self.is_main() {
+            let may_target_array_prototype =
+                self.append_target_scope().may_target_array_prototype();
+            if may_target_array_prototype {
                 function.instruction(&Instruction::LocalGet(object_local));
                 function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
                 function.instruction(&Instruction::I64Eq);
@@ -2856,7 +2953,7 @@ impl<'a> FunctionBuilder<'a> {
                 .descriptor_kind_bits() as i64,
             ));
             function.instruction(&Instruction::Call(append_function_index));
-            if self.is_main() {
+            if may_target_array_prototype {
                 function.instruction(&Instruction::End);
             }
         } else {
@@ -3596,207 +3693,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(payload_local);
         self.release_temp_local(key_local);
         self.release_temp_local(object_tag_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_data_descriptor_from_locals(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        writable: bool,
-        enumerable: bool,
-        configurable: bool,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let descriptor_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_local));
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data(descriptor_local, "writable", writable, function)?;
-        self.emit_object_define_bool_data(descriptor_local, "enumerable", enumerable, function)?;
-        self.emit_object_define_bool_data(
-            descriptor_local,
-            "configurable",
-            configurable,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_local));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        self.release_temp_local(descriptor_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_value_descriptor_from_locals(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let descriptor_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_local));
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_local));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        self.release_temp_local(descriptor_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_data_property_descriptor_object_from_locals(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        writable: bool,
-        enumerable: bool,
-        configurable: bool,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let descriptor_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_local));
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data(descriptor_local, "writable", writable, function)?;
-        self.emit_object_define_bool_data(descriptor_local, "enumerable", enumerable, function)?;
-        self.emit_object_define_bool_data(
-            descriptor_local,
-            "configurable",
-            configurable,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_local));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        self.release_temp_local(descriptor_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_data_descriptor_from_locals_with_flag_locals(
-        &mut self,
-        value_payload_local: u32,
-        value_tag_local: u32,
-        writable_payload_local: u32,
-        enumerable_payload_local: u32,
-        configurable_payload_local: u32,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let descriptor_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_local));
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "value",
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            descriptor_local,
-            "writable",
-            writable_payload_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            descriptor_local,
-            "enumerable",
-            enumerable_payload_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            descriptor_local,
-            "configurable",
-            configurable_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_local));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        self.release_temp_local(descriptor_local);
-        Ok(())
-    }
-
-    pub(crate) fn emit_alloc_accessor_descriptor_from_locals_with_flag_local(
-        &mut self,
-        getter_payload_local: u32,
-        getter_tag_local: u32,
-        setter_payload_local: u32,
-        setter_tag_local: u32,
-        enumerable_payload_local: u32,
-        configurable_payload_local: u32,
-        result_payload_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let descriptor_local = self.reserve_temp_local();
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_local));
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "get",
-            getter_payload_local,
-            getter_tag_local,
-            function,
-        )?;
-        self.emit_object_define_local_data(
-            descriptor_local,
-            "set",
-            setter_payload_local,
-            setter_tag_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            descriptor_local,
-            "enumerable",
-            enumerable_payload_local,
-            function,
-        )?;
-        self.emit_object_define_bool_data_from_local(
-            descriptor_local,
-            "configurable",
-            configurable_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(descriptor_local));
-        function.instruction(&Instruction::LocalSet(result_payload_local));
-        self.release_temp_local(descriptor_local);
         Ok(())
     }
 
@@ -12106,62 +12002,30 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         function.instruction(&Instruction::End);
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
+
+        // 6.2.6.4 FromPropertyDescriptor. Every step is conditional on
+        // presence, so any subset of the six fields is a legal result; the
+        // four-key form is the codomain only when the input is complete, which
+        // it is not on this path. The three flags are ToBoolean results, so
+        // only their payloads are read.
+        let descriptor = reserved_descriptor.descriptor.as_partial();
+        let fields = DescriptorObjectFields {
+            value: descriptor.value,
+            writable: DescriptorFlag::boolean_value_presence(descriptor.writable),
+            get: descriptor.get,
+            set: descriptor.set,
+            enumerable: DescriptorFlag::boolean_value_presence(descriptor.enumerable),
+            configurable: DescriptorFlag::boolean_value_presence(descriptor.configurable),
+        };
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::ObjectPrototypeLocal(prototype_local),
+            &fields,
+            result.payload,
+            function,
+        )?;
         self.release_temp_local(prototype_local);
-        function.instruction(&Instruction::LocalSet(result.payload));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(result.tag));
-        let field_key_local = self.reserve_temp_local();
-
-        // 6.2.6.4 FromPropertyDescriptor's steps 4-9 run in
-        // [`DescriptorField::ALL`] order, which is a *different* permutation
-        // from 6.2.6.5's: this one is value, writable, get, set, enumerable,
-        // configurable. Both orders now come from the one table each belongs
-        // to, so the two can no longer be conflated or silently swapped — which
-        // is a real hazard, since the six keys and the same six locals appear
-        // in both loops.
-        //
-        // Every step here is conditional on presence, so any subset of the six
-        // is a legal result; the four-key form is the codomain only when the
-        // input is complete, which it is not on this path.
-        {
-            let descriptor = reserved_descriptor.descriptor.as_partial();
-            let field_locals = |field: DescriptorField| match field {
-                DescriptorField::Value => &descriptor.value,
-                DescriptorField::Writable => &descriptor.writable,
-                DescriptorField::Get => &descriptor.get,
-                DescriptorField::Set => &descriptor.set,
-                DescriptorField::Enumerable => &descriptor.enumerable,
-                DescriptorField::Configurable => &descriptor.configurable,
-            };
-            for field in DescriptorField::ALL {
-                let (present_local, value) = match field_locals(field) {
-                    Presence::Absent => continue,
-                    Presence::Present(value) => (None, *value),
-                    Presence::Runtime { present, value } => (Some(*present), *value),
-                };
-                if let Some(present_local) = present_local {
-                    function.instruction(&Instruction::LocalGet(present_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                }
-                function.instruction(&Instruction::I64Const(self.strings.payload(field.key())));
-                function.instruction(&Instruction::LocalSet(field_key_local));
-                self.emit_object_define_enumerable_data(
-                    result.payload,
-                    field_key_local,
-                    value.payload,
-                    value.tag,
-                    function,
-                )?;
-                if present_local.is_some() {
-                    function.instruction(&Instruction::End);
-                }
-            }
-        }
-
-        self.release_temp_local(field_key_local);
 
         let PartialDescriptor {
             value,
@@ -12186,6 +12050,125 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         Ok(())
+    }
+
+    /// 6.2.6.6 CompletePropertyDescriptor. Consumes the converted descriptor;
+    /// the completed record takes over its locals.
+    ///
+    /// The side comes from [`classify`], the one derivation of 6.2.6.1-3: a
+    /// descriptor is an accessor descriptor iff it has `[[Get]]` or `[[Set]]`,
+    /// and anything else (including a generic descriptor) completes to data.
+    pub(crate) fn emit_complete_property_descriptor(
+        &mut self,
+        reserved_descriptor: ReservedPropertyDescriptorLocals,
+        function: &mut Function,
+    ) -> CompletedPropertyDescriptorLocals {
+        let accessor = self.reserve_temp_local();
+        let data = self.reserve_temp_local();
+        match classify(&reserved_descriptor.descriptor) {
+            DescriptorClassification::Static(kind) => {
+                let is_accessor = match kind {
+                    PropertyDescriptorKind::Accessor => 1,
+                    PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => 0,
+                };
+                function.instruction(&Instruction::I64Const(is_accessor));
+            }
+            DescriptorClassification::Dynamic { accessor_terms, .. } => {
+                if accessor_terms.statically_true {
+                    function.instruction(&Instruction::I64Const(1));
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                    for present in accessor_terms.runtime_flags() {
+                        function.instruction(&Instruction::LocalGet(present));
+                        function.instruction(&Instruction::I64Or);
+                    }
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I64ExtendI32U);
+                }
+            }
+        }
+        function.instruction(&Instruction::LocalSet(accessor));
+        function.instruction(&Instruction::LocalGet(accessor));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(data));
+
+        // Step 2's *like* record: `undefined` for `[[Value]]`, `[[Get]]` and
+        // `[[Set]]`, `false` for the three flags. Writing the default to an
+        // absent field of the other side is harmless: `object_fields` never
+        // publishes it.
+        let PartialDescriptor {
+            value,
+            writable,
+            get,
+            set,
+            enumerable,
+            configurable,
+        } = reserved_descriptor.descriptor.into_partial();
+        let mut owned_locals = vec![accessor, data];
+        let mut complete = |presence: Presence<TaggedLocals, u32>, default_tag: ValueKind| {
+            let (value, present) = match presence {
+                Presence::Absent => {
+                    let value =
+                        TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+                    (value, None)
+                }
+                Presence::Present(value) => {
+                    owned_locals.extend([value.payload, value.tag]);
+                    return value;
+                }
+                Presence::Runtime { present, value } => (value, Some(present)),
+            };
+            owned_locals.extend([value.payload, value.tag]);
+            if let Some(present) = present {
+                owned_locals.push(present);
+                function.instruction(&Instruction::LocalGet(present));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+            }
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(value.payload));
+            function.instruction(&Instruction::I64Const(default_tag.tag() as i64));
+            function.instruction(&Instruction::LocalSet(value.tag));
+            if present.is_some() {
+                function.instruction(&Instruction::End);
+            }
+            value
+        };
+        let value = complete(value, ValueKind::Undefined);
+        let writable = complete(writable, ValueKind::Boolean);
+        let get = complete(get, ValueKind::Undefined);
+        let set = complete(set, ValueKind::Undefined);
+        let enumerable = complete(enumerable, ValueKind::Boolean);
+        let configurable = complete(configurable, ValueKind::Boolean);
+        CompletedPropertyDescriptorLocals {
+            accessor,
+            data,
+            value,
+            writable,
+            get,
+            set,
+            enumerable,
+            configurable,
+            owned_locals,
+        }
+    }
+
+    /// Releases every local the completed record owns: the converted
+    /// descriptor's field locals it took over and the two side flags. They are
+    /// the top of the temporary-local stack by then, so releasing them from the
+    /// highest index down is the stack order whatever order
+    /// [`Self::emit_to_property_descriptor`] reserved them in.
+    pub(crate) fn release_completed_property_descriptor(
+        &mut self,
+        completed: CompletedPropertyDescriptorLocals,
+    ) {
+        let mut owned_locals = completed.owned_locals;
+        owned_locals.sort_unstable_by(|left, right| right.cmp(left));
+        for local in owned_locals {
+            self.release_temp_local(local);
+        }
     }
 
     /// Read an Array instance's own named property, including invoking an own
@@ -14573,8 +14556,6 @@ impl<'a> FunctionBuilder<'a> {
         let object_kind_local = self.reserve_temp_local();
         let descriptor_payload_local = self.reserve_temp_local();
         let descriptor_tag_local = self.reserve_temp_local();
-        let bool_payload_local = self.reserve_temp_local();
-        let bool_tag_local = self.reserve_temp_local();
         let key_tag_local = self.reserve_temp_local();
         let define_property_payload_local = self.reserve_temp_local();
         let define_property_tag_local = self.reserve_temp_local();
@@ -14596,54 +14577,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+        self.emit_create_data_property_descriptor_carrier(
+            TaggedLocals::new(payload_local, tag_local),
+            descriptor_payload_local,
             function,
         )?;
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(bool_tag_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(bool_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("value")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_object_define_data(
-            descriptor_payload_local,
-            self.scratch_local,
-            payload_local,
-            tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("writable")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_object_define_data(
-            descriptor_payload_local,
-            self.scratch_local,
-            bool_payload_local,
-            bool_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_object_define_data(
-            descriptor_payload_local,
-            self.scratch_local,
-            bool_payload_local,
-            bool_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("configurable")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_object_define_data(
-            descriptor_payload_local,
-            self.scratch_local,
-            bool_payload_local,
-            bool_tag_local,
-            function,
-        )?;
 
         let define_property_meta = self
             .functions
@@ -14822,8 +14762,6 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(define_property_tag_local);
         self.release_temp_local(define_property_payload_local);
         self.release_temp_local(key_tag_local);
-        self.release_temp_local(bool_tag_local);
-        self.release_temp_local(bool_payload_local);
         self.release_temp_local(descriptor_tag_local);
         self.release_temp_local(descriptor_payload_local);
         self.release_temp_local(object_kind_local);
@@ -16380,19 +16318,23 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_alloc_data_property_descriptor_object_from_locals(
-                descriptor_value_payload_local,
-                descriptor_value_tag_local,
-                true,
-                true,
-                true,
+            self.emit_create_data_property_descriptor_carrier(
+                TaggedLocals::new(descriptor_value_payload_local, descriptor_value_tag_local),
                 descriptor_payload_local,
                 function,
             )?;
             function.instruction(&Instruction::Else);
-            self.emit_alloc_value_descriptor_from_locals(
-                descriptor_value_payload_local,
-                descriptor_value_tag_local,
+            // OrdinarySetWithOwnDescriptor redefines an existing receiver
+            // property with `{ [[Value]]: V }` alone.
+            self.emit_from_property_descriptor(
+                DescriptorObjectPrototype::PrivateCarrier,
+                &DescriptorObjectFields {
+                    value: Presence::Present(TaggedLocals::new(
+                        descriptor_value_payload_local,
+                        descriptor_value_tag_local,
+                    )),
+                    ..DescriptorObjectFields::empty()
+                },
                 descriptor_payload_local,
                 function,
             )?;

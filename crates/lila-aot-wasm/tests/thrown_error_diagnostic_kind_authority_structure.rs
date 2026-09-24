@@ -1,4 +1,5 @@
-const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const PARENT_ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/thrown-error-diagnostic-kind-authority.md");
 const TASK: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
@@ -68,6 +69,10 @@ fn diagnostic_publisher_accepts_only_native_error_kind() {
 
 #[test]
 fn all_three_producers_forward_the_error_kind_they_already_own() {
+    assert!(
+        !PARENT_ERRORS_SOURCE.contains("emit_set_thrown_error_text("),
+        "the private runtime-error child owns the publisher and all producers"
+    );
     assert_eq!(
         ERRORS_SOURCE.matches("emit_set_thrown_error_text(").count(),
         4,
@@ -122,7 +127,7 @@ fn diagnostic_publication_follows_object_creation_and_precedes_throw_completion(
     );
     assert_before(
         resolved_prototype_path,
-        "self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;",
+        "self.emit_fresh_native_error_object_call(",
         "self.emit_set_thrown_error_text(kind, Some(message), function);",
     );
     assert_before(

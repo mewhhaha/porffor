@@ -1,5 +1,9 @@
 use super::*;
 
+mod proxy;
+
+use proxy::ProxyGetOwnPropertyRequest;
+
 impl<'a> FunctionBuilder<'a> {
     pub(in crate::builtins) fn compile_object_get_own_property_descriptor_builtin(
         &mut self,
@@ -27,25 +31,13 @@ impl<'a> FunctionBuilder<'a> {
         let setter_payload_local = self.reserve_temp_local();
         let setter_tag_local = self.reserve_temp_local();
         let function_like_local = self.reserve_temp_local();
-        let proxy_handler_payload_local = self.reserve_temp_local();
-        let proxy_handler_tag_local = self.reserve_temp_local();
-        let proxy_trap_payload_local = self.reserve_temp_local();
-        let proxy_trap_tag_local = self.reserve_temp_local();
-        let proxy_key_tag_local = self.reserve_temp_local();
+        let proxy_boxed_kind_local = self.reserve_temp_local();
         let proxy_handled_local = self.reserve_temp_local();
-        let proxy_target_desc_found_local = self.reserve_temp_local();
-        let proxy_result_configurable_present_local = self.reserve_temp_local();
-        let proxy_result_configurable_payload_local = self.reserve_temp_local();
-        let proxy_result_writable_present_local = self.reserve_temp_local();
-        let proxy_result_writable_payload_local = self.reserve_temp_local();
-        let proxy_result_field_tag_local = self.reserve_temp_local();
         let typed_array_brand_local = self.reserve_temp_local();
         let typed_array_numeric_index_payload_local = self.reserve_temp_local();
         let typed_array_canonical_numeric_index_local = self.reserve_temp_local();
         let typed_array_valid_index_local = self.reserve_temp_local();
-        let proxy_target_extensible_local = self.reserve_temp_local();
         let key_constant_local = self.reserve_temp_local();
-        let proxy_target_descriptor_fact = self.reserve_own_descriptor_fact_locals();
 
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, key_payload_local, key_tag_local, function);
@@ -103,289 +95,29 @@ impl<'a> FunctionBuilder<'a> {
         self.load_i64_to_local_from_offset(
             target_payload_local,
             HEAP_OBJECT_BOXED_KIND_OFFSET,
-            proxy_handler_payload_local,
+            proxy_boxed_kind_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(proxy_handler_payload_local));
+        function.instruction(&Instruction::LocalGet(proxy_boxed_kind_local));
         function.instruction(&Instruction::I64Const(PROXY_HANDLER_PAYLOAD_MIN as i64));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Br(2));
         function.instruction(&Instruction::End);
-        self.emit_load_live_proxy_slots(
-            target_payload_local,
-            ProxySlotLocals::new(
-                ProxyTargetLocals::new(value_payload_local, value_tag_local),
-                ProxyHandlerLocals::new(proxy_handler_payload_local, proxy_handler_tag_local),
-            ),
-            ProxyRevocationRoute::CurrentFunctionRealm,
+        // 10.5.5 [[GetOwnProperty]]. A handler without the trap forwards to
+        // the target, which this loop then resolves in turn.
+        self.emit_proxy_get_own_property_descriptor(
+            ProxyGetOwnPropertyRequest {
+                object: TaggedLocals::new(target_payload_local, target_tag_local),
+                key: TaggedLocals::new(proxy_key_payload_local, key_tag_local),
+                handled: proxy_handled_local,
+                result: TaggedLocals::new(self.result_local, self.result_tag_local),
+            },
             function,
         )?;
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("getOwnPropertyDescriptor"),
-        ));
-        function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_object_read_without_throw_propagation(
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            entry_key_local,
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        self.emit_is_callable_i32(proxy_trap_tag_local, proxy_trap_payload_local, function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::LocalSet(proxy_key_tag_local));
-        self.emit_function_or_proxy_call_leave_throw_completion(
-            proxy_trap_payload_local,
-            proxy_trap_tag_local,
-            proxy_handler_payload_local,
-            proxy_handler_tag_local,
-            &[
-                (value_payload_local, value_tag_local),
-                (proxy_key_payload_local, proxy_key_tag_local),
-            ],
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap result must be object or undefined",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_direct_own_descriptor_fact(
-            value_payload_local,
-            value_tag_local,
-            key_string_local,
-            key_tag_local,
-            proxy_target_descriptor_fact,
-            function,
-        )?;
-        proxy_target_descriptor_fact.emit_present_i32(function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        proxy_target_descriptor_fact.emit_configurable_i32(function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap returned undefined for non-configurable target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.emit_object_is_extensible_i32(
-            value_payload_local,
-            value_tag_local,
-            proxy_target_extensible_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(proxy_target_extensible_local));
+        function.instruction(&Instruction::LocalGet(proxy_handled_local));
         function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap returned undefined for non-extensible target",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_direct_own_descriptor_fact(
-            value_payload_local,
-            value_tag_local,
-            key_string_local,
-            key_tag_local,
-            proxy_target_descriptor_fact,
-            function,
-        )?;
-        proxy_target_descriptor_fact.emit_present_i32(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(proxy_target_desc_found_local));
-        proxy_target_descriptor_fact.emit_configurable_i32(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(configurable_payload_local));
-        proxy_target_descriptor_fact.emit_writable_i32(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(writable_payload_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("configurable")));
-        function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_object_own_data_field_read(
-            self.result_local,
-            self.result_tag_local,
-            entry_key_local,
-            proxy_result_configurable_present_local,
-            proxy_result_configurable_payload_local,
-            proxy_result_field_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("writable")));
-        function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_object_own_data_field_read(
-            self.result_local,
-            self.result_tag_local,
-            entry_key_local,
-            proxy_result_writable_present_local,
-            proxy_result_writable_payload_local,
-            proxy_result_field_tag_local,
-            function,
-        );
-
-        function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_object_is_extensible_i32(
-            value_payload_local,
-            value_tag_local,
-            proxy_target_extensible_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(proxy_target_extensible_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap result incompatible with non-extensible target",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(configurable_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(
-            proxy_result_configurable_present_local,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(
-            proxy_result_configurable_payload_local,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap result cannot report configurable for non-configurable target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(
-            proxy_result_configurable_present_local,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(
-            proxy_result_configurable_payload_local,
-        ));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(proxy_target_desc_found_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::LocalGet(configurable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap result cannot report non-configurable target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(proxy_result_writable_present_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(proxy_result_writable_payload_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(writable_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap result cannot report non-writable target property",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(proxy_handled_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(proxy_trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(proxy_trap_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(value_payload_local));
-        function.instruction(&Instruction::LocalSet(target_payload_local));
-        function.instruction(&Instruction::LocalGet(value_tag_local));
-        function.instruction(&Instruction::LocalSet(target_tag_local));
-        function.instruction(&Instruction::Br(2));
-        function.instruction(&Instruction::Else);
-        self.emit_throw_current_function_realm_type_error(
-            "Proxy getOwnPropertyDescriptor trap is not callable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::BrIf(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(proxy_handled_local));
@@ -1401,25 +1133,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.release_own_descriptor_fact_locals(proxy_target_descriptor_fact);
         self.release_temp_local(key_constant_local);
-        self.release_temp_local(proxy_target_extensible_local);
         self.release_temp_local(typed_array_valid_index_local);
         self.release_temp_local(typed_array_canonical_numeric_index_local);
         self.release_temp_local(typed_array_numeric_index_payload_local);
         self.release_temp_local(typed_array_brand_local);
-        self.release_temp_local(proxy_result_field_tag_local);
-        self.release_temp_local(proxy_result_writable_payload_local);
-        self.release_temp_local(proxy_result_writable_present_local);
-        self.release_temp_local(proxy_result_configurable_payload_local);
-        self.release_temp_local(proxy_result_configurable_present_local);
-        self.release_temp_local(proxy_target_desc_found_local);
         self.release_temp_local(proxy_handled_local);
-        self.release_temp_local(proxy_key_tag_local);
-        self.release_temp_local(proxy_trap_tag_local);
-        self.release_temp_local(proxy_trap_payload_local);
-        self.release_temp_local(proxy_handler_tag_local);
-        self.release_temp_local(proxy_handler_payload_local);
+        self.release_temp_local(proxy_boxed_kind_local);
         self.release_temp_local(function_like_local);
         self.release_temp_local(setter_tag_local);
         self.release_temp_local(setter_payload_local);

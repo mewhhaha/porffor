@@ -462,6 +462,34 @@ fn run_wasm_backend_succeeds_for_iterator_prototype_symbol_to_string_tag_fixture
     assert!(stdout.contains("boolean(true)"));
 }
 
+/// `SetterThatIgnoresPrototypeProperties` for the %Iterator.prototype% weird
+/// accessors on receivers the basic fixtures do not reach: own read-only and
+/// accessor properties (step 5 `Set`), non-extensible objects, Function and
+/// Array receivers and Proxy trap order (step 4 `CreateDataPropertyOrThrow`),
+/// and a created realm's own home object.
+#[test]
+fn run_wasm_backend_applies_iterator_prototype_weird_setters_to_every_receiver_kind() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path(
+            "wasm_iterator_prototype_weird_setter_receivers.js",
+        ))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_iterator_prototype_constructor_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -1169,4 +1197,33 @@ fn run_wasm_backend_distinguishes_iterator_active_function_across_realms() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("number(1515"), "{stdout}");
+}
+
+/// Iterator and iterator-result allocations take their prototypes from the
+/// running Realm without reading the current environment as a function object.
+/// The fixture's fourteen captured top-level bindings make the main export's
+/// environment record end exactly at the defining-Realm offset, so the old
+/// read in the promise-job drain's AsyncGeneratorCompleteStep trapped.
+#[test]
+fn run_wasm_backend_allocates_iterators_in_the_running_realm() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_iterator_allocation_running_realm.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("iterator-allocation-running-realm:true"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }

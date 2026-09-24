@@ -13,7 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  regressions:
+  # One sequential job exceeded its 90-minute limit before its later steps
+  # ran. Independent jobs keep every step and fit the limit; each builds its
+  # own targets and shares a dependency cache.
+  lowering:
+    name: Lowering, structure and harness contracts
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -23,6 +27,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
 
       - name: Check exact execution replay tooling
         run: |
@@ -49,23 +56,10 @@ jobs:
           --test class_computed_name_suspension --test direct_eval_spread
           -- --test-threads=1
 
-      - name: Execute suspended expressions and environment tail calls
-        run: >-
-          cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_class_computed_name_suspension --test aot_direct_eval_spread
-          --test aot_generator_call_suspension --test aot_tail_call_environment
-          -- --test-threads=1
-
       - name: Check default-export names and awaited property assignments
         run: >-
           cargo test --locked -p lila-ir
           --test module_default_export_names --test async_property_assignment
-          -- --test-threads=1
-
-      - name: Execute default-export names and awaited property assignments
-        run: >-
-          cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_module_default_export_names --test aot_async_property_assignment
           -- --test-threads=1
 
       - name: Validate async-generator loop continuation ranges
@@ -78,15 +72,6 @@ jobs:
           cargo test --locked --no-fail-fast -p lila-ir --test number_remainder --test delete_reference --test bigint_loose_equality --test finite_indirect_eval --test indirect_eval_admission
           cargo test --locked -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test bigint_helper_op_structure --test with_environment_compound_assignment_structure --test private_element_entry_protocol_structure --test private_environment_heap_slot_structure --test realm_record_heap_slot_structure
           cargo test --locked -p lila-test262 --lib wasm_aot_allows_dataview_sab_and_immutable_setter_slice
-
-      - name: Execute expression semantics repairs through Wasmtime
-        run: >-
-          cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_number_remainder --test aot_delete_reference
-          --test aot_bigint_loose_equality --test aot_finite_indirect_eval
-          --test aot_indirect_eval_admission
-          --test aot_shared_array_buffer_subclass
-          -- --test-threads=1
 
       - name: Check completed-baseline syntax and reference lowering
         run: |
@@ -106,28 +91,47 @@ jobs:
           cargo test --locked -p lila-aot-wasm --test intl_canonical_locale_tag_invocation_structure --test intl_namespace_plan_structure --test object_read_proxy_realm_structure
           cargo test --locked -p lila-aot-wasm --test with_environment_identifier_call_structure --test regexp_modifier_override_structure --test temporal_plain_date_time_field_read_mode_structure --test temporal_plain_date_time_component_structure --test temporal_zoned_date_time_difference_defaults_structure --test temporal_instant_methods_structure --test temporal_instant_epoch_proof_structure --test created_realm_temporal_structure
 
-      - name: Execute completed-baseline expression repairs through Wasmtime
+      - name: Check canonical Duration Number fields
         run: >-
-          cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_bigint_relational_coercion --test aot_function_names
-          --test aot_function_coercion
-          --test aot_with_var_hoisting --test aot_with_has_binding --test aot_nul_source
-          --test aot_private_numeric_updates
-          --test aot_for_in_enumeration --test aot_module_namespace
-          --test aot_for_of_head_completion
-          --test aot_string_constructor
-          --test aot_throw_type_error_realm
-          --test aot_constructor_throw_domain --test aot_runtime_import_reachability
-          --test aot_computed_numeric_method_calls
-          --test aot_regexp_lookbehind_anchors --test aot_regexp_lookaround --test aot_temporal_buddhist_calendar
-          --test aot_regexp_backreference --test aot_regexp_backreference_folding --test aot_regexp_case_folding
-          --test aot_regexp_word_boundary --test aot_regexp_reverse_whitespace --test aot_regexp_forward_whitespace
-          --test aot_regexp_legacy_pooled_class
-          --test aot_numeric_bitwise --test aot_typed_array_fill
-          --test aot_float16_array --test aot_typed_array_byte_copy
-          --test aot_intl_locale_options --test aot_intl_locale_constructor
-          --test aot_temporal_zoned_with
+          cargo test --locked -p lila-aot-wasm
+          --test temporal_duration_number_fields_structure
+          --test temporal_duration_field_transform_structure
+          --test temporal_duration_arithmetic_operation_structure
+          --test temporal_duration_heap_slot_structure
+
+      - name: Check Uint8Array codec lowering contracts
+        run: |
+          cargo test --locked -p lila-ir --lib uint8_array_codec
+          cargo test --locked -p lila-ir --lib catalog_contract_tests::
+
+      - name: Check Temporal option and getter ownership
+        run: >-
+          cargo test --locked -p lila-aot-wasm
+          --test temporal_unit_option_property_domain_structure
+          --test temporal_zoned_date_time_field_result_structure
           -- --test-threads=1
+
+      - name: Check created-realm disposal ownership
+        run: cargo test --locked -p lila-aot-wasm --test created_realm_async_disposable_stack_structure
+
+      - name: Keep runtime capability failures distinct from JavaScript errors
+        run: >-
+          cargo test --locked -p lila-test262 --lib
+          runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error
+          -- --test-threads=1
+
+      - name: Preserve pinned Test262 harness semantics
+        run: cargo test --locked -p lila-test262 --test wasm_aot_pinned_harness -- --test-threads=1
+
+      - name: Preserve every root and worker failure
+        run: |
+          cargo test --locked -p lila-engine --lib execution_failure:: -- --test-threads=1
+          cargo test --locked -p lila-engine --lib agent_failure_tests:: -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib agent_failures_never_satisfy_expected_root_runtime_exceptions -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib typed_root_runtime_exception_still_satisfies_negative_expectations -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib typed_runtime_negative_ignores_error_names_in_messages_and_primitives -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_retains_async_done_failures_alongside_execution_failures -- --test-threads=1
+          cargo test --locked -p lila-test262 --lib wasm_aot_enforces_async_done_output_after_jobs_drain -- --test-threads=1
 
       - name: Preserve CLI numeric completion policies
         run: >-
@@ -135,8 +139,109 @@ jobs:
           language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
           -- --exact
 
-      - name: Preserve pinned Test262 harness semantics
-        run: cargo test --locked -p lila-test262 --test wasm_aot_pinned_harness -- --test-threads=1
+  suspension:
+    name: Suspension and expression semantics through Wasmtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
+
+      - name: Execute suspended expressions and environment tail calls
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_class_computed_name_suspension --test aot_direct_eval_spread
+          --test aot_generator_call_suspension --test aot_tail_call_environment
+          -- --test-threads=1
+
+      - name: Execute default-export names and awaited property assignments
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_module_default_export_names --test aot_async_property_assignment
+          -- --test-threads=1
+
+      - name: Execute expression semantics repairs through Wasmtime
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_number_remainder --test aot_delete_reference
+          --test aot_bigint_loose_equality --test aot_finite_indirect_eval
+          --test aot_indirect_eval_admission
+          --test aot_shared_array_buffer_subclass
+          -- --test-threads=1
+
+  completed-baseline-1:
+    name: Completed-baseline repairs through Wasmtime (1/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
+
+      - name: Execute completed-baseline expression repairs through Wasmtime (1/2)
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_bigint_relational_coercion --test aot_function_names --test aot_function_coercion
+          --test aot_with_var_hoisting --test aot_with_has_binding --test aot_nul_source
+          --test aot_private_numeric_updates --test aot_for_in_enumeration --test aot_module_namespace
+          --test aot_for_of_head_completion --test aot_string_constructor --test aot_throw_type_error_realm
+          --test aot_constructor_throw_domain --test aot_runtime_import_reachability --test aot_computed_numeric_method_calls
+          --test aot_regexp_lookbehind_anchors
+          -- --test-threads=1
+
+  completed-baseline-2:
+    name: Completed-baseline repairs through Wasmtime (2/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
+
+      - name: Execute completed-baseline expression repairs through Wasmtime (2/2)
+        run: >-
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_regexp_lookaround --test aot_temporal_buddhist_calendar --test aot_regexp_backreference
+          --test aot_regexp_backreference_folding --test aot_regexp_case_folding --test aot_regexp_word_boundary
+          --test aot_regexp_reverse_whitespace --test aot_regexp_forward_whitespace --test aot_regexp_legacy_pooled_class
+          --test aot_numeric_bitwise --test aot_typed_array_fill --test aot_float16_array
+          --test aot_typed_array_byte_copy --test aot_intl_locale_options --test aot_intl_locale_constructor
+          --test aot_temporal_zoned_with
+          -- --test-threads=1
+
+  repaired-paths:
+    name: Repaired compiler paths and codecs through Wasmtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
 
       - name: Execute repaired compiler paths through Wasmtime
         run: >-
@@ -153,11 +258,28 @@ jobs:
           --test aot_for_await_rejection_close --test aot_generator_loops
           --test aot_regexp_recompile -- --test-threads=1
 
-      - name: Keep runtime capability failures distinct from JavaScript errors
+      - name: Execute Uint8Array codec regressions through Wasmtime
         run: >-
-          cargo test --locked -p lila-test262 --lib
-          runtime_dynamic_source_cannot_pass_by_catching_or_matching_a_js_error
+          cargo test --locked --no-fail-fast -p lila-engine
+          --test aot_uint8array_hex
+          --test aot_uint8array_base64_decode
+          --test aot_uint8array_base64_encode
           -- --test-threads=1
+
+  later-failures:
+    name: Later failures and prepared sources through Wasmtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
 
       - name: Execute later failures and prepared source environments through Wasmtime
         run: >-
@@ -182,6 +304,21 @@ jobs:
           --test aot_promise_combinator_intrinsics
           -- --test-threads=2
 
+  temporal:
+    name: Temporal baseline repairs through Wasmtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      LILA_MODULE_MEMORY_CACHE_ENTRIES: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: observed-failure-regressions
+
       - name: Execute Temporal baseline repairs through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
@@ -194,44 +331,3 @@ jobs:
           --test aot_temporal_duration_wide_fields
           --test aot_temporal_plain_date_zoned
           -- --test-threads=1
-
-      - name: Check canonical Duration Number fields
-        run: >-
-          cargo test --locked -p lila-aot-wasm
-          --test temporal_duration_number_fields_structure
-          --test temporal_duration_field_transform_structure
-          --test temporal_duration_arithmetic_operation_structure
-          --test temporal_duration_heap_slot_structure
-
-      - name: Check Uint8Array codec lowering contracts
-        run: |
-          cargo test --locked -p lila-ir --lib uint8_array_codec
-          cargo test --locked -p lila-ir --lib catalog_contract_tests::
-
-      - name: Execute Uint8Array codec regressions through Wasmtime
-        run: >-
-          cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_uint8array_hex
-          --test aot_uint8array_base64_decode
-          --test aot_uint8array_base64_encode
-          -- --test-threads=1
-
-      - name: Check Temporal option and getter ownership
-        run: >-
-          cargo test --locked -p lila-aot-wasm
-          --test temporal_unit_option_property_domain_structure
-          --test temporal_zoned_date_time_field_result_structure
-          -- --test-threads=1
-
-      - name: Preserve every root and worker failure
-        run: |
-          cargo test --locked -p lila-engine --lib execution_failure:: -- --test-threads=1
-          cargo test --locked -p lila-engine --lib agent_failure_tests:: -- --test-threads=1
-          cargo test --locked -p lila-test262 --lib agent_failures_never_satisfy_expected_root_runtime_exceptions -- --test-threads=1
-          cargo test --locked -p lila-test262 --lib typed_root_runtime_exception_still_satisfies_negative_expectations -- --test-threads=1
-          cargo test --locked -p lila-test262 --lib typed_runtime_negative_ignores_error_names_in_messages_and_primitives -- --test-threads=1
-          cargo test --locked -p lila-test262 --lib wasm_aot_retains_async_done_failures_alongside_execution_failures -- --test-threads=1
-          cargo test --locked -p lila-test262 --lib wasm_aot_enforces_async_done_output_after_jobs_drain -- --test-threads=1
-
-      - name: Check created-realm disposal ownership
-        run: cargo test --locked -p lila-aot-wasm --test created_realm_async_disposable_stack_structure

@@ -76,8 +76,55 @@ fn one_runtime_loop_replaces_source_generated_proxy_depth() {
 }
 
 #[test]
+fn namespace_targets_are_inspected_on_every_traversal_step() {
+    let traversal = delete_traversal();
+
+    // A module namespace reached directly or as a forwarded Proxy target uses
+    // its own [[Delete]]; the check therefore lives inside the one loop, ahead
+    // of the Proxy handler lookup, and exits the traversal once.
+    let namespace_step = bounded(
+        traversal,
+        "Instruction::Loop(BlockType::Empty));",
+        "self.emit_load_live_proxy_slots(",
+    );
+    assert_eq!(
+        namespace_step
+            .matches("self.emit_is_module_namespace_i32(current_payload_local, current_tag_local, function);")
+            .count(),
+        1
+    );
+    assert_eq!(
+        namespace_step
+            .matches("NamespaceBindingRead::Presence,")
+            .count(),
+        1
+    );
+    assert_before(
+        namespace_step,
+        "self.emit_namespace_property(",
+        "self.emit_propagate_throw_from_locals_if_needed(",
+    );
+    assert_before(
+        namespace_step,
+        "self.emit_propagate_throw_from_locals_if_needed(",
+        "Instruction::Br(2)",
+    );
+    assert_eq!(
+        traversal
+            .matches("self.emit_propagate_throw_from_locals_if_needed(")
+            .count(),
+        2,
+        "namespace presence and Proxy trap lookup own every throw propagation"
+    );
+}
+
+#[test]
 fn nullish_traps_advance_the_typed_target_and_normal_paths_exit_once() {
     let traversal = delete_traversal();
+    let proxy_step = traversal
+        .split_once("self.emit_load_live_proxy_slots(")
+        .expect("typed live Proxy slot read")
+        .1;
 
     assert_before(
         traversal,
@@ -85,12 +132,12 @@ fn nullish_traps_advance_the_typed_target_and_normal_paths_exit_once() {
         "self.emit_object_read_without_throw_propagation(",
     );
     assert_before(
-        traversal,
+        proxy_step,
         "self.emit_object_read_without_throw_propagation(",
         "self.emit_propagate_throw_from_locals_if_needed(",
     );
     assert_before(
-        traversal,
+        proxy_step,
         "self.emit_propagate_throw_from_locals_if_needed(",
         "self.emit_is_callable_i32(",
     );

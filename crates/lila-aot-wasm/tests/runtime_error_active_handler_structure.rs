@@ -1,6 +1,7 @@
-const ERROR_SOURCE: &str = include_str!("../src/builtins/errors.rs");
+const ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
+const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
 const FIXTURE_SOURCE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_object_prevent_extensions_missing_writes.js");
 const CONTRACT: &str =
@@ -118,7 +119,25 @@ fn strict_array_index_failure_and_internal_catch_remain_the_consumer_contract() 
     assert!(outer_finally < outer_catch);
     assert_eq!(nested_finally.matches("finally {").count(), 2);
     assert!(nested_finally.contains("caught instanceof TypeError"));
-    assert!(nested_finally.contains("caught.message === \"Cannot assign to array index\""));
+    // `target[0] = ...` on an unknown-kind parameter is an ordinary property
+    // plain assignment: its strict failed [[Set]] is published by PutValue's
+    // one failure route, which the fixture's message check names exactly.
+    let put_value = section(
+        EXPRESSIONS_SOURCE,
+        "fn emit_put_value_from_ready_ordinary_property_assignment(",
+        "fn compile_ordinary_property_assignment_to_locals(",
+    );
+    let failed_set = put_value
+        .find("if strictness.throws_on_failed_set() {")
+        .expect("PutValue must throw only for a strict Reference");
+    let throw = put_value
+        .find("self.emit_throw_runtime_error_to_active_handler(")
+        .expect("the failed Set must route through the active handler");
+    let message = put_value
+        .find("\"Cannot assign to property\",")
+        .expect("the failed Set publishes the message the fixture checks");
+    assert!(failed_set < throw && throw < message);
+    assert!(nested_finally.contains("caught.message === \"Cannot assign to property\""));
     assert!(FIXTURE_SOURCE.contains("&& internalStrictArrayIndexFinallyThrew === true"));
 
     assert!(CONTRACT.contains("built-ins/Object/preventExtensions/15.2.3.10-3-4.js"));

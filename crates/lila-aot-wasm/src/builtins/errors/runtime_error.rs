@@ -38,37 +38,100 @@ impl FunctionBuilder<'_> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let name = kind.as_str();
-        let object_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
+        let prototype_local = self.reserve_temp_local();
         if let (true, Some(kind)) = (
             self.has_source_execution_environment(),
             ErrorMessageConstructorKind::from_native_error_kind(kind),
         ) {
-            self.emit_source_execution_realm_to_local(value_payload_local, function);
+            self.emit_source_execution_realm_to_local(prototype_local, function);
             self.load_i64_to_local_from_offset(
-                value_payload_local,
+                prototype_local,
                 HEAP_REALM_INTRINSICS_OFFSET,
-                value_payload_local,
+                prototype_local,
                 function,
             );
             self.load_i64_to_local_from_offset(
-                value_payload_local,
+                prototype_local,
                 kind.prototype_slot().offset(),
-                value_payload_local,
+                prototype_local,
                 function,
             );
-            self.emit_alloc_plain_object_with_prototype(Some(value_payload_local), None, function)?;
         } else {
-            self.emit_alloc_plain_object_with_prototype(
-                None,
-                Some(error_prototype_global_index(kind)),
-                function,
-            )?;
+            function.instruction(&Instruction::GlobalGet(error_prototype_global_index(kind)));
+            function.instruction(&Instruction::LocalSet(prototype_local));
         }
+        self.emit_fresh_native_error_object_call(
+            kind,
+            message,
+            prototype_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.release_temp_local(prototype_local);
+        Ok(())
+    }
+
+    /// Calls [`RuntimeHelperId::RuntimeErrorObject`] for a native error of
+    /// `kind` whose [[Prototype]] the caller already resolved into
+    /// `prototype_local`, leaving the fresh error in `payload_local` /
+    /// `tag_local`.
+    ///
+    /// This is the only route to that composite: every runtime-thrown error
+    /// is created by one shared body instead of an inline allocation and two
+    /// property appends per throw site. The helper cannot throw, so both
+    /// completion results are dropped and the caller's completion state is
+    /// untouched until it publishes the Throw itself.
+    fn emit_fresh_native_error_object_call(
+        &mut self,
+        kind: NativeErrorKind,
+        message: &str,
+        prototype_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let base = self.heap_alloc_function_index.ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: heap value without memory",
+            )
+        })?;
+        function.instruction(&Instruction::LocalGet(prototype_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload(kind.as_str())));
+        // The message, not the name. See the doc comment on
+        // `emit_runtime_error_object`: `payload(name)` here was the T24 defect.
+        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
+        for _unused_slot in 3..7 {
+            function.instruction(&Instruction::I64Const(0));
+        }
+        function.instruction(&Instruction::Call(
+            RuntimeHelperId::RuntimeErrorObject.index(base),
+        ));
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::Drop);
+        function.instruction(&Instruction::LocalSet(tag_local));
+        function.instruction(&Instruction::LocalSet(payload_local));
+        Ok(())
+    }
+
+    /// The only body of [`RuntimeHelperId::RuntimeErrorObject`].
+    ///
+    /// It allocates and appends only; it creates no runtime error of its own,
+    /// so it cannot reach [`Self::emit_fresh_native_error_object_call`] and
+    /// the helper has no inline seam to clear. Its body is never the main
+    /// export, so the appends take the direct ordinary-object route and not
+    /// the bootstrap-only `%Array.prototype%` arm, which a fresh object can
+    /// never be.
+    pub(crate) fn compile_runtime_error_object_helper(&mut self) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::RuntimeErrorObject);
+        let prototype_param = 0;
+        let name_param = 1;
+        let message_param = 2;
+        let object_local = self.reserve_temp_local();
+        let key_local = self.reserve_temp_local();
+        let string_tag_local = self.reserve_temp_local();
+
+        self.emit_alloc_plain_object_with_prototype(Some(prototype_param), None, &mut function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         // [[ErrorData]]. Without it a runtime-thrown error is not an error to
         // anything that reads the internal brand: `Object.prototype.toString`
@@ -79,53 +142,44 @@ impl FunctionBuilder<'_> {
             object_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
             OBJECT_INTERNAL_BRAND_ERROR,
-            function,
+            &mut function,
         );
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(string_tag_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("name")));
         function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
         self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
-            value_payload_local,
-            value_tag_local,
+            name_param,
+            string_tag_local,
             true,
             false,
             true,
-            function,
+            &mut function,
         )?;
         function.instruction(&Instruction::I64Const(self.strings.payload("message")));
         function.instruction(&Instruction::LocalSet(key_local));
-        // The message, not the name. See the doc comment: the `payload(name)`
-        // that used to sit here is the T24 defect.
-        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
         self.emit_object_append_data_property_with_flags(
             object_local,
             key_local,
-            value_payload_local,
-            value_tag_local,
+            message_param,
+            string_tag_local,
             true,
             false,
             true,
-            function,
+            &mut function,
         )?;
 
         function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
+        function.instruction(&Instruction::I64Const(COMPLETION_KIND_NORMAL));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::End);
+        self.release_temp_local(string_tag_local);
         self.release_temp_local(key_local);
         self.release_temp_local(object_local);
-        Ok(())
+        Ok(self.finish_function(function))
     }
 
     /// Publishes the two throw-diagnostic globals **together**.
@@ -283,6 +337,48 @@ impl FunctionBuilder<'_> {
             tag_local,
             function,
         )
+    }
+
+    /// Load `%TypeError.prototype%` of the executing builtin's Realm, the
+    /// Realm a builtin's [[Call]] installs on its execution context
+    /// (10.3.3 BuiltinCallOrConstruct steps 5-6).
+    ///
+    /// A builtin body's `current_env_local` is zero only for the entry Realm.
+    /// Otherwise it is a function object whose defining Realm is that Realm:
+    /// the builtin itself when reached through its function object, or the
+    /// caller Realm's `%Function.prototype%` when source code calls a
+    /// statically resolved builtin directly. `%Function.prototype%` is
+    /// allocated before any native error prototype exists, so its per-object
+    /// `HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET` snapshot is zero; only
+    /// the defining Realm's intrinsic table answers for both environments.
+    /// Every link is complete before user code runs, so a zero is a compiler
+    /// bug and traps rather than borrowing another Realm's prototype.
+    pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(
+        &mut self,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(self.current_env_local));
+        function.instruction(&Instruction::LocalSet(prototype_local));
+        for offset in [
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            HEAP_REALM_INTRINSICS_OFFSET,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+        ] {
+            self.load_i64_to_local_from_offset(prototype_local, offset, prototype_local, function);
+            function.instruction(&Instruction::LocalGet(prototype_local));
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::Unreachable);
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_throw_runtime_type_error_without_message(
@@ -473,59 +569,16 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let name = kind.as_str();
-        let object_local = self.reserve_temp_local();
-        let key_local = self.reserve_temp_local();
-        let value_payload_local = self.reserve_temp_local();
-        let value_tag_local = self.reserve_temp_local();
-
-        self.emit_alloc_plain_object_with_prototype(Some(prototype_local), None, function)?;
-        function.instruction(&Instruction::LocalSet(object_local));
-        // [[ErrorData]], as in `emit_runtime_error_object`: this is the same
-        // error object reached through the realm-carrying prototype instead of
-        // the global one, and it was missing the brand for the same reason.
-        self.store_i64_const_at_offset(
-            object_local,
-            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
-            OBJECT_INTERNAL_BRAND_ERROR,
-            function,
-        );
-        function.instruction(&Instruction::I64Const(self.strings.payload("name")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(name)));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_append_data_property_with_flags(
-            object_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            true,
-            false,
-            true,
+        // The same fresh error as `emit_runtime_error_object`, reached through
+        // the realm-carrying prototype instead of the global one.
+        self.emit_fresh_native_error_object_call(
+            kind,
+            message,
+            prototype_local,
+            payload_local,
+            tag_local,
             function,
         )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("message")));
-        function.instruction(&Instruction::LocalSet(key_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload(message)));
-        function.instruction(&Instruction::LocalSet(value_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(value_tag_local));
-        self.emit_object_append_data_property_with_flags(
-            object_local,
-            key_local,
-            value_payload_local,
-            value_tag_local,
-            true,
-            false,
-            true,
-            function,
-        )?;
-
-        function.instruction(&Instruction::LocalGet(object_local));
-        function.instruction(&Instruction::LocalSet(payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(tag_local));
         self.emit_set_thrown_error_text(kind, Some(message), function);
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
@@ -536,11 +589,6 @@ impl FunctionBuilder<'_> {
             self.strings.payload(name) as i64,
             function,
         );
-
-        self.release_temp_local(value_tag_local);
-        self.release_temp_local(value_payload_local);
-        self.release_temp_local(key_local);
-        self.release_temp_local(object_local);
         Ok(())
     }
 

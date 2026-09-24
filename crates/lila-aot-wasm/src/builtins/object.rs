@@ -1,5 +1,6 @@
 use super::super::*;
 use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use crate::objects::{DescriptorFlag, DescriptorObjectFields, DescriptorObjectPrototype};
 use crate::objects::{
     ObjectPreventExtensionsRequest, PreventExtensionsResultLocal,
     PreventExtensionsTraversalTargetLocals, PropertyKeyLocals, ProxyHandlerLocals,
@@ -8,6 +9,7 @@ use crate::objects::{
     StoredDescriptorLocals, StoredDescriptorSetterLocals, TaggedLocals, WasmDescriptor,
     WasmPartialDescriptor,
 };
+use lila_ir::property_descriptor::Presence;
 
 mod assign;
 mod define_property;
@@ -2260,23 +2262,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(descriptor_payload_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("configurable")));
-        function.instruction(&Instruction::LocalSet(own_key_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(define_result_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-        function.instruction(&Instruction::LocalSet(define_result_tag_local));
-        self.emit_object_define_data(
+        // SetIntegrityLevel(sealed) defines `{ [[Configurable]]: false }`.
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::PrivateCarrier,
+            &DescriptorObjectFields {
+                configurable: Presence::Present(DescriptorFlag::Known(false)),
+                ..DescriptorObjectFields::empty()
+            },
             descriptor_payload_local,
-            own_key_payload_local,
-            define_result_payload_local,
-            define_result_tag_local,
             function,
         )?;
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
@@ -2535,44 +2528,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(descriptor_object_tag_local));
 
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(
+        // SetIntegrityLevel(frozen) defines `{ [[Configurable]]: false }` on an
+        // accessor and `{ [[Configurable]]: false, [[Writable]]: false }`
+        // otherwise.
+        let non_configurable = Presence::Present(DescriptorFlag::Known(false));
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::PrivateCarrier,
+            &DescriptorObjectFields {
+                configurable: non_configurable,
+                ..DescriptorObjectFields::empty()
+            },
             configurable_descriptor_payload_local,
-        ));
-        function.instruction(&Instruction::I64Const(self.strings.payload("configurable")));
-        function.instruction(&Instruction::LocalSet(descriptor_field_key_local));
-        self.emit_object_define_data(
-            configurable_descriptor_payload_local,
-            descriptor_field_key_local,
-            define_result_payload_local,
-            define_result_tag_local,
             function,
         )?;
-
-        self.emit_alloc_plain_object_with_prototype(
-            None,
-            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(frozen_data_descriptor_payload_local));
-        self.emit_object_define_data(
+        self.emit_from_property_descriptor(
+            DescriptorObjectPrototype::PrivateCarrier,
+            &DescriptorObjectFields {
+                writable: Presence::Present(DescriptorFlag::Known(false)),
+                configurable: non_configurable,
+                ..DescriptorObjectFields::empty()
+            },
             frozen_data_descriptor_payload_local,
-            descriptor_field_key_local,
-            define_result_payload_local,
-            define_result_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(self.strings.payload("writable")));
-        function.instruction(&Instruction::LocalSet(descriptor_field_key_local));
-        self.emit_object_define_data(
-            frozen_data_descriptor_payload_local,
-            descriptor_field_key_local,
-            define_result_payload_local,
-            define_result_tag_local,
             function,
         )?;
 

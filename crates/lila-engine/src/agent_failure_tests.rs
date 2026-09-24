@@ -60,10 +60,15 @@ fn broadcast_retains_a_disconnected_worker_until_its_failure_is_joined() {
 #[test]
 fn structured_root_throw_and_worker_capability_keep_both_failures() {
     configure_compilation_jobs(1).expect("one bounded compilation worker");
-    // The same source and options as the legacy integration regression reuse
-    // its cached module while exercising the private structured agent seam.
+    // The same source and options as the integration regression
+    // (`EVAL_WORKER` in tests/aot_dynamic_source_capability.rs) reuse its cached
+    // module while exercising the private structured agent seam. The source
+    // must stay unknown until run time: a literal such as `'1'` is now an
+    // AOT-known indirect-eval source that the worker compiles and runs
+    // successfully, which would leave no worker failure to retain.
     let worker = "var holder = { invoke: eval }; \
-        var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1');";
+        var hook = new Proxy(function() {}, {}); hook(); \
+        holder.invoke('1/*' + Math.random() + '*/');";
     let source = format!("__lilaAgentStart({worker:?}); throw new TypeError('root marker');");
     let engine = Engine::new(RealmBuilder::new().build());
     let options = CompileOptions {
@@ -80,7 +85,9 @@ fn structured_root_throw_and_worker_capability_keep_both_failures() {
         engine
             .execute_with_wasm_bytes_inner_with_agents(
                 &artifact.bytes,
-                Some(30_000),
+                // Cold worker compilation runs inside Agent.start's root
+                // execution deadline, as in the integration regression.
+                Some(120_000),
                 true,
                 WasmModuleMemoryCachePolicy::BypassRetention,
                 Some(WasmAgentHarness {

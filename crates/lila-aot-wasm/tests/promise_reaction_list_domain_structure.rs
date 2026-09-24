@@ -51,7 +51,7 @@ fn pending_state_pairs_each_reaction_with_its_direction() {
     let route = bounded(
         PROMISE_SOURCE,
         "fn emit_route_promise_reaction_pair(",
-        "fn emit_intrinsic_promise_resolve_to_locals(",
+        "pub(crate) fn emit_async_from_sync_value_continuation(",
     );
     let pending = bounded(
         route,

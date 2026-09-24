@@ -157,7 +157,7 @@ fn resolve_realm_authority_is_the_exact_private_no_capability_domain() {
     let declaration = bounded(
         &promise,
         "pub(crate)structAsyncExecutionRealmContext{realm_local:u32,}",
-        "enumPromiseReactionInitialization<'a>{",
+        "pub(crate)enumModuleReactionContinuation{",
     );
     assert_eq!(
         declaration,

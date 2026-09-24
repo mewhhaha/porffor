@@ -257,7 +257,7 @@ fn delegate_property_domains_are_private_capability_free_and_single_owned() {
         "use super::*;",
         "impl GeneratorDelegateProperty {",
     ));
-    assert_eq!(declarations.code, concat!("pub(crate)enumAsyncGeneratorDelegationKind{YieldStar,ForAwaitYield,}", "enumGeneratorDelegateProperty{AsyncIterator,Iterator,Next,Return,Throw,Done,Value,}", "enumGeneratorDelegatePropertyKey{WellKnownSymbol(&'staticstr),OrdinaryString(&'staticstr),}"));
+    assert_eq!(declarations.code, concat!("pub(crate)enumAsyncGeneratorDelegationKind{YieldStar,ForAwaitYield,}", "enumGeneratorDelegateProperty{AsyncIterator,Iterator,Next,Return,Throw,Done,Value,}", "enumGeneratorDelegatePropertyKey{WellKnownSymbol(&'staticstr),OrdinaryString(&'staticstr),}", "enumGeneratorDelegateProtocolError{TargetNotIterable,IteratorMethodNotCallable,IteratorMethodResultNotObject,IteratorResultNotObject,MissingThrowMethod,ReturnMethodNotCallable,ThrowMethodNotCallable,NextMethodNotCallable,}"));
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(

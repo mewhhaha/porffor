@@ -417,8 +417,18 @@ fn execution_stack_is_borrowed_exhaustively_before_exact_ordered_engine_routes()
     let routing = bounded(
         OWNER_SOURCE,
         "        let run_result = ",
+        "\n\n        if let Some(lines) = &async_output {",
+    );
+    // Reported async failures are retained between the engine route and the
+    // negative-expectation check, so an expected throw cannot hide them.
+    let async_retention = bounded(
+        OWNER_SOURCE,
+        "\n\n        if let Some(lines) = &async_output {",
         "\n\n        if let Some(negative) = &case.negative {",
     );
+    assert!(async_retention.contains(".starts_with(\"Test262:AsyncTestFailure:\")"));
+    assert!(async_retention.contains("return Err(classify_failure_with_outcome("));
+    assert!(!async_retention.contains("_ =>"));
     let expected = r#"if execution_backend == ExecutionBackend::WasmAot
             && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()

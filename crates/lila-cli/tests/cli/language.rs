@@ -182,7 +182,11 @@ fn inspect_reports_phase_twenty_four_abrupt_ir_shape() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("try_finallys=2"));
     assert!(stdout.contains("deletes=2"));
-    assert!(stdout.contains("spec_operations=7"));
+    // Five `===` comparisons, two `in` (HasProperty) and the two `f.kind` /
+    // `f.arrowKind` reads. Since 5eca93e67 `new F()` no longer carries `F`'s
+    // instance shape, so those two reads lower to `GetV` spec operations
+    // instead of shape-typed property reads (7 -> 9).
+    assert!(stdout.contains("spec_operations=9"), "{stdout}");
     assert!(stdout.contains("in_ops=0"));
     assert!(stdout.contains("new_target_uses=3"));
 }
@@ -202,12 +206,13 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
     // fixture's text. So every batch that adds an intrinsic root moves it and
     // this assertion goes red without anything in the fixture changing.
     // Batch 8: 51 -> 52 for `AsyncDisposableStack`; the constructor-only
-    // `%DisposableStack%` shell then moves 52 -> 53. Recount with
-    // `lila inspect crates/lila-cli/tests/fixtures/wasm_builtin_globals.js`
+    // `%DisposableStack%` shell then moves 52 -> 53. `%Float16Array%`
+    // (ES2025, catalog `GlobalOrdinal(53)`, 7a7610705) moves 53 -> 54. Recount
+    // with `lila inspect crates/lila-cli/tests/fixtures/wasm_builtin_globals.js`
     // rather than guessing the delta; do not weaken this to a prefix match,
     // because the exact number is the only thing that makes an accidental
     // global-environment change visible at rung 1b.
-    assert!(stdout.contains("builtin_globals=53"), "{stdout}");
+    assert!(stdout.contains("builtin_globals=54"), "{stdout}");
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));
@@ -385,6 +390,31 @@ fn run_wasm_backend_supports_annex_b_block_functions() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("boolean(true)"));
+}
+
+/// B.3.2.1's evaluation of an Annex B function declaration writes the
+/// function's VariableEnvironment directly (`fenv.SetMutableBinding`); it must
+/// not resolve through a same-named catch parameter that B.3.4 lets coexist
+/// with the var-scoped name, while a plain `var` initializer in that catch
+/// block still assigns the parameter.
+#[test]
+fn run_wasm_backend_keeps_catch_parameters_under_annex_b_function_copies() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_annexb_catch_parameter_copy.js"))
+        .output()
+        .expect("run command should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
 
 #[test]

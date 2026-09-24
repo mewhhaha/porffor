@@ -105,16 +105,18 @@ fn unary_bitwise_dispatch_preserves_both_producers_and_branch_order() {
             "letoperand_payload_local=self.reserve_temp_local();",
             "letoperand_tag_local=self.reserve_temp_local();",
             "self.compile_expr_to_locals(operand,operand_payload_local,operand_tag_local,function)?;",
+            "letnumber_operand=expr_has_static_number_payload(operand);",
+            "if!number_operand{",
             "self.emit_value_to_numeric_locals(operand_payload_local,operand_tag_local,function)?;",
             "self.emit_is_bigint_tag_i32(operand_tag_local,function);",
             "self.open_frame(ControlFrameKind::If,function);",
             "self.emit_unary_numeric_kind_to_locals(UnaryNumericKind::BigInt,op,",
             "operand_payload_local,operand_tag_local,payload_local,tag_local,function,)?;",
             "self.pop_control(ControlFrameKind::If);",
-            "function.instruction(&Instruction::Else);",
+            "function.instruction(&Instruction::Else);}",
             "self.emit_unary_numeric_kind_to_locals(UnaryNumericKind::Number,op,",
             "operand_payload_local,operand_tag_local,payload_local,tag_local,function,)?;",
-            "function.instruction(&Instruction::End);",
+            "if!number_operand{function.instruction(&Instruction::End);}",
             "self.release_temp_local(operand_tag_local);",
             "self.release_temp_local(operand_payload_local);Ok(())}"
         )
@@ -252,11 +254,28 @@ fn wasm_minus_dispatches_exhaustively_after_to_numeric() {
     assert_eq!(minus_emitter.matches("BigIntHelperOp::Negate").count(), 1);
     assert_eq!(minus_emitter.matches("Instruction::F64Neg").count(), 1);
     assert!(!minus_emitter.contains("emit_value_to_number_payload"));
+    // ToNumeric and the BigInt branch are elided only under the same static
+    // Number proof that the result-tag projection below consults.
+    assert_eq!(
+        minus_emitter
+            .matches("let number_operand = expr_has_static_number_payload(operand);")
+            .count(),
+        1
+    );
+    assert_eq!(minus_emitter.matches("if !number_operand {").count(), 2);
 
-    let dynamic_tag_projection = bounded(
+    let dynamic_tag_projection = normalized(bounded(
         PLANNING_SOURCE,
         "pub(crate) fn expr_result_tag_is_runtime_dynamic(expr: &ExprIr) -> bool {",
         "pub(crate) fn count_param_binding_locals",
+    ));
+    assert_eq!(
+        dynamic_tag_projection
+            .matches(concat!(
+                "ExprIr::UnaryMinusNumeric{expr}|ExprIr::UnaryBitwiseNumeric{expr,..}=>{",
+                "!expr_has_static_number_payload(expr)}"
+            ))
+            .count(),
+        1
     );
-    assert!(dynamic_tag_projection.contains("ExprIr::UnaryMinusNumeric { .. }"));
 }
