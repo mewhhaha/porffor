@@ -377,12 +377,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(getter_payload_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(getter_tag_local));
+        // 25.3.4.25: { [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }.
         self.emit_object_append_data_property_with_flags(
             prototype_object_local,
             key_local,
             getter_payload_local,
             getter_tag_local,
-            true,
+            false,
             false,
             true,
             function,

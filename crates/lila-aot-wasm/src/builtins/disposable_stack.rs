@@ -642,10 +642,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(
-            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
+        // DisposeResources creates the SuppressedError in dispose's own Realm.
+        self.emit_load_active_builtin_realm_prototype(
+            super::errors::ActiveBuiltinRealmPrototype::SuppressedError,
+            prototype_local,
+            function,
+        );
         self.emit_alloc_suppressed_error_instance_from_locals(
             None,
             new_error_payload_local,

@@ -5,6 +5,7 @@ use crate::functions::{
     OrdinaryDefaultPrototype,
 };
 use lila_ir::NativeErrorKind;
+pub(crate) use runtime_error::ActiveBuiltinRealmPrototype;
 
 mod aggregate_error_preparation;
 mod constructor;

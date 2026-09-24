@@ -1,5 +1,29 @@
 use super::*;
 
+/// The intrinsic prototypes a builtin body loads from its own active Realm.
+/// Each variant names both the entry-Realm global and the Realm intrinsic
+/// slot, so a new prototype cannot pair one with another's slot.
+pub(crate) enum ActiveBuiltinRealmPrototype {
+    TypeError,
+    SuppressedError,
+}
+
+impl ActiveBuiltinRealmPrototype {
+    const fn entry_global(&self) -> u32 {
+        match self {
+            Self::TypeError => TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            Self::SuppressedError => SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
+        }
+    }
+
+    const fn realm_intrinsic_offset(&self) -> u64 {
+        match self {
+            Self::TypeError => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
+        }
+    }
+}
+
 impl FunctionBuilder<'_> {
     /// Allocate the error object for a runtime-thrown error.
     ///
@@ -339,8 +363,22 @@ impl FunctionBuilder<'_> {
         )
     }
 
-    /// Load `%TypeError.prototype%` of the executing builtin's Realm, the
-    /// Realm a builtin's [[Call]] installs on its execution context
+    /// Load `%TypeError.prototype%` of the executing builtin's Realm.
+    /// See [`Self::emit_load_active_builtin_realm_prototype`].
+    pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(
+        &mut self,
+        prototype_local: u32,
+        function: &mut Function,
+    ) {
+        self.emit_load_active_builtin_realm_prototype(
+            ActiveBuiltinRealmPrototype::TypeError,
+            prototype_local,
+            function,
+        );
+    }
+
+    /// Load an intrinsic prototype of the executing builtin's Realm, the Realm
+    /// a builtin's [[Call]] installs on its execution context
     /// (10.3.3 BuiltinCallOrConstruct steps 5-6).
     ///
     /// A builtin body's `current_env_local` is zero only for the entry Realm.
@@ -349,19 +387,20 @@ impl FunctionBuilder<'_> {
     /// caller Realm's `%Function.prototype%` when source code calls a
     /// statically resolved builtin directly. `%Function.prototype%` is
     /// allocated before any native error prototype exists, so its per-object
-    /// `HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET` snapshot is zero; only
-    /// the defining Realm's intrinsic table answers for both environments.
-    /// Every link is complete before user code runs, so a zero is a compiler
-    /// bug and traps rather than borrowing another Realm's prototype.
-    pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(
+    /// Realm prototype snapshots are zero; only the defining Realm's intrinsic
+    /// table answers for both environments. Every link is complete before user
+    /// code runs, so a zero is a compiler bug and traps rather than borrowing
+    /// another Realm's prototype.
+    pub(crate) fn emit_load_active_builtin_realm_prototype(
         &mut self,
+        prototype: ActiveBuiltinRealmPrototype,
         prototype_local: u32,
         function: &mut Function,
     ) {
         function.instruction(&Instruction::LocalGet(self.current_env_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX));
+        function.instruction(&Instruction::GlobalGet(prototype.entry_global()));
         function.instruction(&Instruction::LocalSet(prototype_local));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(self.current_env_local));
@@ -369,7 +408,7 @@ impl FunctionBuilder<'_> {
         for offset in [
             HEAP_FUNCTION_DEFINING_REALM_OFFSET,
             HEAP_REALM_INTRINSICS_OFFSET,
-            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            prototype.realm_intrinsic_offset(),
         ] {
             self.load_i64_to_local_from_offset(prototype_local, offset, prototype_local, function);
             function.instruction(&Instruction::LocalGet(prototype_local));

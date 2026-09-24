@@ -155,29 +155,50 @@ fn promise_try_callback_type_error_proof_uses_the_active_builtin_realm() {
 
 #[test]
 fn active_builtin_realm_type_error_prototype_comes_from_the_defining_realm_catalog() {
-    let loader = between(
+    let wrapper = between(
         RUNTIME_ERROR_SOURCE,
         "pub(crate) fn emit_load_active_builtin_realm_type_error_prototype(",
         "\n    }\n",
     );
-    assert!(!loader.contains("HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET"));
+    assert!(wrapper.contains("ActiveBuiltinRealmPrototype::TypeError,"));
+    assert!(!wrapper.contains("Instruction::"));
+
+    // Each prototype names its entry global and Realm slot together.
+    let mapping = between(
+        RUNTIME_ERROR_SOURCE,
+        "impl ActiveBuiltinRealmPrototype {",
+        "\n}\n",
+    );
+    for pair in [
+        "Self::TypeError => TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,",
+        "Self::SuppressedError => SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,",
+        "Self::TypeError => HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,",
+        "Self::SuppressedError => HEAP_REALM_INTRINSICS_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,",
+    ] {
+        assert_eq!(mapping.matches(pair).count(), 1, "{pair}");
+    }
+    assert!(!mapping.contains("_ =>"));
+
+    let loader = between(
+        RUNTIME_ERROR_SOURCE,
+        "pub(crate) fn emit_load_active_builtin_realm_prototype(",
+        "\n    }\n",
+    );
+    assert!(!loader.contains("HEAP_FUNCTION_REALM_"));
     assert!(!loader.contains("CURRENT_REALM_GLOBAL_INDEX"));
     assert!(!loader.contains("error_prototype_global_index("));
     let entry_end = loader.find("Instruction::Else").unwrap();
     assert!(
         loader.find("self.current_env_local").unwrap() < entry_end
-            && loader.find("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").unwrap() < entry_end,
-        "the entry TypeError prototype is valid only for the zero environment"
+            && loader.find("prototype.entry_global()").unwrap() < entry_end,
+        "the entry-Realm prototype is valid only for the zero environment"
     );
-    assert_eq!(
-        loader.matches("TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX").count(),
-        1
-    );
+    assert_eq!(loader.matches("prototype.entry_global()").count(), 1);
     let chain = between(loader, "for offset in [", "] {");
     let links = [
         "HEAP_FUNCTION_DEFINING_REALM_OFFSET,",
         "HEAP_REALM_INTRINSICS_OFFSET,",
-        "HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,",
+        "prototype.realm_intrinsic_offset(),",
     ];
     let positions = links
         .iter()

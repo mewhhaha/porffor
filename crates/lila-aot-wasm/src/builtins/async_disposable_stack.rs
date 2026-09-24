@@ -1334,21 +1334,16 @@ impl<'a> FunctionBuilder<'a> {
             suppressed_payload_local,
             function,
         );
-        function.instruction(&Instruction::GlobalGet(
-            SUPPRESSED_ERROR_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_local));
-        function.instruction(&Instruction::LocalGet(self.current_env_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            self.current_env_local,
-            HEAP_FUNCTION_REALM_SUPPRESSED_ERROR_PROTOTYPE_OFFSET,
+        // DisposeResources creates the SuppressedError in disposeAsync's Realm.
+        // Its continuations restore disposeAsync's environment, which for a
+        // directly called builtin is the caller Realm's %Function.prototype%
+        // with an empty per-object prototype snapshot, so the Realm's
+        // intrinsic table is the only authority.
+        self.emit_load_active_builtin_realm_prototype(
+            super::errors::ActiveBuiltinRealmPrototype::SuppressedError,
             prototype_local,
             function,
         );
-        function.instruction(&Instruction::End);
         self.emit_alloc_suppressed_error_instance_from_locals(
             None,
             error_payload_local,

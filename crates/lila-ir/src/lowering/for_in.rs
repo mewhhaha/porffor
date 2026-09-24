@@ -28,8 +28,22 @@ impl<'a> ScriptLowerer<'a> {
         let mut assignment_pattern_initializer: Option<Pattern> = None;
         let mut access_initializer: Option<PropertyAccess> = None;
         let mut borrowed_var_name = None;
+        // `for (x in …)` evaluates `x` as a Reference on every iteration
+        // (14.7.5.7 step 6.g.i) and PutValues the key into it, exactly like the
+        // bare `for-of` head: an undeclared name becomes a global property in
+        // sloppy code and a ReferenceError in strict code, a `const` binding
+        // throws, and a `with` object in scope is consulted. The key lands in a
+        // temporary and the body prefix performs the checked identifier write.
+        let mut bare_identifier_target: Option<String> = None;
         let (mode, name) =
-            if let Some(binding) = self.for_in_initializer_binding(for_in.initializer()) {
+            if let IterableLoopInitializer::Identifier(identifier) = for_in.initializer() {
+                bare_identifier_target =
+                    Some(self.interner.resolve_expect(identifier.sym()).to_string());
+                (
+                    BindingMode::Let,
+                    self.alloc_temp_binding_name("forin.assignment"),
+                )
+            } else if let Some(binding) = self.for_in_initializer_binding(for_in.initializer()) {
                 if matches!(for_in.initializer(), IterableLoopInitializer::Var(_))
                     && self.borrows_direct_eval_variable_environment()
                 {
@@ -84,7 +98,8 @@ impl<'a> ScriptLowerer<'a> {
         let mut target = match pattern_initializer.as_ref() {
             None if access_initializer.is_none()
                 && assignment_pattern_initializer.is_none()
-                && borrowed_var_name.is_none() =>
+                && borrowed_var_name.is_none()
+                && bare_identifier_target.is_none() =>
             {
                 self.lower_for_head_expression_with_tdz(mode, &name, for_in.target())
             }
@@ -194,6 +209,7 @@ impl<'a> ScriptLowerer<'a> {
             || assignment_pattern_initializer.is_some()
             || access_initializer.is_some()
             || borrowed_var_name.is_some()
+            || bare_identifier_target.is_some()
         {
             name.clone()
         } else {
@@ -238,6 +254,24 @@ impl<'a> ScriptLowerer<'a> {
                     },
                 ),
             )]
+        } else if let Some(source_name) = bare_identifier_target.as_ref() {
+            let value =
+                TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
+            let reference = self.locate_identifier_reference(source_name);
+            let selected = self
+                .with_environment_chain
+                .select_preceding(reference.declarative_position());
+            let assignment = if let Some(objects) = selected {
+                self.lower_with_scoped_identifier_write(
+                    source_name.clone(),
+                    value,
+                    objects,
+                    reference,
+                )
+            } else {
+                self.lower_located_identifier_assign_value(source_name.clone(), value, reference)
+            };
+            vec![StatementIr::DeclarationEvaluation(assignment)]
         } else if let Some(access) = access_initializer.as_ref() {
             let value =
                 TypedExpr::from_info(key_info.clone(), ExprIr::Identifier(storage_name.clone()));
@@ -385,7 +419,6 @@ impl<'a> ScriptLowerer<'a> {
         initializer: &IterableLoopInitializer,
     ) -> Option<(BindingMode, String)> {
         let (mode, identifier) = match initializer {
-            IterableLoopInitializer::Identifier(identifier) => (BindingMode::Var, identifier),
             IterableLoopInitializer::Var(variable) => {
                 let Binding::Identifier(identifier) = variable.binding() else {
                     return None;

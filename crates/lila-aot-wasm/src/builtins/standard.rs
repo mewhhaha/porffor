@@ -5559,6 +5559,64 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_is_callable_i32(method_tag_local, method_payload_local, function)?;
                 function.instruction(&Instruction::If(BlockType::Empty));
+                if builtin == StandardBuiltinId::ArrayFrom {
+                    // 23.1.2.1 step 5.a-b: A = Construct(C) (or ArrayCreate(0))
+                    // precedes GetIteratorFromMethod, so a throwing constructor
+                    // wins over an iterator method that returns a non-object.
+                    // %TypedArray%.from instead drains the iterator before
+                    // TypedArrayCreate (23.2.2.1 step 6).
+                    let this_payload_local = self.this_payload_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing Array.from receiver",
+                        )
+                    })?;
+                    let this_tag_local = self.this_tag_local.ok_or_else(|| {
+                        EmitError::unsupported(
+                            "unsupported in lila wasm-aot first slice: missing Array.from receiver tag",
+                        )
+                    })?;
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(length_payload_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::LocalSet(flags_local));
+                    function.instruction(&Instruction::LocalGet(this_tag_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+                    function.instruction(&Instruction::I64Eq);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_load_function_constructable_flag(
+                        this_payload_local,
+                        flags_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::LocalGet(flags_local));
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::If(BlockType::Empty));
+                    self.emit_pre_evaluated_arg_vector(&[], argc_local, argv_local, function)?;
+                    self.emit_function_handle_construct_with_argv(
+                        this_payload_local,
+                        this_tag_local,
+                        this_payload_local,
+                        this_tag_local,
+                        argc_local,
+                        argv_local,
+                        self.result_local,
+                        self.result_tag_local,
+                        function,
+                    )?;
+                    self.emit_return_current_completion_if_throw(function);
+                    self.set_completion_kind(CompletionKind::Normal, function);
+                    function.instruction(&Instruction::Else);
+                    self.emit_alloc_array_payload_with_length(
+                        length_payload_local,
+                        self.result_local,
+                        function,
+                    )?;
+                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                    function.instruction(&Instruction::End);
+                }
                 self.emit_function_or_proxy_call_leave_throw_completion(
                     method_payload_local,
                     method_tag_local,
@@ -5905,47 +5963,6 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::I64Ne);
                     function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(length_payload_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::LocalSet(flags_local));
-                    function.instruction(&Instruction::LocalGet(this_tag_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_load_function_constructable_flag(
-                        this_payload_local,
-                        flags_local,
-                        function,
-                    );
-                    function.instruction(&Instruction::End);
-                    function.instruction(&Instruction::LocalGet(flags_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Ne);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    self.emit_pre_evaluated_arg_vector(&[], argc_local, argv_local, function)?;
-                    self.emit_function_handle_construct_with_argv(
-                        this_payload_local,
-                        this_tag_local,
-                        this_payload_local,
-                        this_tag_local,
-                        argc_local,
-                        argv_local,
-                        self.result_local,
-                        self.result_tag_local,
-                        function,
-                    )?;
-                    self.emit_return_current_completion_if_throw(function);
-                    self.set_completion_kind(CompletionKind::Normal, function);
-                    function.instruction(&Instruction::Else);
-                    self.emit_alloc_array_payload_with_length(
-                        length_payload_local,
-                        self.result_local,
-                        function,
-                    )?;
-                    function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::I64Const(self.strings.payload("next")));
                     function.instruction(&Instruction::LocalSet(key_local));
                     self.emit_object_read(
@@ -19147,8 +19164,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::LocalGet(length_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
+                // ToIndex (7.1.22) rejects only values above 2^53 - 1; the
+                // implementation allocation limit is CreateByteDataBlock's, after
+                // OrdinaryCreateFromConstructor has read newTarget.prototype.
                 function.instruction(&Instruction::F64Const(Ieee64::from(
-                    MAX_ARRAY_BUFFER_BYTE_LENGTH as f64,
+                    MAX_SAFE_INTEGER as f64,
                 )));
                 function.instruction(&Instruction::F64Gt);
                 function.instruction(&Instruction::I32Or);
@@ -19231,8 +19251,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::LocalGet(max_number_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
+                // ToIndex (7.1.22) rejects only values above 2^53 - 1; the
+                // implementation allocation limit is CreateByteDataBlock's, after
+                // OrdinaryCreateFromConstructor has read newTarget.prototype.
                 function.instruction(&Instruction::F64Const(Ieee64::from(
-                    MAX_ARRAY_BUFFER_BYTE_LENGTH as f64,
+                    MAX_SAFE_INTEGER as f64,
                 )));
                 function.instruction(&Instruction::F64Gt);
                 function.instruction(&Instruction::I32Or);
@@ -19337,6 +19360,22 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
+                // CreateByteDataBlock (6.2.9.1) and the resizable reservation in
+                // AllocateArrayBuffer throw RangeError when the block cannot be
+                // created. That happens after OrdinaryCreateFromConstructor, so a
+                // throwing `prototype` getter on newTarget wins (25.1.3.1).
+                function.instruction(&Instruction::LocalGet(max_byte_length_local));
+                function.instruction(&Instruction::I64Const(MAX_ARRAY_BUFFER_BYTE_LENGTH as i64));
+                function.instruction(&Instruction::I64GtU);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_range_error(
+                    "ArrayBuffer allocation size is too large",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
                 self.emit_array_buffer_backing_store_alloc(
                     max_byte_length_local,
                     data_ptr_local,
