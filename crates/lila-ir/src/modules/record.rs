@@ -324,6 +324,12 @@ pub enum ImportNameIr {
     /// `exportName` argument. It is the requested module's D2, read from this
     /// side.
     Name(ExportName),
+    /// `~source~`: the module source object of the requested module.
+    ///
+    /// Produced by `import source x from "m"`, whose request is source-phase,
+    /// and carried onward by `export { x }`, which ParseModule reclassifies
+    /// into an indirect export entry with this same `[[ImportName]]`.
+    Source,
 }
 
 /// An `ImportEntry` Record (16.2.2.3).
@@ -1078,9 +1084,18 @@ fn build_module_record(
         // carries no span in boa 0.21.1, and the binding is the useful thing to
         // point a diagnostic at anyway.
         if let Some(default) = import.default() {
+            // `import source x from "m"` reuses the `ImportedBinding` grammar
+            // of a default import, but its `[[ImportName]]` is `~source~`: it
+            // never consults `m`'s exports.
+            let import_name = match request.phase() {
+                ImportPhaseIr::Source => ImportNameIr::Source,
+                ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {
+                    ImportNameIr::Name(ExportName::default_export())
+                }
+            };
             record.import_entries.push(ImportEntryIr {
                 request: request.clone(),
-                import_name: ImportNameIr::Name(ExportName::default_export()),
+                import_name,
                 local_name: resolved_local_name(interner, default.sym()),
                 span: Some(lines.source_span(text, default.span())),
             });

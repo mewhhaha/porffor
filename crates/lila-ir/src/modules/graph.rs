@@ -232,18 +232,14 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
                 resolved.push(ResolvedBindingIr::NotFound);
                 continue;
             };
-            // A source-phase request never consults the requested module's
-            // exports: it hands out a module source object, and the module is
-            // not even instantiated. `[[ImportName]]` is `default` only because
-            // the grammar reuses `ImportedBinding`.
-            if entry.request.phase() == ImportPhaseIr::Source {
-                resolved.push(ResolvedBindingIr::Resolved {
+            let binding = match &entry.import_name {
+                // A source-phase request never consults the requested module's
+                // exports: it hands out a module source object, and the module
+                // is not even instantiated.
+                ImportNameIr::Source => ResolvedBindingIr::Resolved {
                     module: target,
                     binding: ModuleBindingNameIr::ModuleSource,
-                });
-                continue;
-            }
-            let binding = match &entry.import_name {
+                },
                 ImportNameIr::Namespace => ResolvedBindingIr::Resolved {
                     module: target,
                     binding: ModuleBindingNameIr::Namespace(
@@ -345,6 +341,7 @@ pub(crate) fn link(graph: &mut ModuleGraphIr) {
 fn import_name_text(import_name: &ImportNameIr) -> ExportName {
     match import_name {
         ImportNameIr::Namespace => ExportName::new("*"),
+        ImportNameIr::Source => ExportName::new("source"),
         ImportNameIr::Name(name) => name.clone(),
     }
 }

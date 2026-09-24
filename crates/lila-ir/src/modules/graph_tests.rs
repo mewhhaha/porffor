@@ -1995,6 +1995,50 @@ fn two_star_paths_to_the_same_binding_are_not_ambiguous() {
     );
 }
 
+/// `import source mod from "m"; export { mod };` is an indirect export entry
+/// whose `[[ImportName]]` is `~source~`, so ResolveExport through it reaches
+/// the source-phase target itself, and two star paths re-exporting the same
+/// source binding agree on `{ [[Module]]: m, [[BindingName]]: source }`.
+#[test]
+fn re_exported_source_bindings_resolve_to_the_source_phase_target() {
+    let graph = linked(&[
+        (
+            "/root/entry.js",
+            "import { mod } from './reexport.js';\nimport * as ns from './reexport.js';\nmod; ns;",
+        ),
+        (
+            "/root/reexport.js",
+            "export * from './first.js';\nexport * from './second.js';",
+        ),
+        (
+            "/root/first.js",
+            "import source mod from './m.js';\nexport { mod };",
+        ),
+        (
+            "/root/second.js",
+            "import source mod from './m.js';\nexport { mod };",
+        ),
+        ("/root/m.js", "export const unused = 1;"),
+    ]);
+    assert!(graph.link_errors.is_empty(), "{:?}", graph.link_errors);
+    let first = unit_of(&graph, "/root/first.js");
+    let m = unit_of(&graph, "/root/m.js");
+    let source = ResolvedBindingIr::Resolved {
+        module: m,
+        binding: ModuleBindingNameIr::ModuleSource,
+    };
+    assert_eq!(
+        graph.units[first as usize].record.import_entries[0].import_name,
+        ImportNameIr::Source
+    );
+    assert_eq!(
+        graph.units[first as usize].record.indirect_export_entries[0].import_name,
+        ImportNameIr::Source
+    );
+    assert_eq!(graph.resolve_export(first, &ExportName::new("mod")), source);
+    assert_eq!(graph.units[0].resolved_imports[0], source);
+}
+
 #[test]
 fn a_cycle_of_export_stars_terminates_and_collects_both_sides() {
     let graph = linked(&[

@@ -143,6 +143,12 @@ impl ModuleGraphIr {
                             .expect("namespace reexports use an evaluation or defer request"),
                     ),
                 },
+                // ResolveExport step 5.a.iv: a re-exported `import source`
+                // binding resolves to the source-phase target itself.
+                ImportNameIr::Source => ResolvedBindingIr::Resolved {
+                    module: target,
+                    binding: ModuleBindingNameIr::ModuleSource,
+                },
                 ImportNameIr::Name(name) => self.resolve_export_inner(target, name, resolve_set),
             };
         }

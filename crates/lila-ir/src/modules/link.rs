@@ -626,11 +626,10 @@ fn collect_binding_aliases(
     for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.request.phase() == ImportPhaseIr::Source {
-                // Bound by the module-source prelude. `[[ImportName]]` is
-                // `default` only because the grammar reuses `ImportedBinding`;
-                // nothing is resolved against the requested module's exports,
-                // so this is never a rename.
+            if entry.import_name == ImportNameIr::Source {
+                // Bound by the module-source prelude. Nothing is resolved
+                // against the requested module's exports, so this is never a
+                // rename.
                 continue;
             }
             let Some(resolved) = unit.resolved_imports.get(index) else {

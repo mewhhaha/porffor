@@ -733,22 +733,25 @@ fn collect_module_source_aliases(
     for (_, _, unit) in graph.materialized_units() {
         let key = unit.record.key.as_str();
         for (index, entry) in unit.record.import_entries.iter().enumerate() {
-            if entry.request.phase() != ImportPhaseIr::Source {
-                continue;
-            }
             // As in `collect_namespace_aliases`: the binding is emitted as a
             // `const` of the merged scope, so it is a D3 name.
             let merged = unit.record.merged(&entry.local_name);
             let local = merged.as_str();
+            // `import source x` resolves here directly; `import { x }` does
+            // when ResolveExport followed a re-exported source binding
+            // (`import source x from "m"; export { x };`) to its `~source~`
+            // indirect entry.
             let Some(ResolvedBindingIr::Resolved {
                 module,
                 binding: ModuleBindingNameIr::ModuleSource,
             }) = unit.resolved_imports.get(index)
             else {
-                diagnostics.push(namespace_unsupported(
-                    key,
-                    &format!("`import source {local}` did not resolve to a module"),
-                ));
+                if entry.import_name == ImportNameIr::Source {
+                    diagnostics.push(namespace_unsupported(
+                        key,
+                        &format!("`import source {local}` did not resolve to a module"),
+                    ));
+                }
                 continue;
             };
             if !is_binding_identifier(&merged) {
