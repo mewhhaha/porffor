@@ -3555,6 +3555,32 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// Materialize the created realm's `%Proxy%` constructor, which has no
+    /// "prototype" property (28.2.2), so it must not receive the automatic one.
+    pub(crate) fn emit_realm_proxy_constructor_value_payload(
+        &mut self,
+        context: &RealmFunctionMaterializationContext,
+        function_object_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let meta = self
+            .functions
+            .get(&StandardBuiltinId::ProxyConstructor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Proxy`",
+                )
+            })?;
+        self.emit_function_value_payload_in_realm_with_prototype_materialization(
+            &meta,
+            FunctionPrototypeMaterialization::BootstrapSupplied,
+            context,
+            function_object_local,
+            function,
+        )
+    }
+
     /// Materialize the created realm's hidden `%TypedArray%` constructor with
     /// the intrinsic prototype object supplied by realm bootstrap.
     pub(crate) fn emit_realm_typed_array_constructor_value_payload(
@@ -6082,13 +6108,33 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         function.instruction(&Instruction::Else);
-        self.emit_throw_runtime_error(
+        // 10.2.1 [[Call]] step 2: the TypeError is created in the callee
+        // context, i.e. in the class constructor's own Realm.
+        let callee_realm_local = self.reserve_temp_local();
+        let type_error_prototype_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            callee_payload_local,
+            HEAP_FUNCTION_DEFINING_REALM_OFFSET,
+            callee_realm_local,
+            function,
+        );
+        self.emit_load_realm_intrinsic_prototype_or_global(
+            callee_realm_local,
+            HEAP_REALM_INTRINSICS_TYPE_ERROR_PROTOTYPE_OFFSET,
+            TYPE_ERROR_PROTOTYPE_GLOBAL_INDEX,
+            type_error_prototype_local,
+            function,
+        );
+        self.emit_throw_runtime_error_with_prototype_local(
             TYPE_ERROR_NAME,
             "class constructor cannot be invoked without `new`",
+            type_error_prototype_local,
             payload_local,
             tag_local,
             function,
         )?;
+        self.release_temp_local(type_error_prototype_local);
+        self.release_temp_local(callee_realm_local);
         match propagate_throw {
             PropagateCallThrow::ToActiveHandler => {
                 self.emit_propagate_throw_from_locals_if_needed(

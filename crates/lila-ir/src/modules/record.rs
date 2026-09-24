@@ -727,6 +727,17 @@ impl ImportMetaRewriteError {
 /// assertion V4 holds `MergedName::minted(u, ImportMeta)` to that width for
 /// every `u <= MAX_LINKABLE_MODULE_UNIT_ID`, and `build_graph` mints no larger
 /// id. It stays checked because the *span* is data from boa, not a constant.
+/// A HashbangComment (12.5) is legal only at the very start of a Script or
+/// Module. Linked units are embedded inside one synthesized Script, so the
+/// comment is rewritten to a SingleLineComment of the same length: every
+/// recorded source span in the unit stays valid.
+pub(crate) fn embeddable_unit_source(source: &str) -> std::borrow::Cow<'_, str> {
+    match source.strip_prefix("#!") {
+        Some(rest) => std::borrow::Cow::Owned(format!("//{rest}")),
+        None => std::borrow::Cow::Borrowed(source),
+    }
+}
+
 pub fn rewrite_import_meta(
     source: &str,
     record: &SourceTextModuleRecordIr,

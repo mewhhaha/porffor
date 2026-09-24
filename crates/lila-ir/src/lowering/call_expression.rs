@@ -922,8 +922,9 @@ impl<'a> ScriptLowerer<'a> {
                                     },
                                 )
                             } else {
-                                return self
-                                    .unsupported_expr("indirect call: dynamic string property");
+                                // A computed key on a String is GetV through
+                                // %String.prototype% (7.3.3), like Number's.
+                                self.lower_object_property_key(receiver.clone(), access.field())
                             }
                         }
                         ValueKind::Number => {
@@ -1042,8 +1043,7 @@ impl<'a> ScriptLowerer<'a> {
                                     },
                                 )
                             } else {
-                                return self
-                                    .unsupported_expr("indirect call: dynamic boolean property");
+                                self.lower_object_property_key(receiver.clone(), access.field())
                             }
                         }
                         ValueKind::BigInt => {
@@ -1100,18 +1100,16 @@ impl<'a> ScriptLowerer<'a> {
                                             },
                                         )
                                     } else {
-                                        return self.unsupported_expr(
-                                            "indirect call: dynamic symbol property",
-                                        );
+                                        self.lower_object_property_key(
+                                            receiver.clone(),
+                                            access.field(),
+                                        )
                                     }
                                 } else {
-                                    return self.unsupported_expr(
-                                        "indirect call: dynamic symbol property",
-                                    );
+                                    self.lower_object_property_key(receiver.clone(), access.field())
                                 }
                             } else {
-                                return self
-                                    .unsupported_expr("indirect call: dynamic symbol property");
+                                self.lower_object_property_key(receiver.clone(), access.field())
                             }
                         }
                         ValueKind::Array

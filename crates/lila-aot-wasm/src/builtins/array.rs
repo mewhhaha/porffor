@@ -16951,6 +16951,14 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Object.prototype.toString (20.1.3.6), the one owner shared by the
+    /// builtin and Array.prototype.toString's non-callable-`join` fallback.
+    ///
+    /// Primitives are converted with ToObject (step 3) before the builtin tag
+    /// is chosen and `@@toStringTag` is read, so a tag installed on
+    /// `Boolean.prototype` or removed from `BigInt.prototype` is observed. BigInt
+    /// and Symbol have no builtin tag of their own: their `[object BigInt]` and
+    /// `[object Symbol]` come only from their prototypes' `@@toStringTag`.
     pub(crate) fn emit_object_prototype_to_string_result_from_locals(
         &mut self,
         receiver_payload_local: u32,
@@ -16958,6 +16966,8 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let tag_payload_local = self.reserve_temp_local();
+        let object_payload_local = self.reserve_temp_local();
+        let object_tag_local = self.reserve_temp_local();
         let is_array_local = self.reserve_temp_local();
         let brand_local = self.reserve_temp_local();
         let to_string_tag_key_local = self.reserve_temp_local();
@@ -16971,23 +16981,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(self.completion_aux_local));
 
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("[object Object]"),
-        ));
-        function.instruction(&Instruction::LocalSet(tag_payload_local));
-
+        // Steps 1-2: undefined and null are answered without ToObject.
         for (kind, tag) in [
             (ValueKind::Undefined, "[object Undefined]"),
             (ValueKind::Null, "[object Null]"),
-            (ValueKind::Boolean, "[object Boolean]"),
-            (ValueKind::Number, "[object Number]"),
-            (ValueKind::String, "[object String]"),
-            (ValueKind::Symbol, "[object Symbol]"),
-            (ValueKind::Object, "[object Object]"),
-            (ValueKind::Array, "[object Array]"),
-            (ValueKind::Function, "[object Function]"),
-            (ValueKind::Arguments, "[object Arguments]"),
-            (ValueKind::BigInt, "[object BigInt]"),
         ] {
             function.instruction(&Instruction::LocalGet(receiver_tag_local));
             function.instruction(&Instruction::I64Const(kind.tag() as i64));
@@ -16997,13 +16994,41 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(tag_payload_local));
             function.instruction(&Instruction::End);
         }
+        self.compile_nullish_tagged_i32(receiver_tag_local, function)?;
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
 
-        self.emit_is_array_i64(
+        // Step 3: O = ! ToObject(this value).
+        self.emit_value_to_current_function_realm_object_locals(
             receiver_payload_local,
             receiver_tag_local,
+            object_payload_local,
+            object_tag_local,
+            function,
+        )?;
+
+        // Steps 4-14: the builtin tag.
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("[object Object]"),
+        ));
+        function.instruction(&Instruction::LocalSet(tag_payload_local));
+        function.instruction(&Instruction::LocalGet(object_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(
+            self.strings.payload("[object Arguments]"),
+        ));
+        function.instruction(&Instruction::LocalSet(tag_payload_local));
+        function.instruction(&Instruction::End);
+
+        self.emit_is_array_i64(
+            object_payload_local,
+            object_tag_local,
             is_array_local,
             function,
         )?;
+        self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(is_array_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
@@ -17014,7 +17039,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tag_payload_local));
         function.instruction(&Instruction::End);
 
-        self.emit_is_callable_i32(receiver_tag_local, receiver_payload_local, function)?;
+        self.emit_is_callable_i32(object_tag_local, object_payload_local, function)?;
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(
             self.strings.payload("[object Function]"),
@@ -17022,10 +17047,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(tag_payload_local));
         function.instruction(&Instruction::End);
 
-        self.emit_is_heap_object_like_tag_i32(receiver_tag_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            receiver_payload_local,
+            object_payload_local,
             HEAP_OBJECT_BOXED_KIND_OFFSET,
             brand_local,
             function,
@@ -17034,8 +17057,6 @@ impl<'a> FunctionBuilder<'a> {
             (BOXED_PRIMITIVE_KIND_BOOLEAN, "[object Boolean]"),
             (BOXED_PRIMITIVE_KIND_NUMBER, "[object Number]"),
             (BOXED_PRIMITIVE_KIND_STRING, "[object String]"),
-            (BOXED_PRIMITIVE_KIND_SYMBOL, "[object Symbol]"),
-            (BOXED_PRIMITIVE_KIND_BIGINT, "[object BigInt]"),
         ] {
             function.instruction(&Instruction::LocalGet(brand_local));
             function.instruction(&Instruction::I64Const(boxed_kind as i64));
@@ -17046,49 +17067,36 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
         self.load_i64_to_local_from_offset(
-            receiver_payload_local,
+            object_payload_local,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
             brand_local,
             function,
         );
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_ERROR as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("[object Error]"),
-        ));
-        function.instruction(&Instruction::LocalSet(tag_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_DATE as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("[object Date]"),
-        ));
-        function.instruction(&Instruction::LocalSet(tag_payload_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(brand_local));
-        function.instruction(&Instruction::I64Const(OBJECT_INTERNAL_BRAND_REGEXP as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(
-            self.strings.payload("[object RegExp]"),
-        ));
-        function.instruction(&Instruction::LocalSet(tag_payload_local));
-        function.instruction(&Instruction::End);
+        for (brand, tag) in [
+            (OBJECT_INTERNAL_BRAND_ERROR, "[object Error]"),
+            (OBJECT_INTERNAL_BRAND_DATE, "[object Date]"),
+            (OBJECT_INTERNAL_BRAND_REGEXP, "[object RegExp]"),
+        ] {
+            function.instruction(&Instruction::LocalGet(brand_local));
+            function.instruction(&Instruction::I64Const(brand as i64));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::I64Const(self.strings.payload(tag)));
+            function.instruction(&Instruction::LocalSet(tag_payload_local));
+            function.instruction(&Instruction::End);
+        }
 
+        // Steps 15-16: Get(O, @@toStringTag); only a String replaces the tag.
         function.instruction(&Instruction::I64Const(
             self.strings
                 .property_key_symbol_payload("Symbol.toStringTag"),
         ));
         function.instruction(&Instruction::LocalSet(to_string_tag_key_local));
         self.emit_object_read(
-            receiver_payload_local,
-            receiver_tag_local,
-            receiver_payload_local,
-            receiver_tag_local,
+            object_payload_local,
+            object_tag_local,
+            object_payload_local,
+            object_tag_local,
             to_string_tag_key_local,
             custom_tag_payload_local,
             custom_tag_tag_local,
@@ -17126,6 +17134,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(to_string_tag_key_local);
         self.release_temp_local(brand_local);
         self.release_temp_local(is_array_local);
+        self.release_temp_local(object_tag_local);
+        self.release_temp_local(object_payload_local);
         self.release_temp_local(tag_payload_local);
         Ok(())
     }

@@ -93,16 +93,19 @@ pub(super) fn linked_module_execution_source(
                 hoisted,
             },
         };
-        let body = rewrite_import_meta(&unit.source_text, &unit.record)
-            .map_err(|error| error.reason)
-            .and_then(|body| super::LinkedScriptDefinitions::rewrite_body(&body, rewrite))
-            .and_then(|body| graph.rewrite_dynamic_import_calls(module, &body))
-            .map_err(|reason| {
-                vec![IrDiagnostic::unsupported(format!(
-                    "module {}: {reason}",
-                    unit.record.key.as_str()
-                ))]
-            })?;
+        let body = rewrite_import_meta(
+            &super::record::embeddable_unit_source(&unit.source_text),
+            &unit.record,
+        )
+        .map_err(|error| error.reason)
+        .and_then(|body| super::LinkedScriptDefinitions::rewrite_body(&body, rewrite))
+        .and_then(|body| graph.rewrite_dynamic_import_calls(module, &body))
+        .map_err(|reason| {
+            vec![IrDiagnostic::unsupported(format!(
+                "module {}: {reason}",
+                unit.record.key.as_str()
+            ))]
+        })?;
         text.push_str("async () => {\n\"use strict\";\n");
         for import in &unit.record.import_entries {
             text.push_str("const ");

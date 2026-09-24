@@ -265,7 +265,9 @@ pub(crate) fn linked_script_source(
             // strip, no `import.meta` to rewrite (it is a SyntaxError in a
             // Script), and no `export default` to bind. Only the `import()`
             // call sites move, onto the dispatchers the wrapper exports.
-            match graph.rewrite_script_entry_import_calls(&unit.source_text) {
+            match graph.rewrite_script_entry_import_calls(&super::record::embeddable_unit_source(
+                &unit.source_text,
+            )) {
                 Ok(body) => script_entry_body = body,
                 Err(reason) => diagnostics.push(IrDiagnostic::unsupported(format!(
                     "unsupported in lila wasm-aot: script {}: {reason}",
@@ -290,19 +292,20 @@ pub(crate) fn linked_script_source(
         // rewrite then preserves callable source while terminating anonymous
         // declarations. Dynamic import rescans the resulting text, cross-checking
         // its call counts and phases against the original record.
-        let rewritten = rewrite_import_meta(&unit.source_text, &unit.record)
-            .map_err(|error| error.reason)
-            .and_then(|rewritten| {
-                super::LinkedScriptDefinitions::rewrite_body(&rewritten, default_export)
-            })
-            .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
-            // `import defer`: the body becomes a thunk the namespace calls.
-            .and_then(|body| match mode {
-                ModuleMaterializationModeIr::Eager => Ok(body),
-                ModuleMaterializationModeIr::Deferred => {
-                    deferred_body_source(graph, unit_id, &body)
-                }
-            });
+        let rewritten = rewrite_import_meta(
+            &super::record::embeddable_unit_source(&unit.source_text),
+            &unit.record,
+        )
+        .map_err(|error| error.reason)
+        .and_then(|rewritten| {
+            super::LinkedScriptDefinitions::rewrite_body(&rewritten, default_export)
+        })
+        .and_then(|stripped| graph.rewrite_dynamic_import_calls(unit_id, &stripped))
+        // `import defer`: the body becomes a thunk the namespace calls.
+        .and_then(|body| match mode {
+            ModuleMaterializationModeIr::Eager => Ok(body),
+            ModuleMaterializationModeIr::Deferred => deferred_body_source(graph, unit_id, &body),
+        });
         match rewritten {
             Ok(body) => {
                 // An empty statement *between* units, never after the last one:

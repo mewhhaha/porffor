@@ -38,10 +38,12 @@ impl<'a> ScriptLowerer<'a> {
                                 &field_name,
                             )
                             .unwrap_or_else(|| {
-                                self.unsupported_expr("property access on boolean target")
+                                self.lower_object_property_key(target, access.field())
                             })
                         } else {
-                            self.unsupported_expr("dynamic property access on boolean target")
+                            // GetV (7.3.3): any other key is read through
+                            // %Boolean.prototype% and its chain.
+                            self.lower_object_property_key(target, access.field())
                         }
                     }
                     ValueKind::BigInt => {
@@ -53,10 +55,10 @@ impl<'a> ScriptLowerer<'a> {
                                 &field_name,
                             )
                             .unwrap_or_else(|| {
-                                self.unsupported_expr("property access on bigint target")
+                                self.lower_object_property_key(target, access.field())
                             })
                         } else {
-                            self.unsupported_expr("dynamic property access on bigint target")
+                            self.lower_object_property_key(target, access.field())
                         }
                     }
                     ValueKind::Symbol => {
@@ -177,7 +179,21 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     ValueKind::Dynamic => self.lower_object_property_key(target, access.field()),
                     ValueKind::Number => {
-                        self.unsupported_expr("property access on non-object target")
+                        // GetV (7.3.3) through %Number.prototype%, e.g. an
+                        // accessor installed on Object.prototype.
+                        if let PropertyAccessField::Const(field) = access.field() {
+                            let field_name = self.interner.resolve_expect(field.sym()).to_string();
+                            self.intrinsic_method_read(
+                                IntrinsicPrototype::Number,
+                                &target,
+                                &field_name,
+                            )
+                            .unwrap_or_else(|| {
+                                self.lower_object_property_key(target, access.field())
+                            })
+                        } else {
+                            self.lower_object_property_key(target, access.field())
+                        }
                     }
                 };
                 if matches!(

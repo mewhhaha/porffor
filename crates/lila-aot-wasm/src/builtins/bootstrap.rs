@@ -46,12 +46,31 @@ impl<'a> FunctionBuilder<'a> {
             prototype_object_local,
         };
 
-        self.emit_function_value_payload(meta, function)?;
+        // 28.2.2: %Proxy% has no "prototype" property, so its function object
+        // must not receive the automatic one either.
+        let prototype_materialization = if matches!(builtin, StandardBuiltinId::ProxyConstructor) {
+            FunctionPrototypeMaterialization::BootstrapSupplied
+        } else {
+            FunctionPrototypeMaterialization::Automatic
+        };
+        self.emit_function_value_payload_with_prototype_materialization(
+            meta,
+            prototype_materialization,
+            function,
+        )?;
         function.instruction(&Instruction::LocalSet(object_local));
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(constructor_global_index));
 
-        if builtin.constructable() && !matches!(builtin, StandardBuiltinId::BigIntConstructor) {
+        // 28.2.2: the Proxy constructor has no "prototype" property, and its
+        // installation must not add a "constructor" back-link to the
+        // prototype it was handed.
+        if builtin.constructable()
+            && !matches!(
+                builtin,
+                StandardBuiltinId::BigIntConstructor | StandardBuiltinId::ProxyConstructor
+            )
+        {
             if matches!(
                 builtin,
                 StandardBuiltinId::EvalErrorConstructor

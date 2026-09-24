@@ -1521,6 +1521,7 @@ impl StringPool {
             "$Proxy.handler",
             "Proxy target must be object",
             "Proxy handler must be object",
+            "Constructor Proxy requires 'new'",
             "Proxy get trap is not callable",
             "Proxy has trap is not callable",
             "Proxy getPrototypeOf trap is not callable",

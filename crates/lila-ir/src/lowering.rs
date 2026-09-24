@@ -11600,10 +11600,14 @@ impl<'a> ScriptLowerer<'a> {
                     ));
                     return None;
                 }
+                // PropertySetParameterList is one FormalParameter: a pattern
+                // or default initializer is ordinary parameter binding (with
+                // `length` 0 for a default); a rest parameter is an early
+                // error the parser reports before lowering.
                 let parameter = &parameters.as_ref()[0];
-                if parameter.is_rest_param() || parameter.init().is_some() {
+                if parameter.is_rest_param() {
                     self.unsupported_with_message(format!(
-                        "unsupported in lila wasm-aot first slice: setter `{function_name}` parameter must be plain identifier"
+                        "unsupported in lila wasm-aot first slice: setter `{function_name}` declares a rest parameter"
                     ));
                     return None;
                 }

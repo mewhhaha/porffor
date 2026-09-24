@@ -3580,15 +3580,6 @@ impl<'a> FunctionBuilder<'a> {
                     })?,
             ),
         ];
-        let proxy_meta = self
-            .functions
-            .get(&StandardBuiltinId::ProxyConstructor.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported(
-                    "unsupported in lila wasm-aot first slice: missing builtin meta `Proxy`",
-                )
-            })?;
         let proxy_revocable_meta = self
             .functions
             .get(&StandardBuiltinId::ProxyRevocable.function_id())
@@ -7504,8 +7495,7 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(method_payload_local);
         }
 
-        self.emit_function_value_payload_in_realm(
-            &proxy_meta,
+        self.emit_realm_proxy_constructor_value_payload(
             &realm_functions,
             proxy_constructor_local,
             function,

@@ -7,6 +7,23 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let execution_realm = self.emit_proxy_creation_execution_realm(function);
+        // 28.2.1.1 step 1: If NewTarget is undefined, throw a TypeError.
+        let new_target_tag_local = self.new_target_tag_local().ok_or_else(|| {
+            EmitError::unsupported(
+                "unsupported in lila wasm-aot first slice: missing Proxy NewTarget",
+            )
+        })?;
+        function.instruction(&Instruction::LocalGet(new_target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_proxy_creation_type_error(
+            &execution_realm,
+            "Constructor Proxy requires 'new'",
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let handler_payload_local = self.reserve_temp_local();
