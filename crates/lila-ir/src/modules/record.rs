@@ -2176,6 +2176,35 @@ mod tests {
         );
     }
 
+    /// `source` and `from` are both valid `ImportedBinding`s, so the source
+    /// modifier is decided by the token after a following `from`.
+    #[test]
+    fn source_and_from_are_import_bindings_on_either_side_of_the_source_modifier() {
+        let record = record_of(
+            "import source from './a.mjs';\n\
+             import from from './b.mjs';\n\
+             import source source from './c.mjs';\n\
+             import source from from './d.mjs';\n\
+             import\n  source\n  y from './e.mjs';\n",
+        );
+        let source_import = |specifier: &str, local_name: &str| ImportEntryIr {
+            request: ModuleRequestIr::from_key(request_key(specifier), ImportPhaseIr::Source),
+            import_name: ImportNameIr::Source,
+            local_name: local(local_name),
+            span: None,
+        };
+        assert_eq!(
+            without_spans(&record.import_entries),
+            vec![
+                import("./a.mjs", named("default"), "source"),
+                import("./b.mjs", named("default"), "from"),
+                source_import("./c.mjs", "source"),
+                source_import("./d.mjs", "from"),
+                source_import("./e.mjs", "y"),
+            ]
+        );
+    }
+
     #[test]
     fn requested_modules_retain_phases_while_resolution_requests_coalesce_them() {
         let record = record_of(

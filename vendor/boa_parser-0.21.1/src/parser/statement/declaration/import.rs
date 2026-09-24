@@ -84,22 +84,44 @@ where
         // `import source <ImportedBinding> from "m"` (source-phase imports).
         //
         // `source` is not a keyword, so this only holds when the token after it
-        // can start an `ImportedBinding` *and* is not `from`: `import source
-        // from "m"` is an ordinary default import whose local name happens to
-        // be `source`, and `import source, { x } from "m"` is a default import
-        // followed by a named list. Computed before the `peek(0)` below because
-        // a match guard's borrow of `cursor` would outlive the arm it selects.
-        let source_phase = cursor.peek(0, interner)?.is_some_and(|token| {
+        // can start an `ImportedBinding`: `import source, { x } from "m"` is a
+        // default import followed by a named list. A following `from` is
+        // ambiguous by one token: `import source from "m"` is an ordinary
+        // default import whose local name happens to be `source`, while
+        // `import source from from "m"` binds the module source object to
+        // `from`, so a second `from` decides it. Computed before the `peek(0)`
+        // below because a match guard's borrow of `cursor` would outlive the
+        // arm it selects.
+        let starts_with_source = cursor.peek(0, interner)?.is_some_and(|token| {
             matches!(
                 token.kind(),
                 TokenKind::IdentifierName((name, ContainsEscapeSequence(false)))
                     if *name == source_sym
             )
-        }) && cursor.peek(1, interner)?.is_some_and(|token| match token.kind() {
-            TokenKind::IdentifierName((name, _)) => *name != Sym::FROM,
-            TokenKind::Keyword((Keyword::Await | Keyword::Yield, _)) => true,
-            _ => false,
         });
+        let source_phase = if starts_with_source {
+            let binding_is_from = cursor.peek(1, interner)?.is_some_and(|token| {
+                matches!(token.kind(), TokenKind::IdentifierName((name, _)) if *name == Sym::FROM)
+            });
+            if binding_is_from {
+                cursor.peek(2, interner)?.is_some_and(|token| {
+                    matches!(
+                        token.kind(),
+                        TokenKind::IdentifierName((name, _)) if *name == Sym::FROM
+                    )
+                })
+            } else {
+                cursor.peek(1, interner)?.is_some_and(|token| {
+                    matches!(
+                        token.kind(),
+                        TokenKind::IdentifierName(_)
+                            | TokenKind::Keyword((Keyword::Await | Keyword::Yield, _))
+                    )
+                })
+            }
+        } else {
+            false
+        };
 
         let tok = cursor.peek(0, interner).or_abrupt()?;
 

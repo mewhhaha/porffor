@@ -14,12 +14,41 @@ pub(super) enum DynamicModuleRejectionStage {
     Dependencies,
 }
 
+/// The abrupt completion a rejected `import()` settles with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum DynamicModuleFailure {
+    /// `HostLoadImportedModule` produced no module for some request in the
+    /// target's graph. Loading the whole graph finishes before linking starts,
+    /// so this wins over every link error in the same graph, and the host
+    /// reports it as the `TypeError` it uses for an `import()` string that
+    /// names no module.
+    Load { message: String },
+    /// `ParseModule` or linking threw its `SyntaxError`.
+    Syntax { message: String },
+}
+
+impl DynamicModuleFailure {
+    fn of(diagnostics: &[IrDiagnostic]) -> Self {
+        match diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code() == Some(EarlyErrorCode::ModuleUnresolved))
+        {
+            Some(unresolved) => Self::Load {
+                message: unresolved.message.clone(),
+            },
+            None => Self::Syntax {
+                message: diagnostics[0].message.clone(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RejectedDynamicModule {
     pub(super) referrer: ModuleUnitId,
     pub(super) request: ModuleRequestIr,
     pub(super) stage: DynamicModuleRejectionStage,
-    pub(super) message: String,
+    pub(super) failure: DynamicModuleFailure,
 }
 
 pub(crate) struct ModuleGraphRejection {
@@ -96,21 +125,29 @@ pub(crate) fn link_loaded_graph(
             }
             ModuleParse::ScriptEntry(_) => return Err(original),
         };
-        // A static source-phase request keeps the retained driver; a dynamic
-        // one rejects in the canonical dispatcher (see
-        // `synchronous_source::ModuleInstantiationGraph`).
-        if record.as_ref().is_some_and(|record| {
+        records.push(record);
+    }
+    // A static source-phase request keeps the retained driver; a dynamic one
+    // rejects in the canonical dispatcher (see
+    // `synchronous_source::ModuleInstantiationGraph`). Only admitted modules
+    // are emitted, so a module that is reachable solely through a rejected
+    // `import()` may still carry one.
+    let has_static_source_request = |module: ModuleUnitId| {
+        records[module as usize].as_ref().is_some_and(|record| {
             record
                 .requested_modules
                 .iter()
                 .any(|request| request.phase() == ImportPhaseIr::Source)
-        }) {
-            return Err(original);
-        }
-        records.push(record);
-    }
+        })
+    };
     let closure = StaticClosure::new(sources, &records);
     let entry_members = closure.members(sources.entry);
+    if entry_members
+        .iter()
+        .any(|module| has_static_source_request(*module))
+    {
+        return Err(original);
+    }
     // Static imports, including defer, must load and link before any entry body.
     link_sources(
         &closure.project(&entry_members, sources.entry),
@@ -153,6 +190,13 @@ pub(crate) fn link_loaded_graph(
                 link_sources(&closure.project(&members, target), false).map(|_| members)
             });
             match outcome {
+                Ok(members)
+                    if members
+                        .iter()
+                        .any(|module| has_static_source_request(*module)) =>
+                {
+                    return Err(original);
+                }
                 Ok(members) => {
                     for module in members.iter().copied() {
                         if admitted.insert(module) {
@@ -173,14 +217,14 @@ pub(crate) fn link_loaded_graph(
                         referrer,
                         request,
                         stage,
-                        rejection.diagnostics[0].message.clone(),
+                        DynamicModuleFailure::of(&rejection.diagnostics),
                     ));
                 }
             }
         }
     }
     let mut graph = link_sources(&closure.project(&admitted, sources.entry), entry_is_script)?;
-    for (referrer, request, stage, message) in rejected_requests {
+    for (referrer, request, stage, failure) in rejected_requests {
         // A Script entry is outside the module map, so it is found by position.
         let referrer = if referrer == sources.entry {
             graph.entry
@@ -196,7 +240,7 @@ pub(crate) fn link_loaded_graph(
                 referrer,
                 request,
                 stage,
-                message,
+                failure,
             });
         }
     }

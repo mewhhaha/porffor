@@ -617,8 +617,18 @@ impl ModuleGraphIr {
                     text.push_str(" await void 0;")
                 }
             }
-            text.push_str(" throw new $lila$module$SyntaxError(");
-            text.push_str(&js_string_literal(&rejection.message));
+            let (constructor, message) = match &rejection.failure {
+                super::admission::DynamicModuleFailure::Load { message } => {
+                    ("$lila$module$TypeError", message)
+                }
+                super::admission::DynamicModuleFailure::Syntax { message } => {
+                    ("$lila$module$SyntaxError", message)
+                }
+            };
+            text.push_str(" throw new ");
+            text.push_str(constructor);
+            text.push('(');
+            text.push_str(&js_string_literal(message));
             text.push_str("); }");
         }
         text.push_str(if synchronous {

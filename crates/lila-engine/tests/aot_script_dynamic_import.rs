@@ -269,6 +269,39 @@ Promise.allSettled([
     );
 }
 
+/// Loading a target's whole graph finishes before it is linked, so a request
+/// the host cannot load anywhere in the graph rejects with the host's load
+/// error even when another module in it would fail to link. A graph that
+/// loads completely but fails to link rejects with the linker's SyntaxError.
+/// Neither target is emitted, so a static source-phase request inside one does
+/// not constrain the rest of the program.
+#[test]
+fn load_failures_in_a_target_graph_win_over_its_link_errors() {
+    assert_script(
+        &[
+            (
+                "entry.js",
+                r#"
+Promise.allSettled([
+  import('./unloadable.js'),
+  import('./unlinkable.js'),
+]).then(([unloadable, unlinkable]) => {
+  print(unloadable.reason.constructor.name);
+  print(unlinkable.reason.constructor.name);
+});
+"#,
+            ),
+            (
+                "unloadable.js",
+                "import './unlinkable.js';\nimport source missing from './missing.js';",
+            ),
+            ("unlinkable.js", "import { absent } from './unlinkable.js';"),
+        ],
+        ComputedImportSpecifiers::default(),
+        &["TypeError", "SyntaxError"],
+    );
+}
+
 #[test]
 fn a_source_phase_import_of_a_source_text_module_rejects_with_a_syntax_error() {
     assert_script(
