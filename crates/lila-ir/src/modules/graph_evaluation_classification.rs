@@ -45,8 +45,7 @@ pub(super) fn classify_evaluation_modes(
     graph: &mut ModuleGraphIr,
     components: &[DynamicComponentIr],
 ) {
-    let instantiate =
-        super::synchronous_source::ModuleInstantiationGraph::new(graph, components).is_some();
+    let instantiate = super::synchronous_source::ModuleInstantiationGraph::new(graph).is_some();
     let count = graph.units.len();
     // `(referrer, phase, target)` once, so the fixed point below is a walk over
     // an edge list rather than a repeated resolve of every request.
@@ -157,8 +156,8 @@ pub(super) fn classify_evaluation_modes(
 /// The retained driver cannot suspend a deferred TLA body or share completion
 /// across an evaluation cycle. The canonical execution path owns that cycle
 /// lifecycle and must use the same complete request set as classification.
-pub(super) fn report_unlinkable_phases(graph: &mut ModuleGraphIr, requests: &[DynamicComponentIr]) {
-    if super::synchronous_source::ModuleInstantiationGraph::new(graph, requests).is_some() {
+pub(super) fn report_unlinkable_phases(graph: &mut ModuleGraphIr) {
+    if super::synchronous_source::ModuleInstantiationGraph::new(graph).is_some() {
         return;
     }
     let components = graph.component_of_unit();

@@ -188,12 +188,9 @@ pub(crate) fn linked_script_source(
 ) -> Result<LinkedScriptSource, Vec<IrDiagnostic>> {
     collect_observed_namespaces(graph);
 
-    // Eligibility uses the same complete discovered edge set as classification;
-    // artifact components have already dropped unreachable referrers here.
-    if let Some(eligible) = super::synchronous_source::ModuleInstantiationGraph::new(
-        graph,
-        &super::dynamic::discover_components(graph),
-    ) {
+    // Eligibility is a property of the static requests alone, shared with
+    // classification and component discovery.
+    if let Some(eligible) = super::synchronous_source::ModuleInstantiationGraph::new(graph) {
         return super::synchronous_source::linked_module_execution_source(sources, eligible);
     }
 
@@ -206,10 +203,7 @@ pub(crate) fn linked_script_source(
     // `dynamic::discover_components`); matching only literal requests would
     // reject modules the host serves.
     for (_, _, unit) in graph.materialized_units() {
-        if super::record::computed_import_phases(&unit.record.dynamic_import_sites)
-            .iter()
-            .any(|phase| *phase != ImportPhaseIr::Source)
-        {
+        if !super::record::computed_import_phases(&unit.record.dynamic_import_sites).is_empty() {
             diagnostics.push(IrDiagnostic::unsupported(format!(
                 "unsupported in lila wasm-aot: module {}: `import()` with a computed specifier \
                  in a graph the source-phase driver links",

@@ -96,15 +96,14 @@ pub(crate) fn link_loaded_graph(
             }
             ModuleParse::ScriptEntry(_) => return Err(original),
         };
+        // A static source-phase request keeps the retained driver; a dynamic
+        // one rejects in the canonical dispatcher (see
+        // `synchronous_source::ModuleInstantiationGraph`).
         if record.as_ref().is_some_and(|record| {
             record
                 .requested_modules
                 .iter()
                 .any(|request| request.phase() == ImportPhaseIr::Source)
-                || record
-                    .dynamic_import_sites
-                    .iter()
-                    .any(|site| site.phase == ImportPhaseIr::Source)
         }) {
             return Err(original);
         }
@@ -138,10 +137,6 @@ pub(crate) fn link_loaded_graph(
             .filter_map(DynamicImportSiteIr::discovery_request)
             .collect();
         for phase in super::record::computed_import_phases(&record.dynamic_import_sites) {
-            match phase {
-                ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {}
-                ImportPhaseIr::Source => continue,
-            }
             for key in closure.request_keys(referrer) {
                 let request = ModuleRequestIr::from_key(key.clone(), phase);
                 if !requests.contains(&request) {

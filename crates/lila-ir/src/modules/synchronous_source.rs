@@ -11,19 +11,24 @@ use super::synchronous_definition::{
 use crate::*;
 
 /// Validated eligibility for the private allocation/instantiation path. The
-/// source builder requires this witness, so source-phase graphs retain their
-/// explicit admission boundary.
+/// source builder requires this witness, so graphs with a static source-phase
+/// request (`import source x from ...`) retain their explicit admission
+/// boundary.
+///
+/// A dynamic `import.source()` does not disqualify a graph: every module this
+/// host loads is a Source Text Module, whose GetModuleSource throws a
+/// SyntaxError, so the canonical dispatcher rejects such a call without any
+/// module source object.
 pub(super) struct ModuleInstantiationGraph<'a> {
     graph: &'a ModuleGraphIr,
 }
 
 impl<'a> ModuleInstantiationGraph<'a> {
-    pub(super) fn new(graph: &'a ModuleGraphIr, components: &[DynamicComponentIr]) -> Option<Self> {
+    pub(super) fn new(graph: &'a ModuleGraphIr) -> Option<Self> {
         let eligible = graph
             .units
             .iter()
             .flat_map(|unit| &unit.record.requested_modules)
-            .chain(components.iter().map(|component| component.request()))
             .all(|request| request.phase() != ImportPhaseIr::Source);
         eligible.then_some(Self { graph })
     }

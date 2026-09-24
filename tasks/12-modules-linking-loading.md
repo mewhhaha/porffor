@@ -231,7 +231,7 @@ graph decision.
 ### Script-entry `import()` and computed specifiers
 
 A Script that writes `import()` of any phase always lowers with a graph, even
-when every specifier is computed, and — unless the graph has a source-phase
+when every specifier is computed, and — unless a module has a static source-phase
 request — uses the canonical execution driver: its targets are activations
 evaluated only from their import jobs, while the Script owns the graph
 statement but no activation, keeps its own strictness, global scope and root
@@ -242,10 +242,12 @@ that fail to parse or link reject their own import for Script entries too.
 
 A computed specifier is served from host-declared spellings
 (`ComputedImportSpecifiers::Closed`), requested for every module that writes a
-computed evaluation- or defer-phase call; in a canonical graph such a call
-matches the referrer's whole resolution table in its own phase. An undeclared
-universe, a computed `import.source()`, and a computed call in a retained
-source-phase graph are explicit compile-time unsupported diagnostics. The
+computed call; in a canonical graph such a call matches the referrer's whole
+resolution table in its own phase. An undeclared universe and a computed call
+in a retained (static source-phase) graph are explicit compile-time unsupported
+diagnostics. A dynamic `import.source()` no longer forces the retained driver:
+the canonical dispatcher rejects it with the SyntaxError a Source Text
+Module's GetModuleSource throws. The
 Test262 host declares the `_FIXTURE` files of the test's directory, per
 INTERPRETING.md. The contract is
 `docs/rust-rewrite/contracts/script-entry-dynamic-import.md`.

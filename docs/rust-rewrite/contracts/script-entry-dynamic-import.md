@@ -14,7 +14,8 @@ and only a compiled dispatcher does that. The backend's
 `emit_dynamic_import` stub is reachable only for sources lowered without a
 graph at all (a `$262.evalScript` or harness prelude text, for example).
 
-Unless the graph contains a source-phase request, a Script entry uses the same
+Unless a module of the graph writes a static source-phase request
+(`import source x from ...`), a Script entry uses the same
 `ModuleInstantiationGraph` as a Module entry. `CanonicalGraphEntry` is the
 closed two-case domain the source builder consumes:
 
@@ -65,26 +66,35 @@ its own import with a SyntaxError instead of failing the Script's compile.
 A computed specifier names nothing at compile time. The host declares what it
 serves through `ComputedImportSpecifiers`:
 
-- `Undeclared` (the default): a program that writes a computed evaluation- or
-  defer-phase `import()` is an explicit compile-time unsupported diagnostic.
+- `Undeclared` (the default): a program that writes a computed `import()` of
+  any phase is an explicit compile-time unsupported diagnostic.
   Rejecting every string at run time would silently deny a module the
   filesystem host would load.
 - `Closed(spellings)`: the complete set of spellings the host serves. The
   loader requests each spelling on behalf of every module that writes a
-  computed evaluation- or defer-phase call, exactly as if that module had
-  written the literal. In a canonical graph `discover_components` then serves
+  computed call, exactly as if that module had written the literal. In a canonical graph `discover_components` then serves
   each computed call from the referrer's whole resolution table (static
   imports, literal `import()` specifiers and declared spellings) in the call's
   phase. The runtime match is still the exact coerced string; anything else
   rejects with the existing TypeError.
 
-`RejectAll` loading is a complete (empty) universe. A computed
-`import.source()` is always an explicit unsupported diagnostic: the
-source-phase dispatcher serves literal specifiers only. The retained driver
-evaluates `import()` targets eagerly, so it reports a computed evaluation- or
-defer-phase call as unsupported instead of widening its registry; a unit the
-host loaded only for a declared spelling is targeted by a resolution row and
-never becomes an eagerly evaluated root.
+`RejectAll` loading is a complete (empty) universe. The retained driver
+evaluates `import()` targets eagerly, so it reports a computed call as
+unsupported instead of widening its registry; a unit the host loaded only for a
+declared spelling is targeted by a resolution row and never becomes an eagerly
+evaluated root.
+
+## Dynamic source phase
+
+A dynamic `import.source()` does not keep a graph on the retained driver; only a
+static `import source` declaration does. Every module this host loads is a
+Source Text Module, and ContinueDynamicImport calls GetModuleSource on the
+loaded module without loading its requests, which for a Source Text Module
+throws a SyntaxError. The canonical dispatcher therefore rejects a matched
+source-phase request with a SyntaxError before any load reaction, a target
+that fails to load or parse rejects with its own SyntaxError, and an unmatched
+string rejects with the host's TypeError. No module source object is created,
+and the target is never instantiated or evaluated.
 
 The Test262 host declares, per INTERPRETING.md, the `./<name>` spelling of
 every file in the test's directory whose name contains `_FIXTURE`. Literal

@@ -270,6 +270,34 @@ fn a_dynamic_only_invalid_target_rejects_its_import_instead_of_the_script() {
 }
 
 #[test]
+fn a_dynamic_source_phase_import_keeps_the_canonical_driver() {
+    let (_, program) = script_graph(
+        &[
+            (
+                "entry.js",
+                "import.source('./value.js').catch(e => print(e.name)); import.source(globalThis.name);",
+            ),
+            ("value.js", "export const value = 1;"),
+        ],
+        &[(0, "./value.js")],
+    );
+    let script = supported(&program);
+    let graph = activation_graph(script).expect("dynamic source phase stays canonical");
+    // The source-phase target is loaded but never instantiated.
+    assert!(graph.activations().is_empty());
+    let modules = program.modules.as_ref().unwrap();
+    assert_eq!(
+        modules.evaluation_mode(1),
+        lila_ir::ModuleEvaluationModeIr::NotEvaluated
+    );
+    assert!(modules
+        .dynamic_components()
+        .iter()
+        .all(|component| component.request().phase() == ImportPhaseIr::Source));
+    assert!(!modules.dynamic_components().is_empty());
+}
+
+#[test]
 fn a_hashbang_script_keeps_its_comment_after_the_graph() {
     let (_, program) = script_graph(
         &[

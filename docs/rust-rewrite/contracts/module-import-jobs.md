@@ -3,7 +3,8 @@
 Canonical graphs, including top-level await, use these continuations, whether
 the entry is a Module or a Script that writes `import()` (see
 [Script-entry `import()`](script-entry-dynamic-import.md)). Graphs with
-source-phase requests keep their existing driver and capability boundaries.
+static source-phase requests keep their existing driver and capability
+boundaries; a dynamic `import.source()` rejects in the canonical dispatcher.
 
 All graph activations and namespace identities are created before evaluation.
 Only the entry starts initial evaluation; it walks its static evaluation

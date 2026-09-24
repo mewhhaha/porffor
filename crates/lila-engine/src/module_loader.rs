@@ -107,8 +107,8 @@ impl core::fmt::Display for ModuleLoadError {
 /// with it. A string-literal specifier names its target at compile time; a
 /// computed one names nothing, so the host has to declare what it will serve.
 /// Each declared spelling is resolved and loaded for every module that writes
-/// a computed evaluation- or defer-phase `import()`, exactly as though that
-/// module had also written the literal. At run time the dispatcher compares
+/// a computed `import()` of any phase, exactly as though that module had also
+/// written the literal. At run time the dispatcher compares
 /// the coerced specifier against those spellings (and the referrer's own
 /// literal and static requests); anything else names no module this host
 /// serves and rejects the import.
@@ -492,15 +492,9 @@ fn load_module_graph_from_entry(
         let Some(mut requests) = requests else {
             continue;
         };
-        // A computed evaluation- or defer-phase `import()` names no target, so
-        // the host serves it the spellings it declared, requested on this
-        // module's behalf. Source phase is not widened (see
-        // `lila_ir::modules::dynamic::discover_components`).
-        if computed_phases.is_some_and(|phases| {
-            phases
-                .iter()
-                .any(|phase| !matches!(phase, lila_ir::ImportPhaseIr::Source))
-        }) {
+        // A computed `import()` names no target, so the host serves it the
+        // spellings it declared, requested on this module's behalf.
+        if computed_phases.is_some_and(|phases| !phases.is_empty()) {
             for spelling in loader.computed_import_specifiers().spellings() {
                 let request = ModuleRequestKeyIr::plain(spelling.as_str());
                 if !requests.contains(&request) {

@@ -123,20 +123,18 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
     }
     // Includes the three computed-import phase projections.
     assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 34);
-    // Includes the computed-specifier widening in `discover_components`.
-    assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 30);
+    assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 27);
     assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 3);
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE.matches("ImportPhaseIr").count(),
         8
     );
-    // Includes the retained driver's computed-specifier boundary.
-    assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 2);
+    assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(LINK_ERROR_SOURCE.matches("ImportPhaseIr").count(), 2);
     assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 4);
-    // Includes the computed-specifier rows admission walks.
-    assert_eq!(ADMISSION_SOURCE.matches("ImportPhaseIr").count(), 5);
+    // Only static source-phase requests keep a graph off the partition.
+    assert_eq!(ADMISSION_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(SYNCHRONOUS_SOURCE.matches("ImportPhaseIr").count(), 4);
     assert_eq!(IR_SOURCE.matches("ImportPhaseIr").count(), 2);
 }

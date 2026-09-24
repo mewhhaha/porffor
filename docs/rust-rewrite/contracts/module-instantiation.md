@@ -8,14 +8,14 @@ and immutable import writes.
 ## Admission boundary
 
 `ModuleInstantiationGraph` is the sole source-construction witness. It accepts
-Module-entry graphs without source-phase requests, including local top-level
+Module-entry graphs without static source-phase requests, including local top-level
 await and transitive asynchronous dependencies. Ordinary and deferred imports
 use the same canonical owners. Original request phases and order survive linking;
 runtime traversal owns cycle and async dependency state.
 
 A Script entry that writes `import()` uses the same witness; it owns the graph
 statement but no activation (see
-[Script-entry `import()`](script-entry-dynamic-import.md)). Source-phase graphs
+[Script-entry `import()`](script-entry-dynamic-import.md)). Static source-phase graphs
 retain their separate driver and explicit capability boundaries. Retained Module-entry drivers use a private lexical arrow
 owner, including an async arrow when required. Their declarations stay outside
 the independent global Script, but those drivers still share declarations between

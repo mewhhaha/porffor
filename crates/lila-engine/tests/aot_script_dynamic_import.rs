@@ -270,6 +270,37 @@ Promise.allSettled([
 }
 
 #[test]
+fn a_source_phase_import_of_a_source_text_module_rejects_with_a_syntax_error() {
+    assert_script(
+        &[
+            (
+                "entry.js",
+                r#"
+const coercion = {};
+Promise.allSettled([
+  import.source('./value.js'),
+  import.source({ toString() { return './value.js'; } }),
+  import.source({ toString() { throw coercion; } }),
+  import.source('./missing.js'),
+]).then(([literal, computed, thrown, missing]) => {
+  print(literal.reason.constructor.name + ',' + computed.reason.constructor.name);
+  print(String(thrown.reason === coercion));
+  print(missing.reason.constructor.name);
+  print(String(globalThis.evaluated));
+});
+"#,
+            ),
+            (
+                "value.js",
+                "globalThis.evaluated = true; export const value = 1;",
+            ),
+        ],
+        closed(&["./value.js"]),
+        &["SyntaxError,SyntaxError", "true", "TypeError", "undefined"],
+    );
+}
+
+#[test]
 fn a_target_with_top_level_await_resolves_after_its_evaluation() {
     assert_script(
         &[

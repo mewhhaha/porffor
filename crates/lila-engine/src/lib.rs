@@ -557,8 +557,7 @@ fn script_entry_graph(
 /// Such a call is served from the host's declared computed-import spellings
 /// (see [`ComputedImportSpecifiers`]). Without a declaration the host has not
 /// said which modules it would load, and rejecting every string at run time
-/// would silently deny modules a filesystem host would serve. Source phase is
-/// served for literal specifiers only.
+/// would silently deny modules a filesystem host would serve.
 fn computed_import_gap(
     sources: &lila_ir::ModuleGraphSources,
     options: &CompileOptions,
@@ -568,26 +567,18 @@ fn computed_import_gap(
         // Nothing loads, so the empty universe is complete.
         ModuleLoadingPolicy::RejectAll => true,
     };
+    if declared {
+        return None;
+    }
     sources.modules.iter().find_map(|module| {
         let phases = module.computed_import_phases()?;
-        phases.into_iter().find_map(|phase| {
-            let reason = match phase {
-                lila_ir::ImportPhaseIr::Source => {
-                    "`import.source()` with a computed specifier: the source-phase dispatcher \
-                     serves string-literal specifiers only"
-                }
-                lila_ir::ImportPhaseIr::Evaluation | lila_ir::ImportPhaseIr::Defer if !declared => {
-                    "`import()` with a computed specifier: the host declared no \
-                     computed-import specifiers, and the AOT module map closes at compile time"
-                }
-                lila_ir::ImportPhaseIr::Evaluation | lila_ir::ImportPhaseIr::Defer => {
-                    return None;
-                }
-            };
-            Some(IrDiagnostic::unsupported(format!(
-                "unsupported in lila wasm-aot: module {}: {reason}",
+        (!phases.is_empty()).then(|| {
+            IrDiagnostic::unsupported(format!(
+                "unsupported in lila wasm-aot: module {}: `import()` with a computed \
+                 specifier: the host declared no computed-import specifiers, and the AOT \
+                 module map closes at compile time",
                 module.key().as_str()
-            )))
+            ))
         })
     })
 }

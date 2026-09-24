@@ -96,9 +96,8 @@ impl DynamicComponentIr {
 ///
 /// The retained merged-scope driver evaluates `import()` targets eagerly, so
 /// widening its registry would run module bodies nobody asked for; there a
-/// computed specifier still matches only the referrer's literal requests.
-/// Source-phase computed calls are never widened: the canonical driver does
-/// not admit source phase.
+/// computed specifier still matches only the referrer's literal requests, and
+/// `modules::link` reports the call as unsupported.
 ///
 /// The returned set is intentionally wider than the artifact registry. Graph
 /// classification needs edges from every loaded unit to decide which units
@@ -137,7 +136,7 @@ pub(super) fn discover_components(graph: &ModuleGraphIr) -> Vec<DynamicComponent
             push(&mut components, referrer, request, module);
         }
     }
-    if super::synchronous_source::ModuleInstantiationGraph::new(graph, &components).is_none() {
+    if super::synchronous_source::ModuleInstantiationGraph::new(graph).is_none() {
         return components;
     }
     for index in 0..graph.units.len() {
@@ -146,10 +145,6 @@ pub(super) fn discover_components(graph: &ModuleGraphIr) -> Vec<DynamicComponent
         for phase in
             super::record::computed_import_phases(&graph.units[index].record.dynamic_import_sites)
         {
-            match phase {
-                ImportPhaseIr::Evaluation | ImportPhaseIr::Defer => {}
-                ImportPhaseIr::Source => continue,
-            }
             for ((row_referrer, key), module) in &graph.resolutions {
                 if *row_referrer == referrer {
                     push(
@@ -570,33 +565,42 @@ impl ModuleGraphIr {
             component.referrer() == referrer && component.request().phase() == phase
         }) {
             append_component_condition(&mut text, component.request());
-            if synchronous {
-                // ContinueDynamicImport first reacts to LoadRequestedModules.
-                text.push_str(" await void 0;");
-                match phase {
-                    ImportPhaseIr::Evaluation => {
-                        text.push_str(" await ");
-                        text.push_str(&module_evaluator_name(component.target()));
-                        text.push(';');
-                    }
-                    ImportPhaseIr::Defer => {
-                        text.push_str(" if (");
-                        text.push_str(&module_async_dependencies_name(component.target()));
-                        text.push_str(") await ");
-                        text.push_str(&module_deferred_import_name(component.target()));
-                        text.push(';');
-                    }
-                    ImportPhaseIr::Source => {
-                        unreachable!("canonical execution graph excludes source phase")
-                    }
+            match (execution, phase) {
+                // ContinueDynamicImport calls GetModuleSource on the loaded
+                // module without loading its requests. Every module this host
+                // loads is a Source Text Module, whose GetModuleSource throws
+                // a SyntaxError.
+                (DynamicImportDispatcherExecution::CompiledModuleJobs, ImportPhaseIr::Source) => {
+                    text.push_str(
+                        " throw new $lila$module$SyntaxError(\"a Source Text Module has no \
+                         module source representation\"); }",
+                    );
                 }
-                text.push_str(" return ");
-                text.push_str(component_resolution_cell(component).as_str());
-                text.push_str("; }");
-            } else {
-                text.push_str(" resolve(");
-                text.push_str(component_resolution_cell(component).as_str());
-                text.push_str("); return; }");
+                // ContinueDynamicImport first reacts to LoadRequestedModules.
+                (
+                    DynamicImportDispatcherExecution::CompiledModuleJobs,
+                    ImportPhaseIr::Evaluation,
+                ) => {
+                    text.push_str(" await void 0; await ");
+                    text.push_str(&module_evaluator_name(component.target()));
+                    text.push_str("; return ");
+                    text.push_str(component_resolution_cell(component).as_str());
+                    text.push_str("; }");
+                }
+                (DynamicImportDispatcherExecution::CompiledModuleJobs, ImportPhaseIr::Defer) => {
+                    text.push_str(" await void 0; if (");
+                    text.push_str(&module_async_dependencies_name(component.target()));
+                    text.push_str(") await ");
+                    text.push_str(&module_deferred_import_name(component.target()));
+                    text.push_str("; return ");
+                    text.push_str(component_resolution_cell(component).as_str());
+                    text.push_str("; }");
+                }
+                (DynamicImportDispatcherExecution::RetainedMerged, _) => {
+                    text.push_str(" resolve(");
+                    text.push_str(component_resolution_cell(component).as_str());
+                    text.push_str("); return; }");
+                }
             }
         }
         for rejection in self.dynamic_rejections.iter().filter(|rejection| {
