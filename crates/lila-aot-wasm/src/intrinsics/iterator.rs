@@ -123,6 +123,38 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.drop`",
                 )
             })?;
+        let chunks_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorPrototypeChunks.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.chunks`",
+                )
+            })?;
+        let windows_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorPrototypeWindows.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.windows`",
+                )
+            })?;
+        let includes_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorPrototypeIncludes.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.includes`",
+                )
+            })?;
+        let join_meta = self
+            .functions
+            .get(&StandardBuiltinId::IteratorPrototypeJoin.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.join`",
+                )
+            })?;
         let constructor_getter_meta = self
             .functions
             .get(&StandardBuiltinId::IteratorPrototypeConstructorGetter.function_id())
@@ -300,6 +332,25 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_object_define_function_data(prototype_object_local, "take", take_meta, function)?;
         self.emit_object_define_function_data(prototype_object_local, "drop", drop_meta, function)?;
+        self.emit_object_define_function_data(
+            prototype_object_local,
+            "chunks",
+            chunks_meta,
+            function,
+        )?;
+        self.emit_object_define_function_data(
+            prototype_object_local,
+            "windows",
+            windows_meta,
+            function,
+        )?;
+        self.emit_object_define_function_data(
+            prototype_object_local,
+            "includes",
+            includes_meta,
+            function,
+        )?;
+        self.emit_object_define_function_data(prototype_object_local, "join", join_meta, function)?;
         function.instruction(&Instruction::I64Const(self.strings.payload("constructor")));
         function.instruction(&Instruction::LocalSet(key_local));
         self.emit_function_value_payload(constructor_getter_meta, function)?;

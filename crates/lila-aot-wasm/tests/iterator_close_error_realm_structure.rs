@@ -132,12 +132,12 @@ fn every_external_iterator_close_route_reaches_the_shared_realm_owner() {
 
     let external_direct_routes = direct_routes - 1;
     let external_preserving_saved_routes = preserving_saved_routes - 1;
-    assert_eq!(external_direct_routes, 16);
-    assert_eq!(preserving_current_routes, 49);
+    assert_eq!(external_direct_routes, 18);
+    assert_eq!(preserving_current_routes, 50);
     assert_eq!(external_preserving_saved_routes, 3);
     assert_eq!(
         external_direct_routes + preserving_current_routes + external_preserving_saved_routes,
-        68
+        71
     );
 }
 
@@ -195,9 +195,9 @@ fn published_boundary_names_the_owner_routes_witness_and_nonclaims() {
         "emit_iterator_close",
         "IteratorClose return method must be callable",
         "IteratorClose return result must be object",
-        "68",
-        "16 routes call `emit_iterator_close` directly",
-        "49 routes call `emit_iterator_close_preserving_current_throw`",
+        "71",
+        "18 routes call `emit_iterator_close` directly",
+        "50 routes call `emit_iterator_close_preserving_current_throw`",
         "3 routes call `emit_iterator_close_preserving_saved_throw` directly",
         "wasm_iterator_close_generated_error_realm.js",
         "iterator_close_error_realm_structure",

@@ -3874,6 +3874,10 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IteratorPrototypeFlatMap
             | StandardBuiltinId::IteratorPrototypeTake
             | StandardBuiltinId::IteratorPrototypeDrop
+            | StandardBuiltinId::IteratorPrototypeChunks
+            | StandardBuiltinId::IteratorPrototypeWindows
+            | StandardBuiltinId::IteratorPrototypeIncludes
+            | StandardBuiltinId::IteratorPrototypeJoin
             | StandardBuiltinId::IteratorPrototypeConstructorGetter
             | StandardBuiltinId::IteratorPrototypeConstructorSetter
             | StandardBuiltinId::IteratorPrototypeSymbolDispose
@@ -5358,6 +5362,10 @@ pub(crate) fn should_stub_standard_builtin(script: &ScriptIr, builtin: StandardB
             StandardBuiltinId::IteratorPrototypeFlatMap,
             StandardBuiltinId::IteratorPrototypeTake,
             StandardBuiltinId::IteratorPrototypeDrop,
+            StandardBuiltinId::IteratorPrototypeChunks,
+            StandardBuiltinId::IteratorPrototypeWindows,
+            StandardBuiltinId::IteratorPrototypeIncludes,
+            StandardBuiltinId::IteratorPrototypeJoin,
         ]
         .into_iter()
         .any(|dependency| script_references_standard_builtin(script, dependency))
@@ -5883,7 +5891,8 @@ pub(crate) fn optimized_call_method_references_function(
             || StandardBuiltinId::TypedArrayPrototypeToString.function_id() == *target;
     }
     if name == "join" {
-        return StandardBuiltinId::ArrayPrototypeJoin.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeJoin.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeJoin.function_id() == *target;
     }
     if name == "splice" {
         return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
@@ -5914,7 +5923,8 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "includes" {
         return StandardBuiltinId::ArrayPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::TypedArrayPrototypeIncludes.function_id() == *target
-            || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target;
+            || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeIncludes.function_id() == *target;
     }
     if name == "indexOf" {
         return StandardBuiltinId::ArrayPrototypeIndexOf.function_id() == *target
@@ -5959,6 +5969,12 @@ pub(crate) fn optimized_call_method_references_function(
     }
     if name == "drop" {
         return StandardBuiltinId::IteratorPrototypeDrop.function_id() == *target;
+    }
+    if name == "chunks" {
+        return StandardBuiltinId::IteratorPrototypeChunks.function_id() == *target;
+    }
+    if name == "windows" {
+        return StandardBuiltinId::IteratorPrototypeWindows.function_id() == *target;
     }
     if name == "zip" {
         return StandardBuiltinId::IteratorZip.function_id() == *target;
@@ -7270,6 +7286,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IteratorPrototypeDrop => 1,
         StandardBuiltinId::IteratorDropNext => 0,
         StandardBuiltinId::IteratorDropReturn => 0,
+        StandardBuiltinId::IteratorPrototypeChunks => 1,
+        StandardBuiltinId::IteratorChunksNext => 0,
+        StandardBuiltinId::IteratorChunksReturn => 0,
+        StandardBuiltinId::IteratorPrototypeWindows => 1,
+        StandardBuiltinId::IteratorWindowsNext => 0,
+        StandardBuiltinId::IteratorWindowsReturn => 0,
+        StandardBuiltinId::IteratorPrototypeIncludes => 1,
+        StandardBuiltinId::IteratorPrototypeJoin => 1,
         StandardBuiltinId::IteratorPrototypeConstructorGetter => 0,
         StandardBuiltinId::IteratorPrototypeConstructorSetter => 1,
         StandardBuiltinId::IteratorPrototypeSymbolDispose => 0,

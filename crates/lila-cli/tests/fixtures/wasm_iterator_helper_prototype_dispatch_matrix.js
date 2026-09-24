@@ -65,5 +65,7 @@ check(
 );
 check("take", Iterator.from([6]).take(1), Iterator.from([6]).take(1), 6, identity);
 check("drop", Iterator.from([7]).drop(0), Iterator.from([7]).drop(0), 7, identity);
+check("chunks", Iterator.from([9]).chunks(1), Iterator.from([9]).chunks(1), 9, first);
+check("windows", Iterator.from([10]).windows(1), Iterator.from([10]).windows(1), 10, first);
 
 true;

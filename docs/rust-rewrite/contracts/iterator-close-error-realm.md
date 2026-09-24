@@ -18,13 +18,18 @@ errors now follow the same Realm rule through their separate consumer domain.
 
 ## Entry routes and completion precedence
 
-The shared owner has 68 external entry routes. The census excludes the calls
+The shared owner has 71 external entry routes. The census excludes the calls
 that connect the two preserving wrappers to each other and to
 `emit_iterator_close`:
 
-- 16 routes call `emit_iterator_close` directly;
-- 49 routes call `emit_iterator_close_preserving_current_throw`; and
+- 18 routes call `emit_iterator_close` directly;
+- 50 routes call `emit_iterator_close_preserving_current_throw`; and
 - 3 routes call `emit_iterator_close_preserving_saved_throw` directly.
+
+The census was 68 (16/49/3) until the Iterator proposal methods added the
+`includes` match close and the chunks/windows helper `return` as direct routes,
+and their shared argument-validation close
+(`emit_throw_closing_direct_iterator`) as a preserving route.
 
 The preserving routes keep their existing completion rule. They save an
 incoming Throw, perform IteratorClose, and restore that original Throw even if

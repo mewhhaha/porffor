@@ -1238,6 +1238,14 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IteratorPrototypeDrop
         | StandardBuiltinId::IteratorDropNext
         | StandardBuiltinId::IteratorDropReturn
+        | StandardBuiltinId::IteratorPrototypeChunks
+        | StandardBuiltinId::IteratorChunksNext
+        | StandardBuiltinId::IteratorChunksReturn
+        | StandardBuiltinId::IteratorPrototypeWindows
+        | StandardBuiltinId::IteratorWindowsNext
+        | StandardBuiltinId::IteratorWindowsReturn
+        | StandardBuiltinId::IteratorPrototypeIncludes
+        | StandardBuiltinId::IteratorPrototypeJoin
         | StandardBuiltinId::IteratorPrototypeConstructorGetter
         | StandardBuiltinId::IteratorPrototypeConstructorSetter
         | StandardBuiltinId::IteratorPrototypeSymbolDispose

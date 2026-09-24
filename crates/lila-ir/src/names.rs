@@ -587,6 +587,17 @@ pub const BUILTIN_ITERATOR_TAKE_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.ta
 pub const BUILTIN_ITERATOR_PROTOTYPE_DROP_FUNCTION_ID: &str = "$builtin.Iterator.prototype.drop";
 pub const BUILTIN_ITERATOR_DROP_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.drop.next";
 pub const BUILTIN_ITERATOR_DROP_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.drop.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_CHUNKS_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.chunks";
+pub const BUILTIN_ITERATOR_CHUNKS_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.chunks.next";
+pub const BUILTIN_ITERATOR_CHUNKS_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.chunks.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_WINDOWS_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.windows";
+pub const BUILTIN_ITERATOR_WINDOWS_NEXT_FUNCTION_ID: &str = "$builtin.Iterator.windows.next";
+pub const BUILTIN_ITERATOR_WINDOWS_RETURN_FUNCTION_ID: &str = "$builtin.Iterator.windows.return";
+pub const BUILTIN_ITERATOR_PROTOTYPE_INCLUDES_FUNCTION_ID: &str =
+    "$builtin.Iterator.prototype.includes";
+pub const BUILTIN_ITERATOR_PROTOTYPE_JOIN_FUNCTION_ID: &str = "$builtin.Iterator.prototype.join";
 pub const BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID: &str =
     "$builtin.Iterator.prototype.constructor.get";
 pub const BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_SETTER_FUNCTION_ID: &str =

@@ -2177,6 +2177,9 @@ impl StringPool {
         {
             pool.intern_string(&value);
         }
+        for value in crate::builtins::iterator_proposal_pool_strings() {
+            pool.intern_string(value);
+        }
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }

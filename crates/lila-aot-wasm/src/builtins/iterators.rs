@@ -3,6 +3,20 @@ use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::emit::NumericErrorRealmSource;
 use crate::functions::NonArrayRealmIntrinsicSlot;
 
+mod chunking;
+mod direct_record;
+mod includes;
+mod join;
+
+/// Every string the proposal-era `Iterator.prototype` emitters (`chunks`,
+/// `windows`, `includes`, `join`) intern, walked by `StringPool::collect` so
+/// the pool cannot drift from the message and slot domains.
+pub(crate) fn iterator_proposal_pool_strings() -> impl Iterator<Item = &'static str> {
+    chunking::iterator_chunking_pool_strings()
+        .chain(includes::iterator_includes_pool_strings())
+        .chain(join::iterator_join_pool_strings())
+}
+
 macro_rules! array_iterator_kind_domain {
     ($name:ident { $($variant:ident = $word:literal),+ $(,)? }) => {
         pub(crate) enum $name {

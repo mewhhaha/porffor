@@ -159,7 +159,7 @@ fn shared_prototype_builtins_are_the_only_operation_producers() {
 }
 
 #[test]
-fn dispatch_rows_cover_seven_brands_and_eight_creation_surfaces() {
+fn dispatch_rows_cover_nine_brands_and_ten_creation_surfaces() {
     let dispatch = bounded(
         STANDARD_SOURCE,
         "fn emit_iterator_helper_dispatch(",
@@ -213,6 +213,18 @@ fn dispatch_rows_cover_seven_brands_and_eight_creation_surfaces() {
             StandardBuiltinId::IteratorDropNext,
             StandardBuiltinId::IteratorDropReturn,
         ),
+        (
+            OBJECT_INTERNAL_BRAND_ITERATOR_CHUNKS_HELPER,
+            StandardBuiltinId::IteratorPrototypeChunks,
+            StandardBuiltinId::IteratorChunksNext,
+            StandardBuiltinId::IteratorChunksReturn,
+        ),
+        (
+            OBJECT_INTERNAL_BRAND_ITERATOR_WINDOWS_HELPER,
+            StandardBuiltinId::IteratorPrototypeWindows,
+            StandardBuiltinId::IteratorWindowsNext,
+            StandardBuiltinId::IteratorWindowsReturn,
+        ),
     "#;
     assert_eq!(
         without_whitespace(rows),
@@ -245,6 +257,8 @@ fn dispatch_rows_cover_seven_brands_and_eight_creation_surfaces() {
         "StandardBuiltinId::IteratorPrototypeFlatMap",
         "StandardBuiltinId::IteratorPrototypeTake",
         "StandardBuiltinId::IteratorPrototypeDrop",
+        "StandardBuiltinId::IteratorPrototypeChunks",
+        "StandardBuiltinId::IteratorPrototypeWindows",
     ] {
         assert_eq!(
             exact_identifier_count(dispatch, creator),
@@ -255,7 +269,7 @@ fn dispatch_rows_cover_seven_brands_and_eight_creation_surfaces() {
 }
 
 #[test]
-fn dispatch_matrix_fixture_has_one_active_registration_and_eight_surfaces() {
+fn dispatch_matrix_fixture_has_one_active_registration_and_ten_surfaces() {
     const REGISTRATION_START: &str =
         "#[test]\nfn run_wasm_backend_dispatches_borrowed_iterator_helper_methods_for_all_families() {";
     assert_eq!(
@@ -396,6 +410,14 @@ fn dispatch_matrix_fixture_has_one_active_registration_and_eight_surfaces() {
             "drop",
             r#"check("drop", Iterator.from([7]).drop(0), Iterator.from([7]).drop(0), 7, identity);"#,
         ),
+        (
+            "chunks",
+            r#"check("chunks", Iterator.from([9]).chunks(1), Iterator.from([9]).chunks(1), 9, first);"#,
+        ),
+        (
+            "windows",
+            r#"check("windows", Iterator.from([10]).windows(1), Iterator.from([10]).windows(1), 10, first);"#,
+        ),
     ];
     assert_eq!(
         CLI_FIXTURE
@@ -403,7 +425,7 @@ fn dispatch_matrix_fixture_has_one_active_registration_and_eight_surfaces() {
             .filter(|line| line.trim_start().starts_with("check("))
             .count(),
         surfaces.len(),
-        "the seven helper brands plus the zipKeyed alias must have eight checks"
+        "the nine helper brands plus the zipKeyed alias must have ten checks"
     );
     for (surface, call) in surfaces {
         let call = without_whitespace(call);

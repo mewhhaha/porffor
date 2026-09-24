@@ -66,18 +66,18 @@ fn all_named_slot_rows_select_one_storage_class() {
         "pub(crate) const HEAP_ARRAY_ITERATOR_NAMED_SLOTS",
         "pub(crate) enum HeapNamedSlotFamily",
     );
-    assert_eq!(registry.matches("HeapNamedSlot {").count(), 50);
+    assert_eq!(registry.matches("HeapNamedSlot {").count(), 54);
     assert_eq!(
         registry
             .matches("storage: HeapNamedSlotStorage::StrongReference")
             .count(),
-        30
+        33
     );
     assert_eq!(
         registry
             .matches("storage: HeapNamedSlotStorage::Scalar")
             .count(),
-        20
+        21
     );
     assert!(!registry.contains("strong_reference:"));
     assert!(!registry.contains("scans_target:"));

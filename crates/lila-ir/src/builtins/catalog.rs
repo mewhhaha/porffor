@@ -15,7 +15,12 @@ use crate::names::{
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_TO_PARTS_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
-    BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID, INTL_NUMBER_FORMAT_NAME,
+    BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+    BUILTIN_ITERATOR_CHUNKS_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_CHUNKS_RETURN_FUNCTION_ID,
+    BUILTIN_ITERATOR_PROTOTYPE_CHUNKS_FUNCTION_ID, BUILTIN_ITERATOR_PROTOTYPE_INCLUDES_FUNCTION_ID,
+    BUILTIN_ITERATOR_PROTOTYPE_JOIN_FUNCTION_ID, BUILTIN_ITERATOR_PROTOTYPE_WINDOWS_FUNCTION_ID,
+    BUILTIN_ITERATOR_WINDOWS_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_WINDOWS_RETURN_FUNCTION_ID,
+    INTL_NUMBER_FORMAT_NAME,
 };
 
 /// The family-specific realm installer, if any, run after a builtin's common
@@ -1101,6 +1106,62 @@ standard_builtin_catalog! {
         flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "return",
+    }
+    IteratorPrototypeChunks {
+        function: FunctionOrdinal(842) => BUILTIN_ITERATOR_PROTOTYPE_CHUNKS_FUNCTION_ID,
+        debug: "Iterator.prototype.chunks",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "chunks",
+    }
+    IteratorChunksNext {
+        function: FunctionOrdinal(843) => BUILTIN_ITERATOR_CHUNKS_NEXT_FUNCTION_ID,
+        debug: "Iterator chunks helper next",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "next",
+    }
+    IteratorChunksReturn {
+        function: FunctionOrdinal(844) => BUILTIN_ITERATOR_CHUNKS_RETURN_FUNCTION_ID,
+        debug: "Iterator chunks helper return",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "return",
+    }
+    IteratorPrototypeWindows {
+        function: FunctionOrdinal(845) => BUILTIN_ITERATOR_PROTOTYPE_WINDOWS_FUNCTION_ID,
+        debug: "Iterator.prototype.windows",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "windows",
+    }
+    IteratorWindowsNext {
+        function: FunctionOrdinal(846) => BUILTIN_ITERATOR_WINDOWS_NEXT_FUNCTION_ID,
+        debug: "Iterator windows helper next",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "next",
+    }
+    IteratorWindowsReturn {
+        function: FunctionOrdinal(847) => BUILTIN_ITERATOR_WINDOWS_RETURN_FUNCTION_ID,
+        debug: "Iterator windows helper return",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "return",
+    }
+    IteratorPrototypeIncludes {
+        function: FunctionOrdinal(848) => BUILTIN_ITERATOR_PROTOTYPE_INCLUDES_FUNCTION_ID,
+        debug: "Iterator.prototype.includes",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "includes",
+    }
+    IteratorPrototypeJoin {
+        function: FunctionOrdinal(849) => BUILTIN_ITERATOR_PROTOTYPE_JOIN_FUNCTION_ID,
+        debug: "Iterator.prototype.join",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "join",
     }
     IteratorPrototypeConstructorGetter {
         function: FunctionOrdinal(145) => BUILTIN_ITERATOR_PROTOTYPE_CONSTRUCTOR_GETTER_FUNCTION_ID,
@@ -5804,14 +5865,14 @@ standard_builtin_catalog! {
     // SetterThatIgnoresPrototypeProperties, whose [[GetOwnProperty]],
     // [[DefineOwnProperty]] and [[Set]] can reach Proxy traps and accessors.
     ErrorPrototypeStackGetter {
-        function: FunctionOrdinal(842) => BUILTIN_ERROR_PROTOTYPE_STACK_GETTER_FUNCTION_ID,
+        function: FunctionOrdinal(850) => BUILTIN_ERROR_PROTOTYPE_STACK_GETTER_FUNCTION_ID,
         debug: "get Error.prototype.stack",
         flags: [],
         installer: None,
         native: "get stack",
     }
     ErrorPrototypeStackSetter {
-        function: FunctionOrdinal(843) => BUILTIN_ERROR_PROTOTYPE_STACK_SETTER_FUNCTION_ID,
+        function: FunctionOrdinal(851) => BUILTIN_ERROR_PROTOTYPE_STACK_SETTER_FUNCTION_ID,
         debug: "set Error.prototype.stack",
         flags: [SYNCHRONOUS_USER_CODE],
         installer: None,

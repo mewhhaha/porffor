@@ -1983,128 +1983,36 @@ impl<'a> FunctionBuilder<'a> {
                 )
             })?;
         let iterator_prototype_method_metas = [
-            (
-                "toArray",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeToArray.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.toArray`",
-                        )
-                    })?,
-            ),
-            (
-                "forEach",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeForEach.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.forEach`",
-                        )
-                    })?,
-            ),
-            (
-                "every",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeEvery.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.every`",
-                        )
-                    })?,
-            ),
-            (
-                "some",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeSome.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.some`",
-                        )
-                    })?,
-            ),
-            (
-                "find",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFind.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.find`",
-                        )
-                    })?,
-            ),
-            (
-                "reduce",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeReduce.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.reduce`",
-                        )
-                    })?,
-            ),
-            (
-                "map",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeMap.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.map`",
-                        )
-                    })?,
-            ),
-            (
-                "filter",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFilter.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.filter`",
-                        )
-                    })?,
-            ),
-            (
-                "flatMap",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeFlatMap.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.flatMap`",
-                        )
-                    })?,
-            ),
-            (
-                "take",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeTake.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.take`",
-                        )
-                    })?,
-            ),
-            (
-                "drop",
-                self.functions
-                    .get(&StandardBuiltinId::IteratorPrototypeDrop.function_id())
-                    .cloned()
-                    .ok_or_else(|| {
-                        EmitError::unsupported(
-                            "unsupported in lila wasm-aot first slice: missing builtin meta `Iterator.prototype.drop`",
-                        )
-                    })?,
-            ),
-        ];
+            ("toArray", StandardBuiltinId::IteratorPrototypeToArray),
+            ("forEach", StandardBuiltinId::IteratorPrototypeForEach),
+            ("every", StandardBuiltinId::IteratorPrototypeEvery),
+            ("some", StandardBuiltinId::IteratorPrototypeSome),
+            ("find", StandardBuiltinId::IteratorPrototypeFind),
+            ("reduce", StandardBuiltinId::IteratorPrototypeReduce),
+            ("map", StandardBuiltinId::IteratorPrototypeMap),
+            ("filter", StandardBuiltinId::IteratorPrototypeFilter),
+            ("flatMap", StandardBuiltinId::IteratorPrototypeFlatMap),
+            ("take", StandardBuiltinId::IteratorPrototypeTake),
+            ("drop", StandardBuiltinId::IteratorPrototypeDrop),
+            ("chunks", StandardBuiltinId::IteratorPrototypeChunks),
+            ("windows", StandardBuiltinId::IteratorPrototypeWindows),
+            ("includes", StandardBuiltinId::IteratorPrototypeIncludes),
+            ("join", StandardBuiltinId::IteratorPrototypeJoin),
+        ]
+        .into_iter()
+        .map(|(name, builtin)| {
+            self.functions
+                .get(&builtin.function_id())
+                .cloned()
+                .map(|meta| (name, meta))
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "unsupported in lila wasm-aot first slice: missing builtin meta `{}`",
+                        builtin.debug_name()
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
         let array_species_meta = self
             .functions
             .get(&StandardBuiltinId::ArraySpeciesGetter.function_id())

@@ -4264,6 +4264,30 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::IteratorPrototypeDrop,
             )),
         );
+        properties.insert(
+            "chunks".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeChunks,
+            )),
+        );
+        properties.insert(
+            "windows".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeWindows,
+            )),
+        );
+        properties.insert(
+            "includes".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeIncludes,
+            )),
+        );
+        properties.insert(
+            "join".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeJoin,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Box::new(Self::empty_object_shape())),
             properties,
@@ -4369,6 +4393,18 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn iterator_flat_map_helper_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    /// The Iterator Helper objects `Iterator.prototype.chunks` and
+    /// `Iterator.prototype.windows` return. Their state lives behind the
+    /// brand, so the shape is only the `%IteratorHelperPrototype%` chain.
+    pub(super) fn iterator_chunking_helper_shape() -> Box<HeapShape> {
         Box::new(HeapShape::Object(ObjectShape {
             prototype: Some(Self::iterator_helper_prototype_shape()),
             properties: BTreeMap::new(),
@@ -5852,6 +5888,34 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorDropReturn,
                 )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeChunks
+            | StandardBuiltinId::IteratorPrototypeWindows => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::iterator_chunking_helper_shape()),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorChunksNext
+            | StandardBuiltinId::IteratorChunksReturn
+            | StandardBuiltinId::IteratorWindowsNext
+            | StandardBuiltinId::IteratorWindowsReturn => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Box::new(Self::empty_object_shape())),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeIncludes => (
+                ValueKind::Boolean,
+                KindSet::from_kind(ValueKind::Boolean),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeJoin => (
+                ValueKind::String,
+                KindSet::from_kind(ValueKind::String),
+                None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IteratorPrototypeConstructorGetter => (

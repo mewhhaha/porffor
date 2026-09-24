@@ -3344,7 +3344,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_iterator_helper_brand_check(
+    pub(super) fn emit_iterator_helper_brand_check(
         &mut self,
         this_payload_local: u32,
         this_tag_local: u32,
@@ -3461,6 +3461,18 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::IteratorPrototypeDrop,
                 StandardBuiltinId::IteratorDropNext,
                 StandardBuiltinId::IteratorDropReturn,
+            ),
+            (
+                OBJECT_INTERNAL_BRAND_ITERATOR_CHUNKS_HELPER,
+                StandardBuiltinId::IteratorPrototypeChunks,
+                StandardBuiltinId::IteratorChunksNext,
+                StandardBuiltinId::IteratorChunksReturn,
+            ),
+            (
+                OBJECT_INTERNAL_BRAND_ITERATOR_WINDOWS_HELPER,
+                StandardBuiltinId::IteratorPrototypeWindows,
+                StandardBuiltinId::IteratorWindowsNext,
+                StandardBuiltinId::IteratorWindowsReturn,
             ),
         ] {
             let creator_is_initialized = self
@@ -16014,11 +16026,25 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                // NaN, or finite and above 2**53 - 1: both a RangeError that
+                // closes `iterated` before the integer conversion.
                 function.instruction(&Instruction::LocalGet(limit_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(limit_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(
+                    9_007_199_254_740_991.0,
+                )));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.take limit must be a non-negative number",
@@ -16772,11 +16798,25 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
+                // NaN, or finite and above 2**53 - 1: both a RangeError that
+                // closes `iterated` before the integer conversion.
                 function.instruction(&Instruction::LocalGet(limit_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::LocalGet(limit_payload_local));
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(
+                    9_007_199_254_740_991.0,
+                )));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::LocalGet(limit_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
+                function.instruction(&Instruction::F64Ne);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_range_error(
                     "Iterator.prototype.drop limit must be a non-negative number",
@@ -17459,6 +17499,26 @@ impl<'a> FunctionBuilder<'a> {
                 ] {
                     self.release_temp_local(local);
                 }
+            }
+            StandardBuiltinId::IteratorPrototypeChunks => {
+                self.emit_iterator_prototype_chunks(function)?;
+            }
+            StandardBuiltinId::IteratorChunksNext => self.emit_iterator_chunks_next(function)?,
+            StandardBuiltinId::IteratorChunksReturn => {
+                self.emit_iterator_chunks_return(function)?
+            }
+            StandardBuiltinId::IteratorPrototypeWindows => {
+                self.emit_iterator_prototype_windows(function)?;
+            }
+            StandardBuiltinId::IteratorWindowsNext => self.emit_iterator_windows_next(function)?,
+            StandardBuiltinId::IteratorWindowsReturn => {
+                self.emit_iterator_windows_return(function)?;
+            }
+            StandardBuiltinId::IteratorPrototypeIncludes => {
+                self.emit_iterator_prototype_includes(function)?;
+            }
+            StandardBuiltinId::IteratorPrototypeJoin => {
+                self.emit_iterator_prototype_join(function)?
             }
             StandardBuiltinId::IteratorPrototypeConstructorGetter => {
                 // 27.1.4.1.1: return %Iterator%. Both realm installers bind

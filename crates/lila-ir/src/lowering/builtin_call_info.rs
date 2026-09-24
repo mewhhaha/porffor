@@ -1195,7 +1195,10 @@ impl<'a> ScriptLowerer<'a> {
             )),
             StandardBuiltinId::IteratorPrototypeForEach => Some(ValueInfo::undefined()),
             StandardBuiltinId::IteratorPrototypeEvery => Some(ValueInfo::new(ValueKind::Boolean)),
-            StandardBuiltinId::IteratorPrototypeSome => Some(ValueInfo::new(ValueKind::Boolean)),
+            StandardBuiltinId::IteratorPrototypeSome
+            | StandardBuiltinId::IteratorPrototypeIncludes => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
             StandardBuiltinId::IteratorPrototypeFind => Some(ValueInfo {
                 kind: ValueKind::Dynamic,
                 possible_kinds: KindSet::all_runtime_tags(),
@@ -1217,7 +1220,11 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::IteratorConcatNext
             | StandardBuiltinId::IteratorConcatReturn
             | StandardBuiltinId::IteratorZipNext
-            | StandardBuiltinId::IteratorZipReturn => Some(ValueInfo {
+            | StandardBuiltinId::IteratorZipReturn
+            | StandardBuiltinId::IteratorChunksNext
+            | StandardBuiltinId::IteratorChunksReturn
+            | StandardBuiltinId::IteratorWindowsNext
+            | StandardBuiltinId::IteratorWindowsReturn => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Box::new(Self::empty_object_shape())),
@@ -1271,6 +1278,14 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: FunctionTargetKnowledge::none(),
                 })
             }
+            StandardBuiltinId::IteratorPrototypeChunks
+            | StandardBuiltinId::IteratorPrototypeWindows => Some(ValueInfo {
+                kind: ValueKind::Object,
+                possible_kinds: KindSet::from_kind(ValueKind::Object),
+                heap_shape: Some(Self::iterator_chunking_helper_shape()),
+                function_targets: FunctionTargetKnowledge::none(),
+            }),
+            StandardBuiltinId::IteratorPrototypeJoin => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::IteratorMapNext | StandardBuiltinId::IteratorMapReturn => {
                 Some(ValueInfo {
                     kind: ValueKind::Object,

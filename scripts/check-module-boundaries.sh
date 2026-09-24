@@ -1080,7 +1080,9 @@ check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # (including toLocaleString): 2,273 raw lines.
 # +8 for the two Error.prototype.stack accessor result rows: 2,281 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2281
+# +15 for the Iterator chunks/windows/includes/join result rows, which this
+# exhaustive table must carry.
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2298
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -6835,10 +6837,12 @@ do
     "$current_realm_array_prototype_consumer_count" \
     'current-function Realm Array prototype install consumer'
 done
+# The seventh consumer is the Iterator chunks/windows family's one
+# `CreateArrayFromList` allocation owner (`emit_chunking_empty_array`).
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_alloc_array_payload_with_length_in_current_function_realm[[:space:]]*\(' \
-  6 \
+  7 \
   'current-function Realm Array allocator consumers'
 
 for number_format_array_consumer in \

@@ -24,6 +24,7 @@ mod intl_numberformat;
 pub(crate) use intl_datetimeformat::intl_date_time_format_pool_strings;
 pub(crate) use intl_numberformat::intl_number_format_pool_strings;
 mod iterators;
+pub(crate) use iterators::iterator_proposal_pool_strings;
 pub(crate) use iterators::ArrayIteratorKind;
 mod json;
 mod math;

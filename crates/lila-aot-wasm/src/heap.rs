@@ -1859,6 +1859,11 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 /// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
 pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
 pub(crate) const OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT: u64 = 41;
+/// `Iterator.prototype.chunks` and `Iterator.prototype.windows` helpers share
+/// one slot layout but not one brand: the brand is what selects the
+/// algorithm when `%IteratorHelperPrototype%` dispatches `next`/`return`.
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_CHUNKS_HELPER: u64 = 42;
+pub(crate) const OBJECT_INTERNAL_BRAND_ITERATOR_WINDOWS_HELPER: u64 = 43;
 /// The closed `[[GeneratorState]]` domain persisted in a synchronous
 /// generator record.
 ///
@@ -4441,6 +4446,21 @@ pub(crate) const HEAP_ITERATOR_HELPER_NAMED_SLOTS: &[HeapNamedSlot] = &[
     },
     HeapNamedSlot {
         record: "iterator-helper-object",
+        key: "$IteratorChunkingIterator",
+        storage: HeapNamedSlotStorage::StrongReference,
+    },
+    HeapNamedSlot {
+        record: "iterator-helper-object",
+        key: "$IteratorChunkingNext",
+        storage: HeapNamedSlotStorage::StrongReference,
+    },
+    HeapNamedSlot {
+        record: "iterator-helper-object",
+        key: "$IteratorChunkingBuffer",
+        storage: HeapNamedSlotStorage::StrongReference,
+    },
+    HeapNamedSlot {
+        record: "iterator-helper-object",
         key: "$IteratorMapDone",
         storage: HeapNamedSlotStorage::Scalar,
     },
@@ -4462,6 +4482,11 @@ pub(crate) const HEAP_ITERATOR_HELPER_NAMED_SLOTS: &[HeapNamedSlot] = &[
     HeapNamedSlot {
         record: "iterator-helper-object",
         key: "$IteratorDropDone",
+        storage: HeapNamedSlotStorage::Scalar,
+    },
+    HeapNamedSlot {
+        record: "iterator-helper-object",
+        key: "$IteratorChunkingState",
         storage: HeapNamedSlotStorage::Scalar,
     },
 ];
