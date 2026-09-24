@@ -75,6 +75,17 @@ for option ordering, Realm ownership and provider limits. Focused product
 verification passes all 16 tests after preserving arbitrary constructor
 throws in catch inference. Published conformance counts are unchanged.
 
+`Iterator.prototype` now carries the proposal methods `chunks` and `windows`
+(proposal-iterator-chunking), `includes` and `join`, compiled to Wasm like the
+other helpers. `chunks` and `windows` return Iterator Helper objects dispatched
+through `%IteratorHelperPrototype%` with an explicit generator-state word, so
+re-entrancy, `return()` forwarding and completion after an abrupt step follow
+the helper protocol. Argument validation closes the receiver before `next` is
+read and never coerces. `take` and `drop` now reject finite limits above
+2^53 − 1. Against the vendored Test262 7ab7faf, `built-ins/Iterator` goes from
+1,046/1,308 to 1,308/1,308 Wasm-AOT executions. Published conformance
+counts are unchanged.
+
 Synchronous `using` loop heads in async functions and canonical async modules
 are admitted only when the complete eager loop region cannot suspend. Disposal,
 iterator closing and ordinary try/finally run before the next surrounding await;
