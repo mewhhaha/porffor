@@ -30,8 +30,6 @@ impl<'a> FunctionBuilder<'a> {
         let return_tag_local = self.reserve_temp_local();
         let return_result_payload_local = self.reserve_temp_local();
         let return_result_tag_local = self.reserve_temp_local();
-        let undefined_payload_local = self.reserve_temp_local();
-        let undefined_tag_local = self.reserve_temp_local();
         let state_local = self.reserve_temp_local();
         let throwaway_capability_local = self.reserve_temp_local();
         let throwaway_promise_payload_local = self.reserve_temp_local();
@@ -147,16 +145,13 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(undefined_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(undefined_tag_local));
+        // %AsyncIteratorPrototype%[@@asyncDispose] step 6.a: Call(return, O, « »).
         self.emit_function_or_proxy_call_leave_throw_completion(
             return_payload_local,
             return_tag_local,
             receiver_payload_local,
             receiver_tag_local,
-            &[(undefined_payload_local, undefined_tag_local)],
+            &[],
             return_result_payload_local,
             return_result_tag_local,
             function,
@@ -247,8 +242,6 @@ impl<'a> FunctionBuilder<'a> {
             throwaway_promise_payload_local,
             throwaway_capability_local,
             state_local,
-            undefined_tag_local,
-            undefined_payload_local,
             return_result_tag_local,
             return_result_payload_local,
             return_tag_local,
