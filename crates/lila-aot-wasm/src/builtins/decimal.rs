@@ -264,6 +264,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_bits));
         function.instruction(&Instruction::End);
 
+        // Rewinding the bump allocator hands the scratch region to the next
+        // allocation, which relies on fresh heap memory being zero. Clear the
+        // digit and product scratch first, as the RegExp compiler does for its
+        // rewound nodes; otherwise a later object header or element
+        // descriptor inherits stale digits.
+        function.instruction(&Instruction::LocalGet(saved_heap_ptr));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::GlobalGet(HEAP_PTR_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalGet(saved_heap_ptr));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::MemoryFill(0));
         function.instruction(&Instruction::LocalGet(saved_heap_ptr));
         function.instruction(&Instruction::GlobalSet(HEAP_PTR_GLOBAL_INDEX));
         function.instruction(&Instruction::LocalGet(result_bits));
