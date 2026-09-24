@@ -1190,3 +1190,9 @@ source and IR boundaries. The exact typed-array CLI regression is
 `cargo test --release --locked -j2 -p lila-cli --test cli
 typed_array::run_wasm_backend_succeeds_for_typedarray_from_nan_conversion_fixture
 -- --exact`. Published full-suite counts remain unchanged.
+
+## Merged-main verification
+
+PR #52 was merged before this checkpoint completed. The follow-up
+verification of the merged tree, its fixes and remaining gaps are recorded in
+[merged-main verification](merged-main-verification-20260923.md).
