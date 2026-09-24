@@ -54,15 +54,22 @@ const ELEMENT_KIND_WIRING: &str = r#"
     );
 "#;
 
-const WITNESS_WIRING: &str = r#"
+/// The exact entry witness for `access`: `sort` validates write access and so
+/// rejects an immutable backing buffer, `toSorted` only reads it.
+fn witness_wiring(access: &str) -> String {
+    format!(
+        r#"
     self.emit_typed_array_witness(
         &receiver_view,
-        TypedArrayWitnessUse::ValidatedMethodEntry {
+        TypedArrayWitnessUse::ValidatedMethodEntry {{
             length_local: receiver_length_local,
-        },
+            access: {access},
+        }},
         function,
     )?;
-"#;
+"#
+    )
+}
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -92,6 +99,7 @@ fn unique_normalized_position(body: &str, snippet: &str, label: &str) -> usize {
 fn assert_comparefn_then_validated_method_entry(
     label: &str,
     receiver_error: &str,
+    access: &str,
     body: &str,
 ) -> usize {
     let normalized_body = without_whitespace(body);
@@ -186,7 +194,7 @@ fn assert_comparefn_then_validated_method_entry(
     );
     let witness = unique_normalized_position(
         &normalized_body,
-        WITNESS_WIRING,
+        &witness_wiring(access),
         &format!("{label} exact validated-witness wiring"),
     );
 
@@ -250,6 +258,7 @@ fn typed_array_sort_family_uses_one_validated_method_entry_witness() {
     let sort_witness = assert_comparefn_then_validated_method_entry(
         "sort",
         "TypedArray.prototype.sort requires TypedArray",
+        "TypedArrayAccessMode::Write",
         sort,
     );
     let normalized_sort = without_whitespace(sort);
@@ -293,6 +302,7 @@ fn typed_array_sort_family_uses_one_validated_method_entry_witness() {
     let to_sorted_witness = assert_comparefn_then_validated_method_entry(
         "toSorted",
         "TypedArray.prototype.toSorted requires TypedArray",
+        "TypedArrayAccessMode::Read",
         to_sorted,
     );
     assert_eq!(

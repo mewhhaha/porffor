@@ -21,15 +21,20 @@ now owns every value that may be written to that local.
 
 ## Producer and consumer census
 
-Product Rust source contains 19 exact type-name occurrences: the declaration,
-the projection impl, the read-only standard dispatcher import and 16 code
+Product Rust source contains 20 exact type-name occurrences: the declaration,
+the projection impl, the read-only standard dispatcher import and 17 code
 producers. The producer distribution is:
 
 - `Unhandled`: 2;
 - `Setter`: 3;
-- `OrdinaryRejected`: 6;
+- `OrdinaryRejected`: 7;
 - `Handled`: 2; and
 - `ProxyRejected`: 3.
+
+The seventh `OrdinaryRejected` producer is the immutable-ArrayBuffer rule: an
+inherited TypedArray whose viewed buffer is immutable returns false from its
+integer-indexed `[[Set]]` for every canonical numeric key, before the
+valid-index check that otherwise selects `Handled` or continues the walk.
 
 There are exactly two calls to `emit_array_inherited_index_set_state`: ordinary
 Array index assignment and the canonical dense-Array Push branch. Assignment
@@ -51,11 +56,16 @@ The exhaustive match returns the same 0, 1, 2, 3 and 4 constants in the same
 variant order. It emits no new Wasm instruction and changes no observable Set,
 setter, Proxy, strict-mode or current-realm error behavior.
 
+These hashes record that source-equivalent migration. The inherited-index
+state emitter has since gained the immutable-ArrayBuffer rejection described
+above, so its current body no longer matches the frozen emitter hash; the
+assignment body and canonical Push branch are unchanged by that rule.
+
 ## Durable evidence
 
 The existing `object_write_proxy_realm_structure.rs` target now pins the exact
 capability-free declaration, borrowed exhaustive mapping, absent wildcard and
-capabilities, 19-name/16-producer census, per-variant producer counts and the
+capabilities, 20-name/17-producer census, per-variant producer counts and the
 two consumer calls. Its existing tests continue to distinguish assignment's
 strict-sensitive Proxy rejection from Push's unconditional rejection and to
 pin current-function-realm TypeErrors.

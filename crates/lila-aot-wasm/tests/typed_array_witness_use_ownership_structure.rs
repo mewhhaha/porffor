@@ -282,11 +282,12 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
         "    pub(crate) fn emit_typed_array_witness(",
         "    /// Compiles one of the three TypedArray view accessors",
     );
-    // The named Fixed.word() projection replaces the frozen I64Const(0).
-    // The wire value and every other byte of the witness body are unchanged.
+    // The named Fixed.word() projection replaces the frozen I64Const(0), and
+    // the method-entry validation now binds its access mode: a `Write` entry
+    // rejects an immutable backing buffer before the detached check.
     assert_eq!(
         (witness.len(), fnv1a(witness)),
-        (8495, 0x7617_9fc1_9b19_7dcd)
+        (8871, 0x4148_ed4c_3a98_8a21)
     );
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -349,7 +350,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
         rust_code(&SOURCE[preceding_item_end + 1..following_item_offset]).normalized,
         concat!(
             "pub(crate)enumTypedArrayWitnessUse{",
-            "ValidatedMethodEntry{length_local:u32,},",
+            "ValidatedMethodEntry{length_local:u32,access:TypedArrayAccessMode,},",
             "ArrayLikeLengthSnapshot{length_local:u32,},",
             "IntegerIndexedProperty{index_local:u32,result_local:u32,},",
             "Accessor{kind:TypedArrayAccessorKind,result_local:u32,},}"
@@ -443,7 +444,7 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
         "self.emit_load_typed_array_private_state(",
         "TypedArrayViewLocals::new(",
         "self.emit_typed_array_witness(",
-        "TypedArrayWitnessUse::ValidatedMethodEntry { length_local }",
+        "TypedArrayWitnessUse::ValidatedMethodEntry {\n                length_local,\n                access: TypedArrayAccessMode::Read,\n            }",
         "self.emit_load_array_buffer_data(",
     ] {
         assert_eq!(codec_bytes.matches(operation).count(), 1, "{operation}");
@@ -484,15 +485,33 @@ fn witness_validation_borrows_before_result_projection_consumes() {
         "        match &use_ {",
         "\n\n        function.instruction(&Instruction::LocalGet(out_of_bounds_local));",
     );
+    // Method-entry validation binds only its access policy, never a payload
+    // local: a `Write` entry rejects an immutable backing buffer first.
     for variant in [
-        "TypedArrayWitnessUse::ValidatedMethodEntry { .. }",
+        "TypedArrayWitnessUse::ValidatedMethodEntry { access, .. }",
         "TypedArrayWitnessUse::ArrayLikeLengthSnapshot { .. }",
         "TypedArrayWitnessUse::IntegerIndexedProperty { .. }",
         "TypedArrayWitnessUse::Accessor { .. }",
     ] {
         assert_eq!(validation.matches(variant).count(), 1, "{variant}");
     }
-    assert!(!validation.contains("{ length_local }"));
+    assert_eq!(
+        validation
+            .matches("TypedArrayAccessMode::Read => {}")
+            .count(),
+        1
+    );
+    assert_eq!(
+        validation
+            .matches("TypedArrayAccessMode::Write => self.emit_throw_if_array_buffer_immutable(")
+            .count(),
+        1
+    );
+    assert!(
+        validation.find("TypedArrayAccessMode::Write")
+            < validation.find("\"TypedArray backing buffer is detached\"")
+    );
+    assert!(!validation.contains("length_local"));
     assert!(!validation.contains("{ index_local,"));
     assert!(!validation.contains("{ kind, result_local }"));
     assert!(!validation.contains("_ =>"));
@@ -503,7 +522,7 @@ fn witness_validation_borrows_before_result_projection_consumes() {
         "        self.release_temp_local(data_ptr_local);",
     );
     for variant in [
-        "TypedArrayWitnessUse::ValidatedMethodEntry { length_local }",
+        "TypedArrayWitnessUse::ValidatedMethodEntry { length_local, .. }",
         "TypedArrayWitnessUse::ArrayLikeLengthSnapshot { length_local }",
         "TypedArrayWitnessUse::IntegerIndexedProperty {",
         "TypedArrayWitnessUse::Accessor { kind, result_local }",

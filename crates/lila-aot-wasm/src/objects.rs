@@ -6765,7 +6765,7 @@ impl<'a> FunctionBuilder<'a> {
     /// Read an integer-indexed element after the caller establishes the
     /// TypedArray brand. The live view witness owns detached and resized bounds;
     /// this emitter never falls back to ordinary object property lookup.
-    fn emit_typed_array_element_read_from_locals(
+    pub(crate) fn emit_typed_array_element_read_from_locals(
         &mut self,
         target_local: u32,
         index_local: u32,
@@ -7376,6 +7376,12 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_is_typed_array_i32(target_local, target_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // TypedArray [[Set]] with Receiver = O: an immutable backing buffer
+        // returns false before the value is coerced.
+        self.emit_typed_array_buffer_is_immutable_i32(target_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_write_false_result(Self::IMMUTABLE_TYPED_ARRAY_SET_MESSAGE, function)?;
+        function.instruction(&Instruction::Else);
         self.emit_typed_array_element_write_from_locals(
             target_local,
             index_local,
@@ -7383,6 +7389,7 @@ impl<'a> FunctionBuilder<'a> {
             value_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         self.emit_object_write(
             target_local,
@@ -7897,11 +7904,15 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// TypedArrayCreateFromConstructor steps 3-4 on an already constructed
+    /// target: ValidateTypedArray(`newTypedArray`, seq-cst, `access`) and the
+    /// requested-length check.
     pub(crate) fn emit_validate_typed_array_from_constructed_target(
         &mut self,
         target_payload_local: u32,
         target_tag_local: u32,
         requested_length_payload_local: u32,
+        access: TypedArrayAccessMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let brand_local = self.reserve_temp_local();
@@ -7959,6 +7970,7 @@ impl<'a> FunctionBuilder<'a> {
             &target_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: capacity_local,
+                access,
             },
             function,
         )?;
@@ -9950,6 +9962,20 @@ impl<'a> FunctionBuilder<'a> {
                     function.instruction(&Instruction::I64Const(0));
                     function.instruction(&Instruction::I64Ne);
                     function.instruction(&Instruction::If(BlockType::Empty));
+                    // [[GetOwnProperty]] 1.b.iv: an immutable backing buffer
+                    // makes the element non-writable and non-configurable.
+                    self.emit_typed_array_buffer_is_immutable_i32(target_payload_local, function);
+                    function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+                    function.instruction(&Instruction::I64Const(
+                        StoredPropertyAttributes::Data {
+                            writable: false,
+                            enumerable: true,
+                            configurable: false,
+                        }
+                        .descriptor_word()
+                        .as_i64(),
+                    ));
+                    function.instruction(&Instruction::Else);
                     function.instruction(&Instruction::I64Const(
                         StoredPropertyAttributes::Data {
                             writable: true,
@@ -9959,7 +9985,20 @@ impl<'a> FunctionBuilder<'a> {
                         .descriptor_word()
                         .as_i64(),
                     ));
+                    function.instruction(&Instruction::End);
                     function.instruction(&Instruction::LocalSet(fact.descriptor));
+                    if let Some(data_value) = projection.data_value() {
+                        // A Proxy invariant compares against a non-writable,
+                        // non-configurable target element's [[Value]].
+                        self.emit_integer_indexed_own_value(
+                            target_payload_local,
+                            target_tag_local,
+                            key_payload_local,
+                            key_tag_local,
+                            data_value.0,
+                            function,
+                        )?;
+                    }
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
                     function.instruction(&Instruction::End);
@@ -14962,6 +15001,39 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The TypeError raised when a PutValue or `Set(O, P, V, true)` reaches an
+    /// integer-indexed `[[Set]]` whose TypedArray is backed by an immutable
+    /// buffer.
+    const IMMUTABLE_TYPED_ARRAY_SET_MESSAGE: &'static str =
+        "Cannot assign to an element of a TypedArray backed by an immutable ArrayBuffer";
+
+    /// PutValue step 3.d for a `[[Set]]` that is known to have returned
+    /// false: a TypeError in strict code and nothing otherwise. The strictness
+    /// is the Reference's, selected exactly as in
+    /// [`Self::emit_object_write_set_failure_else`].
+    fn emit_object_write_false_result(
+        &mut self,
+        message: &str,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        match self.object_write_strict_flag_local {
+            Some(strict_local) => {
+                function.instruction(&Instruction::LocalGet(strict_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_object_mutation_type_error_to_active_handler(message, function)?;
+                function.instruction(&Instruction::End);
+            }
+            None => {
+                if self.is_current_function_strict() {
+                    self.emit_object_mutation_type_error_to_active_handler(message, function)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn emit_proxy_set_false_result_throw(
         &mut self,
         function: &mut Function,
@@ -15171,6 +15243,18 @@ impl<'a> FunctionBuilder<'a> {
             array_index_write_handled_local,
             function,
         )?;
+        // A handled integer-indexed [[Set]] that returned false (an immutable
+        // backing buffer) is a PutValue failure: a TypeError in strict code and
+        // a silent no-op otherwise.
+        function.instruction(&Instruction::LocalGet(array_index_write_handled_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(array_length_success_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_write_false_result(Self::IMMUTABLE_TYPED_ARRAY_SET_MESSAGE, function)?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(object_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -15636,6 +15720,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // The inherited TypedArray's [[Set]] (Receiver is not O) returns false
+        // for any canonical numeric key when its buffer is immutable.
+        self.emit_typed_array_buffer_is_immutable_i32(prototype_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_object_write_false_result(Self::IMMUTABLE_TYPED_ARRAY_SET_MESSAGE, function)?;
+        function.instruction(&Instruction::Else);
         self.emit_typed_array_valid_integer_index_i32(
             prototype_local,
             typed_array_numeric_index_local,
@@ -15690,6 +15780,7 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
         }
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
@@ -16249,6 +16340,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // OrdinarySetWithOwnDescriptor 2.d.ii: the receiver's own element of an
+        // immutable-backed TypedArray is non-writable, so the result stays false.
+        self.emit_typed_array_buffer_is_immutable_i32(receiver_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
             typed_array_index_local,
@@ -16258,6 +16354,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
@@ -17111,6 +17208,13 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
+        // TypedArray [[Set]] step 1.b.ii precedes the Receiver comparison: an
+        // immutable backing buffer returns false for a distinct Receiver too.
+        self.emit_typed_array_buffer_is_immutable_i32(current_payload_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Else);
         self.emit_typed_array_valid_integer_index_i32(
             current_payload_local,
             typed_array_numeric_index_local,
@@ -17136,6 +17240,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
@@ -19843,6 +19948,51 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The `[[Value]]` of the TypedArray element that `key` names, for a
+    /// caller that has already established the key is a valid integer index.
+    fn emit_integer_indexed_own_value(
+        &mut self,
+        target_payload_local: u32,
+        target_tag_local: u32,
+        key_payload_local: u32,
+        key_tag_local: u32,
+        value: TaggedLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let numeric_index_payload_local = self.reserve_temp_local();
+        let handled_local = self.reserve_temp_local();
+        let index_local = self.reserve_temp_local();
+        let valid_local = self.reserve_temp_local();
+        self.emit_typed_array_canonical_numeric_index_i32(
+            target_payload_local,
+            target_tag_local,
+            key_payload_local,
+            key_tag_local,
+            numeric_index_payload_local,
+            handled_local,
+            function,
+        )?;
+        self.emit_typed_array_valid_integer_index_i32(
+            target_payload_local,
+            numeric_index_payload_local,
+            index_local,
+            valid_local,
+            function,
+        )?;
+        self.emit_typed_array_element_read_from_locals(
+            target_payload_local,
+            index_local,
+            value.payload,
+            value.tag,
+            function,
+        )?;
+        self.release_temp_local(valid_local);
+        self.release_temp_local(index_local);
+        self.release_temp_local(handled_local);
+        self.release_temp_local(numeric_index_payload_local);
+        Ok(())
+    }
+
     fn emit_typed_array_set_same_receiver_if_handled(
         &mut self,
         object_payload_local: u32,
@@ -19871,6 +20021,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // TypedArray [[Set]] step 1.b.ii: an immutable backing buffer rejects
+        // every canonical numeric key before the value is coerced.
+        self.emit_typed_array_buffer_is_immutable_i32(object_payload_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(-1));
         function.instruction(&Instruction::LocalSet(index_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -19911,6 +20068,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(result_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         self.release_temp_local(index_local);

@@ -1,7 +1,9 @@
 //! Shared boundaries for Uint8Array text codecs.
 
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{
+    ImmutableBufferWriter, TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse,
+};
 use crate::functions::RealmFunctionMaterializationContext;
 
 pub(super) struct Uint8ArrayCodecOptions {
@@ -93,31 +95,17 @@ impl<'a> FunctionBuilder<'a> {
             Uint8ArrayCodecAccess::Read => {}
             Uint8ArrayCodecAccess::Write => {
                 let buffer_local = self.reserve_temp_local();
-                let flags_local = self.reserve_temp_local();
                 self.load_i64_to_local_from_offset(
                     receiver_local,
                     HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
                     buffer_local,
                     function,
                 );
-                self.emit_load_array_buffer_flags(buffer_local, flags_local, function);
-                function.instruction(&Instruction::LocalGet(flags_local));
-                function.instruction(&Instruction::I64Const(
-                    ArrayBufferFlag::Immutable.word() as i64
-                ));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "Uint8Array codec backing buffer is immutable",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_local,
+                    ImmutableBufferWriter::Uint8ArrayCodec,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                self.release_temp_local(flags_local);
                 self.release_temp_local(buffer_local);
             }
         }
@@ -311,7 +299,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_typed_array_witness(
             &view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local,
+                access: TypedArrayAccessMode::Read,
+            },
             function,
         )?;
         self.emit_load_array_buffer_data(buffer_local, pointer_local, function);

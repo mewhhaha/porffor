@@ -124,11 +124,26 @@ fn receiver_validation_and_materialization_project_the_policy_directly() {
         1
     );
 
+    // The TypedArray receiver's method-entry witness validates read access:
+    // iterating an immutable-backed TypedArray is permitted.
+    assert_eq!(
+        consumer
+            .matches(concat!(
+                "TypedArrayWitnessUse::ValidatedMethodEntry {\n",
+                "                        length_local,\n",
+                "                        access: TypedArrayAccessMode::Read,\n",
+                "                    }"
+            ))
+            .count(),
+        1
+    );
     let normalized_consumer =
         consumer.replace("match &receiver_policy {", "match receiver_policy {");
+    // 105 bytes above the prior (5741, 0xa6d9_f530_766c_a36a): only the witness
+    // gained its explicit `access: TypedArrayAccessMode::Read` field.
     assert_eq!(
         (normalized_consumer.len(), fnv1a(&normalized_consumer)),
-        (5741, 0xa6d9_f530_766c_a36a)
+        (5846, 0xa945_02d2_e4fe_3394)
     );
 }
 

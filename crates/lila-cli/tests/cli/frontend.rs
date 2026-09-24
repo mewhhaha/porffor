@@ -874,7 +874,7 @@ fn unsupported_test262_suite_root(name: &str) -> std::path::PathBuf {
     write_project_file(
         &suite_root,
         "test/language/unsupported/feature.js",
-        "/*---\nfeatures: [immutable-arraybuffer]\nflags: [raw]\n---*/\ntrue;\n",
+        "/*---\nfeatures: [SharedArrayBuffer]\nflags: [raw]\n---*/\ntrue;\n",
     );
     suite_root
 }

@@ -26,15 +26,28 @@ const VIEW_WIRING: &str = r#"
         );
 "#;
 
-const WITNESS_WIRING: &str = r#"
+/// ValidateIntegerTypedArray's `accessMode` for each owner: notify, wait and
+/// waitAsync only read, while every integer operation but `load` stores and
+/// therefore rejects an immutable backing buffer before index coercion.
+fn witness_wiring(label: &str) -> String {
+    let access = match label {
+        "Atomics.notify" | "Atomics.waitAsync" | "Atomics.wait" => "TypedArrayAccessMode::Read",
+        "Atomics integer operations" => "operation.typed_array_access()",
+        _ => unreachable!("closed Atomics owner census"),
+    };
+    format!(
+        r#"
         self.emit_typed_array_witness(
             &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
+            TypedArrayWitnessUse::ValidatedMethodEntry {{
                 length_local: element_length_local,
-            },
+                access: {access},
+            }},
             function,
         )?;
-"#;
+"#
+    )
+}
 
 const ELEMENT_BOUND_WIRING: &str = r#"
         function.instruction(&Instruction::LocalGet(index_local));
@@ -229,7 +242,7 @@ fn four_atomic_access_owners_use_one_validated_typed_array_witness() {
             .unwrap_or_else(|| panic!("missing {label} backing pointer snapshot"));
         let witness = unique_normalized_position(
             &normalized,
-            WITNESS_WIRING,
+            &witness_wiring(label),
             &format!("{label} witness wiring"),
         );
         assert!(
@@ -282,8 +295,11 @@ fn atomics_bounds_use_the_witness_element_length_after_index_coercion() {
             !normalized.contains("emit_throw_runtime_error(RANGE_ERROR_NAME,"),
             "{label} must not use the entry-global RangeError emitter"
         );
-        let witness =
-            unique_normalized_position(&normalized, WITNESS_WIRING, &format!("{label} witness"));
+        let witness = unique_normalized_position(
+            &normalized,
+            &witness_wiring(label),
+            &format!("{label} witness"),
+        );
         let to_number = normalized
             .find("emit_value_to_number_payload(index_tag_local,index_payload_local,function)")
             .unwrap_or_else(|| panic!("missing {label} index ToNumber"));

@@ -1397,7 +1397,8 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::SharedArrayBufferPrototypeGrow => Some(ValueInfo::undefined()),
-            StandardBuiltinId::ArrayBufferPrototypeDetachedGetter => {
+            StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
+            | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter => {

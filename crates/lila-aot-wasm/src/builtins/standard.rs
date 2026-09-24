@@ -2,7 +2,8 @@ use super::super::*;
 use super::array::ArrayInheritedIndexSetState;
 use super::binary_data::{
     ArrayBufferSliceBound, ArrayBufferSliceCopyLocals, ArrayBufferSliceCopyPolicy,
-    TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse,
+    ImmutableBufferWriter, TypedArrayAccessMode, TypedArrayAccessorKind, TypedArrayViewLocals,
+    TypedArrayWitnessUse,
 };
 use super::date::DateLocaleFormat;
 use super::intl_datetimeformat::IntlDateTimeFormatPurpose;
@@ -254,6 +255,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Write,
             },
             function,
         )?;
@@ -423,6 +425,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Write,
             },
             function,
         )?;
@@ -518,6 +521,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: current_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -758,6 +762,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -994,6 +999,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Write,
             },
             function,
         )?;
@@ -1546,6 +1552,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -1790,6 +1797,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -4434,7 +4442,10 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.emit_typed_array_witness(
                     &typed_array_view,
-                    TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+                    TypedArrayWitnessUse::ValidatedMethodEntry {
+                        length_local,
+                        access: TypedArrayAccessMode::Read,
+                    },
                     function,
                 )?;
                 self.release_temp_local(length_local);
@@ -5298,6 +5309,7 @@ impl<'a> FunctionBuilder<'a> {
                     self.result_local,
                     self.result_tag_local,
                     length_payload_local,
+                    TypedArrayAccessMode::Write,
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(self.result_local));
@@ -5866,6 +5878,7 @@ impl<'a> FunctionBuilder<'a> {
                         self.result_local,
                         self.result_tag_local,
                         length_payload_local,
+                        TypedArrayAccessMode::Write,
                         function,
                     )?;
                     function.instruction(&Instruction::LocalGet(self.result_local));
@@ -19915,6 +19928,32 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
+            StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => {
+                let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in lila wasm-aot first slice: missing ArrayBuffer immutable receiver",
+                    )
+                })?;
+                let receiver_tag_local = self.this_tag_local.ok_or_else(|| {
+                    EmitError::unsupported(
+                        "unsupported in lila wasm-aot first slice: missing ArrayBuffer immutable receiver",
+                    )
+                })?;
+                // RequireInternalSlot([[ArrayBufferData]]) and the
+                // IsSharedArrayBuffer rejection are one brand check: a
+                // SharedArrayBuffer carries a distinct brand.
+                self.emit_require_array_buffer(
+                    receiver_payload_local,
+                    receiver_tag_local,
+                    "ArrayBuffer immutable getter requires ArrayBuffer",
+                    function,
+                )?;
+                self.emit_array_buffer_is_immutable_i32(receiver_payload_local, function);
+                function.instruction(&Instruction::I64ExtendI32U);
+                function.instruction(&Instruction::LocalSet(self.result_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
+                function.instruction(&Instruction::LocalSet(self.result_tag_local));
+            }
             StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter => {
                 let receiver_payload_local = self.this_payload_local.ok_or_else(|| {
                     EmitError::unsupported(
@@ -20060,13 +20099,7 @@ impl<'a> FunctionBuilder<'a> {
                     value_payload_local,
                     function,
                 );
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::I64Const(
-                    ArrayBufferFlag::Immutable.word() as i64
-                ));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64Ne);
+                self.emit_array_buffer_is_immutable_i32(receiver_payload_local, function);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_runtime_error(
                     TYPE_ERROR_NAME,
@@ -20604,13 +20637,10 @@ impl<'a> FunctionBuilder<'a> {
                                 self.emit_return_current_completion(function);
                                 function.instruction(&Instruction::End);
                                 if slice_kind.rejects_immutable_species_result() {
-                                    function.instruction(&Instruction::LocalGet(new_flags_local));
-                                    function.instruction(&Instruction::I64Const(
-                                        ArrayBufferFlag::Immutable.word() as i64,
-                                    ));
-                                    function.instruction(&Instruction::I64And);
-                                    function.instruction(&Instruction::I64Const(0));
-                                    function.instruction(&Instruction::I64Ne);
+                                    self.emit_array_buffer_is_immutable_i32(
+                                        new_object_local,
+                                        function,
+                                    );
                                     function.instruction(&Instruction::If(BlockType::Empty));
                                     self.emit_throw_runtime_error(
                                         TYPE_ERROR_NAME,
@@ -20759,22 +20789,11 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 self.emit_return_current_completion(function);
                 function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(value_payload_local));
-                function.instruction(&Instruction::I64Const(
-                    ArrayBufferFlag::Immutable.word() as i64
-                ));
-                function.instruction(&Instruction::I64And);
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::I32Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "ArrayBuffer receiver is immutable",
-                    self.result_local,
-                    self.result_tag_local,
+                self.emit_throw_if_array_buffer_immutable(
+                    receiver_payload_local,
+                    ImmutableBufferWriter::CopyAndDetach,
                     function,
                 )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
 
                 match builtin {
                     StandardBuiltinId::ArrayBufferPrototypeTransfer => {
@@ -21539,6 +21558,7 @@ impl<'a> FunctionBuilder<'a> {
                     &result_typed_array_view,
                     TypedArrayWitnessUse::ValidatedMethodEntry {
                         length_local: result_length_local,
+                        access: TypedArrayAccessMode::Read,
                     },
                     function,
                 )?;
@@ -23961,7 +23981,10 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 self.emit_typed_array_witness(
                     &source_view,
-                    TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+                    TypedArrayWitnessUse::ValidatedMethodEntry {
+                        length_local,
+                        access: TypedArrayAccessMode::Read,
+                    },
                     function,
                 )?;
                 self.load_i64_to_local_from_offset(
@@ -25928,7 +25951,11 @@ impl<'a> FunctionBuilder<'a> {
                     buffer_payload_local,
                     function,
                 );
-                self.emit_throw_if_array_buffer_immutable(buffer_payload_local, function)?;
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_payload_local,
+                    ImmutableBufferWriter::DataView,
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_DATA_VIEW_BYTE_OFFSET,
@@ -26050,7 +26077,11 @@ impl<'a> FunctionBuilder<'a> {
                     buffer_payload_local,
                     function,
                 );
-                self.emit_throw_if_array_buffer_immutable(buffer_payload_local, function)?;
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_payload_local,
+                    ImmutableBufferWriter::DataView,
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_DATA_VIEW_BYTE_OFFSET,
@@ -26220,7 +26251,11 @@ impl<'a> FunctionBuilder<'a> {
                     buffer_payload_local,
                     function,
                 );
-                self.emit_throw_if_array_buffer_immutable(buffer_payload_local, function)?;
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_payload_local,
+                    ImmutableBufferWriter::DataView,
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_DATA_VIEW_BYTE_OFFSET,
@@ -26435,7 +26470,11 @@ impl<'a> FunctionBuilder<'a> {
                     buffer_payload_local,
                     function,
                 );
-                self.emit_throw_if_array_buffer_immutable(buffer_payload_local, function)?;
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_payload_local,
+                    ImmutableBufferWriter::DataView,
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_DATA_VIEW_BYTE_OFFSET,
@@ -26674,7 +26713,11 @@ impl<'a> FunctionBuilder<'a> {
                     buffer_payload_local,
                     function,
                 );
-                self.emit_throw_if_array_buffer_immutable(buffer_payload_local, function)?;
+                self.emit_throw_if_array_buffer_immutable(
+                    buffer_payload_local,
+                    ImmutableBufferWriter::DataView,
+                    function,
+                )?;
                 self.load_i64_to_local_from_offset(
                     this_payload_local,
                     HEAP_DATA_VIEW_BYTE_OFFSET,

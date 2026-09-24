@@ -11385,55 +11385,14 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
     if rewrite_wasm_aot_self_contained(case).is_some() {
         return None;
     }
-    if case.features.contains("immutable-arraybuffer") {
-        let supported_arraybuffer_immutable_case = case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-immutable-arraybuffer-object.js")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/slice/species-returns-immutable-arraybuffer.js")
-            || case
-                .path
-                .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-immutable-arraybuffer.js")
-            || case.path.contains(
-                "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-immutable-arraybuffer.js",
-            );
-        let supported_dataview_immutable_setter_case =
-            case.path.starts_with("built-ins/DataView/prototype/set")
-                && case.path.ends_with("/immutable-buffer.js");
-        if !supported_arraybuffer_immutable_case && !supported_dataview_immutable_setter_case {
-            return Some("immutable-arraybuffer");
-        }
-    }
     let supported_dataview_shared_array_buffer_case = case.path.starts_with("built-ins/DataView/")
         && (case.path.ends_with("-sab.js") || case.features.contains("SharedArrayBuffer"));
-    let supported_shared_array_buffer_receiver_case = case
-        .path
-        .contains("built-ins/ArrayBuffer/prototype/byteLength/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer.js")
-        || case.path.contains(
-            "built-ins/ArrayBuffer/prototype/detached/this-is-sharedarraybuffer-resizable.js",
-        )
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/maxByteLength/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resizable/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/resize/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/slice/this-is-sharedarraybuffer.js")
-        || case
-            .path
-            .contains("built-ins/ArrayBuffer/prototype/transfer/this-is-sharedarraybuffer.js")
-        || case.path.contains(
-            "built-ins/ArrayBuffer/prototype/transferToFixedLength/this-is-sharedarraybuffer.js",
-        );
+    // Every `ArrayBuffer.prototype` member rejects a SharedArrayBuffer
+    // receiver by brand; these receiver tests need only the SharedArrayBuffer
+    // constructor, which the Wasm-AOT backend implements.
+    let supported_shared_array_buffer_receiver_case =
+        case.path.starts_with("built-ins/ArrayBuffer/prototype/")
+            && case.path.contains("/this-is-sharedarraybuffer");
     let supported_shared_array_buffer_metadata_case =
         supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
     let supported_atomics_shared_array_buffer_case =
@@ -20917,13 +20876,14 @@ class MyBigInt64Array extends BigInt64Array {}"#;
             full_cohort_fingerprint: u64,
             without_test_typed_array_cohort_fingerprint: u64,
             without_test_typed_array_suffixes: &'static [&'static str],
-            immutable_gated_suffixes: &'static [&'static str],
+            immutable_feature_suffixes: &'static [&'static str],
         }
 
         // Pinned cases that exercise immutable ArrayBuffers. They materialize
-        // exactly like their neighbours but are reported through the explicit
-        // Wasm-AOT `immutable-arraybuffer` gate until that feature exists.
-        const IMMUTABLE_GATED_SUFFIXES: [&str; 1] =
+        // exactly like their neighbours and run through the real Wasm-AOT
+        // backend: immutable ArrayBuffers are implemented, so no feature gate
+        // reports them.
+        const IMMUTABLE_FEATURE_SUFFIXES: [&str; 1] =
             ["speciesctor-destination-backed-by-immutable-buffer.js"];
         const FILTER_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES: [&str; 3] = [
             "resizable-buffer-grow-mid-iteration.js",
@@ -20948,7 +20908,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 full_cohort_fingerprint: 0xd3af_9172_36fb_0c3c,
                 without_test_typed_array_cohort_fingerprint: 0x45a0_c93e_4a48_f68b,
                 without_test_typed_array_suffixes: &FILTER_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
-                immutable_gated_suffixes: &IMMUTABLE_GATED_SUFFIXES,
+                immutable_feature_suffixes: &IMMUTABLE_FEATURE_SUFFIXES,
             },
             DirectoryContract {
                 method: "map",
@@ -20960,7 +20920,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 full_cohort_fingerprint: 0xc6e3_699b_0f0e_63a3,
                 without_test_typed_array_cohort_fingerprint: 0x2dab_d088_d025_9ad3,
                 without_test_typed_array_suffixes: &MAP_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
-                immutable_gated_suffixes: &IMMUTABLE_GATED_SUFFIXES,
+                immutable_feature_suffixes: &IMMUTABLE_FEATURE_SUFFIXES,
             },
         ];
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = TEST_TYPED_ARRAY_PRELUDE_BYTES;
@@ -21069,7 +21029,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 "{}",
                 contract.method
             );
-            let mut immutable_gated_count = 0;
+            let mut immutable_feature_count = 0;
 
             let mut source_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
             let mut contract_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
@@ -21171,8 +21131,8 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                             fnv1a_extend(without_test_typed_array_cohort_fingerprint, &[u8::MAX]);
                     }
                 }
-                let immutable_gated = contract.immutable_gated_suffixes.contains(&suffix);
-                immutable_gated_count += usize::from(immutable_gated);
+                let immutable_feature = contract.immutable_feature_suffixes.contains(&suffix);
+                immutable_feature_count += usize::from(immutable_feature);
 
                 for case in cases {
                     assert_eq!(case.path(), path, "{path}");
@@ -21193,14 +21153,10 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                     );
                     assert_eq!(
                         case.features.contains("immutable-arraybuffer"),
-                        immutable_gated,
+                        immutable_feature,
                         "{path}"
                     );
-                    assert_eq!(
-                        wasm_aot_unsupported_feature(&case),
-                        immutable_gated.then_some("immutable-arraybuffer"),
-                        "{path}"
-                    );
+                    assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
                     assert!(rewrite_wasm_aot_self_contained(&case).is_none(), "{path}");
 
                     for (store_name, store) in
@@ -21346,12 +21302,12 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                 (
                     full_count,
                     without_test_typed_array_count,
-                    immutable_gated_count
+                    immutable_feature_count
                 ),
                 (
                     contract.full_count,
                     contract.without_test_typed_array_suffixes.len(),
-                    contract.immutable_gated_suffixes.len(),
+                    contract.immutable_feature_suffixes.len(),
                 ),
                 "{}",
                 contract.method
@@ -22345,7 +22301,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         let mut host_execution_count = 0;
         let mut local_sta_preamble_execution_count = 0;
         let mut static_resizable_execution_count = 0;
-        let mut immutable_gated_execution_count = 0;
+        let mut immutable_feature_execution_count = 0;
 
         for (cohort, contracts) in cohort_contracts {
             for contract in contracts {
@@ -22398,15 +22354,11 @@ class MyBigInt64Array extends BigInt64Array {}"#;
                         "{path}"
                     );
                     // Immutable ArrayBuffer cases materialize exactly like the
-                    // rest of the directory but are reported through the
-                    // explicit Wasm-AOT gate until that feature exists.
-                    let immutable_gated = contract.features.contains(&"immutable-arraybuffer");
-                    immutable_gated_execution_count += usize::from(immutable_gated);
-                    assert_eq!(
-                        wasm_aot_unsupported_feature(case),
-                        immutable_gated.then_some("immutable-arraybuffer"),
-                        "{path}"
-                    );
+                    // rest of the directory and run through the real Wasm-AOT
+                    // backend; no feature gate reports them.
+                    let immutable_feature = contract.features.contains(&"immutable-arraybuffer");
+                    immutable_feature_execution_count += usize::from(immutable_feature);
+                    assert_eq!(wasm_aot_unsupported_feature(case), None, "{path}");
                     assert!(rewrite_wasm_aot_self_contained(case).is_none(), "{path}");
                     assert!(typed_array_literal_helper_plan(case).is_none(), "{path}");
 
@@ -22652,7 +22604,7 @@ class MyBigInt64Array extends BigInt64Array {}"#;
         assert_eq!(host_execution_count, 28);
         assert_eq!(local_sta_preamble_execution_count, 156);
         assert_eq!(static_resizable_execution_count, 8);
-        assert_eq!(immutable_gated_execution_count, 2);
+        assert_eq!(immutable_feature_execution_count, 2);
     }
 
     #[test]
@@ -36229,17 +36181,48 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     #[test]
     fn wasm_aot_classifies_feature_gated_cases_as_unsupported() {
         let preludes = real_wasm_aot_preludes();
-        for feature in ["immutable-arraybuffer", "SharedArrayBuffer"] {
-            let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
-            case.features.insert(feature.to_string());
+        let feature = "SharedArrayBuffer";
+        let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
+        case.features.insert(feature.to_string());
 
-            let result = run_one_case(&case, &preludes, 5_000, ExecutionBackend::WasmAot);
+        let result = run_one_case(&case, &preludes, 5_000, ExecutionBackend::WasmAot);
 
-            let TestStatus::Failed(failure) = result.status else {
-                panic!("feature-gated case should fail as unsupported");
-            };
-            assert_eq!(failure.kind, FailureKind::Unsupported);
-            assert!(failure.detail.contains(feature));
+        let TestStatus::Failed(failure) = result.status else {
+            panic!("feature-gated case should fail as unsupported");
+        };
+        assert_eq!(failure.kind, FailureKind::Unsupported);
+        assert!(failure.detail.contains(feature));
+    }
+
+    #[test]
+    fn wasm_aot_never_gates_immutable_arraybuffer_cases() {
+        // Immutable ArrayBuffers are implemented by the Wasm-AOT backend, so the
+        // feature is not a routing input for any path.
+        for path in [
+            "built-ins/Map/prototype/feature.js",
+            "built-ins/ArrayBuffer/prototype/immutable/return-immutable.js",
+            "built-ins/TypedArray/prototype/fill/immutable-buffer.js",
+            "built-ins/Atomics/store/immutable-buffer.js",
+        ] {
+            let mut case = synthetic_case(path);
+            case.features.insert("immutable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
+        }
+
+        // A SharedArrayBuffer receiver check needs only the SharedArrayBuffer
+        // constructor, for every `ArrayBuffer.prototype` member.
+        for member in [
+            "immutable",
+            "sliceToImmutable",
+            "transferToImmutable",
+            "slice",
+        ] {
+            let path =
+                format!("built-ins/ArrayBuffer/prototype/{member}/this-is-sharedarraybuffer.js");
+            let mut case = synthetic_case(&path);
+            case.features.insert("SharedArrayBuffer".to_string());
+            case.features.insert("immutable-arraybuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
         }
     }
 

@@ -390,6 +390,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: len_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;

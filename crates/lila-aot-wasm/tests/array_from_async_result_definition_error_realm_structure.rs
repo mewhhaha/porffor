@@ -111,7 +111,7 @@ fn ordinary_set_failures_and_array_from_async_routes_retain_typed_realm_authorit
     let set_failure = bounded(
         OBJECTS_SOURCE,
         "pub(crate) fn emit_object_write_set_failure_else(",
-        "pub(crate) fn emit_proxy_set_false_result_throw(",
+        "    fn emit_object_write_false_result(",
     );
     assert_eq!(
         set_failure
@@ -120,6 +120,22 @@ fn ordinary_set_failures_and_array_from_async_routes_retain_typed_realm_authorit
         2
     );
     assert!(!set_failure.contains("emit_throw_runtime_error_to_active_handler("));
+
+    // A `[[Set]]` known to have returned false (an immutable-backed TypedArray
+    // element) selects the same typed mutation-error owner under the same
+    // runtime-or-static strictness split.
+    let false_result = bounded(
+        OBJECTS_SOURCE,
+        "    fn emit_object_write_false_result(",
+        "pub(crate) fn emit_proxy_set_false_result_throw(",
+    );
+    assert_eq!(
+        false_result
+            .matches("emit_object_mutation_type_error_to_active_handler(message, function)?;")
+            .count(),
+        2
+    );
+    assert!(!false_result.contains("emit_throw_runtime_error"));
 
     let non_extensible_failure = bounded(
         OBJECTS_SOURCE,

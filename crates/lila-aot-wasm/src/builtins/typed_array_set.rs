@@ -1,7 +1,7 @@
 //! %TypedArray%.prototype.set and ordered same-kind byte copies.
 
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
 
 impl FunctionBuilder<'_> {
     pub(super) fn compile_typed_array_prototype_set_builtin(
@@ -99,10 +99,12 @@ impl FunctionBuilder<'_> {
             receiver_stored_byte_length_local,
             receiver_bytes_per_element_local,
         );
+        // Step 5 rejects an immutable target before the offset is coerced.
         self.emit_typed_array_witness(
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Write,
             },
             function,
         )?;
@@ -119,6 +121,7 @@ impl FunctionBuilder<'_> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -169,6 +172,7 @@ impl FunctionBuilder<'_> {
             &source_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: source_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;

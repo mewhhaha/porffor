@@ -162,8 +162,27 @@ fn both_public_methods_dispatch_numeric_indexes_through_the_validated_boolean_op
 
 #[test]
 fn index_definition_preserves_rejection_and_coercion_as_distinct_completion_paths() {
-    assert!(TYPED_ARRAY_DEFINE.contains("descriptor: &WasmDescriptor,"));
-    assert!(!TYPED_ARRAY_DEFINE.contains("descriptor: &WasmPartialDescriptor,"));
+    // The public boundary accepts only a validated descriptor. The private
+    // immutable-element validator receives the partial view of that same
+    // validated descriptor, never an unvalidated one.
+    let (before_helper, immutable_helper) = TYPED_ARRAY_DEFINE
+        .split_once("    fn emit_immutable_typed_array_element_define(")
+        .expect("private immutable-element validator");
+    let public_entry = before_helper
+        .split_once("pub(in crate::builtins) fn emit_typed_array_define_index_property(")
+        .expect("public TypedArray index definition")
+        .1;
+    assert!(public_entry.contains("descriptor: &WasmDescriptor,"));
+    assert!(!public_entry.contains("descriptor: &WasmPartialDescriptor,"));
+    assert!(public_entry.contains("let descriptor = descriptor.as_partial();"));
+    assert!(immutable_helper.contains("descriptor: &WasmPartialDescriptor,"));
+    assert_eq!(
+        TYPED_ARRAY_DEFINE
+            .matches("emit_immutable_typed_array_element_define(")
+            .count(),
+        2,
+        "one private definition and one call from the validated public entry"
+    );
     for forbidden in [
         "set_completion_kind(",
         "emit_throw_",
@@ -177,12 +196,18 @@ fn index_definition_preserves_rejection_and_coercion_as_distinct_completion_path
         );
     }
     ordered(
-        TYPED_ARRAY_DEFINE,
+        public_entry,
         &[
             "Instruction::I64Const(0)",
             "Instruction::LocalSet(result_local)",
             "emit_typed_array_valid_integer_index_i32(",
             "Instruction::BrIf(0)",
+            // [[DefineOwnProperty]] 1.b.ii: an immutable element is validated
+            // against its non-writable, non-configurable descriptor and never
+            // reaches the element write.
+            "self.emit_typed_array_buffer_is_immutable_i32(target_payload_local, function);",
+            "self.emit_immutable_typed_array_element_define(",
+            "Instruction::Br(1)",
             "&descriptor.configurable",
             "&descriptor.enumerable",
             "&descriptor.writable",
@@ -195,21 +220,51 @@ fn index_definition_preserves_rejection_and_coercion_as_distinct_completion_path
             "Instruction::LocalSet(result_local)",
         ],
     );
-    let reservations: Vec<_> = TYPED_ARRAY_DEFINE
-        .lines()
-        .filter_map(|line| {
-            line.trim()
-                .strip_prefix("let ")?
-                .strip_suffix(" = self.reserve_temp_local();")
-        })
-        .collect();
-    let releases: Vec<_> = TYPED_ARRAY_DEFINE
-        .lines()
-        .filter_map(|line| {
-            line.trim()
-                .strip_prefix("self.release_temp_local(")?
-                .strip_suffix(");")
-        })
-        .collect();
-    assert_eq!(reservations.into_iter().rev().collect::<Vec<_>>(), releases);
+    // The immutable validator compares without coercion and never writes.
+    for forbidden in [
+        "emit_typed_array_element_write_from_locals(",
+        "emit_value_to_",
+        "emit_return_current_completion",
+    ] {
+        assert!(
+            !immutable_helper.contains(forbidden),
+            "immutable definition must not coerce, write or complete: {forbidden}"
+        );
+    }
+    ordered(
+        immutable_helper,
+        &[
+            "(&descriptor.configurable, true)",
+            "(&descriptor.enumerable, false)",
+            "(&descriptor.writable, true)",
+            "&descriptor.get",
+            "&descriptor.set",
+            "descriptor.value.value()",
+            "self.emit_typed_array_element_read_from_locals(",
+            "self.emit_tagged_payload_same_value_i32(",
+            "Instruction::I64Const(1)",
+            "Instruction::LocalSet(result_local)",
+        ],
+    );
+    // Temporaries are released in reverse reservation order in each body.
+    for body in [public_entry, immutable_helper] {
+        let reservations: Vec<_> = body
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("let ")?
+                    .strip_suffix(" = self.reserve_temp_local();")
+            })
+            .collect();
+        let releases: Vec<_> = body
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("self.release_temp_local(")?
+                    .strip_suffix(");")
+            })
+            .collect();
+        assert!(!reservations.is_empty());
+        assert_eq!(reservations.into_iter().rev().collect::<Vec<_>>(), releases);
+    }
 }

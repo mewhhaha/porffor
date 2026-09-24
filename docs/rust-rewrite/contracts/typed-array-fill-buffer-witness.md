@@ -22,9 +22,12 @@ growth does not expand the original range. The method returns its receiver.
 
 `builtins/typed_array_fill.rs` compiles that sequence through the existing
 `TypedArrayViewLocals` and `TypedArrayWitnessUse::ValidatedMethodEntry`
-authority. Both observations borrow one private view description. Entry also
-rejects the existing immutable-buffer flag before value conversion, as required
-by the [immutable ArrayBuffer proposal](https://tc39.es/proposal-immutable-arraybuffer/#sec-%typedarray%.prototype.fill). The backing
+authority. Both observations borrow one private view description. The entry
+observation carries `access: TypedArrayAccessMode::Write`, so the shared witness
+rejects an immutable backing buffer before value conversion, as required by the
+[immutable ArrayBuffer proposal](https://tc39.es/proposal-immutable-arraybuffer/#sec-%typedarray%.prototype.fill);
+the post-conversion revalidation is a `Read` observation. See the
+[immutable ArrayBuffer contract](immutable-array-buffer.md). The backing
 pointer used by the write loop is loaded after the second observation, so
 argument coercion can replace storage without leaving a stale address. The
 loop uses the existing numeric/BigInt element encoding. It copies the retained

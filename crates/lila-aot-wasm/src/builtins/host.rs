@@ -6880,6 +6880,10 @@ impl<'a> FunctionBuilder<'a> {
                 StandardBuiltinId::ArrayBufferPrototypeDetachedGetter,
             ),
             (
+                "immutable",
+                StandardBuiltinId::ArrayBufferPrototypeImmutableGetter,
+            ),
+            (
                 "maxByteLength",
                 StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter,
             ),

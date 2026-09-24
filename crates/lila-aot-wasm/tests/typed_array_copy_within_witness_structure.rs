@@ -21,16 +21,21 @@ const VIEW_WIRING: &str = r#"
     );
 "#;
 
+// ValidateTypedArray(O, seq-cst, write): the entry rejects an immutable backing
+// buffer before any argument coercion.
 const ENTRY_WITNESS_WIRING: &str = r#"
     self.emit_typed_array_witness(
         &receiver_view,
         TypedArrayWitnessUse::ValidatedMethodEntry {
             length_local: receiver_length_local,
+            access: TypedArrayAccessMode::Write,
         },
         function,
     )?;
 "#;
 
+// Step 17.c is MakeTypedArrayWithBufferWitnessRecord, not ValidateTypedArray:
+// the buffer's immutability cannot change after the write-validated entry.
 const POSITIVE_COUNT_WITNESS_WIRING: &str = r#"
     function.instruction(&Instruction::LocalGet(count_local));
     function.instruction(&Instruction::I64Eqz);
@@ -40,6 +45,7 @@ const POSITIVE_COUNT_WITNESS_WIRING: &str = r#"
         &receiver_view,
         TypedArrayWitnessUse::ValidatedMethodEntry {
             length_local: current_length_local,
+            access: TypedArrayAccessMode::Read,
         },
         function,
     )?;

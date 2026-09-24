@@ -1318,6 +1318,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::SharedArrayBufferPrototypeGrowableGetter
         | StandardBuiltinId::SharedArrayBufferPrototypeGrow
         | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
+        | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter
         | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
         | StandardBuiltinId::ArrayBufferPrototypeResizableGetter
         | StandardBuiltinId::ArrayBufferPrototypeResize

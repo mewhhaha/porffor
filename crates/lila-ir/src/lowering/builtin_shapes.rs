@@ -96,6 +96,16 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         properties.insert(
+            "immutable".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::ArrayBufferPrototypeImmutableGetter
+                        .function_id(),
+                }),
+                setter: None,
+            },
+        );
+        properties.insert(
             "maxByteLength".to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
@@ -6105,7 +6115,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::ArrayBufferPrototypeDetachedGetter => (
+            StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
+            | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,

@@ -190,12 +190,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_alloc_data_descriptor_from_locals(
-            value_payload_local,
-            value_tag_local,
-            true,
-            true,
-            true,
+        self.emit_alloc_typed_array_element_descriptor(
+            target_payload_local,
+            TaggedLocals::new(value_payload_local, value_tag_local),
             self.result_local,
             function,
         )?;

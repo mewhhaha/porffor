@@ -292,8 +292,10 @@ fn sort_output_exhaustively_owns_all_four_semantic_projections() {
             .count(),
         1
     );
+    // Only a TypedArray whose buffer is not immutable takes the direct store; an
+    // immutable-backed receiver reaches `Set(O, P, V, true)`, which throws.
     assert!(normalized(publication_receiver).contains(
-        "function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));function.instruction(&Instruction::I64Eqz);function.instruction(&Instruction::If(BlockType::Empty));self.emit_object_write_strict(receiver_payload_local,receiver_tag_local,key_local,collected_payload_local,collected_tag_local,function,)?;function.instruction(&Instruction::Else);self.emit_typed_array_element_write_from_locals(receiver_payload_local,source_index_local,collected_payload_local,collected_tag_local,function,)?;function.instruction(&Instruction::End);"
+        "self.emit_typed_array_direct_store_i32(receiver_is_typed_array_local,receiver_payload_local,function,);function.instruction(&Instruction::I32Eqz);function.instruction(&Instruction::If(BlockType::Empty));self.emit_object_write_strict(receiver_payload_local,receiver_tag_local,key_local,collected_payload_local,collected_tag_local,function,)?;function.instruction(&Instruction::Else);self.emit_typed_array_element_write_from_locals(receiver_payload_local,source_index_local,collected_payload_local,collected_tag_local,function,)?;function.instruction(&Instruction::End);"
     ));
     assert!(!publication_receiver.contains("self.emit_array_write("));
 

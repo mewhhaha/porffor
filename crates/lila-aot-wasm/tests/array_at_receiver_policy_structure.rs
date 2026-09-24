@@ -428,7 +428,7 @@ fn all_four_receiver_decisions_borrow_and_exhaustively_project_the_policy() {
         "ArrayAtReceiverPolicy::GenericArrayLike=>{",
         "TypedArrayWitnessUse::ArrayLikeLengthSnapshot{length_local:len_local,}}",
         "ArrayAtReceiverPolicy::TypedArray=>TypedArrayWitnessUse::ValidatedMethodEntry{",
-        "length_local:len_local,},};",
+        "length_local:len_local,access:TypedArrayAccessMode::Read,},};",
         "self.emit_typed_array_witness(&typed_view,witness_use,function)?;"
     );
     let ordinary_object = concat!(

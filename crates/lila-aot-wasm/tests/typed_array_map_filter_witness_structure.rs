@@ -214,13 +214,31 @@ fn map_and_filter_each_consume_one_validated_entry_witness() {
             "buffer_payload_local,byte_offset_local,byte_length_local,",
             "bytes_per_element_local);",
             "self.emit_typed_array_witness(&receiver_view,",
-            "TypedArrayWitnessUse::ValidatedMethodEntry{length_local},function)?;"
+            "TypedArrayWitnessUse::ValidatedMethodEntry{length_local,",
+            "access:TypedArrayAccessMode::Read,},function)?;"
         );
         assert_eq!(
             normalized.matches(witness_wiring).count(),
             1,
             "{name} must wire the receiver slots and captured length to its sole witness without transposition"
         );
+
+        // The receiver is only read, while TypedArraySpeciesCreate validates its
+        // result with `write`: an immutable species destination is rejected
+        // before any element is stored into it.
+        let requested_length_local = match name {
+            "map" => "length_payload_local",
+            _ => "selected_length_payload_local",
+        };
+        let target_validation = format!(
+            "self.emit_validate_typed_array_from_constructed_target(target_payload_local,target_tag_local,{requested_length_local},TypedArrayAccessMode::Write,function)?;"
+        );
+        assert_eq!(
+            normalized.matches(target_validation.as_str()).count(),
+            1,
+            "{name} must validate its species target for write access"
+        );
+        assert_eq!(body.matches("TypedArrayAccessMode::").count(), 2);
 
         assert_temp_lifetime(body, name);
     }

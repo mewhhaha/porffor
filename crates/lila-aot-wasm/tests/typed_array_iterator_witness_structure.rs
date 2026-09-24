@@ -66,6 +66,12 @@ fn typed_array_iterator_boundaries_share_the_live_buffer_witness() {
             1,
             "{label} must select the throwing method-entry projection"
         );
+        assert_eq!(
+            body.matches("access: TypedArrayAccessMode::Read,").count(),
+            1,
+            "{label} only reads, so an immutable backing buffer is iterable"
+        );
+        assert!(!body.contains("TypedArrayAccessMode::Write"));
         assert!(!body.contains("emit_validate_typed_array_current_byte_length("));
         for private_view_slot in [
             "HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET",
@@ -85,7 +91,7 @@ fn typed_array_iterator_boundaries_share_the_live_buffer_witness() {
 fn validated_witness_errors_use_the_current_function_realm() {
     let validation = bounded(
         BINARY_DATA_SOURCE,
-        "match &use_ {\n            TypedArrayWitnessUse::ValidatedMethodEntry { .. } => {",
+        "match &use_ {\n            TypedArrayWitnessUse::ValidatedMethodEntry { access, .. } => {",
         "            TypedArrayWitnessUse::ArrayLikeLengthSnapshot { .. }",
     );
     assert_eq!(
@@ -97,4 +103,25 @@ fn validated_witness_errors_use_the_current_function_realm() {
     );
     assert!(!validation.contains("emit_throw_runtime_error("));
     assert!(!validation.contains("TYPE_ERROR_NAME"));
+
+    // A `Write` entry's immutable-buffer rejection is the third validated
+    // failure; its shared emitter throws in the same function Realm.
+    assert_eq!(
+        validation
+            .matches("self.emit_throw_if_array_buffer_immutable(")
+            .count(),
+        1
+    );
+    let immutable_rejection = bounded(
+        BINARY_DATA_SOURCE,
+        "    pub(crate) fn emit_throw_if_array_buffer_immutable(",
+        "    pub(crate) fn emit_initialize_data_view_private_state(",
+    );
+    assert_eq!(
+        immutable_rejection
+            .matches("emit_throw_current_function_realm_type_error(")
+            .count(),
+        1
+    );
+    assert!(!immutable_rejection.contains("emit_throw_runtime_error("));
 }

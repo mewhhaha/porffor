@@ -1077,12 +1077,14 @@ fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
 # likely-subtag entries, legacy accessor definers and seven Instant methods
-# (including toLocaleString and toZonedDateTimeISO): 2,274 raw lines.
-# +8 for the two Error.prototype.stack accessor result rows: 2,282 raw lines.
+# (including toLocaleString and toZonedDateTimeISO): 2,274 raw lines. The
+# `ArrayBuffer.prototype.immutable` getter shares the detached getter's Boolean
+# result arm (+1): 2,275 raw lines.
+# +8 for the two Error.prototype.stack accessor result rows: 2,283 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
 # +15 for the Iterator chunks/windows/includes/join result rows, which this
 # exhaustive table must carry.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2299
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2300
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -2612,8 +2614,11 @@ check_raw_line_budget "$wasm_standard_builtins" 30800
 
 # TypedArray.set owns the complete witness/copy algorithm; the dispatcher and
 # constructor can invoke fixed entries but must not grow another implementation.
+# 554 raw lines (+3 over the previous 551 budget): each of its three
+# method-entry witnesses names its ValidateTypedArray access mode, and the
+# receiver entry notes that its `Write` check precedes offset coercion.
 wasm_typed_array_set="crates/lila-aot-wasm/src/builtins/typed_array_set.rs"
-check_raw_line_budget "$wasm_typed_array_set" 551
+check_raw_line_budget "$wasm_typed_array_set" 554
 require_fixed_string_count "$wasm_typed_array_set" '    pub(super) fn ' 2 'fixed TypedArray set and byte-copy entries'
 if grep -Eq 'fn (compile_typed_array_prototype_set_builtin|emit_typed_array_copy_bytes_in_order)\(' "$wasm_standard_builtins"; then
   fail "$wasm_standard_builtins must delegate TypedArray set and ordered byte copies"

@@ -102,7 +102,10 @@ fn every_external_producer_names_its_kind_and_attributes() {
         rust_source
             .matches("StoredPropertyAttributes::Data {")
             .count(),
-        16
+        // 16 -> 17: the integer-indexed own-descriptor fact names the
+        // non-writable, non-configurable element of an immutable-backed
+        // TypedArray beside its mutable counterpart.
+        17
     );
     assert_eq!(
         rust_source

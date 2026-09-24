@@ -21,6 +21,19 @@ reuse the authority for a second result publication. The validation
 match deliberately binds none of the payload locals, while the consuming match
 is the sole payload owner.
 
+`ValidatedMethodEntry` also carries ValidateTypedArray's `accessMode`
+(`TypedArrayAccessMode::{Read, Write}`, from the Immutable ArrayBuffers
+proposal). The validation match binds only that policy. A `Write` entry
+rejects an immutable backing buffer through the shared
+`emit_throw_if_array_buffer_immutable` before the detached and out-of-bounds
+checks, exactly as ValidateTypedArray step 4 precedes step 6. Every producer
+names its mode, so a new method entry cannot silently default to either:
+the mutating entries (`copyWithin`, `fill`, `reverse`, `set`, `sort`, the
+Atomics read-modify-write operations and TypedArrayCreateFromConstructor for
+`from`, `of`, `map`, `filter` and `slice` species targets) validate `Write`;
+every reader and every later re-observation of an already validated view
+validates `Read`.
+
 The four variants remain exhaustive in both decisions. Adding a use therefore
 requires an explicit validation policy and an explicit result algorithm; no
 catch-all can silently inherit the behavior of an existing consumer. View
@@ -64,10 +77,11 @@ and end conversion unconditionally, including empty ranges. See the
 requires the next integration checkpoint; earlier verification below predates
 this new consumer.
 
-The witness body's current fingerprint is `(8495, 0x76179fc19b197dcd)`.
+The witness body's current fingerprint is `(8871, 0x4148ed4c3a988a21)`; the
+access-mode arm added 376 bytes to the earlier `(8495, 0x76179fc19b197dcd)`.
 Replacing only its named `TypedArrayLengthMode::Fixed.word()` projection with
-the old `I64Const(0)` exactly reconstructs the earlier fingerprint
-`(8433, 0xdba079dd67aaacdf)`. Both select wire zero. The current body and the
+the old `I64Const(0)` in that earlier body exactly reconstructs the fingerprint
+before it, `(8433, 0xdba079dd67aaacdf)`. Both select wire zero. The current body and the
 older census drift already existed on `origin/main` at `6dff6eb0d`; the codec
 adds two view references, one constructor, two use references and one witness
 call to that baseline. The per-file inventory prevents an unrelated added or

@@ -56,11 +56,14 @@ const RESULT_VIEW_WIRING: &str = r#"
                 );
 "#;
 
+// TypedArraySpeciesCreate defaults to `read` for subarray: a species result
+// that shares an immutable buffer is valid, unlike a slice/map/filter target.
 const RESULT_WITNESS_WIRING: &str = r#"
                 self.emit_typed_array_witness(
                     &result_typed_array_view,
                     TypedArrayWitnessUse::ValidatedMethodEntry {
                         length_local: result_length_local,
+                        access: TypedArrayAccessMode::Read,
                     },
                     function,
                 )?;

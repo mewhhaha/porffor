@@ -220,6 +220,13 @@ and the raw writer body remains
 The existing normalized grouped-owner and writer fingerprints remain
 `(14341, 0xd07f66f964485b66)` and `(7153, 0x32291bb08809c608)`.
 
+The ordinary slice's immutable-species rejection now asks the shared
+IsImmutableBuffer predicate, `emit_array_buffer_is_immutable_i32`, instead of
+projecting the `Immutable` flag word inline. Restoring that inline projection
+reproduces the preceding grouped-owner fingerprint
+`(14326, 0xd074a254b75b8ba9)` exactly; the current grouped owner is
+`(14113, 0x3be4e73daf7a40ff)`.
+
 Batch AJ makes `ArrayBufferSliceKind` a single capability-free slice-kind
 authority. Its five production type mentions are exactly the private
 declaration and implementation plus the three grouped builtin producers for

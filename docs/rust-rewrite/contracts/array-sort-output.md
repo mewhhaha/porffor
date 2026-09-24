@@ -23,7 +23,11 @@ exhaustive matches that own every output-sensitive decision:
 - `Copy` reads every indexed property so holes become `undefined`, while
   `Receiver` preserves the existing `HasProperty` policy;
 - `Copy` publishes sorted entries into the new Array, while `Receiver` uses the
-  existing ordinary-object or TypedArray write path; and
+  existing ordinary-object or TypedArray write path. The direct TypedArray
+  store applies only when `emit_typed_array_direct_store_i32` reports a
+  TypedArray whose buffer is not immutable; an immutable-backed receiver takes
+  the ordinary `Set(O, P, V, true)` path, whose integer-indexed `[[Set]]`
+  returns false and throws; and
 - `Receiver` deletes trailing source properties, while `Copy` performs no
   source deletion.
 

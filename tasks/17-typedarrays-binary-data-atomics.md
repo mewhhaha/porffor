@@ -816,8 +816,10 @@ behavior.
 
 The payload-bearing `TypedArrayWitnessUse` is now a move-only witness-use
 authority. Its validation decision borrows the policy without binding any
-destination local, while its final consuming projection owns the sole result
-publication from the cached backing-store observation. Copying the authority
+destination local (the method-entry arm binds only its `TypedArrayAccessMode`,
+whose `Write` mode rejects an immutable backing buffer first), while its
+final consuming projection owns the sole result publication from the cached
+backing-store observation. Copying the authority
 can therefore no longer duplicate publication or permit post-projection reuse.
 The recursive Rust-lexical
 `typed_array_witness_use_ownership_structure` guard pins the attribute-free

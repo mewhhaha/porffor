@@ -47,7 +47,10 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
     for (name, expected) in [
         ("emit_date_positive_mod", 13),
         ("emit_date_make_time", 4),
-        ("emit_throw_if_array_buffer_immutable", 6),
+        // 6 -> 10: the shared immutable throw gained the write-access
+        // witness, DetachArrayBuffer, ArrayBufferCopyAndDetach and the
+        // Uint8Array codec as callers (definition plus nine calls).
+        ("emit_throw_if_array_buffer_immutable", 10),
         (
             "emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start",
             2,

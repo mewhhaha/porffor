@@ -443,10 +443,30 @@ fn slice_kind_is_one_capability_free_borrowed_authority() {
     for forbidden in ["slice_kind.clone(", "&mutslice_kind", "*slice_kind"] {
         assert!(!owner.routes.contains(forbidden), "found `{forbidden}`");
     }
+    assert_immutable_species_check_uses_the_shared_predicate(&owner.code);
+}
+
+/// The grouped slice body's immutable species rejection asks the shared
+/// IsImmutableBuffer predicate. Restoring the inline flag projection it
+/// replaced reproduces the pre-immutable-ArrayBuffer body exactly, so the
+/// predicate call is the only change to this body.
+fn assert_immutable_species_check_uses_the_shared_predicate(code: &str) {
+    const PREDICATE: &str = "self.emit_array_buffer_is_immutable_i32(new_object_local,function,);";
+    const INLINE_PROJECTION: &str = concat!(
+        "function.instruction(&Instruction::LocalGet(new_flags_local));",
+        "function.instruction(&Instruction::I64Const(ArrayBufferFlag::Immutable.word()asi64,));",
+        "function.instruction(&Instruction::I64And);",
+        "function.instruction(&Instruction::I64Const(0));",
+        "function.instruction(&Instruction::I64Ne);"
+    );
+    assert_eq!(code.matches(PREDICATE).count(), 1);
+    assert!(!code.contains("ArrayBufferFlag::Immutable"));
+    let inline_body = code.replacen(PREDICATE, INLINE_PROJECTION, 1);
     assert_eq!(
-        (owner.code.len(), fnv1a(&owner.code)),
+        (inline_body.len(), fnv1a(&inline_body)),
         (14326, 0xd074_a254_b75b_8ba9)
     );
+    assert_eq!((code.len(), fnv1a(code)), (14113, 0x3be4_e73d_af7a_40ff));
 }
 
 #[test]
@@ -610,10 +630,7 @@ fn grouped_slice_body_borrows_then_hands_off_the_policy_once() {
         .expect("owned copy-policy handoff");
     assert!(!body.code[handoff + handoff_route.len()..].contains("copy_policy"));
     // Default species allocation selects the same memory as subsequent byte access.
-    assert_eq!(
-        (body.code.len(), fnv1a(&body.code)),
-        (14326, 0xd074_a254_b75b_8ba9)
-    );
+    assert_immutable_species_check_uses_the_shared_predicate(&body.code);
 }
 
 #[test]

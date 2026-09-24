@@ -122,8 +122,12 @@ fn array_buffer_flag_is_one_capability_free_four_row_wire_authority() {
 #[test]
 fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 33);
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 31);
+    // 33 -> 28: six per-site `Immutable` reads (fill, codec, resize, slice
+    // species, transfer, the old immutable throw) collapsed into the single
+    // IsImmutableBuffer predicate, which owns one projection.
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 28);
+    // 31 -> 26: the same six removals and one predicate projection.
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 26);
     for old_name in [
         "ARRAY_BUFFER_FLAG_RESIZABLE",
         "ARRAY_BUFFER_FLAG_SHARED",
@@ -138,10 +142,15 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     }
 
     assert_eq!(OBJECTS.matches("ArrayBufferFlag::").count(), 2);
+    // Unchanged count: the immutable throw lost its projection and the
+    // IsImmutableBuffer predicate gained one.
     assert_eq!(BINARY_DATA.matches("ArrayBufferFlag::").count(), 6);
-    assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 17);
-    assert_eq!(UINT8_ARRAY_CODECS.matches("ArrayBufferFlag::").count(), 1);
-    assert_eq!(TYPED_ARRAY_FILL.matches("ArrayBufferFlag::").count(), 1);
+    // 17 -> 14: resize, slice-species and transfer now ask the predicate.
+    assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 14);
+    // 1 -> 0: the codec's write validation calls the shared immutable throw.
+    assert_eq!(UINT8_ARRAY_CODECS.matches("ArrayBufferFlag::").count(), 0);
+    // 1 -> 0: fill validates write access through its method-entry witness.
+    assert_eq!(TYPED_ARRAY_FILL.matches("ArrayBufferFlag::").count(), 0);
     assert_eq!(HEAP.matches("ArrayBufferFlag::").count(), 4);
     assert_eq!(
         [
@@ -159,7 +168,8 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
                 .count()
         })
         .sum::<usize>(),
-        27
+        // 27 -> 22: the five removed product `word()` rows listed above.
+        22
     );
 }
 
@@ -185,13 +195,20 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         ),
         (
             "    pub(crate) fn emit_detach_array_buffer(",
-            "    pub(crate) fn emit_throw_if_array_buffer_immutable(",
+            "    pub(crate) fn emit_array_buffer_is_immutable_i32(",
             1,
         ),
         (
-            "    pub(crate) fn emit_throw_if_array_buffer_immutable(",
-            "    pub(crate) fn emit_initialize_data_view_private_state(",
+            "    pub(crate) fn emit_array_buffer_is_immutable_i32(",
+            "    pub(crate) fn emit_typed_array_buffer_is_immutable_i32(",
             1,
+        ),
+        // The TypedArray predicate, element descriptor and immutable throw all
+        // consult the predicate instead of projecting the flag again.
+        (
+            "    pub(crate) fn emit_typed_array_buffer_is_immutable_i32(",
+            "    pub(crate) fn emit_initialize_data_view_private_state(",
+            0,
         ),
     ] {
         assert_eq!(
@@ -202,6 +219,30 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
             "flag projections in `{start}`"
         );
     }
+
+    // IsImmutableBuffer is the sole reader of the `Immutable` word; the other
+    // two binary-data `Immutable` rows create an immutable buffer.
+    let predicate = bounded(
+        BINARY_DATA,
+        "    pub(crate) fn emit_array_buffer_is_immutable_i32(",
+        "    pub(crate) fn emit_typed_array_buffer_is_immutable_i32(",
+    );
+    assert_eq!(
+        projection_sequence(predicate, "ArrayBufferFlag::"),
+        ["Immutable"]
+    );
+    let immutable_throw = bounded(
+        BINARY_DATA,
+        "    pub(crate) fn emit_throw_if_array_buffer_immutable(",
+        "    pub(crate) fn emit_initialize_data_view_private_state(",
+    );
+    assert_eq!(
+        immutable_throw
+            .matches("self.emit_array_buffer_is_immutable_i32(")
+            .count(),
+        1
+    );
+    assert!(immutable_throw.contains("writer.type_error_message()"));
 
     let slice_kind = bounded(
         STANDARD,
@@ -219,7 +260,23 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         .split_once("    pub(crate) fn compile_standard_builtin(")
         .expect("standard builtin compiler")
         .1;
-    assert_eq!(standard_compiler.matches("ArrayBufferFlag::").count(), 14);
+    // 14 -> 11: resize, slice-species and transfer immutable reads moved to
+    // the shared predicate.
+    assert_eq!(standard_compiler.matches("ArrayBufferFlag::").count(), 11);
+    assert_eq!(
+        standard_compiler
+            .matches("self.emit_array_buffer_is_immutable_i32(")
+            .count(),
+        3,
+        "resize, the grouped slice species check and the immutable getter"
+    );
+    assert_eq!(
+        standard_compiler
+            .matches("ImmutableBufferWriter::CopyAndDetach")
+            .count(),
+        1,
+        "the transfer family rejects an immutable receiver through the shared throw"
+    );
 
     let codec_receiver = bounded(
         UINT8_ARRAY_CODECS,
@@ -230,30 +287,39 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         .split_once("Uint8ArrayCodecAccess::Write => {")
         .expect("only writing codecs reject immutable buffers")
         .1;
-    assert_eq!(codec_receiver.matches("ArrayBufferFlag::").count(), 1);
+    assert_eq!(codec_receiver.matches("ArrayBufferFlag::").count(), 0);
     assert_eq!(
-        projection_sequence(write_validation, "ArrayBufferFlag::"),
-        ["Immutable"]
+        codec_receiver
+            .matches("self.emit_throw_if_array_buffer_immutable(")
+            .count(),
+        1
     );
-    assert!(write_validation.contains("self.emit_throw_current_function_realm_type_error("));
+    assert!(write_validation.contains("self.emit_throw_if_array_buffer_immutable("));
+    assert!(write_validation.contains("ImmutableBufferWriter::Uint8ArrayCodec"));
 
     let typed_array_fill = TYPED_ARRAY_FILL
         .split_once("    pub(super) fn compile_typed_array_prototype_fill_builtin(")
         .expect("TypedArray.prototype.fill owner")
         .1;
-    assert_eq!(
-        projection_sequence(typed_array_fill, "ArrayBufferFlag::"),
-        ["Immutable"]
-    );
-    let immutable_rejection = typed_array_fill
-        .split_once("ArrayBufferFlag::Immutable.word() as i64")
-        .expect("fill rejects immutable backing buffers")
-        .1;
-    assert!(immutable_rejection
+    assert_eq!(typed_array_fill.matches("ArrayBufferFlag::").count(), 0);
+    // Fill's entry witness is ValidateTypedArray(O, seq-cst, write): its
+    // immutable-buffer rejection precedes the value conversion.
+    let entry_witness = typed_array_fill
         .split_once("self.emit_typed_array_witness(")
-        .expect("fill witnesses the receiver after the immutable check")
-        .0
-        .contains("self.emit_throw_current_function_realm_type_error("));
+        .expect("fill validates its receiver")
+        .1;
+    let (entry_arguments, after_entry) = entry_witness
+        .split_once("function,\n        )?;")
+        .expect("fill entry witness call");
+    assert!(entry_arguments.contains("access: TypedArrayAccessMode::Write,"));
+    assert!(after_entry.contains("self.emit_value_to_typed_array_element_payload("));
+    assert_eq!(
+        typed_array_fill
+            .matches("access: TypedArrayAccessMode::Write,")
+            .count(),
+        1,
+        "only the entry witness validates write access; the later observation re-reads bounds"
+    );
 }
 
 #[test]
@@ -291,10 +357,27 @@ fn closed_flag_selection_preserves_the_frozen_wire_projection_sequence() {
         (1773, 0xa28c_7750_59da_a571)
     );
 
+    // The immutable-ArrayBuffer work removed exactly three per-site
+    // `Immutable` reads from the legacy sequence: `resize` (row 17), the
+    // grouped `slice` species check (row 21) and the transfer family's
+    // receiver check (row 23). Each now asks the shared IsImmutableBuffer
+    // predicate, whose own projection replaces the old immutable throw's at
+    // row 7, so every other row keeps its frozen position and value.
+    const REMOVED_LEGACY_ROWS: [usize; 3] = [17, 21, 23];
     let legacy_sequence = projection_sequence(legacy_rows, "ARRAY_BUFFER_FLAG_");
+    assert_eq!(legacy_sequence.len(), 25);
+    for row in REMOVED_LEGACY_ROWS {
+        assert_eq!(legacy_sequence[row], "Immutable", "legacy row {row}");
+    }
+    let expected_sequence = legacy_sequence
+        .iter()
+        .enumerate()
+        .filter(|(row, _)| !REMOVED_LEGACY_ROWS.contains(row))
+        .map(|(_, flag)| *flag)
+        .collect::<Vec<_>>();
     let current_sequence = [OBJECTS, BINARY_DATA, STANDARD]
         .into_iter()
         .flat_map(|source| projection_sequence(source, "ArrayBufferFlag::"))
         .collect::<Vec<_>>();
-    assert_eq!(current_sequence, legacy_sequence);
+    assert_eq!(current_sequence, expected_sequence);
 }

@@ -372,12 +372,19 @@ fn atomics_integer_operation_borrows_exact_arity_and_diagnostic_tables() {
         "impl AtomicsIntegerOperation {",
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\nenum AtomicsRmwOperation",
     );
+    // The authority owns the value arity and the ValidateAtomicAccessOnInteger-
+    // TypedArray `accessMode`: only `Atomics.load` reads an immutable buffer.
     assert_eq!(
         normalize_rust(authority).code,
         concat!(
             "fnvalue_arg_count(&self)->u8{matchself{",
             "Self::Load=>0,Self::CompareExchange=>2,",
             "Self::Add|Self::And|Self::Exchange|Self::Or|Self::Store|Self::Sub|Self::Xor=>1,",
+            "}}",
+            "constfntyped_array_access(&self)->TypedArrayAccessMode{matchself{",
+            "Self::Load=>TypedArrayAccessMode::Read,",
+            "Self::Add|Self::And|Self::CompareExchange|Self::Exchange|Self::Or|Self::Store|",
+            "Self::Sub|Self::Xor=>TypedArrayAccessMode::Write,",
             "}}}"
         )
     );

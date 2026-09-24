@@ -1286,6 +1286,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "get detached",
     }
+    ArrayBufferPrototypeImmutableGetter {
+        function: FunctionOrdinal(853) => BUILTIN_ARRAY_BUFFER_PROTOTYPE_IMMUTABLE_GETTER_FUNCTION_ID,
+        debug: "get ArrayBuffer.prototype.immutable",
+        flags: [],
+        installer: None,
+        native: "get immutable",
+    }
     ArrayBufferPrototypeMaxByteLengthGetter {
         function: FunctionOrdinal(162) => BUILTIN_ARRAY_BUFFER_PROTOTYPE_MAX_BYTE_LENGTH_GETTER_FUNCTION_ID,
         debug: "get ArrayBuffer.prototype.maxByteLength",

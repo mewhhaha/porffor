@@ -43,11 +43,13 @@ const VIEW_WIRING: &str = r#"
     );
 "#;
 
+// every/some only read, so an immutable backing buffer is accepted.
 const WITNESS_WIRING: &str = r#"
     self.emit_typed_array_witness(
         &receiver_view,
         TypedArrayWitnessUse::ValidatedMethodEntry {
             length_local: len_local,
+            access: TypedArrayAccessMode::Read,
         },
         function,
     )?;

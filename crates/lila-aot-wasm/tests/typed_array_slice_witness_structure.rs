@@ -44,11 +44,13 @@ const SOURCE_ELEMENT_KIND_WIRING: &str = r#"
     );
 "#;
 
+// The source is only read: an immutable backing buffer can be sliced.
 const ENTRY_WITNESS_WIRING: &str = r#"
     self.emit_typed_array_witness(
         &source_view,
         TypedArrayWitnessUse::ValidatedMethodEntry {
             length_local: source_length_local,
+            access: TypedArrayAccessMode::Read,
         },
         function,
     )?;
@@ -63,6 +65,7 @@ const POSITIVE_COUNT_WITNESS_WIRING: &str = r#"
         &source_view,
         TypedArrayWitnessUse::ValidatedMethodEntry {
             length_local: current_source_length_local,
+            access: TypedArrayAccessMode::Read,
         },
         function,
     )?;
@@ -130,6 +133,8 @@ const INITIAL_COUNT_WIRING: &str = r#"
     function.instruction(&Instruction::End);
 "#;
 
+// TypedArraySpeciesCreate(O, « count », write): the constructed target is
+// validated for write access, so an immutable species destination throws.
 const TARGET_CREATION_WIRING: &str = r#"
     function.instruction(&Instruction::LocalGet(count_local));
     function.instruction(&Instruction::F64ConvertI64U);
@@ -160,6 +165,7 @@ const TARGET_CREATION_WIRING: &str = r#"
         target_payload_local,
         target_tag_local,
         count_payload_local,
+        TypedArrayAccessMode::Write,
         function,
     )?;
 "#;

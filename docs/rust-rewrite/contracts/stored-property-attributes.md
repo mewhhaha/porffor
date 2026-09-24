@@ -13,8 +13,10 @@ heap-private `DescriptorWord::of_data` and `DescriptorWord::of_accessor`
 constructors, while `descriptor_kind_bits` projects only the stored bits. Both
 raw constructors are inaccessible outside `heap.rs`; no alternate
 crate-visible positional boolean route remains. The projection has no wildcard
-or fallback. All fourteen data producers and two accessor producers construct
-a named variant with named fields.
+or fallback. All seventeen data producers and two accessor producers construct
+a named variant with named fields. The latest data producer is the
+integer-indexed own-descriptor fact for an element of a TypedArray backed by an
+immutable ArrayBuffer, which is non-writable and non-configurable.
 
 ## Scope and evidence
 

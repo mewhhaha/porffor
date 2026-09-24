@@ -1,5 +1,5 @@
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::control_flow::SyncIteratorConsumer;
 use crate::objects::{
     StoredDescriptorDataLocals, StoredDescriptorGetterLocals, StoredDescriptorLocals,
@@ -1528,6 +1528,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::LocalSet(prototype_tag_local));
+        // The inherited TypedArray's [[Set]] returns false for every canonical
+        // numeric key when its buffer is immutable, whatever the Receiver.
+        self.emit_typed_array_buffer_is_immutable_i32(prototype_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(
+            ArrayInheritedIndexSetState::OrdinaryRejected.code(),
+        ));
+        function.instruction(&Instruction::LocalSet(state_local));
+        function.instruction(&Instruction::Else);
         self.emit_typed_array_valid_integer_index_i32(
             prototype_local,
             index_number_payload_local,
@@ -1542,6 +1551,7 @@ impl<'a> FunctionBuilder<'a> {
             ArrayInheritedIndexSetState::Handled.code(),
         ));
         function.instruction(&Instruction::LocalSet(state_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(found_local));
@@ -9535,6 +9545,7 @@ impl<'a> FunctionBuilder<'a> {
             &source_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: source_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -9723,6 +9734,7 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             count_payload_local,
+            TypedArrayAccessMode::Write,
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -9752,6 +9764,7 @@ impl<'a> FunctionBuilder<'a> {
             &source_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: current_source_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -10024,7 +10037,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_typed_array_witness(
             &receiver_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local,
+                access: TypedArrayAccessMode::Read,
+            },
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -10197,6 +10213,7 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             length_payload_local,
+            TypedArrayAccessMode::Write,
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -10411,7 +10428,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_typed_array_witness(
             &receiver_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local,
+                access: TypedArrayAccessMode::Read,
+            },
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -10658,6 +10678,7 @@ impl<'a> FunctionBuilder<'a> {
             target_payload_local,
             target_tag_local,
             selected_length_payload_local,
+            TypedArrayAccessMode::Write,
             function,
         )?;
         self.load_i64_to_local_from_offset(
@@ -10870,6 +10891,7 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: len_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -11190,7 +11212,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_typed_array_witness(
             &view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local,
+                access: TypedArrayAccessMode::Read,
+            },
             function,
         )?;
 
@@ -12236,8 +12261,12 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             ArraySortOutput::Receiver => {
-                function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
-                function.instruction(&Instruction::I64Eqz);
+                self.emit_typed_array_direct_store_i32(
+                    receiver_is_typed_array_local,
+                    receiver_payload_local,
+                    function,
+                );
+                function.instruction(&Instruction::I32Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_object_write_strict(
                     receiver_payload_local,
@@ -14143,6 +14172,7 @@ impl<'a> FunctionBuilder<'a> {
             &typed_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: len_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -15091,6 +15121,29 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// Pushes an `i32` that is nonzero when a generic Array method may store
+    /// into `receiver` with the direct TypedArraySetElement path: the receiver
+    /// is a TypedArray (`receiver_is_typed_array_local` nonzero) whose buffer
+    /// is not immutable. An immutable-backed TypedArray instead takes
+    /// `Set(O, P, V, true)`, whose integer-indexed `[[Set]]` returns false and
+    /// therefore throws.
+    fn emit_typed_array_direct_store_i32(
+        &mut self,
+        receiver_is_typed_array_local: u32,
+        receiver_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        self.emit_typed_array_buffer_is_immutable_i32(receiver_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::End);
+    }
+
     pub(crate) fn compile_array_prototype_reverse_builtin(
         &mut self,
         function: &mut Function,
@@ -15303,9 +15356,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_typed_array_direct_store_i32(
+            receiver_is_typed_array_local,
+            receiver_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
@@ -15325,9 +15380,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_typed_array_direct_store_i32(
+            receiver_is_typed_array_local,
+            receiver_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
@@ -15670,9 +15727,11 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(receiver_is_typed_array_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        self.emit_typed_array_direct_store_i32(
+            receiver_is_typed_array_local,
+            receiver_payload_local,
+            function,
+        );
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_typed_array_element_write_from_locals(
             receiver_payload_local,
@@ -15855,6 +15914,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             ArrayAtReceiverPolicy::TypedArray => TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: len_local,
+                access: TypedArrayAccessMode::Read,
             },
         };
         self.emit_typed_array_witness(&typed_view, witness_use, function)?;
@@ -17373,6 +17433,7 @@ impl<'a> FunctionBuilder<'a> {
                 &typed_view,
                 TypedArrayWitnessUse::ValidatedMethodEntry {
                     length_local: len_local,
+                    access: TypedArrayAccessMode::Read,
                 },
                 function,
             )?;
@@ -17951,6 +18012,7 @@ impl<'a> FunctionBuilder<'a> {
                     &typed_view,
                     TypedArrayWitnessUse::ValidatedMethodEntry {
                         length_local: len_local,
+                        access: TypedArrayAccessMode::Read,
                     },
                     function,
                 )?;
@@ -18654,6 +18716,7 @@ impl<'a> FunctionBuilder<'a> {
                     &typed_view,
                     TypedArrayWitnessUse::ValidatedMethodEntry {
                         length_local: len_local,
+                        access: TypedArrayAccessMode::Read,
                     },
                     function,
                 )?;

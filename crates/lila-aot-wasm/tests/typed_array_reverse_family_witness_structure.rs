@@ -21,15 +21,22 @@ const VIEW_WIRING: &str = r#"
     );
 "#;
 
-const WITNESS_WIRING: &str = r#"
+/// The exact entry witness for `access`: `reverse` validates write access and
+/// so rejects an immutable backing buffer, `toReversed` only reads it.
+fn witness_wiring(access: &str) -> String {
+    format!(
+        r#"
     self.emit_typed_array_witness(
         &receiver_view,
-        TypedArrayWitnessUse::ValidatedMethodEntry {
+        TypedArrayWitnessUse::ValidatedMethodEntry {{
             length_local: receiver_length_local,
-        },
+            access: {access},
+        }},
         function,
     )?;
-"#;
+"#
+    )
+}
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -56,7 +63,12 @@ fn unique_normalized_position(body: &str, snippet: &str, label: &str) -> usize {
         .unwrap_or_else(|| panic!("missing normalized sentinel: {label}"))
 }
 
-fn assert_validated_method_entry_witness(label: &str, receiver_error: &str, body: &str) {
+fn assert_validated_method_entry_witness(
+    label: &str,
+    receiver_error: &str,
+    access: &str,
+    body: &str,
+) {
     let normalized_body = without_whitespace(body);
 
     assert_eq!(
@@ -108,7 +120,7 @@ fn assert_validated_method_entry_witness(label: &str, receiver_error: &str, body
     );
     let witness = unique_normalized_position(
         &normalized_body,
-        WITNESS_WIRING,
+        &witness_wiring(access),
         &format!("{label} exact validated-witness wiring"),
     );
     assert!(
@@ -160,11 +172,13 @@ fn typed_array_reverse_family_uses_one_validated_method_entry_witness() {
     assert_validated_method_entry_witness(
         "reverse",
         "TypedArray.prototype.reverse requires TypedArray",
+        "TypedArrayAccessMode::Write",
         reverse,
     );
     assert_validated_method_entry_witness(
         "toReversed",
         "TypedArray.prototype.toReversed requires TypedArray",
+        "TypedArrayAccessMode::Read",
         to_reversed,
     );
 

@@ -23,7 +23,9 @@ fn length_read_body() -> &'static str {
 fn indexed_read_body() -> &'static str {
     bounded(
         OBJECTS_SOURCE,
-        "    fn emit_typed_array_element_read_from_locals(",
+        // Crate-visible so the immutable-element [[DefineOwnProperty]]
+        // branch can compare against the current element value.
+        "    pub(crate) fn emit_typed_array_element_read_from_locals(",
         "    fn emit_typed_array_or_object_index_read_from_locals_inner(",
     )
 }
@@ -101,6 +103,7 @@ fn objects_has_no_raw_typed_array_current_length_observer() {
     for declaration in [
         "pub(crate) struct TypedArrayViewLocals",
         "pub(crate) enum TypedArrayAccessorKind",
+        "pub(crate) enum TypedArrayAccessMode",
         "pub(crate) enum TypedArrayWitnessUse",
         "pub(crate) fn emit_typed_array_witness(",
     ] {
@@ -111,6 +114,7 @@ fn objects_has_no_raw_typed_array_current_length_observer() {
         assert!(!BINARY_DATA_SOURCE.contains(&declaration.replace("pub(crate)", "pub")));
     }
     for type_name in [
+        "TypedArrayAccessMode",
         "TypedArrayAccessorKind",
         "TypedArrayViewLocals",
         "TypedArrayWitnessUse",

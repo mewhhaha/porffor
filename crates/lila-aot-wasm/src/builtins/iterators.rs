@@ -1,5 +1,5 @@
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
 use crate::emit::NumericErrorRealmSource;
 use crate::functions::NonArrayRealmIntrinsicSlot;
 
@@ -347,7 +347,10 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_typed_array_witness(
             &typed_array_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local },
+            TypedArrayWitnessUse::ValidatedMethodEntry {
+                length_local,
+                access: TypedArrayAccessMode::Read,
+            },
             function,
         )?;
 

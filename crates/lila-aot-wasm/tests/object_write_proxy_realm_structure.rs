@@ -240,7 +240,9 @@ fn array_inherited_index_set_state_is_one_capability_free_code_authority() {
 
     assert_eq!(
         ARRAY_SOURCE.matches("ArrayInheritedIndexSetState").count(),
-        16
+        // 16 -> 17: an inherited TypedArray backed by an immutable buffer
+        // rejects the write as `OrdinaryRejected` whatever the index.
+        17
     );
     assert_eq!(
         STANDARD_SOURCE
@@ -251,7 +253,8 @@ fn array_inherited_index_set_state_is_one_capability_free_code_authority() {
     for (variant, count) in [
         ("Unhandled", 2),
         ("Setter", 3),
-        ("OrdinaryRejected", 6),
+        // 6 -> 7: the immutable-buffer rejection of an inherited TypedArray.
+        ("OrdinaryRejected", 7),
         ("Handled", 2),
         ("ProxyRejected", 3),
     ] {

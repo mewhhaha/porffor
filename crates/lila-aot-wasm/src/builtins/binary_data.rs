@@ -1,4 +1,6 @@
 use super::super::*;
+use crate::objects::{DescriptorFlag, DescriptorObjectPrototype, TaggedLocals};
+use lila_ir::property_descriptor::CompleteDescriptor;
 
 mod define_property;
 
@@ -119,6 +121,7 @@ pub(crate) enum TypedArrayAccessorKind {
 pub(crate) enum TypedArrayWitnessUse {
     ValidatedMethodEntry {
         length_local: u32,
+        access: TypedArrayAccessMode,
     },
     ArrayLikeLengthSnapshot {
         length_local: u32,
@@ -143,6 +146,45 @@ struct TypedArrayWitnessLocals {
     cached_buffer_byte_length_local: u32,
     out_of_bounds_local: u32,
     element_length_local: u32,
+}
+
+/// ValidateTypedArray's `accessMode` (proposal-immutable-arraybuffer).
+///
+/// A method-entry witness names the access it validates, so every entry
+/// point decides at compile time whether an immutable backing buffer is a
+/// TypeError. The immutable-buffer rejection precedes the detached and
+/// out-of-bounds checks, exactly as ValidateTypedArray step 4 precedes step 6.
+pub(crate) enum TypedArrayAccessMode {
+    Read,
+    Write,
+}
+
+/// The algorithms that reject an immutable ArrayBuffer by throwing a TypeError.
+/// Each names its own message; the flag projection they consult is the single
+/// [`FunctionBuilder::emit_array_buffer_is_immutable_i32`].
+pub(crate) enum ImmutableBufferWriter {
+    /// ValidateTypedArray(`O`, `order`, ~write~) and its Atomics wrappers.
+    TypedArray,
+    /// ValidateUint8Array(`ta`, ~write~).
+    Uint8ArrayCodec,
+    /// SetViewValue step 3.
+    DataView,
+    /// DetachArrayBuffer step 2.
+    Detach,
+    /// ArrayBufferCopyAndDetach step 6.
+    CopyAndDetach,
+}
+
+impl ImmutableBufferWriter {
+    const fn type_error_message(&self) -> &'static str {
+        match self {
+            Self::TypedArray => "TypedArray backing buffer is immutable",
+            Self::Uint8ArrayCodec => "Uint8Array codec backing buffer is immutable",
+            Self::DataView => "DataView backing buffer is immutable",
+            Self::Detach => "Cannot detach an immutable ArrayBuffer",
+            Self::CopyAndDetach => "ArrayBuffer receiver is immutable",
+        }
+    }
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -311,7 +353,15 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         match &use_ {
-            TypedArrayWitnessUse::ValidatedMethodEntry { .. } => {
+            TypedArrayWitnessUse::ValidatedMethodEntry { access, .. } => {
+                match access {
+                    TypedArrayAccessMode::Read => {}
+                    TypedArrayAccessMode::Write => self.emit_throw_if_array_buffer_immutable(
+                        view.buffer_payload_local,
+                        ImmutableBufferWriter::TypedArray,
+                        function,
+                    )?,
+                }
                 function.instruction(&Instruction::LocalGet(data_ptr_local));
                 function.instruction(&Instruction::I64Eqz);
                 function.instruction(&Instruction::If(BlockType::Empty));
@@ -363,7 +413,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         match use_ {
-            TypedArrayWitnessUse::ValidatedMethodEntry { length_local }
+            TypedArrayWitnessUse::ValidatedMethodEntry { length_local, .. }
             | TypedArrayWitnessUse::ArrayLikeLengthSnapshot { length_local } => {
                 function.instruction(&Instruction::LocalGet(witness.element_length_local));
                 function.instruction(&Instruction::LocalSet(length_local));
@@ -1131,6 +1181,11 @@ impl<'a> FunctionBuilder<'a> {
             "detachArrayBuffer expects an ArrayBuffer",
             function,
         )?;
+        self.emit_throw_if_array_buffer_immutable(
+            buffer_payload_local,
+            ImmutableBufferWriter::Detach,
+            function,
+        )?;
         self.load_i64_to_local_from_offset(
             buffer_payload_local,
             HEAP_ARRAY_BUFFER_DETACH_KEY_PAYLOAD_OFFSET,
@@ -1193,30 +1248,97 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_throw_if_array_buffer_immutable(
-        &mut self,
-        receiver_payload_local: u32,
+    /// IsImmutableBuffer(`buffer`): pushes an `i32` that is nonzero exactly
+    /// when the ArrayBuffer carries the `[[ArrayBufferIsImmutable]]` slot.
+    ///
+    /// This is the one read of the `Immutable` flag word that
+    /// write-side algorithms consult. Every rejection (ValidateTypedArray with
+    /// `write`, SetViewValue, DetachArrayBuffer, ArrayBufferCopyAndDetach, the
+    /// integer-indexed `[[Set]]`/`[[DefineOwnProperty]]`/`[[GetOwnProperty]]`)
+    /// asks this predicate rather than re-deriving the flag word.
+    pub(crate) fn emit_array_buffer_is_immutable_i32(
+        &self,
+        buffer_payload_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let flags_local = self.reserve_temp_local();
-        self.emit_load_array_buffer_flags(receiver_payload_local, flags_local, function);
-        function.instruction(&Instruction::LocalGet(flags_local));
+    ) {
+        self.load_i64_from_offset(
+            buffer_payload_local,
+            HEAP_ARRAY_BUFFER_FLAGS_OFFSET,
+            function,
+        );
         function.instruction(&Instruction::I64Const(
             ArrayBufferFlag::Immutable.word() as i64
         ));
         function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+    }
+
+    /// IsImmutableBuffer(`O`.[[ViewedArrayBuffer]]) for a TypedArray payload.
+    pub(crate) fn emit_typed_array_buffer_is_immutable_i32(
+        &mut self,
+        typed_array_payload_local: u32,
+        function: &mut Function,
+    ) {
+        let buffer_payload_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(
+            typed_array_payload_local,
+            HEAP_TYPED_ARRAY_VIEWED_BUFFER_OFFSET,
+            buffer_payload_local,
+            function,
+        );
+        self.emit_array_buffer_is_immutable_i32(buffer_payload_local, function);
+        self.release_temp_local(buffer_payload_local);
+    }
+
+    /// TypedArray `[[GetOwnProperty]]` step 1.b.iii-v: the descriptor object
+    /// for a present element. `[[Writable]]` and `[[Configurable]]` are true
+    /// exactly when the viewed buffer is not immutable.
+    pub(crate) fn emit_alloc_typed_array_element_descriptor(
+        &mut self,
+        typed_array_payload_local: u32,
+        value: TaggedLocals,
+        result_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let mutable_local = self.reserve_temp_local();
+        self.emit_typed_array_buffer_is_immutable_i32(typed_array_payload_local, function);
         function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(mutable_local));
+        self.emit_from_complete_property_descriptor(
+            DescriptorObjectPrototype::MainRealmObjectPrototype,
+            CompleteDescriptor::Data {
+                value,
+                writable: DescriptorFlag::BooleanPayload(mutable_local),
+                enumerable: DescriptorFlag::Known(true),
+                configurable: DescriptorFlag::BooleanPayload(mutable_local),
+            },
+            result_payload_local,
+            function,
+        )?;
+        self.release_temp_local(mutable_local);
+        Ok(())
+    }
+
+    /// Throws the current-Realm TypeError that `writer` specifies when
+    /// `buffer_payload_local` is immutable, and returns the completion.
+    pub(crate) fn emit_throw_if_array_buffer_immutable(
+        &mut self,
+        buffer_payload_local: u32,
+        writer: ImmutableBufferWriter,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_array_buffer_is_immutable_i32(buffer_payload_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_type_error(
-            "DataView backing buffer is immutable",
+            writer.type_error_message(),
             self.result_local,
             self.result_tag_local,
             function,
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(flags_local);
         Ok(())
     }
 

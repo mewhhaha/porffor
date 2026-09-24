@@ -308,12 +308,24 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
     // The census of producers. A new descriptor-object producer must be added
     // here, which is the point: it has to be written against the owner.
     let expected: &[(&str, &str, usize)] = &[
+        // 10 -> 7: 62ffe7856 removed two calls without updating this census,
+        // and the TypedArray element descriptor now routes through
+        // `emit_alloc_typed_array_element_descriptor`, whose writable and
+        // configurable flags follow the viewed buffer's immutability.
         (
             "builtins/object/get_own_property_descriptor.rs",
             "self.emit_alloc_data_descriptor_from_locals(",
             // ArrayBuffer/DataView @@toStringTag are ordinary prototype data
-            // properties; their hard-coded descriptor branches are gone.
-            8,
+            // properties; their hard-coded descriptor branches are gone, and the
+            // TypedArray element descriptor moved to its complete-descriptor producer.
+            7,
+        ),
+        // The TypedArray [[GetOwnProperty]] element descriptor: the one
+        // producer outside the owner whose flags are run-time Booleans.
+        (
+            "builtins/binary_data.rs",
+            "self.emit_from_complete_property_descriptor(",
+            1,
         ),
         (
             "builtins/object/get_own_property_descriptor.rs",
@@ -398,6 +410,7 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
         "self.emit_alloc_data_descriptor_from_locals_with_flag_locals(",
         "self.emit_alloc_accessor_descriptor_from_locals_with_flag_local(",
         "self.emit_create_data_property_descriptor_carrier(",
+        "self.emit_from_complete_property_descriptor(",
         "self.emit_from_property_descriptor(",
     ] {
         for (path, source) in &sources {

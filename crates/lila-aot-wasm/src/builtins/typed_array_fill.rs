@@ -1,7 +1,7 @@
 //! %TypedArray%.prototype.fill: one value conversion between two witnesses.
 
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
 
 impl FunctionBuilder<'_> {
     pub(super) fn compile_typed_array_prototype_fill_builtin(
@@ -11,7 +11,6 @@ impl FunctionBuilder<'_> {
         let receiver = self.this_payload_local.expect("builtin receiver payload");
         let receiver_tag = self.this_tag_local.expect("builtin receiver tag");
         let buffer = self.reserve_temp_local();
-        let buffer_flags = self.reserve_temp_local();
         let byte_offset = self.reserve_temp_local();
         let stored_byte_length = self.reserve_temp_local();
         let bytes_per_element = self.reserve_temp_local();
@@ -55,27 +54,11 @@ impl FunctionBuilder<'_> {
             stored_byte_length,
             bytes_per_element,
         );
-        self.emit_load_array_buffer_flags(buffer, buffer_flags, function);
-        function.instruction(&Instruction::LocalGet(buffer_flags));
-        function.instruction(&Instruction::I64Const(
-            ArrayBufferFlag::Immutable.word() as i64
-        ));
-        function.instruction(&Instruction::I64And);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "TypedArray.prototype.fill backing buffer is immutable",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
         self.emit_typed_array_witness(
             &view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: initial_length,
+                access: TypedArrayAccessMode::Write,
             },
             function,
         )?;
@@ -132,6 +115,7 @@ impl FunctionBuilder<'_> {
             &view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: current_length,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -195,7 +179,6 @@ impl FunctionBuilder<'_> {
             bytes_per_element,
             stored_byte_length,
             byte_offset,
-            buffer_flags,
             buffer,
         ] {
             self.release_temp_local(local);

@@ -1,5 +1,5 @@
 use super::super::*;
-use super::binary_data::{TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
 use lila_runtime::AgentHostOperation;
 
 mod wait_async_result;
@@ -62,6 +62,22 @@ impl AtomicsIntegerOperation {
             | Self::Store
             | Self::Sub
             | Self::Xor => 1,
+        }
+    }
+
+    /// The `accessMode` passed to ValidateAtomicAccessOnIntegerTypedArray:
+    /// only `Atomics.load` reads, every other integer operation stores.
+    const fn typed_array_access(&self) -> TypedArrayAccessMode {
+        match self {
+            Self::Load => TypedArrayAccessMode::Read,
+            Self::Add
+            | Self::And
+            | Self::CompareExchange
+            | Self::Exchange
+            | Self::Or
+            | Self::Store
+            | Self::Sub
+            | Self::Xor => TypedArrayAccessMode::Write,
         }
     }
 }
@@ -539,6 +555,7 @@ impl<'a> FunctionBuilder<'a> {
             &typed_array_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: element_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -1036,6 +1053,7 @@ impl<'a> FunctionBuilder<'a> {
             &typed_array_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: element_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -1692,6 +1710,7 @@ impl<'a> FunctionBuilder<'a> {
             &typed_array_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: element_length_local,
+                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;
@@ -2034,6 +2053,7 @@ impl<'a> FunctionBuilder<'a> {
             &typed_array_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: element_length_local,
+                access: operation.typed_array_access(),
             },
             function,
         )?;

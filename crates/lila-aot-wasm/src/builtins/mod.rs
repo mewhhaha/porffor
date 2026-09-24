@@ -5,7 +5,9 @@ mod async_iterator;
 mod atomics;
 mod bigint;
 mod binary_data;
-pub(crate) use binary_data::{TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse};
+pub(crate) use binary_data::{
+    TypedArrayAccessMode, TypedArrayAccessorKind, TypedArrayViewLocals, TypedArrayWitnessUse,
+};
 mod boolean;
 mod bootstrap;
 mod collections;
