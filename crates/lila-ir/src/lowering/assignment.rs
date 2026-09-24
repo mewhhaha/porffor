@@ -17,6 +17,35 @@ fn saved_compound_assignment_value_info(kind: ValueKind, possible_kinds: KindSet
 }
 
 impl<'a> ScriptLowerer<'a> {
+    /// PutValue of one iteration value into a bare `for (x in/of …)` head
+    /// (14.7.5.7 step 6.g.i). The head is re-resolved every iteration exactly
+    /// like `x = value`: eval-visible code goes through the runtime identifier
+    /// environment, and static code pre-locates the Reference and lets a
+    /// preceding `with` object intercept it.
+    pub(super) fn lower_bare_iteration_head_write(
+        &mut self,
+        source_name: String,
+        value: TypedExpr,
+    ) -> TypedExpr {
+        if self.uses_runtime_identifier_environment() {
+            return self.environment_identifier(
+                source_name,
+                EnvironmentIdentifierOperationIr::Assign {
+                    value: Box::new(value),
+                },
+            );
+        }
+        let reference = self.locate_identifier_reference(&source_name);
+        let selected = self
+            .with_environment_chain
+            .select_preceding(reference.declarative_position());
+        if let Some(objects) = selected {
+            self.lower_with_scoped_identifier_write(source_name, value, objects, reference)
+        } else {
+            self.lower_located_identifier_assign_value(source_name, value, reference)
+        }
+    }
+
     pub(super) fn lower_assign(
         &mut self,
         op: AssignOp,

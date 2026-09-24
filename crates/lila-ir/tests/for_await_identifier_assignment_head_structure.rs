@@ -1,4 +1,6 @@
 const FOR_OF_SOURCE: &str = include_str!("../src/lowering/for_of.rs");
+const FOR_IN_SOURCE: &str = include_str!("../src/lowering/for_in.rs");
+const ASSIGNMENT_SOURCE: &str = include_str!("../src/lowering/assignment.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../src/analysis.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -91,13 +93,40 @@ fn bare_identifier_prefix_uses_the_checked_reference_write_path() {
         "} else if let Some(access) = access_initializer.as_ref() {",
     );
     for required in [
-        "self.locate_identifier_reference(source_name)",
+        "ExprIr::Identifier(storage_name.clone())",
+        "self.lower_bare_iteration_head_write(source_name.clone(), value)",
+    ] {
+        assert!(prefix.contains(required), "missing `{required}`");
+    }
+    // for-in's bare head shares the same write, so the two statements cannot
+    // drift apart on eval-visible, `with`, or strict unresolvable heads.
+    let for_in_prefix = bounded(
+        FOR_IN_SOURCE,
+        "} else if let Some(source_name) = bare_identifier_target.as_ref() {",
+        "} else if let Some(access) = access_initializer.as_ref() {",
+    );
+    assert!(
+        for_in_prefix.contains("self.lower_bare_iteration_head_write(source_name.clone(), value)")
+    );
+    let write = bounded(
+        ASSIGNMENT_SOURCE,
+        "pub(super) fn lower_bare_iteration_head_write(",
+        "pub(super) fn lower_assign(",
+    );
+    let order = [
+        "self.uses_runtime_identifier_environment()",
+        "EnvironmentIdentifierOperationIr::Assign",
+        "self.locate_identifier_reference(&source_name)",
         ".select_preceding(reference.declarative_position())",
         "self.lower_with_scoped_identifier_write(",
         "self.lower_located_identifier_assign_value(",
-        "ExprIr::Identifier(storage_name.clone())",
-    ] {
-        assert!(prefix.contains(required), "missing `{required}`");
+    ];
+    let mut cursor = 0;
+    for required in order {
+        let offset = write[cursor..]
+            .find(required)
+            .unwrap_or_else(|| panic!("missing or out of order `{required}`"));
+        cursor += offset + required.len();
     }
     // The head assignment is completion-neutral: ForIn/OfBodyEvaluation's
     // loop value comes from the body, never from the per-iteration binding.
