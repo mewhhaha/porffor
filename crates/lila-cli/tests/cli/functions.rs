@@ -49,16 +49,16 @@ fn inspect_reports_phase_twenty_seven_boxed_builtin_ir_shape() {
     // `boxed_builtin_calls=3` came from; they are now constructs only.
     assert!(stdout.contains("boxed_builtin_calls=0"), "{stdout}");
     assert!(stdout.contains("boxed_builtin_constructs=3"));
-    // Only `isStringBox.apply("x", [])` is resolved statically. Since c4e15caf5
-    // `.call` resolves to `%Function.prototype.call%` only while
-    // `function_prototype_call_is_intrinsic` can still prove the receiver and
-    // `%Function.prototype%.call` untouched, and the earlier `instanceof`
-    // operands in this `&&` chain (which may run a user `@@hasInstance`)
-    // invalidate those facts first, so `isNumberBox.call(1)` and
-    // `isBooleanBox.call(false)` stay dynamic calls.
+    // None of the three receiver adaptations is resolved statically. `call`,
+    // `apply` and `bind` resolve to their intrinsics only under the
+    // live-prototype proof in `lowering/intrinsic_method.rs`, and the earlier
+    // `instanceof` operands in this `&&` chain (which may run a user
+    // `@@hasInstance`) erase the recorded `%Function.prototype%` facts first,
+    // so `isNumberBox.call(1)`, `isBooleanBox.call(false)` and
+    // `isStringBox.apply("x", [])` stay dynamic calls.
     // `run_wasm_backend_succeeds_for_supported_boxed_builtin_fixture` checks
     // that all three still box their primitive receiver.
-    assert!(stdout.contains("boxed_receiver_adaptations=1"), "{stdout}");
+    assert!(stdout.contains("boxed_receiver_adaptations=0"), "{stdout}");
 }
 
 #[test]

@@ -235,8 +235,12 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
         "fn invalidate_nested_aliases(",
         "for property in shape.properties.values_mut()",
         "invalidate_value_alias(value, alias, canonical_targets);",
-        ".is_some_and(|prototype| alias.heap_shape.as_deref() == Some(prototype))",
-        "invalidate_nested_aliases(prototype, alias, canonical_targets);",
+        // Prototype links are cut by one owner, which reports whether the
+        // remaining chain is still described.
+        "fn invalidate_prototype_link(",
+        "if alias.heap_shape.as_deref() != Some(&*linked) {",
+        "return invalidate_nested_aliases(linked, alias, canonical_targets);",
+        "invalidate_prototype_link(&mut shape.prototype, alias, canonical_targets)",
         "HeapShape::Array(shape) => {",
         "invalidate_value_alias(element, alias, canonical_targets);",
         "self.visit_live_heap_shape_roots(clear_if_alias_is_reachable);",
