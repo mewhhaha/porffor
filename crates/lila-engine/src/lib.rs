@@ -31949,8 +31949,10 @@ try {
                 }, function () { rejectCalls += 1; });
                 return returnedPromise;
             }
+            // ECMA-262 after tc39/ecma262#3883: the callback runs before any
+            // capability exists; PromiseResolve then builds one for `sentinel`.
             let result = Promise.try.call(Capability, function () {
-                callbackSawConstructor = constructorCalls === 1;
+                callbackSawConstructor = constructorCalls === 0;
                 return sentinel;
             });
             result === returnedPromise
@@ -31973,13 +31975,17 @@ try {
     }
 
     #[test]
-    fn wasm_backend_promise_try_validates_receiver_before_callback() {
+    fn wasm_backend_promise_try_validates_receiver_object_before_callback() {
+        // Only Object-ness is checked before the callback (tc39/ecma262#3883);
+        // an Object that is not a constructor fails afterwards, in
+        // PromiseResolve's NewPromiseCapability.
         let source = r#"
             let callbackCalls = 0;
             let callback = function () { callbackCalls += 1; };
-            let receivers = [undefined, null, true, 1, "", Symbol(), {}, () => {}];
+            let primitives = [undefined, null, true, 1, "", Symbol()];
+            let nonConstructors = [{}, () => {}];
             let allThrow = true;
-            for (let receiver of receivers) {
+            for (let receiver of primitives.concat(nonConstructors)) {
                 try {
                     Promise.try.call(receiver, callback);
                     allThrow = false;
@@ -31987,7 +31993,7 @@ try {
                     allThrow = allThrow && error instanceof TypeError;
                 }
             }
-            allThrow && callbackCalls === 0;
+            allThrow && callbackCalls === nonConstructors.length;
         "#;
         let outcome = engine()
             .run_script(
@@ -31999,6 +32005,30 @@ try {
                 },
             )
             .unwrap_or_else(|err| panic!("Promise.try receiver validation should run: {err:?}"));
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_promise_try_returns_a_same_constructor_promise_unwrapped() {
+        let source = r#"
+            class SubPromise extends Promise {}
+            let plain = Promise.resolve(1);
+            let sub = SubPromise.resolve(2);
+            Promise.try(function () { return plain; }) === plain
+                && SubPromise.try(function () { return sub; }) === sub
+                && SubPromise.try(function () { return plain; }) !== plain
+                && SubPromise.try(function () { throw 0; }) instanceof SubPromise;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|err| panic!("Promise.try unwrapped return should run: {err:?}"));
         assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 

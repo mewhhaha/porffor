@@ -8552,14 +8552,38 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_direct_js_call_leave_throw_completion(
+            meta,
+            this_locals,
+            args,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
+    }
+
+    /// Like `emit_direct_js_call`, but a throw completion is left in the
+    /// completion locals for the caller to handle (e.g. IfAbruptRejectPromise)
+    /// instead of being propagated out of the current function.
+    pub(crate) fn emit_direct_js_call_leave_throw_completion(
+        &mut self,
+        meta: &WasmFunctionMeta,
+        this_locals: Option<(u32, Option<u32>)>,
+        args: &[(u32, u32)],
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let argc_local = self.reserve_temp_local();
         let argv_local = self.reserve_temp_local();
 
         if meta.protocol.class_kind() != ClassFunctionKind::Constructor {
             self.emit_pre_evaluated_arg_vector(args, argc_local, argv_local, function)?;
         }
-        self.emit_direct_js_call_with_argv(
+        self.emit_direct_js_call_with_environment_leave_throw_completion(
             meta,
+            None,
             this_locals,
             argc_local,
             argv_local,
@@ -8567,7 +8591,6 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
-        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
 
         self.release_temp_local(argv_local);
         self.release_temp_local(argc_local);
@@ -8818,6 +8841,31 @@ impl<'a> FunctionBuilder<'a> {
         tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_direct_js_call_with_environment_leave_throw_completion(
+            meta,
+            environment_local,
+            this_locals,
+            argc_local,
+            argv_local,
+            payload_local,
+            tag_local,
+            function,
+        )?;
+        self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_direct_js_call_with_environment_leave_throw_completion(
+        &mut self,
+        meta: &WasmFunctionMeta,
+        environment_local: Option<u32>,
+        this_locals: Option<(u32, Option<u32>)>,
+        argc_local: u32,
+        argv_local: u32,
+        payload_local: u32,
+        tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         // A direct call into a builtin's body requires its real body to be
         // emitted — see `FunctionMetaRegistry`.
         self.functions.record_builtin_meta(meta);
@@ -8829,11 +8877,6 @@ impl<'a> FunctionBuilder<'a> {
                 tag_local,
                 function,
             )?;
-            if let Some(target) = self.active_throw_target() {
-                self.emit_branch_to_target(target, function);
-            } else {
-                self.emit_return_current_completion(function);
-            }
         } else {
             if meta.standard_builtin.is_some()
                 || meta.host_builtin == Some(HostBuiltinId::RealmEvalScript)
@@ -8859,7 +8902,6 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalGet(argv_local));
             function.instruction(&Instruction::Call(meta.wasm_index));
             self.store_call_results(payload_local, tag_local, function);
-            self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         }
 
         Ok(())

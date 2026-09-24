@@ -3600,6 +3600,12 @@ impl RuntimeBootstrapPlan {
                     self.standard_roots
                         .insert(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
                 }
+                // Promise.try performs PromiseResolve through the %Promise.resolve%
+                // body on its normal-completion path.
+                if builtin == StandardBuiltinId::PromiseTry {
+                    self.standard_roots
+                        .insert(StandardBuiltinId::PromiseResolve);
+                }
                 if matches!(
                     builtin,
                     StandardBuiltinId::PromisePrototypeFinally

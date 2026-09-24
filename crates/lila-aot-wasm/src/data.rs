@@ -838,6 +838,7 @@ impl StringPool {
             "Generator is already running",
             "AsyncGenerator method called on incompatible receiver",
             "Promise.resolve receiver is not an object",
+            "Promise.try receiver is not an object",
             "Promise keyed constructor resolve property is not callable",
             "Promise keyed input must be an object",
             "allKeyed",

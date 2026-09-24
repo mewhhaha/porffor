@@ -244,13 +244,18 @@ fn promise_try_callback_type_error_consumer_releases_its_proof() {
 }
 
 #[test]
-fn promise_try_preserves_capability_and_argument_order_before_rejecting_invalid_callbacks() {
+fn promise_try_runs_the_callback_before_creating_any_capability() {
+    // ECMA-262 after tc39/ecma262#3883: only the receiver's Object-ness is
+    // checked up front; the capability exists only on the abrupt path, and a
+    // normal completion is PromiseResolve(ctor, value).
     let builtin = between(
         PROMISE_SOURCE,
         "pub(crate) fn emit_promise_try(",
         "#[allow(clippy::too_many_arguments)]",
     );
-    let capability = builtin.find("emit_new_promise_capability(").unwrap();
+    let receiver = builtin
+        .find("\"Promise.try receiver is not an object\"")
+        .unwrap();
     let callback = builtin.find("emit_builtin_arg_to_locals(0").unwrap();
     let argv_allocation = builtin
         .find("emit_alloc_array_payload_with_length(")
@@ -263,17 +268,33 @@ fn promise_try_preserves_capability_and_argument_order_before_rejecting_invalid_
     let invalid_callback = builtin
         .find("emit_load_promise_try_callback_type_error_prototype(function)")
         .unwrap();
-    let settle_selection = builtin
+    let abrupt_selection = builtin
         .find("Instruction::I64Const(COMPLETION_KIND_THROW)")
         .unwrap();
+    let capability = builtin.find("emit_new_promise_capability(").unwrap();
+    let reject = builtin
+        .find("HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET")
+        .unwrap();
+    let promise_resolve = builtin
+        .find("emit_call_promise_resolve_operation(")
+        .unwrap();
 
-    assert!(capability < callback);
+    assert!(receiver < callback);
     assert!(callback < argv_allocation);
     assert!(argv_allocation < argv_copy);
     assert!(argv_copy < callable);
     assert!(callable < generic_call);
     assert!(generic_call < invalid_callback);
-    assert!(invalid_callback < settle_selection);
+    assert!(invalid_callback < abrupt_selection);
+    assert!(abrupt_selection < capability);
+    assert!(capability < reject);
+    assert!(reject < promise_resolve);
+    assert_eq!(builtin.matches("emit_new_promise_capability(").count(), 1);
+    assert!(
+        !builtin.contains("HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET"),
+        "a normal completion must not be wrapped through a fresh capability"
+    );
+    assert!(builtin.contains("PromiseResolveRealmAuthority::CurrentFunction"));
     assert_eq!(
         builtin
             .matches("emit_function_or_proxy_call_with_argv_leave_throw_completion(")

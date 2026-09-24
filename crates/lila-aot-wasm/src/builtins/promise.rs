@@ -4892,6 +4892,22 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing Promise.try receiver tag",
             )
         })?;
+        // Promise.try steps 1-2 (ECMA-262 after tc39/ecma262#3883): only the
+        // receiver's Object-ness is checked before the callback runs; a
+        // non-constructor receiver is rejected later by NewPromiseCapability
+        // or PromiseResolve.
+        self.emit_is_heap_object_like_tag_i32(constructor_tag_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_type_error(
+            "Promise.try receiver is not an object",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
         let capability_record_local = self.reserve_temp_local();
         let promise_payload_local = self.reserve_temp_local();
         let promise_tag_local = self.reserve_temp_local();
@@ -4907,23 +4923,11 @@ impl<'a> FunctionBuilder<'a> {
         let undefined_tag_local = self.reserve_temp_local();
         let callback_result_payload_local = self.reserve_temp_local();
         let callback_result_tag_local = self.reserve_temp_local();
-        let settle_payload_local = self.reserve_temp_local();
-        let settle_tag_local = self.reserve_temp_local();
-        let settle_call_payload_local = self.reserve_temp_local();
-        let settle_call_tag_local = self.reserve_temp_local();
+        let reject_payload_local = self.reserve_temp_local();
+        let reject_tag_local = self.reserve_temp_local();
+        let reject_call_payload_local = self.reserve_temp_local();
+        let reject_call_tag_local = self.reserve_temp_local();
 
-        let executor_context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        self.emit_new_promise_capability(
-            &executor_context,
-            constructor_payload_local,
-            constructor_tag_local,
-            capability_record_local,
-            promise_payload_local,
-            promise_tag_local,
-            function,
-        )?;
-        self.release_promise_internal_function_materialization_context(executor_context);
         self.emit_builtin_arg_to_locals(0, callback_payload_local, callback_tag_local, function);
 
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
@@ -5004,83 +5008,113 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
+        // Step 4: only an abrupt callback completion creates a capability of
+        // its own and rejects it.
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.set_completion_kind(CompletionKind::Normal, function);
+        let executor_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
+        self.emit_new_promise_capability(
+            &executor_context,
+            constructor_payload_local,
+            constructor_tag_local,
+            capability_record_local,
+            promise_payload_local,
+            promise_tag_local,
+            function,
+        )?;
+        self.release_promise_internal_function_materialization_context(executor_context);
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_REJECT_PAYLOAD_OFFSET,
-            settle_payload_local,
+            reject_payload_local,
             function,
         );
         self.load_i64_to_local_from_offset(
             capability_record_local,
             HEAP_PROMISE_CAPABILITY_REJECT_TAG_OFFSET,
-            settle_tag_local,
+            reject_tag_local,
             function,
         );
-        function.instruction(&Instruction::Else);
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_PAYLOAD_OFFSET,
-            settle_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            capability_record_local,
-            HEAP_PROMISE_CAPABILITY_RESOLVE_TAG_OFFSET,
-            settle_tag_local,
-            function,
-        );
-        function.instruction(&Instruction::End);
-        self.set_completion_kind(CompletionKind::Normal, function);
         self.emit_function_or_proxy_call_leave_throw_completion(
-            settle_payload_local,
-            settle_tag_local,
+            reject_payload_local,
+            reject_tag_local,
             undefined_payload_local,
             undefined_tag_local,
             &[(callback_result_payload_local, callback_result_tag_local)],
-            settle_call_payload_local,
-            settle_call_tag_local,
+            reject_call_payload_local,
+            reject_call_tag_local,
             function,
         )?;
         function.instruction(&Instruction::LocalGet(self.completion_local));
         function.instruction(&Instruction::I64Const(COMPLETION_KIND_THROW));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(settle_call_payload_local));
+        function.instruction(&Instruction::LocalGet(reject_call_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::LocalGet(settle_call_tag_local));
+        function.instruction(&Instruction::LocalGet(reject_call_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(promise_payload_local));
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::LocalGet(promise_tag_local));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.set_completion_kind(CompletionKind::Normal, function);
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
 
+        // Step 5: Return ? PromiseResolve(ctor, status). A promise already
+        // made by `ctor` is returned as is, without another wrapping tick.
+        let resolve_context = self.emit_promise_resolve_operation_realm_context(
+            PromiseResolveRealmAuthority::CurrentFunction,
+            function,
+        )?;
+        let resolve_result = self.emit_call_promise_resolve_operation(
+            &resolve_context,
+            constructor_payload_local,
+            constructor_tag_local,
+            callback_result_payload_local,
+            callback_result_tag_local,
+            promise_payload_local,
+            promise_tag_local,
+            function,
+        );
+        self.release_promise_resolve_operation_realm_context(resolve_context);
+        resolve_result?;
+        self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::LocalGet(promise_payload_local));
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(promise_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Normal, function);
 
-        self.release_temp_local(settle_call_tag_local);
-        self.release_temp_local(settle_call_payload_local);
-        self.release_temp_local(settle_tag_local);
-        self.release_temp_local(settle_payload_local);
-        self.release_temp_local(callback_result_tag_local);
-        self.release_temp_local(callback_result_payload_local);
-        self.release_temp_local(undefined_tag_local);
-        self.release_temp_local(undefined_payload_local);
-        self.release_temp_local(arg_tag_local);
-        self.release_temp_local(arg_payload_local);
-        self.release_temp_local(source_arg_index_local);
-        self.release_temp_local(callback_arg_index_local);
-        self.release_temp_local(callback_argv_local);
-        self.release_temp_local(callback_argc_local);
-        self.release_temp_local(callback_tag_local);
-        self.release_temp_local(callback_payload_local);
-        self.release_temp_local(promise_tag_local);
-        self.release_temp_local(promise_payload_local);
-        self.release_temp_local(capability_record_local);
+        for local in [
+            reject_call_tag_local,
+            reject_call_payload_local,
+            reject_tag_local,
+            reject_payload_local,
+            callback_result_tag_local,
+            callback_result_payload_local,
+            undefined_tag_local,
+            undefined_payload_local,
+            arg_tag_local,
+            arg_payload_local,
+            source_arg_index_local,
+            callback_arg_index_local,
+            callback_argv_local,
+            callback_argc_local,
+            callback_tag_local,
+            callback_payload_local,
+            promise_tag_local,
+            promise_payload_local,
+            capability_record_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 

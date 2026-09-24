@@ -237,7 +237,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.emit_direct_js_call(
+        self.emit_direct_js_call_leave_throw_completion(
             &own_keys_meta,
             None,
             &[(promises_payload_local, promises_tag_local)],
@@ -324,7 +324,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("enumerable")));
         function.instruction(&Instruction::LocalSet(enumerable_key_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
-        self.emit_direct_js_call(
+        self.emit_direct_js_call_leave_throw_completion(
             &get_own_descriptor_meta,
             None,
             &[
