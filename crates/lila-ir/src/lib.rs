@@ -148,12 +148,11 @@ pub use modules::{
     source_writes_dynamic_import, DuplicateImportAttributeKeyIr, DynamicComponentIr,
     DynamicImportAttributesIr, DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr,
     ImportPhaseIr, IndirectExportEntryIr, JsonModuleSyntaxError, LinkedProgram, LocalExportEntryIr,
-    ModuleBindingKindIr,
-    ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
-    ModuleGraphSources, ModuleKey, ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr,
-    ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
-    ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr, SourceTextModuleRecordIr,
-    StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
+    ModuleBindingKindIr, ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr,
+    ModuleGraphIr, ModuleGraphSources, ModuleKey, ModuleLinkErrorIr, ModuleNamespaceExportIr,
+    ModuleNamespaceIr, ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr,
+    ModuleSourceIr, ModuleUnitId, ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr,
+    SourceTextModuleRecordIr, StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use modules::{
     DeferredModuleEvaluationIr, ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr,
@@ -8194,9 +8193,7 @@ target[Symbol.iterator];"#,
             })
             .expect("static member head should use the resumable iterator plan");
         let [StatementIr::DeclarationEvaluation(TypedExpr {
-            expr: ExprIr::PropertyWrite {
-                target, key, value, ..
-            },
+            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
             ..
         })] = direct_async_for_of_segments(plan).0
         else {
@@ -8206,9 +8203,15 @@ target[Symbol.iterator];"#,
             );
         };
 
-        assert!(matches!(&target.expr, ExprIr::Identifier(name) if name == "target"));
-        assert!(matches!(key, PropertyKeyIr::StaticString(name) if name == "value"));
-        assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name()));
+        assert!(
+            matches!(&assignment.base_and_receiver().expr, ExprIr::Identifier(name) if name == "target")
+        );
+        assert!(
+            matches!(assignment.referenced_name(), PropertyKeyIr::StaticString(name) if name == "value")
+        );
+        assert!(
+            matches!(&assignment.rhs().expr, ExprIr::Identifier(name) if name == plan.value_name())
+        );
         assert!(plan.value_name().starts_with("$forof.access"));
     }
 
@@ -8251,9 +8254,7 @@ target[Symbol.iterator];"#,
             })
             .expect("computed member head should use the resumable iterator plan");
         let [StatementIr::DeclarationEvaluation(TypedExpr {
-            expr: ExprIr::PropertyWrite {
-                target, key, value, ..
-            },
+            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
             ..
         })] = direct_async_for_of_segments(plan).0
         else {
@@ -8263,13 +8264,17 @@ target[Symbol.iterator];"#,
             );
         };
 
-        assert!(matches!(&target.expr, ExprIr::Identifier(name) if name == "target"));
+        assert!(
+            matches!(&assignment.base_and_receiver().expr, ExprIr::Identifier(name) if name == "target")
+        );
         assert!(matches!(
-            key,
+            assignment.referenced_name(),
             PropertyKeyIr::StringExpr(key)
                 if matches!(&key.expr, ExprIr::Identifier(name) if name == "key")
         ));
-        assert!(matches!(&value.expr, ExprIr::Identifier(name) if name == plan.value_name()));
+        assert!(
+            matches!(&assignment.rhs().expr, ExprIr::Identifier(name) if name == plan.value_name())
+        );
     }
 
     #[test]
@@ -18815,7 +18820,7 @@ eval(1);
                 if matches!(
                     statements.first(),
                     Some(StatementIr::DeclarationEvaluation(TypedExpr {
-                        expr: ExprIr::PropertyWrite { .. },
+                        expr: ExprIr::OrdinaryPropertyAssignment(_),
                         ..
                     }))
                 )

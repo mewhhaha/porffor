@@ -744,7 +744,11 @@ mod tests {
             for options in [ParseOptions::script(), ParseOptions::module()] {
                 let err = parse(source, options)
                     .expect_err("a rest property followed by a comma is not a pattern");
-                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"), "{source}");
+                assert_eq!(
+                    err.diagnostic().error_type(),
+                    Some("SyntaxError"),
+                    "{source}"
+                );
             }
         }
         for source in [

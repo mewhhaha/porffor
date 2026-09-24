@@ -1658,7 +1658,10 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
         node: &'ast boa_ast::declaration::LexicalDeclaration,
     ) -> ControlFlow<Self::BreakTy> {
         if self.function_depth == 0
-            && matches!(node, boa_ast::declaration::LexicalDeclaration::AwaitUsing(_))
+            && matches!(
+                node,
+                boa_ast::declaration::LexicalDeclaration::AwaitUsing(_)
+            )
         {
             self.top_level_await = true;
         }
