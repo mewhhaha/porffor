@@ -472,20 +472,7 @@ impl<'a> ScriptLowerer<'a> {
                 element_info.clone(),
                 ExprIr::Identifier(storage_name.clone()),
             );
-            let reference = self.locate_identifier_reference(source_name);
-            let selected = self
-                .with_environment_chain
-                .select_preceding(reference.declarative_position());
-            let assignment = if let Some(objects) = selected {
-                self.lower_with_scoped_identifier_write(
-                    source_name.clone(),
-                    value,
-                    objects,
-                    reference,
-                )
-            } else {
-                self.lower_located_identifier_assign_value(source_name.clone(), value, reference)
-            };
+            let assignment = self.lower_bare_iteration_head_write(source_name.clone(), value);
             vec![StatementIr::DeclarationEvaluation(assignment)]
         } else if let Some(access) = access_initializer.as_ref() {
             let value = TypedExpr::from_info(
