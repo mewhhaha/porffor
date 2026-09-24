@@ -786,6 +786,20 @@ impl<'a> FunctionBuilder<'a> {
             get_canonical_locales_meta,
             function,
         )?;
+        let supported_values_of_meta = self
+            .functions
+            .get(&StandardBuiltinId::IntlSupportedValuesOf.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Intl.supportedValuesOf`",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            object_local,
+            "supportedValuesOf",
+            supported_values_of_meta,
+            function,
+        )?;
         // One list, `INTL_NAMESPACE_CONSTRUCTORS`, decides both what the IR
         // shape claims `Intl` has (`ScriptLowerer::intl_object_value_info`) and
         // what actually gets installed here. They used to be two

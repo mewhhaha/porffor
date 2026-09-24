@@ -208,6 +208,17 @@ fn unicode_numbering_system(requested: &str) -> Option<&str> {
     None
 }
 
+/// NumberingSystemsOfLocale (ECMA-402 15.5.12 steps 2-5): the first `nu`
+/// value of the LookupMatchingLocaleByPrefix match, or `None` without a match.
+pub fn default_numbering_system_by_prefix(
+    requested: &str,
+    profiles: &NumberProfiles,
+) -> Option<&'static str> {
+    let matched = matching_locale(requested, LocaleMatcher::Lookup, profiles)?;
+    let profile = profiles.profile(matched)?;
+    Some(profiles.numbering_systems()[usize::from(profile.default_numbering)])
+}
+
 pub fn resolve_number_locale(
     request: &NumberLocaleRequest,
     profiles: &NumberProfiles,

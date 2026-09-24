@@ -1135,6 +1135,34 @@ impl<'a> ScriptLowerer<'a> {
             ("toString", StandardBuiltinId::IntlLocalePrototypeToString),
             ("maximize", StandardBuiltinId::IntlLocalePrototypeMaximize),
             ("minimize", StandardBuiltinId::IntlLocalePrototypeMinimize),
+            (
+                "getCalendars",
+                StandardBuiltinId::IntlLocalePrototypeGetCalendars,
+            ),
+            (
+                "getCollations",
+                StandardBuiltinId::IntlLocalePrototypeGetCollations,
+            ),
+            (
+                "getHourCycles",
+                StandardBuiltinId::IntlLocalePrototypeGetHourCycles,
+            ),
+            (
+                "getNumberingSystems",
+                StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems,
+            ),
+            (
+                "getTimeZones",
+                StandardBuiltinId::IntlLocalePrototypeGetTimeZones,
+            ),
+            (
+                "getTextInfo",
+                StandardBuiltinId::IntlLocalePrototypeGetTextInfo,
+            ),
+            (
+                "getWeekInfo",
+                StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,
+            ),
         ] {
             properties.insert(
                 name.to_string(),
@@ -4712,6 +4740,13 @@ impl<'a> ScriptLowerer<'a> {
                 )),
             ),
             (
+                "supportedValuesOf".to_string(),
+                ObjectShapeProperty::Data(Self::function_value_info_with_constructable(
+                    StandardBuiltinId::IntlSupportedValuesOf.function_id(),
+                    false,
+                )),
+            ),
+            (
                 shape_namespace_key(WellKnownSymbol::ToStringTag),
                 ObjectShapeProperty::Data(Self::string_value_info(INTL_NAME)),
             ),
@@ -6204,9 +6239,28 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlGetCanonicalLocales => (
+            StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlSupportedValuesOf
+            | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+            | StandardBuiltinId::IntlLocalePrototypeGetCollations
+            | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+            | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems => (
                 ValueKind::Array,
                 KindSet::from_kind(ValueKind::Array),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlLocalePrototypeGetTimeZones => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::Array)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+            | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
                 None,
                 ValueInfo::undefined(),
             ),

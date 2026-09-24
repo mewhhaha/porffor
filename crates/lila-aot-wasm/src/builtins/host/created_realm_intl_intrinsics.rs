@@ -36,6 +36,19 @@ impl<'a> FunctionBuilder<'a> {
             tag,
             function,
         )?;
+        self.emit_created_realm_intl_callable(
+            StandardBuiltinId::IntlSupportedValuesOf,
+            realm_functions,
+            callable,
+            function,
+        )?;
+        self.emit_object_define_local_data(
+            namespace,
+            "supportedValuesOf",
+            callable,
+            tag,
+            function,
+        )?;
 
         // The same witness installs the whole represented namespace in both
         // entry and created Realms. No per-member gate can silently omit one.

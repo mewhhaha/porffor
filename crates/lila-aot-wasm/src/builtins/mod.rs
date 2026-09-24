@@ -21,6 +21,7 @@ mod host;
 mod intl;
 mod intl_datetimeformat;
 mod intl_numberformat;
+pub(crate) use intl::intl_locale_info_pool_strings;
 pub(crate) use intl_datetimeformat::intl_date_time_format_pool_strings;
 pub(crate) use intl_numberformat::intl_number_format_pool_strings;
 mod iterators;

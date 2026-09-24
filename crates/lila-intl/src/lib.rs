@@ -10,6 +10,7 @@ use core::{fmt, fmt::Write as _};
 mod datetime;
 mod datetime_protocol;
 mod identifiers;
+mod locale_info;
 pub mod number_format;
 mod number_operation;
 mod number_protocol;
@@ -33,6 +34,12 @@ pub use datetime_protocol::{
     DATE_TIME_WIRE_HEADER_BYTES, DATE_TIME_WIRE_VERSION,
 };
 
+pub use locale_info::{
+    IsoWeekday, LocaleInfoError, LocaleInfoQuery, LocaleInfoRequest, LocaleInfoResponseKind,
+    LocaleInfoResult, LocaleInfoShape, LocaleInfoWireError, SupportedValuesKey,
+    SupportedValuesRequest, SupportedValuesResult, TextDirection, WeekInfo,
+    LOCALE_INFO_WIRE_HEADER_BYTES, LOCALE_INFO_WIRE_VERSION,
+};
 pub use number_operation::{
     NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
     NumberSupportedLocalesResult,
@@ -63,11 +70,11 @@ pub use protocol::{
     CanonicalizeLocale, FormatDateTimeParts, FormatDateTimeRangeParts, FormatNumberParts,
     FormatNumberRangeParts, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
     IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider, IntlProvider,
-    IntlProviderIdentityMismatch, LocaleTransformError, LocaleTransformRequest,
+    IntlProviderIdentityMismatch, LocaleInfo, LocaleTransformError, LocaleTransformRequest,
     LocaleTransformResult, LookupNamedTimeZone, MaximizeLocale, MinimizeLocale,
     MissingIntlCapabilities, ResolveDateTimeLocale, ResolveNumberLocale, ResolveTimeZone,
-    SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales, UnknownTimeZone,
-    UnsupportedLocale,
+    SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales, SupportedValues,
+    UnknownTimeZone, UnsupportedLocale,
 };
 pub use provider::{
     embedded_intl_data_identity, EmbeddedIntlProvider, EmbeddedIntlProviderSetupError,
@@ -111,10 +118,10 @@ macro_rules! closed_string_domain {
 
 pub const INTL_DATA_SCHEMA_VERSION: IntlDataSchemaVersion = IntlDataSchemaVersion(1);
 
-/// Host-call ABI5 adds typed NumberFormat locale and partition operations.
+/// Host-call ABI6 adds typed Locale information and supported-values operations.
 /// Artifact identity includes this value so an incompatible host is rejected
 /// before instantiation, independently of the pinned ICU/CLDR data identity.
-pub const INTL_HOST_CALL_ABI_VERSION: u16 = 5;
+pub const INTL_HOST_CALL_ABI_VERSION: u16 = 6;
 
 /// Canonical Wasm custom section carrying the Intl provider identity expected
 /// by a compiled artifact.
@@ -759,7 +766,7 @@ mod tests {
                 .expect("identity is canonical UTF-8"),
             concat!(
                 "schema=1\n",
-                "host-call-abi=5\n",
+                "host-call-abi=6\n",
                 "profile=minimal\n",
                 "services=Locale\n",
                 "capabilities=likely-subtags,locale-aliases,parent-locales\n",

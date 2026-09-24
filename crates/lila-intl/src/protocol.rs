@@ -5,8 +5,9 @@ use crate::number_format::{
     ScalarNumberPartition,
 };
 use crate::{
-    NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
-    NumberSupportedLocalesResult,
+    LocaleInfoError, LocaleInfoRequest, LocaleInfoResult, NumberFormatOperationError,
+    NumberFormatRequest, NumberRangeFormatRequest, NumberSupportedLocalesResult,
+    SupportedValuesRequest, SupportedValuesResult,
 };
 
 use crate::{
@@ -201,16 +202,16 @@ macro_rules! intl_operations {
         )+
 
         const _: () = {
-            let mut mask = 0u16;
+            let mut mask = 0u32;
             let mut index = 0;
             while index < IntlHostOp::ALL.len() {
-                mask |= 1u16 << IntlHostOp::ALL[index] as u16;
+                mask |= 1u32 << IntlHostOp::ALL[index] as u16;
                 assert!(!IntlHostOp::ALL[index]
                     .required_capabilities()
                     .is_empty());
                 index += 1;
             }
-            assert!(mask == (1u16 << IntlHostOp::ALL.len()) - 1);
+            assert!(mask == (1u32 << IntlHostOp::ALL.len()) - 1);
         };
     };
 }
@@ -352,6 +353,27 @@ intl_operations! {
         capabilities: [IntlDataCapability::ParentLocales, IntlDataCapability::NumberingSystems,
             IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules,
             IntlDataCapability::UnitsAndCurrencies],
+    }
+    LocaleInfo {
+        code: 14,
+        name: "locale-info",
+        request: LocaleInfoRequest,
+        response: LocaleInfoResult,
+        error: LocaleInfoError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::LikelySubtags,
+            IntlDataCapability::ParentLocales, IntlDataCapability::Calendars,
+            IntlDataCapability::Collation, IntlDataCapability::NumberingSystems,
+            IntlDataCapability::DateTimePatterns, IntlDataCapability::TimeZoneTransitions],
+    }
+    SupportedValues {
+        code: 15,
+        name: "supported-values",
+        request: SupportedValuesRequest,
+        response: SupportedValuesResult,
+        error: LocaleInfoError,
+        capabilities: [IntlDataCapability::Calendars, IntlDataCapability::Collation,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::UnitsAndCurrencies,
+            IntlDataCapability::TimeZoneTransitions],
     }
 }
 
@@ -809,7 +831,9 @@ mod tests {
         for operation in IntlHostOp::ALL {
             assert_eq!(IntlHostOp::from_wire(operation.wire()), Some(*operation));
         }
-        assert_eq!(IntlHostOp::from_wire(14), None);
+        assert_eq!(IntlHostOp::LocaleInfo.wire(), 14);
+        assert_eq!(IntlHostOp::SupportedValues.wire(), 15);
+        assert_eq!(IntlHostOp::from_wire(16), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

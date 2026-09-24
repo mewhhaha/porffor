@@ -1076,10 +1076,11 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
-# likely-subtag entries, legacy accessor definers and six Instant methods
-# (including toLocaleString): 2,273 raw lines.
+# likely-subtag entries, legacy accessor definers, six Instant methods
+# (including toLocaleString), the seven Intl.Locale information methods and
+# Intl.supportedValuesOf: 2,281 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2273
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2281
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -6835,8 +6836,14 @@ done
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_alloc_array_payload_with_length_in_current_function_realm[[:space:]]*\(' \
-  6 \
+  7 \
   'current-function Realm Array allocator consumers'
+# Intl.Locale information lists and Intl.supportedValuesOf share one reader.
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/builtins/intl/locale_info.rs \
+  'emit_alloc_array_payload_with_length_in_current_function_realm(' \
+  1 \
+  'Intl Locale information current-function Realm Array consumer'
 
 for number_format_array_consumer in \
   crates/lila-aot-wasm/src/builtins/intl_numberformat/render.rs \

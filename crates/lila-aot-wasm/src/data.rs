@@ -2169,6 +2169,7 @@ impl StringPool {
         for value in crate::builtins::intl_date_time_format_pool_strings()
             .into_iter()
             .chain(crate::builtins::intl_number_format_pool_strings())
+            .chain(crate::builtins::intl_locale_info_pool_strings())
         {
             pool.intern_string(&value);
         }

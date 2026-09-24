@@ -112,10 +112,40 @@ covers the ICU archive, CLDR source manifest and generated alias rows.
 
 The alias batch adds four provider tests, six native Wasm-AOT regressions and
 seven generator failure controls. At staging handoff, generator checks pass;
-compilation and provider/native/Test262 execution remain pending. Locale
-maximize/minimize, locale information services, complete matching and broader
-Intl services remain open. See the [data provenance and regeneration
+compilation and provider/native/Test262 execution remain pending. Complete
+matching and broader Intl services remain open; Locale information is described
+below. See the [data provenance and regeneration
 contract](../../crates/lila-intl/data/cldr-47-bcp47/README.md).
+
+## Locale information and supportedValuesOf
+
+`getCalendars`, `getCollations`, `getHourCycles`, `getNumberingSystems`,
+`getTimeZones`, `getTextInfo` and `getWeekInfo` (ECMA-402 15.3.16-15.3.22) and
+`Intl.supportedValuesOf` (8.3.2) are `INTL_HOST` builtins in both main and
+created Realms. The emitted body performs RequireInternalSlot (or ToString of
+`key` and the RangeError for an unknown key) and then sends a typed request:
+host ABI6 adds `LocaleInfo` (closed `LocaleInfoQuery` plus the canonical
+`[[Locale]]` tag) and `SupportedValues` (closed `SupportedValuesKey`). Neither
+operation can reject. Each query statically selects its response shape
+(`LocaleInfoShape`), which both the encoder and the emitted reader enforce; the
+reader traps on any out-of-bounds, extra or mismatched word. Arrays and
+`OrdinaryObjectCreate(%Object.prototype%)` results are allocated in the
+current function's Realm, and `getTextInfo` always defines `direction`, with
+`undefined` when TextDirectionOfLocale cannot decide.
+
+The kernel implements RegionPreference, CanonicalUnicodeSubdivision, the
+language-region-then-region lookups and the week-data `rg`/region/`001`
+selection exactly as written. `[[Calendar]]`, `[[Collation]]`, `[[HourCycle]]`,
+`[[NumberingSystem]]` and `[[FirstDayOfWeek]]` are read from the canonical tag's
+keywords, the same source as the corresponding getters. Add Likely Subtags uses
+the provider's `MaximizeLocale` implementation, whose failure retains the input,
+which is the specified error behavior. CalendarsOfLocale keeps only
+AvailableCalendars, i.e. `DateTimeCalendar::ALL`, the calendars DateTimeFormat
+formats; region calendars outside that set (for example `buddhist`, `japanese`,
+`persian`, `indian`) are therefore not reported until DateTimeFormat supports
+them. NumberingSystemsOfLocale uses the NumberFormat profile's prefix match and
+default system. The CLDR47 and IANA2026a tables are generated; see the [data
+provenance and rules](../../crates/lila-intl/data/locale-info-cldr-47/README.md).
 
 References: [ECMA-402 Locale construction](https://tc39.es/ecma402/#sec-intl.locale),
 [UTS35 canonicalization](https://unicode.org/reports/tr35/#Annex_C_LocaleId_Canonicalization),

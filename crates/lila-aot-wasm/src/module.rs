@@ -1708,6 +1708,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::IntlGetCanonicalLocales
+        | StandardBuiltinId::IntlSupportedValuesOf
         | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
@@ -1723,6 +1724,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlLocalePrototypeToString
         | StandardBuiltinId::IntlLocalePrototypeMaximize
         | StandardBuiltinId::IntlLocalePrototypeMinimize
+        | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+        | StandardBuiltinId::IntlLocalePrototypeGetCollations
+        | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+        | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
+        | StandardBuiltinId::IntlLocalePrototypeGetTimeZones
+        | StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+        | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo
         | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
         | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter

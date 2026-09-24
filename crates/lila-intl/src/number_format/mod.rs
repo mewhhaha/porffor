@@ -10,9 +10,10 @@ mod plural_rules;
 mod profiles;
 
 pub use configuration::{
-    filter_number_locales, resolve_number_locale, DecimalNumberingSystem,
-    InvalidNumberingSystemOption, NumberFormatConfiguration, NumberLocaleRequest,
-    NumberSupportedLocalesRequest, NumberingSystemOption, ResolvedNumberLocale,
+    default_numbering_system_by_prefix, filter_number_locales, resolve_number_locale,
+    DecimalNumberingSystem, InvalidNumberingSystemOption, NumberFormatConfiguration,
+    NumberLocaleRequest, NumberSupportedLocalesRequest, NumberingSystemOption,
+    ResolvedNumberLocale,
 };
 pub use partition::{partition_number, partition_number_range};
 pub use partition_resource::{
