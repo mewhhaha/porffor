@@ -1641,6 +1641,7 @@ const SYNC_PROTOCOL_SITES: &[EmissionSite] = &[
     EmissionSite::ResumableSyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
     EmissionSite::ArrayDestructuring,
+    EmissionSite::ResumableArrayDestructuring,
     EmissionSite::CallArgumentSpread,
     EmissionSite::ArrayLiteralSpread,
     EmissionSite::GeneratorDelegation,
@@ -1650,6 +1651,7 @@ const SYNC_CLOSE_SITES: &[EmissionSite] = &[
     EmissionSite::ResumableSyncForOfIterator,
     EmissionSite::AsyncForOfIterator,
     EmissionSite::ArrayDestructuring,
+    EmissionSite::ResumableArrayDestructuring,
     EmissionSite::GeneratorDelegation,
 ];
 const ASYNC_CLOSE_SITES: &[EmissionSite] = &[

@@ -2336,6 +2336,15 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::LocalGet(self.scratch_local));
             }
+            ExprIr::ResumableArrayDestructuring(destructuring) => {
+                self.compile_resumable_array_destructuring(
+                    destructuring,
+                    self.scratch_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(self.scratch_local));
+            }
             ExprIr::CallNamed { name, args } => {
                 self.emit_call(
                     name,
@@ -4060,6 +4069,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_object_destructure_to_locals(
                     value,
                     pattern,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+            ExprIr::ResumableArrayDestructuring(destructuring) => {
+                self.compile_resumable_array_destructuring(
+                    destructuring,
                     payload_local,
                     tag_local,
                     function,

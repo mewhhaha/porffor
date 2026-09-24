@@ -235,15 +235,18 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
     assert_eq!(ARRAY_SOURCE.matches("SyncIteratorConsumer").count(), 2);
     assert_eq!(MATH_SOURCE.matches("SyncIteratorConsumer").count(), 2);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // `control_flow/resumable_array_destructuring.rs` owns one more
+    // array-destructuring consumer, lent to GetIterator and to the element
+    // pipeline.
     assert_eq!(
         count_in_rust_sources(&source_root, "SyncIteratorConsumer"),
-        31
+        32
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "let consumer = SyncIteratorConsumer::"),
-        6
+        7
     );
-    assert_eq!(count_in_rust_sources(&source_root, "&consumer"), 18);
+    assert_eq!(count_in_rust_sources(&source_root, "&consumer"), 20);
     for retired in [
         "SyncIteratorErrorPolicy",
         "LegacyMainRealm",

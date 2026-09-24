@@ -189,7 +189,7 @@ impl<'a> ScriptLowerer<'a> {
                             FunctionExecutionKind::AsyncGenerator,
                         ),
                         MethodDefinitionKind::Generator => {
-                            return self.unsupported_expr("async or generator class element");
+                            return self.unsupported_generator_body(method.body());
                         }
                     };
                     let placement = if method.is_static() {

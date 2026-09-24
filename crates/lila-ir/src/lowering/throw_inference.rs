@@ -468,7 +468,8 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::ModuleEvaluate(_)
             | ExprIr::DeferredModuleEvaluate(_)
             | ExprIr::ModuleHasAsyncDependencies(_)
-            | ExprIr::ModuleDeferredImportEvaluate(_) => Some(unknown_runtime_value_info()),
+            | ExprIr::ModuleDeferredImportEvaluate(_)
+            | ExprIr::ResumableArrayDestructuring(_) => Some(unknown_runtime_value_info()),
             ExprIr::ModuleNamespacePublish { namespace, .. } => {
                 self.infer_expr_throw_info(namespace)
             }

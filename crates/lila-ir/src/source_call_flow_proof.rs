@@ -513,6 +513,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
             value: _value,
             pattern: _pattern,
         } => false,
+        ExprIr::ResumableArrayDestructuring(_destructuring) => false,
         ExprIr::CallNamed {
             name: _name,
             args: _args,

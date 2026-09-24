@@ -2505,6 +2505,7 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
         | ExprIr::MaterializeBinding { .. }
         | ExprIr::ArrayDestructure { .. }
         | ExprIr::ObjectDestructure { .. }
+        | ExprIr::ResumableArrayDestructuring(_)
         | ExprIr::CallNamed { .. }
         | ExprIr::AssertSameValue { .. }
         | ExprIr::RuntimeThrow { .. }
@@ -2792,6 +2793,7 @@ pub(crate) fn reference_base_of_lowered_read(
         | ExprIr::MaterializeBinding { .. }
         | ExprIr::ArrayDestructure { .. }
         | ExprIr::ObjectDestructure { .. }
+        | ExprIr::ResumableArrayDestructuring(_)
         | ExprIr::CallNamed { .. }
         | ExprIr::AssertSameValue { .. }
         | ExprIr::RuntimeThrow { .. }

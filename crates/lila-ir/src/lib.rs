@@ -54,6 +54,12 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
 
 mod analysis;
+mod generator_staging_plan;
+pub(crate) use generator_staging_plan::{
+    object_literal_stages_through_accumulator, optional_chain_is_stageable,
+    plan_linear_class_operands, plan_staged_generator_expression, StagedSuspensionPlan,
+    StagedYieldRejection,
+};
 mod async_for_of_body;
 mod async_if;
 mod synchronous_loop_body;
@@ -128,7 +134,7 @@ pub use iterator_obligations::{
     ArrayPatternProtocol, ArraySpreadProtocol, EmissionSite, GeneratorDelegationProtocol,
     GetIteratorDischarge, IntactnessPremise, IteratorCloseDischarge, IteratorObligation,
     IteratorProtocolWitness, IteratorStepDischarge, IteratorValueDischarge, ObligationDischarge,
-    PremiseKind, SpreadArgumentProtocol,
+    PremiseKind, ResumableArrayPatternProtocol, SpreadArgumentProtocol,
 };
 pub use lowering::{lower, lower_module_graph, lower_script_graph};
 pub use lowering::{
@@ -10935,7 +10941,10 @@ target[Symbol.iterator];"#,
 
     #[test]
     fn rejects_generator_suspensions_without_a_structured_resume_plan() {
-        let source = "function* nestedOperand() { return 1 + (yield 2); }";
+        // `1 + (yield 2)` now stages its left operand across the suspension
+        // (see `generator_staging_plan`); a yield on only one branch still has
+        // no resume point.
+        let source = "function* nestedOperand(a) { return a || (yield 2); }";
         let program = lower_script(source);
         assert!(
             !program.is_wasm_supported(),

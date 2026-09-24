@@ -134,6 +134,17 @@ emission_sites! {
     /// (`:7729`). There is no array fast path here, so every array destructuring
     /// pays the real protocol.
     ArrayDestructuring => "compile_array_destructure_from_value_locals",
+    /// `FunctionBuilder::compile_resumable_array_destructuring`
+    /// (`control_flow/resumable_array_destructuring.rs`). A synchronous
+    /// generator's ArrayAssignmentPattern whose elements suspend runs the same
+    /// protocol one step at a time against an Iterator Record held in
+    /// activation slots: `Open` performs `emit_get_iterator_from_value_locals`,
+    /// the element steps run `compile_array_destructuring_element` (and
+    /// through it `emit_destructuring_iterator_step`), and the two `Close`
+    /// steps perform `emit_iterator_close` (normal or `return` completion) and
+    /// `emit_iterator_close_preserving_current_throw` (throw completion), both
+    /// under the `[[Done]]` guard of 13.15.5.2 step 3.
+    ResumableArrayDestructuring => "compile_resumable_array_destructuring",
     /// `FunctionBuilder::emit_call_args_vector` (`functions.rs`). Argument-list
     /// spread emits acquisition, stepping and value extraction, but no close:
     /// 13.3.8.1 propagates its iterator-operation abrupt completions directly.
@@ -479,6 +490,25 @@ iterator_witnesses! {
     /// [`ArrayPatternProtocol::ARRAY_DESTRUCTURING`].
     ARRAY_DESTRUCTURING_PROTOCOL => IteratorProtocolWitness::emitted_by(EmissionSite::ArrayDestructuring),
 
+    /// `ExprIr::ResumableArrayDestructuring` — one ArrayAssignmentPattern
+    /// (13.15.5.2) in a synchronous generator whose elements suspend.
+    ///
+    /// Every obligation is really emitted, by the steps of one pattern rather
+    /// than by one emitter call: the `Open` step acquires the iterator, the
+    /// `Elements` steps step it and read values through
+    /// `compile_array_destructuring_element`, and the two `Close` steps
+    /// implement both halves of 7.4.11 step 4 under the `[[Done]]` guard. The lowering places the closes in the catch and
+    /// finally blocks of the try statement it synthesizes around the
+    /// elements, so an abrupt resumption (`return()`/`throw()`) while the
+    /// pattern is suspended closes the iterator exactly as 13.15.5.2 step 3
+    /// requires.
+    ///
+    /// Reachable at the IR field only through
+    /// [`ResumableArrayPatternProtocol::RESUMABLE_ARRAY_DESTRUCTURING`].
+    RESUMABLE_ARRAY_DESTRUCTURING_PROTOCOL => IteratorProtocolWitness::emitted_by(
+        EmissionSite::ResumableArrayDestructuring,
+    ),
+
     /// `ExprIr::SpreadArgument` — 13.3.8.1 ArgumentListEvaluation.
     ///
     /// `emit_call_args_vector` performs the real `GetIterator`, `IteratorStep`
@@ -562,6 +592,27 @@ impl ArrayPatternProtocol {
     /// obligations for it.
     pub const ARRAY_DESTRUCTURING: Self =
         Self(IteratorProtocolWitness::ARRAY_DESTRUCTURING_PROTOCOL);
+
+    pub(crate) const fn witness(self) -> IteratorProtocolWitness {
+        self.0
+    }
+}
+
+/// The witness slot on the `Open` step of a
+/// [`crate::ResumableArrayDestructuringIr`].
+///
+/// One inhabitant and a private constructor, like [`ArrayPatternProtocol`]:
+/// the resumable pattern cannot carry the one-call destructuring witness, a
+/// for-of witness, or the no-iteration witness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResumableArrayPatternProtocol(IteratorProtocolWitness);
+
+impl ResumableArrayPatternProtocol {
+    /// The only inhabitant: 13.15.5.2 acquires a real iterator and the steps
+    /// of `compile_resumable_array_destructuring` emit all four 7.4
+    /// obligations for it.
+    pub const RESUMABLE_ARRAY_DESTRUCTURING: Self =
+        Self(IteratorProtocolWitness::RESUMABLE_ARRAY_DESTRUCTURING_PROTOCOL);
 
     pub(crate) const fn witness(self) -> IteratorProtocolWitness {
         self.0
@@ -810,6 +861,18 @@ const _: () = assert!(
     ),
     "ArrayPatternProtocol::ARRAY_DESTRUCTURING must emit all four 7.4 obligations at \
      compile_array_destructure_from_value_locals"
+);
+
+// The resumable array-destructuring newtype's only inhabitant discharges every
+// 7.4 obligation at its own emitter, asked through the IR field's type for the
+// same reason as K2.
+const _: () = assert!(
+    emits_every_obligation(
+        ResumableArrayPatternProtocol::RESUMABLE_ARRAY_DESTRUCTURING.witness(),
+        EmissionSite::ResumableArrayDestructuring,
+    ),
+    "ResumableArrayPatternProtocol::RESUMABLE_ARRAY_DESTRUCTURING must emit all four 7.4 \
+     obligations at compile_resumable_array_destructuring"
 );
 
 // Argument-list spread emits the first three operations and deliberately does

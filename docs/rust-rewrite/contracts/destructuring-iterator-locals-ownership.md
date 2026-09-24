@@ -22,3 +22,13 @@ targets passed `14/14`; the exact array-destructuring iterator and abrupt-close
 CLI witnesses passed `2/2`. No Test262 cohort or semantic golden was run because
 this source-equivalent ownership invariant claims no new destructuring,
 iterator or conformance behavior.
+
+A second owner exists for a synchronous generator's array destructuring that
+suspends. `compile_resumable_array_destructuring`
+(`control_flow/resumable_array_destructuring.rs`) reserves the same 18-local
+bundle for one step of that pattern, loads the Iterator Record from its
+activation slots into it, lends it to `compile_array_destructuring_element`
+and the IteratorClose emitters exactly as the one-call path does, stores
+`[[Done]]` back, and releases all 18 locals once in reverse. It is still
+capability-free and never copied; the recursive census counts its construction
+and its two borrowing signatures.

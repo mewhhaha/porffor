@@ -122,6 +122,10 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             expr_contains_this_before_super(value, state);
             pattern.visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
         }
+        ExprIr::ResumableArrayDestructuring(destructuring) => {
+            destructuring
+                .visit_expressions(&mut |expr| expr_contains_this_before_super(expr, state));
+        }
         ExprIr::LogicalShortCircuit { lhs, rhs, .. } => {
             expr_contains_this_before_super(lhs, state);
             expr_contains_this_before_super(rhs, state);

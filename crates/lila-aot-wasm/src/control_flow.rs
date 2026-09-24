@@ -24,6 +24,7 @@ mod constant_number_condition;
 mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
 mod for_in;
+mod resumable_array_destructuring;
 pub(crate) use for_in::{
     FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
 };

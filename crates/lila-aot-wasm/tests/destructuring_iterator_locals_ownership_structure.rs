@@ -134,9 +134,11 @@ fn array_destructuring_borrows_one_bundle_then_releases_all_locals_in_reverse() 
 #[test]
 fn ownership_contract_and_recursive_source_census_remain_closed() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // Five in `control_flow.rs` and three in the resumable destructuring step
+    // emitter: its own construction and two borrowing signatures.
     assert_eq!(
         count_in_rust_sources(&source_root, "DestructuringIteratorLocals"),
-        5
+        8
     );
     for evidence in [CONTRACT, TASK] {
         assert!(evidence.contains("DestructuringIteratorLocals"));

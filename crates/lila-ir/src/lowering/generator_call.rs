@@ -1,7 +1,7 @@
 use super::*;
 
 impl ScriptLowerer<'_> {
-    fn retain_generator_operand(
+    pub(super) fn retain_generator_operand(
         &mut self,
         statements: &mut Vec<StatementIr>,
         value: TypedExpr,

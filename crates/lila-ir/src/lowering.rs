@@ -19,6 +19,7 @@ mod finite_function_source;
 mod finite_iterator_source;
 mod function_source_candidates;
 mod generator_call;
+mod generator_staging;
 use finite_function_source::FiniteSourceValue;
 mod prepared_function;
 mod prepared_script;
@@ -1307,6 +1308,26 @@ impl<'a> ScriptLowerer<'a> {
             "async.forof.done.",
             ValueInfo::new(ValueKind::Boolean),
         ))
+    }
+
+    /// Allocates the three slots of the Iterator Record a synchronous
+    /// generator's suspending array destructuring holds across its `yield`s.
+    /// See [`Self::alloc_iterator_slot`] for why the slots are only obtained
+    /// from their allocations.
+    fn alloc_destructuring_iterator_record(&mut self) -> IteratorRecordIr {
+        let iterator = IteratorSlot::new(self.alloc_suspension_owned_binding(
+            "generator.destructuring.iterator.",
+            ValueInfo::new(ValueKind::Object),
+        ));
+        let next_method = NextMethodSlot::new(self.alloc_suspension_owned_binding(
+            "generator.destructuring.next.",
+            ValueInfo::new(ValueKind::Dynamic),
+        ));
+        let done = DoneSlot::new(self.alloc_suspension_owned_binding(
+            "generator.destructuring.done.",
+            ValueInfo::new(ValueKind::Boolean),
+        ));
+        IteratorRecordIr::new(iterator, next_method, done)
     }
 
     fn add_suspension_owned_binding(&mut self, name: String) {
@@ -5421,143 +5442,6 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn lower_staged_generator_expression(
-        &mut self,
-        expression: &Expression,
-    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        if !contains(expression, ContainsSymbol::YieldExpression) {
-            return Some((Vec::new(), self.lower_expression(expression)));
-        }
-        match expression {
-            Expression::Parenthesized(parenthesized) => {
-                self.lower_staged_generator_expression(parenthesized.expression())
-            }
-            Expression::Yield(yield_expression) => {
-                let (mut statements, value) = match yield_expression.target() {
-                    Some(target) if contains(target, ContainsSymbol::YieldExpression) => {
-                        self.lower_staged_generator_expression(target)?
-                    }
-                    Some(target) => (Vec::new(), self.lower_expression(target)),
-                    None => (Vec::new(), TypedExpr::undefined()),
-                };
-                let received_name = self.alloc_suspension_owned_binding(
-                    "generator.received.",
-                    ValueInfo {
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                    },
-                );
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: received_name.clone(),
-                    init: TypedExpr::undefined(),
-                });
-                let (yield_statement, _) = self.lower_linear_generator_yield_value(
-                    value,
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::AssignIdentifier(received_name.clone()),
-                );
-                statements.push(yield_statement);
-                Some((statements, self.lower_identifier_name(received_name, false)))
-            }
-            Expression::Call(call) if contains(expression, ContainsSymbol::YieldExpression) => {
-                self.lower_staged_generator_call(call.function(), call.args())
-            }
-            Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
-                let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
-                    return None;
-                };
-                self.lower_staged_generator_property_assignment(access, assignment.rhs())
-            }
-            Expression::PropertyAccess(PropertyAccess::Simple(access))
-                if contains(expression, ContainsSymbol::YieldExpression) =>
-            {
-                let (statements, _, value) = self.lower_staged_generator_property(access)?;
-                Some((statements, value))
-            }
-            Expression::ArrayLiteral(array) => self.lower_staged_generator_array_literal(array),
-            Expression::ObjectLiteral(object) => self.lower_staged_generator_object_literal(object),
-            Expression::ClassExpression(class) => {
-                let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
-                let value = self.lower_class_expression(class);
-                let statements =
-                    std::mem::replace(&mut self.async_expression_prefix, enclosing_prefix)
-                        .expect("class staging owns its evaluation prefix");
-                Some((statements, value))
-            }
-            expression if contains(expression, ContainsSymbol::YieldExpression) => None,
-            _ => Some((Vec::new(), self.lower_expression(expression))),
-        }
-    }
-
-    fn lower_staged_generator_object_literal(
-        &mut self,
-        object: &ObjectLiteral,
-    ) -> Option<(Vec<StatementIr>, TypedExpr)> {
-        let object_info = ValueInfo {
-            kind: ValueKind::Object,
-            possible_kinds: KindSet::from_kind(ValueKind::Object),
-            heap_shape: Some(Box::new(HeapShape::Object(ObjectShape::default()))),
-            function_targets: FunctionTargetKnowledge::none(),
-        };
-        let accumulator_name =
-            self.alloc_suspension_owned_binding("generator.object.spread.", object_info.clone());
-        let mut statements = vec![StatementIr::Lexical {
-            mode: BindingMode::Let,
-            name: accumulator_name.clone(),
-            init: TypedExpr::from_info(object_info, ExprIr::ObjectLiteral(Vec::new())),
-        }];
-        for property in object.properties() {
-            match property {
-                PropertyDefinition::SpreadObject(source) => {
-                    let (source_statements, source) =
-                        if contains(source, ContainsSymbol::YieldExpression) {
-                            self.lower_staged_generator_expression(source)?
-                        } else {
-                            (Vec::new(), self.lower_expression(source))
-                        };
-                    statements.extend(source_statements);
-                    self.invalidate_unknown_user_code_effects();
-                    let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
-                    statements.push(StatementIr::Expression(
-                        TypedExpr::spec_copy_data_properties(accumulator, source),
-                    ));
-                }
-                PropertyDefinition::Property(PropertyName::Literal(name), value) => {
-                    let key = self.interner.resolve_expect(name.sym()).to_string();
-                    if key == "__proto__" {
-                        return None;
-                    }
-                    let (value_statements, value) =
-                        if contains(value, ContainsSymbol::YieldExpression) {
-                            self.lower_staged_generator_expression(value)?
-                        } else {
-                            (Vec::new(), self.lower_expression(value))
-                        };
-                    statements.extend(value_statements);
-                    let accumulator = self.lower_identifier_name(accumulator_name.clone(), false);
-                    statements.push(StatementIr::Expression(
-                        TypedExpr::spec_create_data_property_or_throw(
-                            accumulator,
-                            TypedExpr::from_info(
-                                ValueInfo::new(ValueKind::String),
-                                ExprIr::String(key),
-                            ),
-                            value,
-                        ),
-                    ));
-                }
-                _ => return None,
-            }
-        }
-        Some((
-            statements,
-            self.lower_identifier_name(accumulator_name, false),
-        ))
-    }
-
     fn lower_returned_object_spread(
         &mut self,
         object: &ObjectLiteral,
@@ -5601,199 +5485,6 @@ impl<'a> ScriptLowerer<'a> {
             statements,
             self.lower_identifier_name(accumulator_name, false),
         ))
-    }
-
-    fn lower_discarded_generator_expression(
-        &mut self,
-        expression: &Expression,
-    ) -> Option<Vec<StatementIr>> {
-        match expression {
-            Expression::Parenthesized(parenthesized) => {
-                self.lower_discarded_generator_expression(parenthesized.expression())
-            }
-            Expression::Yield(yield_expression) => {
-                if yield_expression
-                    .target()
-                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression))
-                {
-                    return None;
-                }
-                let (statement, _) = self.lower_linear_generator_yield(
-                    yield_expression.target(),
-                    yield_expression.delegate(),
-                    GeneratorResumeModeIr::Ignore,
-                );
-                Some(vec![statement])
-            }
-            Expression::ArrayLiteral(array) => {
-                let mut statements = Vec::new();
-                for element in array.as_ref().iter().flatten() {
-                    if matches!(element, Expression::Spread(_)) {
-                        return None;
-                    }
-                    statements.extend(self.lower_discarded_generator_expression(element)?);
-                }
-                Some(statements)
-            }
-            Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
-                let mut statements = self.lower_discarded_generator_expression(binary.lhs())?;
-                statements.extend(self.lower_discarded_generator_expression(binary.rhs())?);
-                Some(statements)
-            }
-            Expression::Binary(binary)
-                if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) =>
-            {
-                let (mut statements, lhs) = self.lower_staged_generator_expression(binary.lhs())?;
-                let lhs_name =
-                    self.alloc_suspension_owned_binding("generator.binary.lhs.", lhs.value_info());
-                statements.push(StatementIr::Lexical {
-                    mode: BindingMode::Let,
-                    name: lhs_name.clone(),
-                    init: lhs,
-                });
-                let (rhs_statements, rhs) = self.lower_staged_generator_expression(binary.rhs())?;
-                statements.extend(rhs_statements);
-                let possible_kinds = KindSet::from_kind(ValueKind::String)
-                    .union(KindSet::from_kind(ValueKind::Number))
-                    .union(KindSet::from_kind(ValueKind::BigInt));
-                statements.push(StatementIr::Expression(TypedExpr::from_info(
-                    ValueInfo {
-                        kind: possible_kinds.as_value_kind(),
-                        possible_kinds,
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::none(),
-                    },
-                    ExprIr::CoerciveAdd {
-                        lhs: Box::new(self.lower_identifier_name(lhs_name, false)),
-                        rhs: Box::new(rhs),
-                    },
-                )));
-                Some(statements)
-            }
-            Expression::Conditional(conditional) => {
-                let Expression::Yield(condition_yield) =
-                    Self::unwrap_parenthesized_expr(conditional.condition())
-                else {
-                    return None;
-                };
-                if condition_yield
-                    .target()
-                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression))
-                {
-                    return None;
-                }
-                let received_name = self.alloc_temp_binding_name("yield.condition.");
-                self.declare_binding(
-                    received_name.clone(),
-                    BindingInfo {
-                        mode: BindingMode::Let,
-                        storage_name: received_name.clone(),
-                        kind: ValueKind::Dynamic,
-                        possible_kinds: KindSet::all_runtime_tags(),
-                        heap_shape: None,
-                        function_targets: FunctionTargetKnowledge::unknown(),
-                        initialization: Initialization::Initialized,
-                    },
-                );
-                let (condition_yield_statement, _) = self.lower_linear_generator_yield(
-                    condition_yield.target(),
-                    condition_yield.delegate(),
-                    GeneratorResumeModeIr::AssignIdentifier(received_name.clone()),
-                );
-                let entry_state = self.current_generator_resume_state?;
-
-                let mut then_statements =
-                    self.lower_discarded_generator_expression(conditional.if_true())?;
-                let then_yield_statement = then_statements.pop()?;
-                if !then_statements.is_empty()
-                    || !matches!(&then_yield_statement, StatementIr::GeneratorYield { .. })
-                {
-                    return None;
-                }
-                let StatementIr::GeneratorYield {
-                    resume_state: then_resume_state,
-                    ..
-                } = &then_yield_statement
-                else {
-                    unreachable!()
-                };
-                let then_resume_state = *then_resume_state;
-
-                let mut else_statements =
-                    self.lower_discarded_generator_expression(conditional.if_false())?;
-                let else_yield_statement = else_statements.pop()?;
-                if !else_statements.is_empty()
-                    || !matches!(&else_yield_statement, StatementIr::GeneratorYield { .. })
-                {
-                    return None;
-                }
-                let StatementIr::GeneratorYield {
-                    resume_state: else_resume_state,
-                    ..
-                } = &else_yield_statement
-                else {
-                    unreachable!()
-                };
-                let else_resume_state = *else_resume_state;
-                let exit_state = self.current_generator_resume_state? + 1;
-                self.current_generator_resume_state = Some(exit_state);
-                let condition = self.lower_identifier_name(received_name.clone(), false);
-
-                Some(vec![
-                    StatementIr::Lexical {
-                        mode: BindingMode::Let,
-                        name: received_name,
-                        init: TypedExpr::undefined(),
-                    },
-                    condition_yield_statement,
-                    StatementIr::GeneratorIf {
-                        condition,
-                        then_before_yield: Vec::new(),
-                        then_yield_statement: Some(Box::new(then_yield_statement)),
-                        then_after_yield: Vec::new(),
-                        else_before_yield: Vec::new(),
-                        else_yield_statement: Some(Box::new(else_yield_statement)),
-                        else_after_yield: Vec::new(),
-                        entry_state,
-                        then_resume_state: Some(then_resume_state),
-                        else_resume_state: Some(else_resume_state),
-                        exit_state,
-                    },
-                ])
-            }
-            Expression::Assign(assignment)
-                if assignment.op() == AssignOp::Assign
-                    && matches!(assignment.lhs(), AssignTarget::Identifier(_))
-                    && contains(assignment.rhs(), ContainsSymbol::YieldExpression)
-                    && !self.uses_runtime_identifier_environment()
-                    && self.with_environment_chain.is_empty() =>
-            {
-                let AssignTarget::Identifier(identifier) = assignment.lhs() else {
-                    unreachable!("the staged assignment requires an identifier Reference")
-                };
-                let name = self.interner.resolve_expect(identifier.sym()).to_string();
-                let (mut statements, value) =
-                    self.lower_staged_generator_expression(assignment.rhs())?;
-                statements.push(StatementIr::Expression(
-                    self.lower_identifier_assign_value(name, value),
-                ));
-                Some(statements)
-            }
-            Expression::Call(_)
-            | Expression::PropertyAccess(PropertyAccess::Simple(_))
-            | Expression::ClassExpression(_)
-            | Expression::Assign(_)
-                if contains(expression, ContainsSymbol::YieldExpression) =>
-            {
-                let (mut statements, value) = self.lower_staged_generator_expression(expression)?;
-                statements.push(StatementIr::Expression(value));
-                Some(statements)
-            }
-            expression if contains(expression, ContainsSymbol::YieldExpression) => None,
-            _ => Some(vec![StatementIr::Expression(
-                self.lower_expression(expression),
-            )]),
-        }
     }
 
     fn lower_generator_template_assignment(
@@ -5996,7 +5687,7 @@ impl<'a> ScriptLowerer<'a> {
                         ValueKind::Undefined,
                     ),
                     Err(reason) => {
-                        self.unsupported(reason.message());
+                        self.unsupported(&reason.message());
                         (StatementIr::Empty, ValueKind::Undefined)
                     }
                 }
@@ -8046,7 +7737,7 @@ impl<'a> ScriptLowerer<'a> {
             return self.function_value_expr(function_id);
         }
 
-        self.unsupported_expr("generator suspension")
+        self.unsupported_generator_body(generator.body())
     }
 
     fn lower_async_function_expression(&mut self, function: &AsyncFunctionExpression) -> TypedExpr {
@@ -10047,8 +9738,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_generator_iife_as_array(&mut self, generator: &GeneratorExpression) -> TypedExpr {
-        let _ = generator;
-        self.unsupported_expr("generator suspension")
+        self.unsupported_generator_body(generator.body())
     }
 
     fn lower_static_yield_star_generator_method_call(
@@ -11812,7 +11502,7 @@ impl<'a> ScriptLowerer<'a> {
                     let unsupported_generator = method.kind() == MethodDefinitionKind::Generator
                         && !generator_function_is_aot_supported(method.body(), method.parameters());
                     if unsupported_generator {
-                        return self.unsupported_expr("object literal method");
+                        return self.unsupported_generator_body(method.body());
                     }
 
                     let static_key = match method.name() {
@@ -15078,50 +14768,7 @@ impl<'a> ScriptLowerer<'a> {
     ) -> Option<ArrayDestructuringPatternIr> {
         let mut elements = Vec::with_capacity(bindings.len());
         for binding in bindings {
-            let element = match binding {
-                ArrayPatternElement::Elision => ArrayDestructuringElementIr::Elision,
-                ArrayPatternElement::SingleName {
-                    ident,
-                    default_init,
-                } => ArrayDestructuringElementIr::Target {
-                    target: self.lower_array_assignment_identifier_target(*ident)?,
-                    default: default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default)),
-                },
-                ArrayPatternElement::PropertyAccess {
-                    access,
-                    default_init,
-                } => ArrayDestructuringElementIr::Target {
-                    target: self.lower_array_assignment_property_target(access)?,
-                    default: default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default)),
-                },
-                ArrayPatternElement::Pattern {
-                    pattern,
-                    default_init,
-                } => ArrayDestructuringElementIr::Target {
-                    target: self.lower_nested_assignment_pattern_target(pattern)?,
-                    default: default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default)),
-                },
-                ArrayPatternElement::SingleNameRest { ident } => {
-                    ArrayDestructuringElementIr::Rest {
-                        target: self.lower_array_assignment_identifier_target(*ident)?,
-                    }
-                }
-                ArrayPatternElement::PropertyAccessRest { access } => {
-                    ArrayDestructuringElementIr::Rest {
-                        target: self.lower_array_assignment_property_target(access)?,
-                    }
-                }
-                ArrayPatternElement::PatternRest { pattern } => ArrayDestructuringElementIr::Rest {
-                    target: self.lower_nested_assignment_pattern_target(pattern)?,
-                },
-            };
-            elements.push(element);
+            elements.push(self.lower_array_assignment_element(binding)?);
         }
         // 13.15.5.5 IteratorDestructuringAssignmentEvaluation — a different
         // abstract operation with the same close discipline, running the same
@@ -15130,6 +14777,56 @@ impl<'a> ScriptLowerer<'a> {
         Some(ArrayDestructuringPatternIr {
             elements,
             protocol: ArrayPatternProtocol::ARRAY_DESTRUCTURING,
+        })
+    }
+
+    /// One AssignmentElement, Elision or AssignmentRestElement of an
+    /// ArrayAssignmentPattern (13.15.5.5), lowered against an iterator the
+    /// caller owns.
+    fn lower_array_assignment_element(
+        &mut self,
+        binding: &ArrayPatternElement,
+    ) -> Option<ArrayDestructuringElementIr> {
+        Some(match binding {
+            ArrayPatternElement::Elision => ArrayDestructuringElementIr::Elision,
+            ArrayPatternElement::SingleName {
+                ident,
+                default_init,
+            } => ArrayDestructuringElementIr::Target {
+                target: self.lower_array_assignment_identifier_target(*ident)?,
+                default: default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default)),
+            },
+            ArrayPatternElement::PropertyAccess {
+                access,
+                default_init,
+            } => ArrayDestructuringElementIr::Target {
+                target: self.lower_array_assignment_property_target(access)?,
+                default: default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default)),
+            },
+            ArrayPatternElement::Pattern {
+                pattern,
+                default_init,
+            } => ArrayDestructuringElementIr::Target {
+                target: self.lower_nested_assignment_pattern_target(pattern)?,
+                default: default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default)),
+            },
+            ArrayPatternElement::SingleNameRest { ident } => ArrayDestructuringElementIr::Rest {
+                target: self.lower_array_assignment_identifier_target(*ident)?,
+            },
+            ArrayPatternElement::PropertyAccessRest { access } => {
+                ArrayDestructuringElementIr::Rest {
+                    target: self.lower_array_assignment_property_target(access)?,
+                }
+            }
+            ArrayPatternElement::PatternRest { pattern } => ArrayDestructuringElementIr::Rest {
+                target: self.lower_nested_assignment_pattern_target(pattern)?,
+            },
         })
     }
 
@@ -15158,52 +14855,65 @@ impl<'a> ScriptLowerer<'a> {
         let mut rest = None;
         for binding in bindings {
             match binding {
-                ObjectPatternElement::SingleName {
-                    name,
-                    ident,
-                    default_init,
-                } => properties.push(ObjectDestructuringPropertyIr {
-                    key: self.lower_object_destructuring_property_key(name),
-                    target: self.lower_array_assignment_identifier_target(*ident)?,
-                    default: default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default)),
-                }),
-                ObjectPatternElement::AssignmentPropertyAccess {
-                    name,
-                    access,
-                    default_init,
-                } => properties.push(ObjectDestructuringPropertyIr {
-                    key: self.lower_object_destructuring_property_key(name),
-                    target: self.lower_array_assignment_property_target(access)?,
-                    default: default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default)),
-                }),
                 ObjectPatternElement::RestProperty { ident } => {
                     rest = Some(self.lower_array_assignment_identifier_target(*ident)?);
                 }
                 ObjectPatternElement::AssignmentRestPropertyAccess { access } => {
                     rest = Some(self.lower_array_assignment_property_target(access)?);
                 }
-                ObjectPatternElement::Pattern {
-                    name,
-                    pattern,
-                    default_init,
-                } => {
-                    let key = self.lower_object_destructuring_property_key(name);
-                    let default = default_init
-                        .as_ref()
-                        .map(|default| self.lower_expression(default));
-                    properties.push(ObjectDestructuringPropertyIr {
-                        key,
-                        target: self.lower_nested_assignment_pattern_target(pattern)?,
-                        default,
-                    });
-                }
+                binding => properties.push(self.lower_object_assignment_property(binding)?),
             }
         }
         Some(ObjectDestructuringPatternIr { properties, rest })
+    }
+
+    /// One AssignmentProperty of an ObjectAssignmentPattern (13.15.5.3). A rest
+    /// element is not a property and yields `None`; the caller owns it.
+    fn lower_object_assignment_property(
+        &mut self,
+        binding: &ObjectPatternElement,
+    ) -> Option<ObjectDestructuringPropertyIr> {
+        Some(match binding {
+            ObjectPatternElement::SingleName {
+                name,
+                ident,
+                default_init,
+            } => ObjectDestructuringPropertyIr {
+                key: self.lower_object_destructuring_property_key(name),
+                target: self.lower_array_assignment_identifier_target(*ident)?,
+                default: default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default)),
+            },
+            ObjectPatternElement::AssignmentPropertyAccess {
+                name,
+                access,
+                default_init,
+            } => ObjectDestructuringPropertyIr {
+                key: self.lower_object_destructuring_property_key(name),
+                target: self.lower_array_assignment_property_target(access)?,
+                default: default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default)),
+            },
+            ObjectPatternElement::Pattern {
+                name,
+                pattern,
+                default_init,
+            } => {
+                let key = self.lower_object_destructuring_property_key(name);
+                let default = default_init
+                    .as_ref()
+                    .map(|default| self.lower_expression(default));
+                ObjectDestructuringPropertyIr {
+                    key,
+                    target: self.lower_nested_assignment_pattern_target(pattern)?,
+                    default,
+                }
+            }
+            ObjectPatternElement::RestProperty { .. }
+            | ObjectPatternElement::AssignmentRestPropertyAccess { .. } => return None,
+        })
     }
 
     fn lower_object_destructuring_property_key(

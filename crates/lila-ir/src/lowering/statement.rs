@@ -94,11 +94,11 @@ impl<'a> ScriptLowerer<'a> {
             Statement::Expression(Expression::Assign(assignment))
                 if self.current_generator_resume_state.is_some()
                     && assignment.op() == AssignOp::Assign
+                    && matches!(assignment.lhs(), AssignTarget::Identifier(_))
                     && matches!(assignment.rhs(), Expression::TemplateLiteral(template) if contains(template, ContainsSymbol::YieldExpression)) =>
             {
                 let AssignTarget::Identifier(identifier) = assignment.lhs() else {
-                    self.unsupported("generator template assignment target");
-                    return (StatementIr::Empty, ValueKind::Undefined);
+                    unreachable!("guarded identifier template assignment target");
                 };
                 let Expression::TemplateLiteral(template) = assignment.rhs() else {
                     unreachable!()
@@ -119,6 +119,11 @@ impl<'a> ScriptLowerer<'a> {
                         expression,
                         Expression::Assign(assignment)
                             if assignment.op() == AssignOp::Assign
+                                && matches!(
+                                    assignment.lhs(),
+                                    AssignTarget::Identifier(_)
+                                        | AssignTarget::Access(PropertyAccess::Simple(_))
+                                )
                                 && matches!(assignment.rhs(), Expression::Yield(_))
                                 && !contains(assignment.lhs(), ContainsSymbol::YieldExpression)
                     )

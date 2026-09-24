@@ -6,7 +6,8 @@ use crate::operations::NUMBER_REMAINDER_TEMP_LOCALS;
 use lila_ir::{ArrayAccumulationElementIr, ArrayAccumulationIr};
 use lila_ir::{
     ArrayDestructuringEvaluationIr, AsyncDisposableResourcesIr, AsyncResumeModeIr,
-    ObjectDestructuringPatternIr, OptionalChainOperationIr, SyncDisposableScopeExecutionIr,
+    ObjectDestructuringPatternIr, OptionalChainOperationIr, ResumableArrayDestructuringIr,
+    ResumableArrayDestructuringStepIr, SyncDisposableScopeExecutionIr,
 };
 
 #[derive(Debug, Clone)]
@@ -4272,6 +4273,151 @@ fn object_destructuring_pattern_any_expression(
     found
 }
 
+/// Global names written by the identifier targets of these elements,
+/// including those of nested patterns.
+fn collect_array_destructuring_element_globals(
+    elements: &[ArrayDestructuringElementIr],
+    names: &mut BTreeSet<String>,
+) {
+    for element in elements {
+        match element {
+            ArrayDestructuringElementIr::Elision => {}
+            ArrayDestructuringElementIr::Target { target, .. }
+            | ArrayDestructuringElementIr::Rest { target } => {
+                collect_destructuring_target_globals(target, names);
+            }
+        }
+    }
+}
+
+fn collect_destructuring_target_globals(
+    target: &DestructuringTargetIr,
+    names: &mut BTreeSet<String>,
+) {
+    match target {
+        DestructuringTargetIr::AssignmentIdentifier(reference) => {
+            if let IdentifierWriteDisposition::Global {
+                referenced_name, ..
+            }
+            | IdentifierWriteDisposition::Environment {
+                referenced_name, ..
+            } = reference.write_disposition()
+            {
+                names.insert(referenced_name.to_string());
+            }
+        }
+        DestructuringTargetIr::NestedArray(pattern) => {
+            collect_array_destructuring_element_globals(&pattern.elements, names);
+        }
+        DestructuringTargetIr::NestedObject(pattern) => {
+            for property in &pattern.properties {
+                collect_destructuring_target_globals(&property.target, names);
+            }
+            if let Some(rest) = &pattern.rest {
+                collect_destructuring_target_globals(rest, names);
+            }
+        }
+        DestructuringTargetIr::Binding { .. }
+        | DestructuringTargetIr::AssignmentProperty { .. }
+        | DestructuringTargetIr::AssignmentPrivate { .. } => {}
+    }
+}
+
+fn array_destructuring_pattern_temp_locals(pattern: &ArrayDestructuringPatternIr) -> usize {
+    array_destructuring_elements_temp_locals(&pattern.elements)
+}
+
+fn array_destructuring_elements_temp_locals(elements: &[ArrayDestructuringElementIr]) -> usize {
+    elements
+        .iter()
+        .map(|element| {
+            let (target, default, rest) = match element {
+                ArrayDestructuringElementIr::Elision => return 0,
+                ArrayDestructuringElementIr::Target { target, default } => {
+                    (target, default.as_ref(), false)
+                }
+                ArrayDestructuringElementIr::Rest { target } => (target, None, true),
+            };
+            let target_locals = match target {
+                // The write-back runs under
+                // `with_reference_strictness`, which reserves the
+                // carried-`[[Strict]]` flag local, so this budget
+                // carries the same `REFERENCE_STRICTNESS_FLAG_LOCALS`
+                // the reference-write expression arms do.
+                DestructuringTargetIr::AssignmentProperty {
+                    target,
+                    key,
+                    strictness: _,
+                } => {
+                    4 + REFERENCE_STRICTNESS_FLAG_LOCALS
+                        + count_expr_temp_locals(target).max(match key {
+                            DestructuringPropertyKeyIr::Static(_) => 0,
+                            DestructuringPropertyKeyIr::Computed(key) => {
+                                count_expr_temp_locals(key)
+                            }
+                        })
+                }
+                DestructuringTargetIr::AssignmentPrivate { target, .. } => {
+                    11 + count_expr_temp_locals(target)
+                }
+                DestructuringTargetIr::NestedArray(pattern) => {
+                    32 + array_destructuring_pattern_temp_locals(pattern)
+                }
+                DestructuringTargetIr::NestedObject(pattern) => {
+                    let mut child_locals = 0;
+                    pattern.visit_expressions(&mut |expr| {
+                        child_locals = child_locals.max(count_expr_temp_locals(expr));
+                    });
+                    (128 + pattern.properties.len() * 2 + child_locals)
+                        .max(6 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+                }
+                DestructuringTargetIr::AssignmentIdentifier(reference) => {
+                    // The fixed 32-local destructuring allowance
+                    // covers the checked global writer itself; a
+                    // global Reference additionally holds its
+                    // carried strictness flag across that write.
+                    match reference.write_disposition() {
+                        IdentifierWriteDisposition::Global { .. } => {
+                            REFERENCE_STRICTNESS_FLAG_LOCALS
+                        }
+                        IdentifierWriteDisposition::Environment { .. } => 7 + 64,
+                        IdentifierWriteDisposition::MutableBinding { .. } => {
+                            GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
+                        }
+                        IdentifierWriteDisposition::IgnoreImmutableBinding
+                        | IdentifierWriteDisposition::Throw { .. } => 0,
+                    }
+                }
+                DestructuringTargetIr::Binding { .. } => GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS,
+            };
+            let retained_reference_locals = match target {
+                DestructuringTargetIr::AssignmentIdentifier(reference)
+                    if matches!(
+                        reference.write_disposition(),
+                        IdentifierWriteDisposition::Environment { .. }
+                    ) =>
+                {
+                    7
+                }
+                _ => 0,
+            };
+            target_locals
+                .max(retained_reference_locals + default.map(count_expr_temp_locals).unwrap_or(0))
+                + usize::from(rest) * 2
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn resumable_array_destructuring_any_expression(
+    destructuring: &ResumableArrayDestructuringIr,
+    mut predicate: impl FnMut(&TypedExpr) -> bool,
+) -> bool {
+    let mut found = false;
+    destructuring.visit_expressions(&mut |expr| found |= predicate(expr));
+    found
+}
+
 fn array_accumulation_expressions(
     accumulation: &ArrayAccumulationIr,
 ) -> impl Iterator<Item = &TypedExpr> {
@@ -4425,6 +4571,9 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::ObjectDestructure { value, pattern } => {
             expr_exposes_global_object(value)
                 || object_destructuring_pattern_any_expression(pattern, expr_exposes_global_object)
+        }
+        ExprIr::ResumableArrayDestructuring(destructuring) => {
+            resumable_array_destructuring_any_expression(destructuring, expr_exposes_global_object)
         }
         ExprIr::Conditional {
             condition,
@@ -4986,121 +5135,23 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         ExprIr::ArrayDestructure { value, pattern, .. } => {
             collect_expr_global_property_names(value, names);
             pattern.visit_expressions(&mut |expr| collect_expr_global_property_names(expr, names));
-            fn collect_assignment_globals(
-                pattern: &ArrayDestructuringPatternIr,
-                names: &mut BTreeSet<String>,
-            ) {
-                for element in &pattern.elements {
-                    let target = match element {
-                        ArrayDestructuringElementIr::Elision => continue,
-                        ArrayDestructuringElementIr::Target { target, .. }
-                        | ArrayDestructuringElementIr::Rest { target } => target,
-                    };
-                    match target {
-                        DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                            if let IdentifierWriteDisposition::Global {
-                                referenced_name, ..
-                            }
-                            | IdentifierWriteDisposition::Environment {
-                                referenced_name, ..
-                            } = reference.write_disposition()
-                            {
-                                names.insert(referenced_name.to_string());
-                            }
-                        }
-                        DestructuringTargetIr::NestedArray(pattern) => {
-                            collect_assignment_globals(pattern, names)
-                        }
-                        DestructuringTargetIr::NestedObject(pattern) => {
-                            for property in &pattern.properties {
-                                collect_target_globals(&property.target, names);
-                            }
-                            if let Some(rest) = &pattern.rest {
-                                collect_target_globals(rest, names);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            fn collect_target_globals(
-                target: &DestructuringTargetIr,
-                names: &mut BTreeSet<String>,
-            ) {
-                match target {
-                    DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                        if let IdentifierWriteDisposition::Global {
-                            referenced_name, ..
-                        }
-                        | IdentifierWriteDisposition::Environment {
-                            referenced_name, ..
-                        } = reference.write_disposition()
-                        {
-                            names.insert(referenced_name.to_string());
-                        }
-                    }
-                    DestructuringTargetIr::NestedArray(pattern) => {
-                        collect_assignment_globals(pattern, names)
-                    }
-                    DestructuringTargetIr::NestedObject(pattern) => {
-                        for property in &pattern.properties {
-                            collect_target_globals(&property.target, names);
-                        }
-                        if let Some(rest) = &pattern.rest {
-                            collect_target_globals(rest, names);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            collect_assignment_globals(pattern, names);
+            collect_array_destructuring_element_globals(&pattern.elements, names);
         }
         ExprIr::ObjectDestructure { value, pattern } => {
             collect_expr_global_property_names(value, names);
             pattern.visit_expressions(&mut |expr| collect_expr_global_property_names(expr, names));
-            fn collect_target_globals(
-                target: &DestructuringTargetIr,
-                names: &mut BTreeSet<String>,
-            ) {
-                match target {
-                    DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                        if let IdentifierWriteDisposition::Global {
-                            referenced_name, ..
-                        }
-                        | IdentifierWriteDisposition::Environment {
-                            referenced_name, ..
-                        } = reference.write_disposition()
-                        {
-                            names.insert(referenced_name.to_string());
-                        }
-                    }
-                    DestructuringTargetIr::NestedArray(pattern) => {
-                        for element in &pattern.elements {
-                            match element {
-                                ArrayDestructuringElementIr::Elision => {}
-                                ArrayDestructuringElementIr::Target { target, .. }
-                                | ArrayDestructuringElementIr::Rest { target } => {
-                                    collect_target_globals(target, names);
-                                }
-                            }
-                        }
-                    }
-                    DestructuringTargetIr::NestedObject(pattern) => {
-                        for property in &pattern.properties {
-                            collect_target_globals(&property.target, names);
-                        }
-                        if let Some(rest) = &pattern.rest {
-                            collect_target_globals(rest, names);
-                        }
-                    }
-                    _ => {}
-                }
-            }
             for property in &pattern.properties {
-                collect_target_globals(&property.target, names);
+                collect_destructuring_target_globals(&property.target, names);
             }
             if let Some(rest) = &pattern.rest {
-                collect_target_globals(rest, names);
+                collect_destructuring_target_globals(rest, names);
+            }
+        }
+        ExprIr::ResumableArrayDestructuring(destructuring) => {
+            destructuring
+                .visit_expressions(&mut |expr| collect_expr_global_property_names(expr, names));
+            if let ResumableArrayDestructuringStepIr::Elements(elements) = destructuring.step() {
+                collect_array_destructuring_element_globals(elements, names);
             }
         }
         ExprIr::Conditional {
@@ -6416,6 +6467,15 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
                     || *target == StandardBuiltinId::ReflectGetOwnPropertyDescriptor.function_id()))
                 || expr_references_function(value, target)
                 || object_destructuring_pattern_any_expression(pattern, |expr| {
+                    expr_references_function(expr, target)
+                })
+        }
+        // The steps drive the same iterator protocol as `ArrayDestructure`.
+        ExprIr::ResumableArrayDestructuring(destructuring) => {
+            *target == StandardBuiltinId::ArrayPrototypeValues.function_id()
+                || *target == StandardBuiltinId::ArrayIteratorNext.function_id()
+                || *target == StandardBuiltinId::StringConstructor.function_id()
+                || resumable_array_destructuring_any_expression(destructuring, |expr| {
                     expr_references_function(expr, target)
                 })
         }
@@ -9609,92 +9669,21 @@ pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {
             2 + count_expr_temp_locals(value).max(count_expr_temp_locals(body))
         }
         ExprIr::ArrayDestructure { value, pattern, .. } => {
-            fn pattern_temp_locals(pattern: &ArrayDestructuringPatternIr) -> usize {
-                pattern
-                    .elements
-                    .iter()
-                    .map(|element| {
-                        let (target, default, rest) = match element {
-                            ArrayDestructuringElementIr::Elision => return 0,
-                            ArrayDestructuringElementIr::Target { target, default } => {
-                                (target, default.as_ref(), false)
-                            }
-                            ArrayDestructuringElementIr::Rest { target } => (target, None, true),
-                        };
-                        let target_locals = match target {
-                            // The write-back runs under
-                            // `with_reference_strictness`, which reserves the
-                            // carried-`[[Strict]]` flag local, so this budget
-                            // carries the same `REFERENCE_STRICTNESS_FLAG_LOCALS`
-                            // the reference-write expression arms do.
-                            DestructuringTargetIr::AssignmentProperty {
-                                target,
-                                key,
-                                strictness: _,
-                            } => {
-                                4 + REFERENCE_STRICTNESS_FLAG_LOCALS
-                                    + count_expr_temp_locals(target).max(match key {
-                                        DestructuringPropertyKeyIr::Static(_) => 0,
-                                        DestructuringPropertyKeyIr::Computed(key) => {
-                                            count_expr_temp_locals(key)
-                                        }
-                                    })
-                            }
-                            DestructuringTargetIr::AssignmentPrivate { target, .. } => {
-                                11 + count_expr_temp_locals(target)
-                            }
-                            DestructuringTargetIr::NestedArray(pattern) => {
-                                32 + pattern_temp_locals(pattern)
-                            }
-                            DestructuringTargetIr::NestedObject(pattern) => {
-                                let mut child_locals = 0;
-                                pattern.visit_expressions(&mut |expr| {
-                                    child_locals = child_locals.max(count_expr_temp_locals(expr));
-                                });
-                                (128 + pattern.properties.len() * 2 + child_locals)
-                                    .max(6 + GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
-                            }
-                            DestructuringTargetIr::AssignmentIdentifier(reference) => {
-                                // The fixed 32-local destructuring allowance
-                                // covers the checked global writer itself; a
-                                // global Reference additionally holds its
-                                // carried strictness flag across that write.
-                                match reference.write_disposition() {
-                                    IdentifierWriteDisposition::Global { .. } => {
-                                        REFERENCE_STRICTNESS_FLAG_LOCALS
-                                    }
-                                    IdentifierWriteDisposition::Environment { .. } => 7 + 64,
-                                    IdentifierWriteDisposition::MutableBinding { .. } => {
-                                        GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
-                                    }
-                                    IdentifierWriteDisposition::IgnoreImmutableBinding
-                                    | IdentifierWriteDisposition::Throw { .. } => 0,
-                                }
-                            }
-                            DestructuringTargetIr::Binding { .. } => {
-                                GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS
-                            }
-                        };
-                        let retained_reference_locals = match target {
-                            DestructuringTargetIr::AssignmentIdentifier(reference)
-                                if matches!(
-                                    reference.write_disposition(),
-                                    IdentifierWriteDisposition::Environment { .. }
-                                ) =>
-                            {
-                                7
-                            }
-                            _ => 0,
-                        };
-                        target_locals.max(
-                            retained_reference_locals
-                                + default.map(count_expr_temp_locals).unwrap_or(0),
-                        ) + usize::from(rest) * 2
-                    })
-                    .max()
-                    .unwrap_or(0)
+            32 + count_expr_temp_locals(value).max(array_destructuring_pattern_temp_locals(pattern))
+        }
+        // Each step holds the same 18-local working set as `ArrayDestructure`
+        // plus GetIterator's method pair; an element step runs the same
+        // element emitter.
+        ExprIr::ResumableArrayDestructuring(destructuring) => {
+            32 + match destructuring.step() {
+                ResumableArrayDestructuringStepIr::Open { value, .. } => {
+                    count_expr_temp_locals(value)
+                }
+                ResumableArrayDestructuringStepIr::Elements(elements) => {
+                    array_destructuring_elements_temp_locals(elements)
+                }
+                ResumableArrayDestructuringStepIr::Close(_) => 0,
             }
-            32 + count_expr_temp_locals(value).max(pattern_temp_locals(pattern))
         }
         ExprIr::ObjectDestructure { value, pattern } => {
             let mut child_locals = count_expr_temp_locals(value);

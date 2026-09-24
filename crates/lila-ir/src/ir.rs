@@ -11,8 +11,8 @@ use crate::{
     FunctionProtocolIr, GeneratorDelegationProtocol, HostBuiltinId, IrDiagnostic, IrDiagnosticKind,
     IteratorProtocolWitness, IteratorRecordIr, LogicalBinaryOp, LoweringStage, NativeErrorKind,
     NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
-    RelationalBinaryOp, SpecOperationIr, SpreadArgumentProtocol, StandardBuiltinId,
-    ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    RelationalBinaryOp, ResumableArrayPatternProtocol, SpecOperationIr, SpreadArgumentProtocol,
+    StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
 };
 use crate::{
     ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
@@ -1379,20 +1379,24 @@ fn visit_destructuring_target_expressions(
     }
 }
 
+impl ArrayDestructuringElementIr {
+    pub fn visit_expressions(&self, visit: &mut impl FnMut(&TypedExpr)) {
+        let (target, default) = match self {
+            ArrayDestructuringElementIr::Elision => return,
+            ArrayDestructuringElementIr::Target { target, default } => (target, default.as_ref()),
+            ArrayDestructuringElementIr::Rest { target } => (target, None),
+        };
+        visit_destructuring_target_expressions(target, visit);
+        if let Some(default) = default {
+            visit(default);
+        }
+    }
+}
+
 impl ArrayDestructuringPatternIr {
     pub fn visit_expressions(&self, visit: &mut impl FnMut(&TypedExpr)) {
         for element in &self.elements {
-            let (target, default) = match element {
-                ArrayDestructuringElementIr::Elision => continue,
-                ArrayDestructuringElementIr::Target { target, default } => {
-                    (target, default.as_ref())
-                }
-                ArrayDestructuringElementIr::Rest { target } => (target, None),
-            };
-            visit_destructuring_target_expressions(target, visit);
-            if let Some(default) = default {
-                visit(default);
-            }
+            element.visit_expressions(visit);
         }
     }
 
@@ -1430,6 +1434,91 @@ fn visit_destructuring_target_bindings(
         DestructuringTargetIr::AssignmentIdentifier(..)
         | DestructuringTargetIr::AssignmentProperty { .. }
         | DestructuringTargetIr::AssignmentPrivate { .. } => {}
+    }
+}
+
+/// One step of 13.15.5.2 ArrayAssignmentPattern evaluation in a synchronous
+/// generator whose elements suspend.
+///
+/// An ordinary array destructuring runs to completion inside one
+/// [`ExprIr::ArrayDestructure`] and keeps its Iterator Record in Wasm locals.
+/// A `yield` in an element's target Reference, Initializer or nested pattern
+/// splits the evaluation across generator activations, so the record lives in
+/// three activation-owned slots and every step names them. The lowering emits
+/// `Open` first, then the element steps in source order inside a synthesized
+/// try statement whose catch block runs [`ResumableIteratorCloseIr::Throw`] and
+/// whose finally block runs [`ResumableIteratorCloseIr::NormalOrReturn`]; an
+/// abrupt resumption (`return()` or `throw()`) while the pattern is suspended
+/// therefore reaches 13.15.5.2 step 3 exactly like an abrupt element.
+///
+/// Only the generator staging lowering constructs a step, so a backend can
+/// read one but cannot assemble a pattern out of order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumableArrayDestructuringIr {
+    record: IteratorRecordIr,
+    step: ResumableArrayDestructuringStepIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResumableArrayDestructuringStepIr {
+    /// 13.15.5.2 step 1: `GetIterator(value, sync)`, storing `[[Iterator]]`
+    /// and `[[NextMethod]]` and setting `[[Done]]` to false. Produces
+    /// undefined.
+    Open {
+        value: Box<TypedExpr>,
+        protocol: ResumableArrayPatternProtocol,
+    },
+    /// Consecutive elements (13.15.5.5) evaluated against the shared record,
+    /// none of which suspends.
+    ///
+    /// A suspending element is split around its suspension instead: its
+    /// target Reference's operands are evaluated into activation bindings
+    /// first, so the element read here only reads them back; and when its
+    /// Initializer or nested pattern suspends, a
+    /// [`DestructuringTargetIr::Binding`] element first stores the iterator
+    /// value (or, for a rest element, the rest Array) in an activation binding
+    /// that the later steps consume. Produces undefined.
+    Elements(Vec<ArrayDestructuringElementIr>),
+    /// 13.15.5.2 step 3 under the `[[Done]]` guard. Produces undefined.
+    Close(ResumableIteratorCloseIr),
+}
+
+/// Which completion 13.15.5.2 step 3 closes the iterator for (7.4.11 steps
+/// 4-6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumableIteratorCloseIr {
+    /// The elements completed normally, or a `return()` resumption left the
+    /// pattern: an abrupt `return` method and a non-Object result propagate.
+    NormalOrReturn,
+    /// The elements completed by a throw: `return` is called, its own abrupt
+    /// completion is discarded, and `[[Done]]` is set so the enclosing
+    /// finalizer does not close a second time.
+    Throw,
+}
+
+impl ResumableArrayDestructuringIr {
+    pub(crate) fn new(record: IteratorRecordIr, step: ResumableArrayDestructuringStepIr) -> Self {
+        Self { record, step }
+    }
+
+    pub fn record(&self) -> &IteratorRecordIr {
+        &self.record
+    }
+
+    pub fn step(&self) -> &ResumableArrayDestructuringStepIr {
+        &self.step
+    }
+
+    pub fn visit_expressions(&self, visit: &mut impl FnMut(&TypedExpr)) {
+        match &self.step {
+            ResumableArrayDestructuringStepIr::Open { value, .. } => visit(value),
+            ResumableArrayDestructuringStepIr::Elements(elements) => {
+                for element in elements {
+                    element.visit_expressions(visit);
+                }
+            }
+            ResumableArrayDestructuringStepIr::Close(_) => {}
+        }
     }
 }
 
@@ -2320,6 +2409,9 @@ pub enum ExprIr {
         value: Box<TypedExpr>,
         pattern: Box<ObjectDestructuringPatternIr>,
     },
+    /// One step of a synchronous generator's ArrayAssignmentPattern whose
+    /// elements suspend. See [`ResumableArrayDestructuringIr`].
+    ResumableArrayDestructuring(Box<ResumableArrayDestructuringIr>),
     CallNamed {
         name: String,
         args: Vec<TypedExpr>,
@@ -5643,6 +5735,15 @@ impl IrSummaryCounts {
                 self.assignments += 1;
                 self.visit_expr(value);
                 pattern.visit_expressions(&mut |expr| self.visit_expr(expr));
+            }
+            ExprIr::ResumableArrayDestructuring(destructuring) => {
+                if matches!(
+                    destructuring.step(),
+                    ResumableArrayDestructuringStepIr::Open { .. }
+                ) {
+                    self.assignments += 1;
+                }
+                destructuring.visit_expressions(&mut |expr| self.visit_expr(expr));
             }
             ExprIr::Conditional {
                 condition,

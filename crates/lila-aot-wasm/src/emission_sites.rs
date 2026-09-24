@@ -34,6 +34,9 @@ fn emission_sites_are_backed(site: EmissionSite) {
         EmissionSite::ArrayDestructuring => {
             let _ = FunctionBuilder::compile_array_destructure_from_value_locals;
         }
+        EmissionSite::ResumableArrayDestructuring => {
+            let _ = FunctionBuilder::compile_resumable_array_destructuring;
+        }
         EmissionSite::CallArgumentSpread => {
             let _ = FunctionBuilder::emit_call_args_vector;
         }

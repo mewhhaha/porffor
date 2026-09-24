@@ -684,17 +684,23 @@ pub(crate) fn async_generator_resumable_plan(body: &FunctionBody) -> ResumablePl
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratorPlanRejection {
     /// A nested declaration (a function, class or lexical declaration at the top
-    /// level of the body) contains a yield.
+    /// level of the body) contains a yield outside a staged initializer.
     YieldInDeclaration,
-    /// A statement-level `yield`, or `x = yield …`, whose operand itself hides
-    /// further suspensions the linear walk cannot order.
+    /// A lexical declaration's initializer, or a class declaration's heritage or
+    /// computed element name, contains a yield with no staged evaluation order.
+    YieldInDeclarationOperand(StagedYieldRejection),
+    /// `x = yield …`, whose operand itself hides further suspensions the
+    /// resumed assignment cannot order.
     YieldOperandNotDirect,
+    /// A statement-level `yield` whose operand contains a yield with no staged
+    /// evaluation order.
+    YieldOperandNotStageable(StagedYieldRejection),
     /// `return <expression containing a yield>` whose expression cannot be
     /// staged into a sequence of suspensions.
-    ReturnOperandNotStageable,
+    ReturnOperandNotStageable(StagedYieldRejection),
     /// An expression statement whose value is discarded but whose yields cannot
-    /// be flattened into a sequence.
-    DiscardedYieldExpression,
+    /// be staged.
+    DiscardedYieldExpression(StagedYieldRejection),
     /// A bare block whose yields cannot be flattened into a sequence.
     DiscardedYieldBlock,
     /// `with (<expression containing a yield>)`.
@@ -723,59 +729,87 @@ pub(crate) enum GeneratorPlanRejection {
 impl GeneratorPlanRejection {
     /// The reported reason. Every message names the *generator body* and the
     /// shape that failed, so a sweep groups these into families instead of into
-    /// one bucket labelled "function or class declaration".
-    pub(crate) fn message(self) -> &'static str {
-        match self {
-            Self::YieldInDeclaration => {
+    /// one bucket labelled "function or class declaration". A rejected staged
+    /// expression appends the form that has no staged evaluation order.
+    pub(crate) fn message(self) -> String {
+        let (shape, form) = match self {
+            Self::YieldInDeclaration => (
                 "generator body: a nested declaration contains a yield, which has no linear \
-                 suspension plan"
-            }
-            Self::YieldOperandNotDirect => {
+                 suspension plan",
+                None,
+            ),
+            Self::YieldInDeclarationOperand(form) => (
+                "generator body: a nested declaration contains a yield, which has no linear \
+                 suspension plan",
+                Some(form),
+            ),
+            Self::YieldOperandNotDirect => (
                 "generator body: a yield operand hides further suspensions, which has no linear \
-                 suspension plan"
-            }
-            Self::ReturnOperandNotStageable => {
+                 suspension plan",
+                None,
+            ),
+            Self::YieldOperandNotStageable(form) => (
+                "generator body: a yield operand hides further suspensions, which has no linear \
+                 suspension plan",
+                Some(form),
+            ),
+            Self::ReturnOperandNotStageable(form) => (
                 "generator body: a `return` operand containing a yield cannot be staged into a \
-                 linear suspension plan"
-            }
-            Self::DiscardedYieldExpression => {
+                 linear suspension plan",
+                Some(form),
+            ),
+            Self::DiscardedYieldExpression(form) => (
                 "generator body: a discarded expression statement's yields cannot be flattened \
-                 into a linear suspension plan"
-            }
-            Self::DiscardedYieldBlock => {
+                 into a linear suspension plan",
+                Some(form),
+            ),
+            Self::DiscardedYieldBlock => (
                 "generator body: a block's yields cannot be flattened into a linear suspension \
-                 plan"
-            }
-            Self::YieldInWithHead => {
-                "generator body: a yield in a `with` head has no linear suspension plan"
-            }
-            Self::YieldInWithBody => {
-                "generator body: a yield in this `with` body shape has no linear suspension plan"
-            }
-            Self::LoopBodyYieldNotDirect => {
+                 plan",
+                None,
+            ),
+            Self::YieldInWithHead => (
+                "generator body: a yield in a `with` head has no linear suspension plan",
+                None,
+            ),
+            Self::YieldInWithBody => (
+                "generator body: a yield in this `with` body shape has no linear suspension plan",
+                None,
+            ),
+            Self::LoopBodyYieldNotDirect => (
                 "generator body: a loop body requiring multiple suspension positions or an \
-                 unsupported nested yield has no linear suspension plan"
-            }
-            Self::LoopControlFlow => {
+                 unsupported nested yield has no linear suspension plan",
+                None,
+            ),
+            Self::LoopControlFlow => (
                 "generator body: a loop carrying `break`, `continue` or a capturing nested \
-                 function has no linear suspension plan"
-            }
-            Self::YieldInIfCondition => {
-                "generator body: a yield in an `if` condition has no linear suspension plan"
-            }
-            Self::IfBranchYieldNotDirect => {
+                 function has no linear suspension plan",
+                None,
+            ),
+            Self::YieldInIfCondition => (
+                "generator body: a yield in an `if` condition has no linear suspension plan",
+                None,
+            ),
+            Self::IfBranchYieldNotDirect => (
                 "generator body: an `if` branch whose yields are not a direct sequence has no \
-                 linear suspension plan"
-            }
-            Self::YieldInTryStatement => {
+                 linear suspension plan",
+                None,
+            ),
+            Self::YieldInTryStatement => (
                 "generator body: a `try`/`catch`/`finally` block whose yields are not a direct \
-                 sequence has no linear suspension plan"
-            }
-            Self::YieldInUnsupportedStatement => {
+                 sequence has no linear suspension plan",
+                None,
+            ),
+            Self::YieldInUnsupportedStatement => (
                 "generator body: a yield inside a statement kind with no resumable lowering \
                  (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear \
-                 suspension plan"
-            }
+                 suspension plan",
+                None,
+            ),
+        };
+        match form {
+            Some(form) => format!("{shape}: {}", form.message()),
+            None => shape.to_string(),
         }
     }
 }
@@ -792,15 +826,11 @@ pub(crate) fn linear_generator_plan_with_reason(
     for item in body.statements() {
         let StatementListItem::Statement(statement) = item else {
             if contains(item, ContainsSymbol::YieldExpression) {
-                let count = staged_generator_declaration_yield_count(item)
-                    .ok_or(GeneratorPlanRejection::YieldInDeclaration)?;
-                for _ in 0..count {
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state: current_state,
-                        resume_state: current_state + 1,
-                    });
-                    current_state += 1;
-                }
+                append_staged_generator_declaration_suspensions(
+                    item,
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
             }
             continue;
         };
@@ -810,7 +840,8 @@ pub(crate) fn linear_generator_plan_with_reason(
                 if assignment.op() == AssignOp::Assign
                     && matches!(
                         assignment.lhs(),
-                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
+                        AssignTarget::Identifier(_)
+                            | AssignTarget::Access(PropertyAccess::Simple(_))
                     )
                     && !contains(assignment.lhs(), ContainsSymbol::YieldExpression) =>
             {
@@ -826,17 +857,12 @@ pub(crate) fn linear_generator_plan_with_reason(
             _ => None,
         };
         if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
-            let yield_count =
-                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)
-                    .ok_or(GeneratorPlanRejection::YieldOperandNotDirect)?;
-            for _ in 0..yield_count {
-                let suspend_state = current_state;
-                current_state += 1;
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state,
-                    resume_state: current_state,
-                });
-            }
+            append_direct_generator_yield_suspensions(
+                yield_expression.target(),
+                nested_yield_allowed,
+                &mut current_state,
+                &mut suspension_points,
+            )?;
             continue;
         }
         if let Statement::Return(statement) = statement.as_ref() {
@@ -844,16 +870,11 @@ pub(crate) fn linear_generator_plan_with_reason(
                 .target()
                 .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
             {
-                let yield_count = staged_generator_expression_yield_count(target)
-                    .ok_or(GeneratorPlanRejection::ReturnOperandNotStageable)?;
-                for _ in 0..yield_count {
-                    let suspend_state = current_state;
-                    current_state += 1;
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state,
-                        resume_state: current_state,
-                    });
-                }
+                plan_staged_generator_expression(
+                    target,
+                    &mut StagedSuspensionPlan::new(&mut current_state, &mut suspension_points),
+                )
+                .map_err(GeneratorPlanRejection::ReturnOperandNotStageable)?;
                 continue;
             }
         }
@@ -864,7 +885,7 @@ pub(crate) fn linear_generator_plan_with_reason(
                     &mut current_state,
                     &mut suspension_points,
                 )
-                .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
+                .map_err(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 continue;
             }
         }
@@ -874,8 +895,7 @@ pub(crate) fn linear_generator_plan_with_reason(
                     block.statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )
-                .ok_or(GeneratorPlanRejection::DiscardedYieldBlock)?;
+                )?;
                 continue;
             }
         }
@@ -888,15 +908,14 @@ pub(crate) fn linear_generator_plan_with_reason(
                     block.statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )
-                .ok_or(GeneratorPlanRejection::DiscardedYieldBlock)?,
+                )?,
                 Statement::Expression(expression) => {
                     append_discarded_generator_expression_suspensions(
                         expression,
                         &mut current_state,
                         &mut suspension_points,
                     )
-                    .ok_or(GeneratorPlanRejection::DiscardedYieldExpression)?;
+                    .map_err(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 }
                 statement if contains(statement, ContainsSymbol::YieldExpression) => {
                     return Err(GeneratorPlanRejection::YieldInWithBody);
@@ -980,16 +999,14 @@ pub(crate) fn linear_generator_plan_with_reason(
                 try_statement.block().statement_list().statements(),
                 &mut current_state,
                 &mut suspension_points,
-            )
-            .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
+            )?;
             current_state += 1;
             if let Some(catch) = try_statement.catch() {
                 append_structured_generator_suspensions(
                     catch.block().statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )
-                .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
+                )?;
                 current_state += 1;
             }
             if let Some(finally) = try_statement.finally() {
@@ -997,8 +1014,7 @@ pub(crate) fn linear_generator_plan_with_reason(
                     finally.block().statement_list().statements(),
                     &mut current_state,
                     &mut suspension_points,
-                )
-                .ok_or(GeneratorPlanRejection::YieldInTryStatement)?;
+                )?;
                 current_state += 1;
             }
             continue;
@@ -1018,20 +1034,15 @@ fn append_structured_generator_suspensions(
     statements: &[StatementListItem],
     current_state: &mut u32,
     suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
-) -> Option<()> {
+) -> Result<(), GeneratorPlanRejection> {
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            let count = if contains(item, ContainsSymbol::YieldExpression) {
-                staged_generator_declaration_yield_count(item)?
-            } else {
-                0
-            };
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
+            if contains(item, ContainsSymbol::YieldExpression) {
+                append_staged_generator_declaration_suspensions(
+                    item,
+                    current_state,
+                    suspension_points,
+                )?;
             }
             continue;
         };
@@ -1041,7 +1052,8 @@ fn append_structured_generator_suspensions(
                 if assignment.op() == AssignOp::Assign
                     && matches!(
                         assignment.lhs(),
-                        AssignTarget::Identifier(_) | AssignTarget::Access(_)
+                        AssignTarget::Identifier(_)
+                            | AssignTarget::Access(PropertyAccess::Simple(_))
                     )
                     && !contains(assignment.lhs(), ContainsSymbol::YieldExpression) =>
             {
@@ -1057,16 +1069,12 @@ fn append_structured_generator_suspensions(
             _ => None,
         };
         if let Some((yield_expression, nested_yield_allowed)) = yield_expression {
-            let yield_count =
-                direct_generator_yield_count(yield_expression.target(), nested_yield_allowed)?;
-            for _ in 0..yield_count {
-                let suspend_state = *current_state;
-                *current_state += 1;
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state,
-                    resume_state: *current_state,
-                });
-            }
+            append_direct_generator_yield_suspensions(
+                yield_expression.target(),
+                nested_yield_allowed,
+                current_state,
+                suspension_points,
+            )?;
             continue;
         }
         if let Statement::Return(statement) = statement.as_ref() {
@@ -1074,15 +1082,11 @@ fn append_structured_generator_suspensions(
                 .target()
                 .filter(|target| contains(*target, ContainsSymbol::YieldExpression))
             {
-                let yield_count = staged_generator_expression_yield_count(target)?;
-                for _ in 0..yield_count {
-                    let suspend_state = *current_state;
-                    *current_state += 1;
-                    suspension_points.push(GeneratorSuspensionPointIr {
-                        suspend_state,
-                        resume_state: *current_state,
-                    });
-                }
+                plan_staged_generator_expression(
+                    target,
+                    &mut StagedSuspensionPlan::new(current_state, suspension_points),
+                )
+                .map_err(GeneratorPlanRejection::ReturnOperandNotStageable)?;
                 continue;
             }
         }
@@ -1092,7 +1096,8 @@ fn append_structured_generator_suspensions(
                     expression,
                     current_state,
                     suspension_points,
-                )?;
+                )
+                .map_err(GeneratorPlanRejection::DiscardedYieldExpression)?;
                 continue;
             }
         }
@@ -1132,60 +1137,75 @@ fn append_structured_generator_suspensions(
             continue;
         }
         if contains(statement.as_ref(), ContainsSymbol::YieldExpression) {
-            return None;
+            return Err(GeneratorPlanRejection::YieldInTryStatement);
         }
     }
-    Some(())
+    Ok(())
 }
 
-fn direct_generator_yield_count(
+/// A statement-level `yield`, `x = yield` or `return yield`: its own operand
+/// stages first, then the yield itself suspends linearly.
+fn append_direct_generator_yield_suspensions(
     target: Option<&Expression>,
     nested_yield_allowed: bool,
-) -> Option<u32> {
-    let Some(target) = target else {
-        return Some(1);
-    };
-    if !contains(target, ContainsSymbol::YieldExpression) {
-        return Some(1);
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Result<(), GeneratorPlanRejection> {
+    if let Some(target) = target.filter(|target| contains(*target, ContainsSymbol::YieldExpression))
+    {
+        if !nested_yield_allowed {
+            return Err(GeneratorPlanRejection::YieldOperandNotDirect);
+        }
+        plan_staged_generator_expression(
+            target,
+            &mut StagedSuspensionPlan::new(current_state, suspension_points),
+        )
+        .map_err(GeneratorPlanRejection::YieldOperandNotStageable)?;
     }
-    if !nested_yield_allowed {
-        return None;
-    }
-    staged_generator_expression_yield_count(target)?.checked_add(1)
+    let suspend_state = *current_state;
+    *current_state += 1;
+    suspension_points.push(GeneratorSuspensionPointIr {
+        suspend_state,
+        resume_state: *current_state,
+    });
+    Ok(())
 }
 
-fn staged_generator_declaration_yield_count(item: &StatementListItem) -> Option<u32> {
+/// A lexical declaration with identifier bindings, or a class declaration,
+/// whose initializers or class operands contain a yield.
+fn append_staged_generator_declaration_suspensions(
+    item: &StatementListItem,
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Result<(), GeneratorPlanRejection> {
     let StatementListItem::Declaration(declaration) = item else {
-        return None;
+        return Err(GeneratorPlanRejection::YieldInDeclaration);
     };
+    let mut plan = StagedSuspensionPlan::new(current_state, suspension_points);
     match declaration.as_ref() {
-        Declaration::ClassDeclaration(class) => class_evaluation_expressions(
-            class.super_ref(),
-            class.elements(),
-        )
-        .try_fold(0u32, |count, expression| {
-            count.checked_add(staged_generator_expression_yield_count(expression)?)
-        }),
+        Declaration::ClassDeclaration(class) => {
+            plan_linear_class_operands(class.super_ref(), class.elements(), &mut plan)
+                .map_err(GeneratorPlanRejection::YieldInDeclarationOperand)
+        }
         Declaration::Lexical(
             lexical @ (LexicalDeclaration::Let(_) | LexicalDeclaration::Const(_)),
-        ) => lexical
-            .variable_list()
-            .as_ref()
-            .iter()
-            .try_fold(0u32, |count, variable| {
+        ) => {
+            for variable in lexical.variable_list().as_ref() {
                 if !matches!(variable.binding(), Binding::Identifier(_)) {
-                    return None;
+                    return Err(GeneratorPlanRejection::YieldInDeclaration);
                 }
-                count.checked_add(match variable.init() {
-                    Some(init) => staged_generator_expression_yield_count(init)?,
-                    None => 0,
-                })
-            }),
-        _ => None,
+                if let Some(init) = variable.init() {
+                    plan_staged_generator_expression(init, &mut plan)
+                        .map_err(GeneratorPlanRejection::YieldInDeclarationOperand)?;
+                }
+            }
+            Ok(())
+        }
+        _ => Err(GeneratorPlanRejection::YieldInDeclaration),
     }
 }
 
-fn class_evaluation_expressions<'a>(
+pub(crate) fn class_evaluation_expressions<'a>(
     heritage: Option<&'a Expression>,
     elements: &'a [ClassElement],
 ) -> impl Iterator<Item = &'a Expression> {
@@ -1212,113 +1232,19 @@ fn class_evaluation_expressions<'a>(
         }))
 }
 
-fn staged_generator_expression_yield_count(expression: &Expression) -> Option<u32> {
-    if !contains(expression, ContainsSymbol::YieldExpression) {
-        return Some(0);
-    }
-    match expression {
-        Expression::Parenthesized(parenthesized) => {
-            staged_generator_expression_yield_count(parenthesized.expression())
-        }
-        Expression::Yield(yield_expression) => {
-            let nested_count = match yield_expression.target() {
-                Some(target) => staged_generator_expression_yield_count(target)?,
-                None => 0,
-            };
-            nested_count.checked_add(1)
-        }
-        Expression::Call(call) => {
-            if call
-                .args()
-                .iter()
-                .any(|arg| matches!(arg, Expression::Spread(_)))
-            {
-                return None;
-            }
-            call.args().iter().try_fold(
-                staged_generator_expression_yield_count(call.function())?,
-                |count, argument| {
-                    count.checked_add(staged_generator_expression_yield_count(argument)?)
-                },
-            )
-        }
-        Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-            let count = staged_generator_expression_yield_count(access.target())?;
-            match access.field() {
-                PropertyAccessField::Const(_) => Some(count),
-                PropertyAccessField::Expr(key) => {
-                    count.checked_add(staged_generator_expression_yield_count(key)?)
-                }
-            }
-        }
-        Expression::Assign(assignment) if assignment.op() == AssignOp::Assign => {
-            let AssignTarget::Access(PropertyAccess::Simple(access)) = assignment.lhs() else {
-                return None;
-            };
-            let mut count = staged_generator_expression_yield_count(access.target())?;
-            if let PropertyAccessField::Expr(key) = access.field() {
-                count = count.checked_add(staged_generator_expression_yield_count(key)?)?;
-            }
-            count.checked_add(staged_generator_expression_yield_count(assignment.rhs())?)
-        }
-        Expression::ClassExpression(class) => class_evaluation_expressions(
-            class.super_ref(),
-            class.elements(),
-        )
-        .try_fold(0u32, |count, operand| {
-            count.checked_add(staged_generator_expression_yield_count(operand)?)
-        }),
-        Expression::ArrayLiteral(array) => {
-            array
-                .as_ref()
-                .iter()
-                .try_fold(0u32, |count, element| match element {
-                    Some(Expression::Spread(spread)) => {
-                        count.checked_add(staged_generator_expression_yield_count(spread.target())?)
-                    }
-                    Some(element) => {
-                        count.checked_add(staged_generator_expression_yield_count(element)?)
-                    }
-                    None => Some(count),
-                })
-        }
-        Expression::ObjectLiteral(object) => {
-            object
-                .properties()
-                .iter()
-                .try_fold(0u32, |count, property| match property {
-                    PropertyDefinition::SpreadObject(source) => {
-                        count.checked_add(staged_generator_expression_yield_count(source)?)
-                    }
-                    PropertyDefinition::Property(PropertyName::Literal(_), value) => {
-                        count.checked_add(staged_generator_expression_yield_count(value)?)
-                    }
-                    _ => None,
-                })
-        }
-        expression if contains(expression, ContainsSymbol::YieldExpression) => None,
-        _ => Some(0),
-    }
-}
-
 fn append_discarded_generator_block_suspensions(
     statements: &[StatementListItem],
     current_state: &mut u32,
     suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
-) -> Option<()> {
+) -> Result<(), GeneratorPlanRejection> {
     for item in statements {
         let StatementListItem::Statement(statement) = item else {
-            let count = if contains(item, ContainsSymbol::YieldExpression) {
-                staged_generator_declaration_yield_count(item)?
-            } else {
-                0
-            };
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
+            if contains(item, ContainsSymbol::YieldExpression) {
+                append_staged_generator_declaration_suspensions(
+                    item,
+                    current_state,
+                    suspension_points,
+                )?;
             }
             continue;
         };
@@ -1328,25 +1254,50 @@ fn append_discarded_generator_block_suspensions(
                     expression,
                     current_state,
                     suspension_points,
-                )?;
+                )
+                .map_err(GeneratorPlanRejection::DiscardedYieldExpression)?;
             }
             Statement::Block(block) => append_discarded_generator_block_suspensions(
                 block.statement_list().statements(),
                 current_state,
                 suspension_points,
             )?,
-            statement if contains(statement, ContainsSymbol::YieldExpression) => return None,
+            statement if contains(statement, ContainsSymbol::YieldExpression) => {
+                return Err(GeneratorPlanRejection::DiscardedYieldBlock);
+            }
             _ => {}
         }
     }
-    Some(())
+    Ok(())
+}
+
+/// `(yield a) ? yield b : yield c` with three direct yields: the one
+/// discarded conditional shape that lowers to a two-branch `GeneratorIf`
+/// (see `ScriptLowerer::lower_discarded_generator_expression`). Every other
+/// discarded conditional stages as a value.
+pub(crate) fn discarded_conditional_has_direct_yield_branches(
+    conditional: &boa_ast::expression::operator::Conditional,
+) -> bool {
+    let direct_yield = |expression: &Expression| {
+        let mut expression = expression;
+        while let Expression::Parenthesized(parenthesized) = expression {
+            expression = parenthesized.expression();
+        }
+        matches!(expression, Expression::Yield(yield_expression)
+            if !yield_expression
+                .target()
+                .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression)))
+    };
+    direct_yield(conditional.condition())
+        && direct_yield(conditional.if_true())
+        && direct_yield(conditional.if_false())
 }
 
 fn append_discarded_generator_expression_suspensions(
     expression: &Expression,
     current_state: &mut u32,
     suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
-) -> Option<()> {
+) -> Result<(), StagedYieldRejection> {
     match expression {
         Expression::Parenthesized(parenthesized) => {
             append_discarded_generator_expression_suspensions(
@@ -1355,30 +1306,21 @@ fn append_discarded_generator_expression_suspensions(
                 suspension_points,
             )
         }
-        Expression::Yield(yield_expression) => {
-            if direct_generator_yield_count(yield_expression.target(), true)? != 1 {
-                return None;
-            }
-            let suspend_state = *current_state;
-            *current_state += 1;
-            suspension_points.push(GeneratorSuspensionPointIr {
-                suspend_state,
-                resume_state: *current_state,
-            });
-            Some(())
-        }
-        Expression::ArrayLiteral(array) => {
+        Expression::ArrayLiteral(array)
+            if !array
+                .as_ref()
+                .iter()
+                .flatten()
+                .any(|element| matches!(element, Expression::Spread(_))) =>
+        {
             for element in array.as_ref().iter().flatten() {
-                if matches!(element, Expression::Spread(_)) {
-                    return None;
-                }
                 append_discarded_generator_expression_suspensions(
                     element,
                     current_state,
                     suspension_points,
                 )?;
             }
-            Some(())
+            Ok(())
         }
         Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
             append_discarded_generator_expression_suspensions(
@@ -1392,29 +1334,9 @@ fn append_discarded_generator_expression_suspensions(
                 suspension_points,
             )
         }
-        Expression::Binary(binary) if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) => {
-            append_discarded_generator_expression_suspensions(
-                binary.lhs(),
-                current_state,
-                suspension_points,
-            )?;
-            append_discarded_generator_expression_suspensions(
-                binary.rhs(),
-                current_state,
-                suspension_points,
-            )
-        }
-        Expression::Conditional(conditional) => {
-            let mut condition = conditional.condition();
-            while let Expression::Parenthesized(parenthesized) = condition {
-                condition = parenthesized.expression();
-            }
-            let Expression::Yield(condition_yield) = condition else {
-                return None;
-            };
-            if direct_generator_yield_count(condition_yield.target(), true)? != 1 {
-                return None;
-            }
+        Expression::Conditional(conditional)
+            if discarded_conditional_has_direct_yield_branches(conditional) =>
+        {
             let condition_suspend_state = *current_state;
             *current_state += 1;
             suspension_points.push(GeneratorSuspensionPointIr {
@@ -1423,27 +1345,14 @@ fn append_discarded_generator_expression_suspensions(
             });
 
             let branch_entry_state = *current_state;
-            for (resume_offset, branch) in [conditional.if_true(), conditional.if_false()]
-                .into_iter()
-                .enumerate()
-            {
-                let mut branch = branch;
-                while let Expression::Parenthesized(parenthesized) = branch {
-                    branch = parenthesized.expression();
-                }
-                let Expression::Yield(branch_yield) = branch else {
-                    return None;
-                };
-                if direct_generator_yield_count(branch_yield.target(), true)? != 1 {
-                    return None;
-                }
+            for resume_offset in 1..=2 {
                 suspension_points.push(GeneratorSuspensionPointIr {
                     suspend_state: branch_entry_state,
-                    resume_state: branch_entry_state + resume_offset as u32 + 1,
+                    resume_state: branch_entry_state + resume_offset,
                 });
             }
             *current_state = branch_entry_state + 3;
-            Some(())
+            Ok(())
         }
         Expression::Assign(assignment)
             if assignment.op() == AssignOp::Assign
@@ -1451,7 +1360,7 @@ fn append_discarded_generator_expression_suspensions(
                 && matches!(assignment.rhs(), Expression::TemplateLiteral(template) if contains(template, ContainsSymbol::YieldExpression)) =>
         {
             let Expression::TemplateLiteral(template) = assignment.rhs() else {
-                return None;
+                unreachable!("guarded template literal assignment");
             };
             for element in template.elements() {
                 let TemplateElement::Expr(expression) = element else {
@@ -1465,10 +1374,13 @@ fn append_discarded_generator_expression_suspensions(
                     expression = parenthesized.expression();
                 }
                 let Expression::Yield(yield_expression) = expression else {
-                    return None;
+                    return Err(StagedYieldRejection::UnstagedForm);
                 };
-                if direct_generator_yield_count(yield_expression.target(), true)? != 1 {
-                    return None;
+                if yield_expression
+                    .target()
+                    .is_some_and(|target| contains(target, ContainsSymbol::YieldExpression))
+                {
+                    return Err(StagedYieldRejection::UnstagedForm);
                 }
                 let suspend_state = *current_state;
                 *current_state += 1;
@@ -1477,34 +1389,14 @@ fn append_discarded_generator_expression_suspensions(
                     resume_state: *current_state,
                 });
             }
-            Some(())
+            Ok(())
         }
-        Expression::Assign(assignment)
-            if assignment.op() == AssignOp::Assign
-                && matches!(assignment.lhs(), AssignTarget::Identifier(_)) =>
-        {
-            append_discarded_generator_expression_suspensions(
-                assignment.rhs(),
-                current_state,
-                suspension_points,
-            )
-        }
-        Expression::ClassExpression(_)
-        | Expression::Call(_)
-        | Expression::PropertyAccess(_)
-        | Expression::Assign(_) => {
-            let count = staged_generator_expression_yield_count(expression)?;
-            for _ in 0..count {
-                suspension_points.push(GeneratorSuspensionPointIr {
-                    suspend_state: *current_state,
-                    resume_state: *current_state + 1,
-                });
-                *current_state += 1;
-            }
-            Some(())
-        }
-        expression if contains(expression, ContainsSymbol::YieldExpression) => None,
-        _ => Some(()),
+        // Everything else, including `a + b`, calls, assignments and
+        // destructuring, is evaluated for its value and the value discarded.
+        expression => plan_staged_generator_expression(
+            expression,
+            &mut StagedSuspensionPlan::new(current_state, suspension_points),
+        ),
     }
 }
 

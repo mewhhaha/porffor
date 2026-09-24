@@ -9,11 +9,11 @@ use icu_properties::{props, CodePointSetData};
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
-    RegExpCompileErrorKind, RegExpProgram, ResumableLoopIterationEnvironmentIr,
-    StaticRegExpCompilation, TemplateObjectIr, BUILTIN_REGEXP_FUNCTION_ID,
-    BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
-    REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_OPCODE_NAMED_BACKREFERENCE,
-    REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+    RegExpCompileErrorKind, RegExpProgram, ResumableArrayDestructuringStepIr,
+    ResumableLoopIterationEnvironmentIr, StaticRegExpCompilation, TemplateObjectIr,
+    BUILTIN_REGEXP_FUNCTION_ID, BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID,
+    REALM_EVAL_SCRIPT_METHOD_NAME, REGEXP_BACKREFERENCE_IGNORE_CASE,
+    REGEXP_OPCODE_NAMED_BACKREFERENCE, REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
 };
 use std::sync::OnceLock;
 
@@ -4115,6 +4115,26 @@ impl StringPool {
                 pattern.visit_expressions(&mut |expr| self.collect_expr(expr));
                 self.collect_object_destructuring_pattern_strings(pattern);
             }
+            ExprIr::ResumableArrayDestructuring(destructuring) => {
+                self.uses_heap = true;
+                for key in [
+                    "Symbol.iterator",
+                    "next",
+                    "done",
+                    "value",
+                    "return",
+                    "enumerable",
+                ] {
+                    self.intern_string(key);
+                }
+                destructuring.visit_expressions(&mut |expr| self.collect_expr(expr));
+                if let ResumableArrayDestructuringStepIr::Elements(elements) = destructuring.step()
+                {
+                    for element in elements {
+                        self.collect_array_destructuring_element_strings(element);
+                    }
+                }
+            }
             ExprIr::Conditional {
                 condition,
                 then_expr,
@@ -4656,12 +4676,19 @@ impl StringPool {
         pattern: &ArrayDestructuringPatternIr,
     ) {
         for element in &pattern.elements {
-            match element {
-                ArrayDestructuringElementIr::Elision => {}
-                ArrayDestructuringElementIr::Target { target, default: _ }
-                | ArrayDestructuringElementIr::Rest { target } => {
-                    self.collect_destructuring_target_strings(target);
-                }
+            self.collect_array_destructuring_element_strings(element);
+        }
+    }
+
+    fn collect_array_destructuring_element_strings(
+        &mut self,
+        element: &ArrayDestructuringElementIr,
+    ) {
+        match element {
+            ArrayDestructuringElementIr::Elision => {}
+            ArrayDestructuringElementIr::Target { target, default: _ }
+            | ArrayDestructuringElementIr::Rest { target } => {
+                self.collect_destructuring_target_strings(target);
             }
         }
     }
