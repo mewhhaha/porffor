@@ -4,7 +4,7 @@ use std::path::Path;
 const SOURCE: &str = include_str!("../src/objects.rs");
 const HAS_PROPERTY_SOURCE: &str = include_str!("../src/objects/has_property.rs");
 const OBJECT_DESCRIPTOR_BUILTIN_SOURCE: &str =
-    include_str!("../src/builtins/object/get_own_property_descriptor.rs");
+    include_str!("../src/builtins/object/get_own_property_descriptor/proxy.rs");
 const REFLECT_BUILTIN_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-revocation-route-ownership.md");
@@ -396,10 +396,12 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
         1,
     );
 
+    // Object.getOwnPropertyDescriptor's 10.5.5 step lives in its private
+    // Proxy child module.
     let object_builtin = normalized_rust(bounded(
         OBJECT_DESCRIPTOR_BUILTIN_SOURCE,
-        "pub(in crate::builtins) fn compile_object_get_own_property_descriptor_builtin(",
-        "\n}",
+        "pub(super) fn emit_proxy_get_own_property_descriptor(",
+        "fn emit_proxy_get_own_property_trap_result(",
     ));
     assert_eq!(
         object_builtin
@@ -410,9 +412,9 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
     assert_eq!(
         object_builtin
             .matches(concat!(
-                "self.emit_load_live_proxy_slots(target_payload_local,ProxySlotLocals::new(",
-                "ProxyTargetLocals::new(value_payload_local,value_tag_local),",
-                "ProxyHandlerLocals::new(proxy_handler_payload_local,proxy_handler_tag_local),),",
+                "self.emit_load_live_proxy_slots(object.payload,ProxySlotLocals::new(",
+                "ProxyTargetLocals::new(target.payload,target.tag),",
+                "ProxyHandlerLocals::new(handler.payload,handler.tag),),",
                 "ProxyRevocationRoute::CurrentFunctionRealm,function,)?;"
             ))
             .count(),

@@ -5356,6 +5356,23 @@ require_fixed_string_count \
 check_raw_line_budget "$object_get_own_descriptor_parent" 4400
 check_raw_line_budget "$object_get_own_descriptor_file" 1480
 
+# 10.5.5 Proxy [[GetOwnProperty]] is the descriptor owner's private child: the
+# parent declares it privately and calls its one entry, and the child owns the
+# live-slot read, the trap call, the recursive targetDesc and the conversion.
+object_get_own_descriptor_proxy_file="crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs"
+require_file "$object_get_own_descriptor_proxy_file"
+check_no_inline_legacy_includes "$object_get_own_descriptor_proxy_file"
+require_exact_line_count "$object_get_own_descriptor_file" 'mod proxy;' 1 'private Proxy [[GetOwnProperty]] module declaration'
+require_fixed_string_count "$object_get_own_descriptor_file" 'self.emit_proxy_get_own_property_descriptor(' 1 'Proxy [[GetOwnProperty]] step call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'pub(super) fn emit_proxy_get_own_property_descriptor(' 1 'Proxy [[GetOwnProperty]] step entry'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_to_property_descriptor(' 1 'Proxy trap-result ToPropertyDescriptor call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_complete_property_descriptor(' 1 'Proxy trap-result CompletePropertyDescriptor call'
+require_fixed_string_count "$object_get_own_descriptor_proxy_file" 'self.emit_from_property_descriptor(' 1 'Proxy result FromPropertyDescriptor call'
+if grep -Eq 'emit_function_or_proxy_call|emit_to_property_descriptor|getOwnPropertyDescriptor trap' "$object_get_own_descriptor_file"; then
+  fail "$object_get_own_descriptor_file must leave the Proxy trap step to its private child"
+fi
+check_raw_line_budget "$object_get_own_descriptor_proxy_file" 560
+
 # T10's complete Object.getOwnPropertyDescriptors compiler has one private
 # owner. The parent retains only its module declaration and the standard
 # dispatcher retains one fixed builtin call.
@@ -5916,7 +5933,11 @@ require_fixed_string_count \
   1 \
   'closed HasProperty branch consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$own_descriptor_fact" 3 'own-descriptor fact definition/HasProperty/Proxy Delete call'
-require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$own_descriptor_fact" 2 'Object.getOwnPropertyDescriptor invariant call'
+# Object.getOwnPropertyDescriptor's Proxy step needs targetDesc's values for
+# SameValue and a Proxy target's own trap, so it recurses through the builtin
+# instead of reading the value-free fact.
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$own_descriptor_fact" 0 'Object.getOwnPropertyDescriptor value-free fact'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs "$own_descriptor_fact" 0 'Proxy [[GetOwnProperty]] value-free fact'
 require_fixed_string_count \
   crates/lila-aot-wasm/src/objects.rs \
   'enum DirectOwnDescriptorProjectionLocals {' \
@@ -6167,7 +6188,8 @@ require_fixed_string_count \
   'typed live-Proxy-slot reader authority'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs "$proxy_slot_reader" 8 'live-Proxy-slot reader definition/internal call'
 require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs "$proxy_slot_reader" 1 'shared HasProperty live-Proxy-slot reader call'
-require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$proxy_slot_reader" 1 'public descriptor live-Proxy-slot reader call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor.rs "$proxy_slot_reader" 0 'public descriptor parent live-Proxy-slot reader call'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/object/get_own_property_descriptor/proxy.rs "$proxy_slot_reader" 1 'public descriptor Proxy live-Proxy-slot reader call'
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/reflect.rs "$proxy_slot_reader" 1 'live-Proxy-slot reader call in Reflect builtins'
 require_fixed_string_count crates/lila-aot-wasm/src/objects.rs 'HEAP_PROXY_HANDLER_TAG_OFFSET' 2 'Proxy handler-tag writer/reader authority'
 proxy_handler_tag_files="$(grep -RFl --include='*.rs' 'HEAP_PROXY_HANDLER_TAG_OFFSET' crates/lila-aot-wasm/src | sort || true)"

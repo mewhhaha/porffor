@@ -14,6 +14,8 @@ const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../../lila-ir/src/operations.rs");
 const PROPERTY_DESCRIPTOR_SOURCE: &str = include_str!("../../lila-ir/src/property_descriptor.rs");
 const REFLECT_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
+const PROXY_GET_OWN_PROPERTY_SOURCE: &str =
+    include_str!("../src/builtins/object/get_own_property_descriptor/proxy.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -251,9 +253,11 @@ fn conversion_returns_one_reserved_descriptor_only_after_step_nine() {
 #[test]
 fn two_object_builtin_calls_convert_then_consume_the_descriptor() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // The two Object definition builtins, plus 10.5.5 step 11's conversion of
+    // a Proxy getOwnPropertyDescriptor trap result.
     assert_eq!(
         count_in_rust_sources(&source_root, "self.emit_to_property_descriptor("),
-        2
+        3
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "self.emit_from_present_property_descriptor("),
@@ -284,6 +288,85 @@ fn two_object_builtin_calls_convert_then_consume_the_descriptor() {
         count_in_rust_sources(&source_root, "emit_to_property_descriptor_object"),
         0
     );
+}
+
+#[test]
+fn proxy_trap_result_is_converted_completed_validated_then_republished() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        PROXY_GET_OWN_PROPERTY_SOURCE
+            .matches("self.emit_to_property_descriptor(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "self.emit_complete_property_descriptor("),
+        1
+    );
+    // 10.5.5 steps 6-16 and the caller's 6.2.6.4, in order: IsExtensible(target)
+    // precedes the observable conversion, and the trap's object is never the
+    // result.
+    let trap_result = function_source(
+        PROXY_GET_OWN_PROPERTY_SOURCE,
+        "    fn emit_proxy_get_own_property_trap_result(",
+    );
+    positions_in_order(
+        trap_result,
+        &[
+            "self.emit_function_or_proxy_call_leave_throw_completion(",
+            "self.emit_is_heap_object_like_tag_i32(trap_result.tag, function);",
+            "let target_descriptor = self.emit_proxy_target_own_descriptor(target, key, function)?;",
+            "// Step 9.",
+            "self.emit_object_is_extensible_i32(target.payload, target.tag, extensible, function)?;",
+            "function.instruction(&Instruction::Else);",
+            "self.emit_object_is_extensible_i32(target.payload, target.tag, extensible, function)?;",
+            "let converted = self.emit_to_property_descriptor(",
+            "trap_result,",
+            "let completed = self.emit_complete_property_descriptor(converted, function);",
+            "self.emit_proxy_get_own_property_compatibility(",
+            "completed.emit_configurable_i32(function);",
+            "self.emit_from_property_descriptor(",
+            "&completed.object_fields(),",
+            "result.payload,",
+            "self.release_completed_property_descriptor(completed);",
+        ],
+    );
+    // The trap's object is read only through ToPropertyDescriptor and is
+    // never published.
+    assert_eq!(
+        trap_result.matches("LocalGet(trap_result.payload)").count(),
+        0
+    );
+    assert!(!trap_result.contains("emit_from_present_property_descriptor("));
+    assert!(!PROXY_GET_OWN_PROPERTY_SOURCE
+        .contains("emit_object_own_data_field_read(\n            trap_result"));
+
+    // 6.2.6.6 takes its side from `classify`, the one 6.2.6.1-3 derivation,
+    // and consumes the converted witness.
+    let completion = function_source(
+        OBJECTS_SOURCE,
+        "pub(crate) fn emit_complete_property_descriptor(",
+    );
+    assert!(completion.contains("reserved_descriptor: ReservedPropertyDescriptorLocals,"));
+    assert!(completion.contains(") -> CompletedPropertyDescriptorLocals {"));
+    positions_in_order(
+        completion,
+        &[
+            "match classify(&reserved_descriptor.descriptor) {",
+            "PropertyDescriptorKind::Accessor => 1,",
+            "PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => 0,",
+            "DescriptorClassification::Dynamic { accessor_terms, .. } => {",
+            "accessor_terms.runtime_flags()",
+            "} = reserved_descriptor.descriptor.into_partial();",
+            "let value = complete(value, ValueKind::Undefined);",
+            "let writable = complete(writable, ValueKind::Boolean);",
+            "let get = complete(get, ValueKind::Undefined);",
+            "let set = complete(set, ValueKind::Undefined);",
+            "let enumerable = complete(enumerable, ValueKind::Boolean);",
+            "let configurable = complete(configurable, ValueKind::Boolean);",
+        ],
+    );
+    assert!(!completion.contains("_ =>"));
 }
 
 #[test]

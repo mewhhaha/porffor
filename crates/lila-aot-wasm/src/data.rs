@@ -1544,6 +1544,7 @@ impl StringPool {
             "Proxy getOwnPropertyDescriptor trap result cannot report configurable for non-configurable target property",
             "Proxy getOwnPropertyDescriptor trap result cannot report non-configurable target property",
             "Proxy getOwnPropertyDescriptor trap result cannot report non-writable target property",
+            "Proxy getOwnPropertyDescriptor trap result is incompatible with target property",
             "Proxy preventExtensions trap is not callable",
             "Proxy preventExtensions trap returned false",
             "Proxy preventExtensions trap returned true for extensible target",

@@ -815,6 +815,94 @@ pub(crate) struct ReservedPropertyDescriptorLocals {
     descriptor: ValidatedDescriptor<ReservedPropertyDescriptorCarrier>,
 }
 
+/// 6.2.6.6 CompletePropertyDescriptor applied to a converted descriptor whose
+/// field presence is decided when the program runs.
+///
+/// Completion fixes the descriptor's side: step 3 completes a generic
+/// descriptor to a *data* descriptor, so exactly one of `accessor` and `data`
+/// is non-zero, and every field of that side, plus `[[Enumerable]]` and
+/// `[[Configurable]]`, holds a value (the step 2 default when it was absent).
+/// The fields of the other side are not part of the record: the only way to
+/// publish it, [`Self::object_fields`], gates them on the side flags.
+#[must_use = "a completed property descriptor owns its locals and must be released"]
+pub(crate) struct CompletedPropertyDescriptorLocals {
+    accessor: u32,
+    data: u32,
+    value: TaggedLocals,
+    writable: TaggedLocals,
+    get: TaggedLocals,
+    set: TaggedLocals,
+    enumerable: TaggedLocals,
+    configurable: TaggedLocals,
+    owned_locals: Vec<u32>,
+}
+
+impl CompletedPropertyDescriptorLocals {
+    /// 6.2.6.1 IsAccessorDescriptor of the completed descriptor.
+    pub(crate) fn emit_accessor_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.accessor, function);
+    }
+
+    pub(crate) fn emit_writable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.writable.payload, function);
+    }
+
+    pub(crate) fn emit_enumerable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.enumerable.payload, function);
+    }
+
+    pub(crate) fn emit_configurable_i32(&self, function: &mut Function) {
+        Self::emit_nonzero_i32(self.configurable.payload, function);
+    }
+
+    /// `[[Value]]`; meaningful only for a data descriptor.
+    pub(crate) fn value(&self) -> TaggedLocals {
+        self.value
+    }
+
+    /// `[[Get]]`; meaningful only for an accessor descriptor.
+    pub(crate) fn getter(&self) -> TaggedLocals {
+        self.get
+    }
+
+    /// `[[Set]]`; meaningful only for an accessor descriptor.
+    pub(crate) fn setter(&self) -> TaggedLocals {
+        self.set
+    }
+
+    /// The 6.2.6.4 FromPropertyDescriptor input: the four fields of whichever
+    /// side the descriptor completed to.
+    pub(crate) fn object_fields(&self) -> DescriptorObjectFields {
+        let data_field = |value| Presence::Runtime {
+            present: self.data,
+            value,
+        };
+        let accessor_field = |value| Presence::Runtime {
+            present: self.accessor,
+            value,
+        };
+        DescriptorObjectFields {
+            value: data_field(self.value),
+            writable: Presence::Runtime {
+                present: self.data,
+                value: DescriptorFlag::BooleanPayload(self.writable.payload),
+            },
+            get: accessor_field(self.get),
+            set: accessor_field(self.set),
+            enumerable: Presence::Present(DescriptorFlag::BooleanPayload(self.enumerable.payload)),
+            configurable: Presence::Present(DescriptorFlag::BooleanPayload(
+                self.configurable.payload,
+            )),
+        }
+    }
+
+    fn emit_nonzero_i32(local: u32, function: &mut Function) {
+        function.instruction(&Instruction::LocalGet(local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+    }
+}
+
 /// The kind an entry is **stored** as.
 ///
 /// Two inhabitants, and that is the point: 10.1.6.3 step 3 asserts a stored
@@ -11962,6 +12050,125 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         Ok(())
+    }
+
+    /// 6.2.6.6 CompletePropertyDescriptor. Consumes the converted descriptor;
+    /// the completed record takes over its locals.
+    ///
+    /// The side comes from [`classify`], the one derivation of 6.2.6.1-3: a
+    /// descriptor is an accessor descriptor iff it has `[[Get]]` or `[[Set]]`,
+    /// and anything else (including a generic descriptor) completes to data.
+    pub(crate) fn emit_complete_property_descriptor(
+        &mut self,
+        reserved_descriptor: ReservedPropertyDescriptorLocals,
+        function: &mut Function,
+    ) -> CompletedPropertyDescriptorLocals {
+        let accessor = self.reserve_temp_local();
+        let data = self.reserve_temp_local();
+        match classify(&reserved_descriptor.descriptor) {
+            DescriptorClassification::Static(kind) => {
+                let is_accessor = match kind {
+                    PropertyDescriptorKind::Accessor => 1,
+                    PropertyDescriptorKind::Data | PropertyDescriptorKind::Generic => 0,
+                };
+                function.instruction(&Instruction::I64Const(is_accessor));
+            }
+            DescriptorClassification::Dynamic { accessor_terms, .. } => {
+                if accessor_terms.statically_true {
+                    function.instruction(&Instruction::I64Const(1));
+                } else {
+                    function.instruction(&Instruction::I64Const(0));
+                    for present in accessor_terms.runtime_flags() {
+                        function.instruction(&Instruction::LocalGet(present));
+                        function.instruction(&Instruction::I64Or);
+                    }
+                    function.instruction(&Instruction::I64Const(0));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I64ExtendI32U);
+                }
+            }
+        }
+        function.instruction(&Instruction::LocalSet(accessor));
+        function.instruction(&Instruction::LocalGet(accessor));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(data));
+
+        // Step 2's *like* record: `undefined` for `[[Value]]`, `[[Get]]` and
+        // `[[Set]]`, `false` for the three flags. Writing the default to an
+        // absent field of the other side is harmless: `object_fields` never
+        // publishes it.
+        let PartialDescriptor {
+            value,
+            writable,
+            get,
+            set,
+            enumerable,
+            configurable,
+        } = reserved_descriptor.descriptor.into_partial();
+        let mut owned_locals = vec![accessor, data];
+        let mut complete = |presence: Presence<TaggedLocals, u32>, default_tag: ValueKind| {
+            let (value, present) = match presence {
+                Presence::Absent => {
+                    let value =
+                        TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
+                    (value, None)
+                }
+                Presence::Present(value) => {
+                    owned_locals.extend([value.payload, value.tag]);
+                    return value;
+                }
+                Presence::Runtime { present, value } => (value, Some(present)),
+            };
+            owned_locals.extend([value.payload, value.tag]);
+            if let Some(present) = present {
+                owned_locals.push(present);
+                function.instruction(&Instruction::LocalGet(present));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+            }
+            function.instruction(&Instruction::I64Const(0));
+            function.instruction(&Instruction::LocalSet(value.payload));
+            function.instruction(&Instruction::I64Const(default_tag.tag() as i64));
+            function.instruction(&Instruction::LocalSet(value.tag));
+            if present.is_some() {
+                function.instruction(&Instruction::End);
+            }
+            value
+        };
+        let value = complete(value, ValueKind::Undefined);
+        let writable = complete(writable, ValueKind::Boolean);
+        let get = complete(get, ValueKind::Undefined);
+        let set = complete(set, ValueKind::Undefined);
+        let enumerable = complete(enumerable, ValueKind::Boolean);
+        let configurable = complete(configurable, ValueKind::Boolean);
+        CompletedPropertyDescriptorLocals {
+            accessor,
+            data,
+            value,
+            writable,
+            get,
+            set,
+            enumerable,
+            configurable,
+            owned_locals,
+        }
+    }
+
+    /// Releases every local the completed record owns: the converted
+    /// descriptor's field locals it took over and the two side flags. They are
+    /// the top of the temporary-local stack by then, so releasing them from the
+    /// highest index down is the stack order whatever order
+    /// [`Self::emit_to_property_descriptor`] reserved them in.
+    pub(crate) fn release_completed_property_descriptor(
+        &mut self,
+        completed: CompletedPropertyDescriptorLocals,
+    ) {
+        let mut owned_locals = completed.owned_locals;
+        owned_locals.sort_unstable_by(|left, right| right.cmp(left));
+        for local in owned_locals {
+            self.release_temp_local(local);
+        }
     }
 
     /// Read an Array instance's own named property, including invoking an own

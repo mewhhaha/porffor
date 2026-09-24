@@ -379,6 +379,11 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
             "self.emit_from_property_descriptor(",
             3,
         ),
+        (
+            "builtins/object/get_own_property_descriptor/proxy.rs",
+            "self.emit_from_property_descriptor(",
+            1,
+        ),
     ];
     let sources = all_sources();
     for entry in [

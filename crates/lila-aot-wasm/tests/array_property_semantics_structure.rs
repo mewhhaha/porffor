@@ -38,7 +38,7 @@ fn virtual_string_keys_use_property_key_equality_not_payload_identity() {
     );
     assert!(source.contains(concat!(
         "self.release_temp_local(key_constant_local);",
-        "self.release_temp_local(proxy_target_extensible_local);"
+        "self.release_temp_local(typed_array_valid_index_local);"
     )));
 }
 
