@@ -32,13 +32,13 @@
   "products": [
     {
       "path": "profiles.json.gz",
-      "sha256": "407884de9c7f22709bd048f5d5194f98b7609c999f87a55973ecd58676721489",
-      "bytes": 1310119
+      "sha256": "9cee88aecc9b49b55db0b530d3831b8830e694fd3d3b2792dbb035049b983e69",
+      "bytes": 16942884
     },
     {
       "path": "profile-provenance.json.gz",
-      "sha256": "f2d0d8e4afd6f64aa640371c10a4e5704a47236278cbbbce5e2b74e3c235bc1f",
-      "bytes": 4653525
+      "sha256": "300811145a4009769dd5939ad2fc7e4f0555bc254634966e809b8c78383467a6",
+      "bytes": 24260485
     },
     {
       "path": "medial-denominator-policy.json",

@@ -225,7 +225,7 @@ def main():
     products = {
         directory / "profiles.bin": payload,
         STAGE / "work/crates/lila-intl/src/number_format/tests/plural_samples.rs": sample_source.encode(),
-        directory / "payload-manifest.json": (json.dumps({"schema": 1, "canonical_sha256": hashlib.sha256(canonical_bytes).hexdigest(), "payload_sha256": digest, "payload_bytes": len(payload), "locales": len(profile["locales"]), "numbering_systems": len(profile["numbering_systems"])}, indent=2) + "\n").encode(),
+        directory / "payload-manifest.json": (json.dumps({"schema": 1, "canonical_sha256": hashlib.sha256(gzip.decompress(canonical_bytes)).hexdigest(), "payload_sha256": digest, "payload_bytes": len(payload), "locales": len(profile["locales"]), "numbering_systems": len(profile["numbering_systems"])}, indent=2) + "\n").encode(),
         STAGE / "work/crates/lila-intl/src/number_format/profiles/fingerprint.rs": (
             "// Generated from pinned CLDR47; scripts/generate-intl-numberformat-profile.py.\n"
             f'pub const NUMBER_FORMAT_DATA_SHA256: &str =\n    "{digest}";\n'
