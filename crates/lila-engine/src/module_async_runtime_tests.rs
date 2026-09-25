@@ -253,7 +253,6 @@ struct ModuleFixture {
 }
 impl ModuleFixture {
     fn new() -> Self {
-        configure_compilation_jobs(1).unwrap();
         let compiler = Engine::new(RealmBuilder::new().build());
         let unit = compiler
             .compile_module(

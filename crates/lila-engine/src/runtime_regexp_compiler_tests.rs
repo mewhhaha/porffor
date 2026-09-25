@@ -100,7 +100,6 @@ struct RuntimeCompiler {
 
 impl RuntimeCompiler {
     fn new() -> Self {
-        configure_compilation_jobs(1).unwrap();
         let engine = Engine::new(RealmBuilder::new().build());
         let unit = engine
             .compile_script("new RegExp('');", CompileOptions::default())
@@ -377,7 +376,6 @@ fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
 
 #[test]
 fn computed_pattern_workspace_reuse_preserves_capture_arrays_and_fresh_objects() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
@@ -415,7 +413,6 @@ fn runtime_workspace_memory_growth_failure_is_a_typed_rollback_not_a_trap() {
 
 #[test]
 fn computed_legacy_patterns_and_constructor_protocols_execute_in_wasm() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let source = include_str!("testdata/runtime-regexp-grammar.js");
     let outcome = engine
@@ -434,7 +431,6 @@ fn computed_legacy_patterns_and_constructor_protocols_execute_in_wasm() {
 
 #[test]
 fn regexp_clones_recompile_changed_flags_and_retain_static_capabilities_for_bookkeeping_flags() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
@@ -472,7 +468,6 @@ snapshot.source === 'a' && snapshot.test('A') && !snapshot.test('B') && mutated.
 
 #[test]
 fn static_control_escapes_and_unmatched_backreferences_preserve_legacy_matching() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
@@ -502,7 +497,6 @@ alternative[0] === 'b' && alternative[1] === undefined;
 
 #[test]
 fn computed_scoped_modifiers_restore_lexical_flags_and_reject_invalid_prefixes() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
@@ -520,7 +514,6 @@ fn computed_scoped_modifiers_restore_lexical_flags_and_reject_invalid_prefixes()
 
 #[test]
 fn regexp_modifier_clones_recompile_changed_global_flags_without_changing_scopes() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(

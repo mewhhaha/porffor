@@ -59,7 +59,6 @@ fn broadcast_retains_a_disconnected_worker_until_its_failure_is_joined() {
 
 #[test]
 fn structured_root_throw_and_worker_capability_keep_both_failures() {
-    configure_compilation_jobs(1).expect("one bounded compilation worker");
     // The same source and options as the integration regression
     // (`EVAL_WORKER` in tests/aot_dynamic_source_capability.rs) reuse its cached
     // module while exercising the private structured agent seam. The source

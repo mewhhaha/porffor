@@ -19,7 +19,6 @@ fn run_bytes(engine: &Engine, bytes: &[u8]) -> RunOutcome {
 
 #[test]
 fn corrupt_program_sections_throw_without_reading_neighboring_data_or_changing_last_index() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let unit = engine.compile_script(r#"
 var expression = /(?<x>[Ā-Ă])+/dg;
@@ -83,7 +82,6 @@ caught && expression.lastIndex === 0;
 
 #[test]
 fn immutable_program_owners_survive_cloning_recompile_and_matcher_scratch_rewinds() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
@@ -127,7 +125,6 @@ omitted.indices.groups.outer === undefined && omitted.indices.groups.inner === u
 
 #[test]
 fn malformed_backreference_operands_are_rejected_even_for_empty_captures() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     for (pattern, operands) in [
         (r"()\1", &[4, 1_u64 << 63][..]),

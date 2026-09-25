@@ -2,7 +2,6 @@ use super::*;
 
 #[test]
 fn array_present_index_helper_preserves_growth_holes_values_and_updates() {
-    configure_compilation_jobs(1).unwrap();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
