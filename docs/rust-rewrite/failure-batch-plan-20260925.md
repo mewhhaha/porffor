@@ -84,3 +84,33 @@ named-zone/time-zone-name/Intl identity generation checks passed. The original
 Test262 failure rerun and six affected-family checks have completed; see the
 [results checkpoint](failure-batch-checkpoint-20260925.md). Broad verification
 and the generator lane remain in progress.
+
+## Generator integration and newly exposed set ordering
+
+The nested synchronous-generator batch is integrated as `699b69067`. The
+combined branch passed 33 async-for-of, async-binding and generator execution
+regressions. Its module extraction is being checked against a pre-refactor
+golden capture of 746 CLI fixtures, including output hashes and debug dumps.
+
+The original-case rerun cleared five of the six generator-blocked files in
+both modes. `TypedArray/set-detached.js` now reaches a later error-ordering
+assertion (ExpectedError versus TypeError). `generator_state_review` owns its
+isolated TypedArray follow-up; `generator_nested_yields` owns the module-boundary
+cleanup. The primary reviews and integrates both, then runs the focused and
+broad verification ladder. The complete rerun determines the final counts.
+
+The generator module cleanup passed its 746-fixture golden comparison with no
+changes in output. The T17 TypedArray.set follow-up was integrated as
+`2af52ae42`, with its offset child extraction in `9d593d55f`. A separate golden
+comparison is also empty across 746 fixtures. Its expanded CLI regression and
+three structure tests pass, and the original detached case passes both modes.
+The full set family and original 103-case rerun precede broad verification.
+An independent reviewer found no correctness concern in the offset/buffer/source
+ordering. The generator lane is updating tests that reference the moved owners;
+those updates preserve protocol, environment and ordering assertions.
+
+The final complete original-case rerun passes **69/103**, with **34 remaining**
+and no regressions from either earlier checkpoint. The full TypedArray.set
+family passes **220/220**. The [integrated checkpoint](failure-batch-integrated-20260925.md)
+records combined evidence and the remaining owner/reason inventory. All code and
+focused checks are complete; the planned broad integration checkpoint follows.
