@@ -4,7 +4,12 @@ Lila—Swedish for “purple”—is a Rust JavaScript-to-Wasm AOT compiler, lib
 CLI, and conformance harness, formerly developed as Porffor. It is still a
 research project and not ready for general JavaScript workloads.
 
-The 2026-09-22 baseline repairs are preserved in PR #52. The latest focused
+The 2026-09-25 recovery integrates Temporal IANA time zones and TypedArray
+Number-key/detachment repairs. Fresh integrated verification and remaining
+checks are recorded in the [recovery checkpoint](docs/rust-rewrite/recovered-integration-20260925.md).
+The published full-suite conformance counts remain unchanged.
+
+The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,
 two-failure run. It completes 26 groups with 196 passes and one incorrect
 artifact assertion, now corrected; the remaining 191 groups did not run.
