@@ -325,6 +325,18 @@ impl FunctionBuilder<'_> {
         let initialized_object =
             self.emit_initialize_intl_date_time_format_object(reserved_object, record, function);
         self.emit_publish_intl_date_time_format_object(initialized_object, function);
+        // ECMA-402 11.1.1 step 3: only the constructor itself applies the
+        // normative-optional constructor mode; Date and Temporal locale
+        // methods create a formatter without chaining it.
+        match purpose {
+            IntlDateTimeFormatPurpose::Constructor => {
+                self.emit_intl_chain_legacy_constructed(
+                    IntlLegacyConstructedService::DateTimeFormat,
+                    function,
+                )?;
+            }
+            IntlDateTimeFormatPurpose::DateLocale(_) | IntlDateTimeFormatPurpose::Temporal(_) => {}
+        }
 
         self.release_temp_local(fractional);
         for local in components.into_iter().rev() {

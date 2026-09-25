@@ -2172,6 +2172,7 @@ impl StringPool {
         {
             pool.intern_string(&value);
         }
+        pool.intern_string(crate::builtins::INTL_FALLBACK_SYMBOL_DESCRIPTION);
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }

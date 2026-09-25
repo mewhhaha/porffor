@@ -21,6 +21,14 @@ impl<'a> FunctionBuilder<'a> {
 
         self.emit_alloc_plain_object_with_prototype(Some(object_prototype), None, function)?;
         function.instruction(&Instruction::LocalSet(namespace));
+        // Each created Realm owns a distinct %Intl%.[[FallbackSymbol]].
+        self.emit_alloc_intl_fallback_symbol(callable, function)?;
+        self.emit_store_non_array_realm_intrinsic(
+            realm.index(),
+            NonArrayRealmIntrinsicSlot::IntlFallbackSymbol,
+            callable,
+            function,
+        );
         self.emit_created_realm_intl_callable(
             StandardBuiltinId::IntlGetCanonicalLocales,
             realm_functions,

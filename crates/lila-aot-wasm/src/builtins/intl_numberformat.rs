@@ -1,6 +1,7 @@
 //! NumberFormat owns JavaScript observations; the pinned provider owns parts.
 
 use super::super::*;
+use super::intl_legacy_constructed::IntlLegacyConstructedService;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
 use lila_intl::number_format::options::*;
@@ -28,6 +29,28 @@ const NF_UNIT_REQUIRED: &str = "Unit style requires a unit option";
 const NF_INCREMENT_PRECISION: &str = "Rounding increment requires fraction precision";
 const NF_INCREMENT_RANGE: &str = "Rounding increment requires equal fraction digits";
 const NF_DIGIT_RANGE: &str = "Maximum digits is less than minimum digits";
+
+/// The `Intl.NumberFormat.prototype` algorithms that read an instance record.
+///
+/// Each one states whether ECMA-402's normative-optional UnwrapNumberFormat
+/// precedes its RequireInternalSlot, so a new method cannot silently pick the
+/// wrong receiver protocol.
+#[derive(Clone, Copy)]
+enum NfReceiverOperation {
+    ResolvedOptions,
+    FormatGetter,
+    FormatToParts,
+    FormatRange,
+}
+
+impl NfReceiverOperation {
+    const fn unwraps_legacy_receiver(self) -> bool {
+        match self {
+            Self::ResolvedOptions | Self::FormatGetter => true,
+            Self::FormatToParts | Self::FormatRange => false,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum NfFormatMode {
@@ -110,8 +133,13 @@ impl FunctionBuilder<'_> {
         self.emit_return_current_completion(function);
         Ok(())
     }
+    /// Resolve the NumberFormat instance of the `this` value into `receiver`
+    /// and its record into `record`: UnwrapNumberFormat when `operation`
+    /// requires it, then RequireInternalSlot(nf, [[InitializedNumberFormat]]).
     fn emit_nf_record_from_receiver(
         &mut self,
+        operation: NfReceiverOperation,
+        receiver: TaggedLocals,
         record: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -121,18 +149,28 @@ impl FunctionBuilder<'_> {
         let tag = self
             .this_tag_local
             .ok_or_else(|| EmitError::unsupported("NumberFormat method lacks receiver tag"))?;
+        self.emit_nf_copy(payload, receiver.payload, function);
+        self.emit_nf_copy(tag, receiver.tag, function);
+        if operation.unwraps_legacy_receiver() {
+            self.emit_intl_unwrap_legacy_constructed(
+                IntlLegacyConstructedService::NumberFormat,
+                receiver,
+                NF_RECEIVER_ERROR,
+                function,
+            )?;
+        }
         let brand = self.reserve_temp_local();
         self.emit_nf_set_const(record, 0, function);
-        self.emit_nf_if_eq(tag, ValueKind::Object.tag() as u64, function);
+        self.emit_nf_if_eq(receiver.tag, ValueKind::Object.tag() as u64, function);
         self.load_i64_to_local_from_offset(
-            payload,
+            receiver.payload,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
             brand,
             function,
         );
         self.emit_nf_if_eq(brand, OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT, function);
         self.load_i64_to_local_from_offset(
-            payload,
+            receiver.payload,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
             record,
             function,

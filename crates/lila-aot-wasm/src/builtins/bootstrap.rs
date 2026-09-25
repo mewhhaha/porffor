@@ -852,6 +852,17 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(INTL_OBJECT_GLOBAL_INDEX));
+        // %Intl%.[[FallbackSymbol]] is a new Symbol of this Realm. Builtins
+        // reached with a zero environment read the global; those reached
+        // through a Realm-backed environment read the Realm record.
+        self.emit_alloc_intl_fallback_symbol(payload_local, function)?;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::GlobalSet(INTL_FALLBACK_SYMBOL_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_FALLBACK_SYMBOL_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlFallbackSymbol,
+            function,
+        );
 
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);

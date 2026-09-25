@@ -118,6 +118,26 @@ data as tzdb `2025b`, while the selected `jiff-tzdb` transition data reports
 provider itself lives in `lila-intl`; AOT and engine depend on that shared crate
 instead of owning ICU aliases or protocol ordinals independently.
 
+### Legacy constructor mode
+
+Wasm-AOT implements ECMA-402's normative-optional constructor mode (4.3
+Note 1) for `Intl.NumberFormat` and `Intl.DateTimeFormat`. Every Realm that
+installs `Intl` allocates its own `%Intl%.[[FallbackSymbol]]`, a Symbol
+described `"IntlLegacyConstructedSymbol"`: the entry Realm keeps it in a
+global and in its Realm intrinsic record, a created Realm only in its record.
+ChainNumberFormat/ChainDateTimeFormat run after the constructed formatter is
+published: with an undefined NewTarget and a `this` that inherits from the
+running Realm's `%Intl.X.prototype%` (a Proxy-observable `[[GetPrototypeOf]]`
+walk), the formatter is defined under that Symbol through the canonical
+`Object.defineProperty` body as a non-writable, non-enumerable,
+non-configurable property and `this` is returned. The `format` getters and
+`resolvedOptions` apply UnwrapNumberFormat/UnwrapDateTimeFormat before their
+RequireInternalSlot, reading the Symbol with an ordinary `Get`; the other
+prototype methods do not, and a closed receiver-operation enum states which
+protocol each method uses. `Date`/`Temporal` locale methods create formatters
+without chaining. The shared code lives in
+`crates/lila-aot-wasm/src/builtins/intl_legacy_constructed.rs`.
+
 ## Frozen first data line
 
 The first complete conformance profile uses the ICU4X 2.0 family already

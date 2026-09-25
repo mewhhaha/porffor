@@ -82,11 +82,17 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let object = self.reserve_temp_local();
         let code = self.reserve_temp_local();
         let precision = self.reserve_temp_local();
         let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
-        self.emit_nf_record_from_receiver(record, function)?;
+        self.emit_nf_record_from_receiver(
+            NfReceiverOperation::ResolvedOptions,
+            receiver,
+            record,
+            function,
+        )?;
         self.emit_nf_result_object(function)?;
         function.instruction(&Instruction::LocalSet(object));
         self.emit_nf_set_const(value.tag, ValueKind::String.tag() as i64, function);
@@ -298,7 +304,16 @@ impl FunctionBuilder<'_> {
             ValueKind::Object.tag() as i64,
             function,
         );
-        for local in [value.tag, value.payload, precision, code, object, record] {
+        for local in [
+            value.tag,
+            value.payload,
+            precision,
+            code,
+            object,
+            receiver.tag,
+            receiver.payload,
+            record,
+        ] {
             self.release_temp_local(local);
         }
         Ok(())
