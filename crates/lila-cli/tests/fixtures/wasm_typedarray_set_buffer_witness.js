@@ -12,6 +12,16 @@ function assertErrorPrototype(callback, expectedPrototype, label) {
   throw label + " did not throw";
 }
 
+function assertThrowsSame(callback, expected, label) {
+  try {
+    callback();
+  } catch (error) {
+    assertSame(error, expected, label);
+    return;
+  }
+  throw label + " did not throw";
+}
+
 var detachedReceiver = new Uint8Array(1);
 var detachedOffsetCoercions = 0;
 __lilaDetachArrayBuffer(detachedReceiver.buffer);
@@ -23,7 +33,62 @@ assertErrorPrototype(function() {
     }
   });
 }, TypeError.prototype, "detached receiver entry");
-assertSame(detachedOffsetCoercions, 0, "entry detach skips offset coercion");
+assertSame(detachedOffsetCoercions, 1, "detached target coerces offset first");
+
+var offsetError = new Error("offset");
+assertThrowsSame(function() {
+  detachedReceiver.set(null, {
+    valueOf: function() { throw offsetError; }
+  });
+}, offsetError, "offset error precedes detached target and null source");
+assertErrorPrototype(function() {
+  detachedReceiver.set([], -1);
+}, RangeError.prototype, "negative offset precedes detached target");
+
+var invalidReceiverOffsetCoercions = 0;
+assertErrorPrototype(function() {
+  Uint8Array.prototype.set.call({}, [], {
+    valueOf: function() {
+      invalidReceiverOffsetCoercions++;
+      return 0;
+    }
+  });
+}, TypeError.prototype, "invalid receiver precedes offset coercion");
+assertSame(invalidReceiverOffsetCoercions, 0, "invalid receiver skips offset coercion");
+
+var immutableTarget = new Uint8Array(new ArrayBuffer(1).transferToImmutable());
+var immutableOffsetCoercions = 0;
+assertErrorPrototype(function() {
+  immutableTarget.set([], {
+    valueOf: function() {
+      immutableOffsetCoercions++;
+      return 0;
+    }
+  });
+}, TypeError.prototype, "immutable target precedes offset coercion");
+assertSame(immutableOffsetCoercions, 0, "immutable target skips offset coercion");
+
+var infinitySourceReads = 0;
+assertErrorPrototype(function() {
+  new Uint8Array(0).set({
+    get length() {
+      infinitySourceReads++;
+      return 0;
+    }
+  }, Infinity);
+}, RangeError.prototype, "infinite offset after array-like source length");
+assertSame(infinitySourceReads, 1, "infinite offset reads source length first");
+var lengthError = new Error("length");
+assertThrowsSame(function() {
+  new Uint8Array(0).set({
+    get length() { throw lengthError; }
+  }, Infinity);
+}, lengthError, "source length error precedes infinite offset range error");
+assertErrorPrototype(function() {
+  detachedReceiver.set({
+    get length() { throw lengthError; }
+  }, Infinity);
+}, TypeError.prototype, "detached target precedes array-like source length");
 
 var growBuffer = new ArrayBuffer(1, { maxByteLength: 3 });
 var growTarget = new Uint8Array(growBuffer);
@@ -76,9 +141,41 @@ assertErrorPrototype(function() {
 
 var detachedSource = new Uint8Array(1);
 __lilaDetachArrayBuffer(detachedSource.buffer);
+assertThrowsSame(function() {
+  new Uint8Array(1).set(detachedSource, {
+    valueOf: function() { throw offsetError; }
+  });
+}, offsetError, "offset error precedes detached source");
 assertErrorPrototype(function() {
   new Uint8Array(1).set(detachedSource);
 }, TypeError.prototype, "detached TypedArray source");
+assertErrorPrototype(function() {
+  new Uint8Array(1).set(detachedSource, Infinity);
+}, TypeError.prototype, "detached TypedArray source precedes infinite offset range error");
+
+var sourceDetachedByOffset = new Uint8Array(1);
+assertErrorPrototype(function() {
+  new Uint8Array(1).set(sourceDetachedByOffset, {
+    valueOf: function() {
+      __lilaDetachArrayBuffer(sourceDetachedByOffset.buffer);
+      return 0;
+    }
+  });
+}, TypeError.prototype, "source detached during offset coercion");
+
+var targetDetachedBySourceLength = new Uint8Array(1);
+var elementAfterDetachRead = false;
+targetDetachedBySourceLength.set({
+  get length() {
+    __lilaDetachArrayBuffer(targetDetachedBySourceLength.buffer);
+    return 1;
+  },
+  get 0() {
+    elementAfterDetachRead = true;
+    return 3;
+  }
+});
+assertSame(elementAfterDetachRead, true, "array-like element read after target detach");
 
 var outOfBoundsSourceBuffer = new ArrayBuffer(4, { maxByteLength: 4 });
 var outOfBoundsSource = new Uint8Array(outOfBoundsSourceBuffer, 2, 2);

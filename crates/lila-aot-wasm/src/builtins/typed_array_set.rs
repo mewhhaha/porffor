@@ -1,7 +1,9 @@
 //! %TypedArray%.prototype.set and ordered same-kind byte copies.
 
 use super::super::*;
-use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
+use super::binary_data::{
+    ImmutableBufferWriter, TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse,
+};
 
 impl FunctionBuilder<'_> {
     pub(super) fn compile_typed_array_prototype_set_builtin(
@@ -99,29 +101,47 @@ impl FunctionBuilder<'_> {
             receiver_stored_byte_length_local,
             receiver_bytes_per_element_local,
         );
-        // Step 5 rejects an immutable target before the offset is coerced.
+        // Immutable ArrayBuffers are rejected before offset coercion, but a
+        // detached or out-of-bounds target is validated only afterward.
+        self.emit_throw_if_array_buffer_immutable(
+            receiver_buffer_local,
+            ImmutableBufferWriter::TypedArray,
+            function,
+        )?;
+
+        self.emit_builtin_arg_to_locals(1, offset_payload_local, offset_tag_local, function);
+        self.emit_value_to_number_payload(offset_tag_local, offset_payload_local, function)?;
+        function.instruction(&Instruction::LocalSet(offset_payload_local));
+        self.emit_return_current_completion_if_throw(function);
+        self.emit_to_integer_or_infinity_number_payload_from_number_payload(
+            offset_payload_local,
+            offset_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::LocalGet(offset_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::F64Lt);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "TypedArray.prototype.set offset is out of range",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        // +Infinity and finite offsets above any realizable TypedArray length
+        // must reach the source and target checks before the bounds RangeError.
+        function.instruction(&Instruction::LocalGet(offset_payload_local));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::I64TruncSatF64U);
+        function.instruction(&Instruction::LocalSet(offset_local));
         self.emit_typed_array_witness(
             &receiver_view,
             TypedArrayWitnessUse::ValidatedMethodEntry {
                 length_local: receiver_length_local,
                 access: TypedArrayAccessMode::Write,
-            },
-            function,
-        )?;
-
-        self.emit_builtin_arg_to_locals(1, offset_payload_local, offset_tag_local, function);
-        self.emit_to_index_i64_from_value_locals(
-            offset_tag_local,
-            offset_payload_local,
-            offset_local,
-            "TypedArray.prototype.set offset is out of range",
-            function,
-        )?;
-        self.emit_typed_array_witness(
-            &receiver_view,
-            TypedArrayWitnessUse::ValidatedMethodEntry {
-                length_local: receiver_length_local,
-                access: TypedArrayAccessMode::Read,
             },
             function,
         )?;

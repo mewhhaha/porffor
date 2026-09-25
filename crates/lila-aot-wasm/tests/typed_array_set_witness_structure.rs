@@ -32,13 +32,13 @@ fn unique_position(source: &str, needle: &str, label: &str) -> usize {
 }
 
 #[test]
-fn set_uses_two_receiver_witnesses_and_one_typed_source_witness() {
+fn set_checks_immutable_target_before_offset_and_bounds_after_offset() {
     let body = set_compiler();
 
     assert_eq!(
         body.matches("emit_throw_current_function_realm_range_error(")
             .count(),
-        4
+        5
     );
     assert!(!body.contains("emit_throw_runtime_error("));
 
@@ -47,11 +47,11 @@ fn set_uses_two_receiver_witnesses_and_one_typed_source_witness() {
         2
     );
     assert_eq!(body.matches("TypedArrayViewLocals::new(").count(), 2);
-    assert_eq!(body.matches("emit_typed_array_witness(").count(), 3);
+    assert_eq!(body.matches("emit_typed_array_witness(").count(), 2);
     assert_eq!(
         body.matches("TypedArrayWitnessUse::ValidatedMethodEntry")
             .count(),
-        3
+        2
     );
     assert_eq!(
         body.matches("HEAP_TYPED_ARRAY_ELEMENT_KIND_OFFSET").count(),
@@ -80,6 +80,11 @@ fn set_uses_two_receiver_witnesses_and_one_typed_source_witness() {
     let receiver_view = unique_position(body, "let receiver_view", "immutable receiver view");
     let source_view = unique_position(body, "let source_view", "immutable source view");
     let witnesses = positions(body, "TypedArrayWitnessUse::ValidatedMethodEntry");
+    let immutable_check = unique_position(
+        body,
+        "self.emit_throw_if_array_buffer_immutable(",
+        "early immutable target check",
+    );
     let offset_argument = unique_position(
         body,
         "emit_builtin_arg_to_locals(1, offset_payload_local, offset_tag_local, function)",
@@ -87,7 +92,7 @@ fn set_uses_two_receiver_witnesses_and_one_typed_source_witness() {
     );
     let offset_coercion = unique_position(
         body,
-        "emit_to_index_i64_from_value_locals(",
+        "emit_to_integer_or_infinity_number_payload_from_number_payload(",
         "offset coercion",
     );
     let source_argument = unique_position(
@@ -107,19 +112,19 @@ fn set_uses_two_receiver_witnesses_and_one_typed_source_witness() {
     let capacities = positions(body, "TypedArray.prototype.set source is too large");
     let buffer_addresses = positions(body, "emit_load_array_buffer_data(");
 
-    assert_eq!(witnesses.len(), 3);
+    assert_eq!(witnesses.len(), 2);
     assert_eq!(capacities.len(), 4);
     assert_eq!(buffer_addresses.len(), 2);
     assert!(
-        receiver_view < witnesses[0]
-            && witnesses[0] < offset_argument
+        receiver_view < immutable_check
+            && immutable_check < offset_argument
             && offset_argument < offset_coercion
-            && offset_coercion < witnesses[1]
-            && witnesses[1] < source_argument
+            && offset_coercion < witnesses[0]
+            && witnesses[0] < source_argument
             && source_argument < source_brand
             && source_brand < source_view
-            && source_view < witnesses[2]
-            && witnesses[2] < capacities[0]
+            && source_view < witnesses[1]
+            && witnesses[1] < capacities[0]
             && capacities[0] < capacities[1]
             && capacities[1] < content_type
             && content_type < buffer_addresses[0]
@@ -140,14 +145,14 @@ fn typed_source_overlap_is_staged_before_target_writes() {
     let writes = positions(body, "emit_typed_array_element_write_from_locals(");
     let back_edges = positions(body, "Instruction::Br(0)");
 
-    assert_eq!(source_witnesses.len(), 3);
+    assert_eq!(source_witnesses.len(), 2);
     assert_eq!(allocations.len(), 2);
     assert_eq!(byte_copies.len(), 3);
     assert_eq!(reads.len(), 2);
     assert_eq!(writes.len(), 2);
     assert_eq!(back_edges.len(), 3);
     assert!(
-        source_witnesses[2] < allocations[0]
+        source_witnesses[1] < allocations[0]
             && allocations[0] < byte_copies[0]
             && byte_copies[0] < byte_copies[1]
             && byte_copies[1] < byte_copies[2]
@@ -174,7 +179,17 @@ fn focused_cli_fixture_pins_set_witness_boundaries() {
     assert!(test.contains("wasm_typedarray_set_buffer_witness.js"));
     assert!(test.contains("boolean(true)"));
     for marker in [
-        "entry detach skips offset coercion",
+        "detached target coerces offset first",
+        "offset error precedes detached target and null source",
+        "negative offset precedes detached target",
+        "invalid receiver skips offset coercion",
+        "immutable target skips offset coercion",
+        "infinite offset reads source length first",
+        "source length error precedes infinite offset range error",
+        "offset error precedes detached source",
+        "detached TypedArray source precedes infinite offset range error",
+        "source detached during offset coercion",
+        "array-like element read after target detach",
         "post-offset growth uses refreshed length",
         "post-offset shrink uses refreshed length",
         "post-offset detachment",
