@@ -10,7 +10,7 @@ checks are recorded in the [recovery checkpoint](docs/rust-rewrite/recovered-int
 The published full-suite conformance counts remain unchanged.
 The follow-up [failure-repair plan](docs/rust-rewrite/failure-batch-plan-20260925.md)
 tracks Temporal conversion/rounding, Math.log10, TypedArray iteration/realms/sort,
-and the remaining generator and garbage-collection work.
+and the remaining generator and garbage-collection work. The [first repair checkpoint](docs/rust-rewrite/failure-batch-checkpoint-20260925.md) records 57 of 103 original failures fixed and 326/326 affected-family executions passing on 2026-09-25; generator work and broad verification are pending.
 
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,

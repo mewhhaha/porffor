@@ -1,0 +1,412 @@
+{
+  "revision": "3c715f46f",
+  "binary_sha256": "452f6a1b7813a517c7e7904daac9f2fb27ed53f446065b270b523ac0fd901b33",
+  "upstream": "7ab7faf",
+  "vendored_tree": "91b2052adad1f066ae031e2ff3a1e9bd6d732886",
+  "original_failed": 103,
+  "passed": 57,
+  "remaining": 46,
+  "failures": [
+    {
+      "path": "staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+        "strict-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+        "strict-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/TypedArray/constructor-buffer-sequence.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/constructor-buffer-sequence.js",
+        "strict-script:staging/sm/TypedArray/constructor-buffer-sequence.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+        "strict-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js"
+      ],
+      "outcomes": [
+        "Crash",
+        "Crash"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "Execution reaches heap_alloc via array_alloc and exhausts the current linear bump heap; raising its limit is not a collector."
+    },
+    {
+      "path": "staging/sm/TypedArray/set-detached.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/set-detached.js",
+        "strict-script:staging/sm/TypedArray/set-detached.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/TypedArray/slice-bitwise-same.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/slice-bitwise-same.js",
+        "strict-script:staging/sm/TypedArray/slice-bitwise-same.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/TypedArray/slice-detached.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/slice-detached.js",
+        "strict-script:staging/sm/TypedArray/slice-detached.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/TypedArray/sort-negative-nan.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/sort-negative-nan.js",
+        "strict-script:staging/sm/TypedArray/sort-negative-nan.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/TypedArray/sort_large_countingsort.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/sort_large_countingsort.js",
+        "strict-script:staging/sm/TypedArray/sort_large_countingsort.js"
+      ],
+      "outcomes": [
+        "Crash",
+        "Crash"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "Execution reaches heap_alloc via array_alloc and exhausts the current linear bump heap; raising its limit is not a collector."
+    },
+    {
+      "path": "staging/sm/TypedArray/sort_small.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/sort_small.js",
+        "strict-script:staging/sm/TypedArray/sort_small.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T15",
+      "owner_task": "tasks/15-generators-iterators-resource-management.md",
+      "reason": "Nested yield regions and resumable for-of require the in-progress generator implementation."
+    },
+    {
+      "path": "staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    },
+    {
+      "path": "staging/sm/extensions/DataView-construct-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/DataView-construct-arguments-detaching.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    },
+    {
+      "path": "staging/sm/extensions/DataView-set-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/DataView-set-arguments-detaching.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    },
+    {
+      "path": "staging/sm/extensions/arguments-property-access-in-function.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/arguments-property-access-in-function.js"
+      ],
+      "outcomes": [
+        "Bug"
+      ],
+      "owner": "T09",
+      "owner_task": "tasks/09-functions-classes-private-elements.md",
+      "reason": "SpiderMonkey-specific dynamic sloppy function .arguments/.caller behavior is not implemented; these extension expectations remain visible failures."
+    },
+    {
+      "path": "staging/sm/extensions/dataview.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/dataview.js",
+        "strict-script:staging/sm/extensions/dataview.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/extensions/destructure-accessor.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/destructure-accessor.js",
+        "strict-script:staging/sm/extensions/destructure-accessor.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/extensions/expression-closure-syntax.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/expression-closure-syntax.js",
+        "strict-script:staging/sm/extensions/expression-closure-syntax.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/extensions/function-caller-skips-eval-frames.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/function-caller-skips-eval-frames.js"
+      ],
+      "outcomes": [
+        "Bug"
+      ],
+      "owner": "T09",
+      "owner_task": "tasks/09-functions-classes-private-elements.md",
+      "reason": "SpiderMonkey-specific dynamic sloppy function .arguments/.caller behavior is not implemented; these extension expectations remain visible failures."
+    },
+    {
+      "path": "staging/sm/extensions/function-properties.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/function-properties.js"
+      ],
+      "outcomes": [
+        "Bug"
+      ],
+      "owner": "T09",
+      "owner_task": "tasks/09-functions-classes-private-elements.md",
+      "reason": "SpiderMonkey-specific dynamic sloppy function .arguments/.caller behavior is not implemented; these extension expectations remain visible failures."
+    },
+    {
+      "path": "staging/sm/extensions/keyword-unescaped-requirement.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+        "strict-script:staging/sm/extensions/keyword-unescaped-requirement.js"
+      ],
+      "outcomes": [
+        "NotImplemented",
+        "NotImplemented"
+      ],
+      "owner": "T13",
+      "owner_task": "tasks/13-dynamic-source-evaluation.md",
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract."
+    },
+    {
+      "path": "staging/sm/extensions/quote-string-for-nul-character.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/quote-string-for-nul-character.js",
+        "strict-script:staging/sm/extensions/quote-string-for-nul-character.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T23",
+      "owner_task": "tasks/23-intl402.md",
+      "reason": "Intl.Collator is absent, so supportedLocalesOf yields TypeError before invalid-option validation. Later assertions also require other Intl capabilities."
+    },
+    {
+      "path": "staging/sm/extensions/recursion.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/recursion.js"
+      ],
+      "outcomes": [
+        "Crash"
+      ],
+      "owner": "T09 / T05",
+      "owner_task": "tasks/09-functions-classes-private-elements.md",
+      "reason": "Recursive calls trap at the Wasm stack limit before a catchable JS error; the test also subsequently requires host gc."
+    },
+    {
+      "path": "staging/sm/extensions/regress-650753.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/regress-650753.js",
+        "strict-script:staging/sm/extensions/regress-650753.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    },
+    {
+      "path": "staging/sm/extensions/typedarray-set-detach.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/typedarray-set-detach.js",
+        "strict-script:staging/sm/extensions/typedarray-set-detach.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    },
+    {
+      "path": "staging/sm/extensions/weakmap.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/weakmap.js",
+        "strict-script:staging/sm/extensions/weakmap.js"
+      ],
+      "outcomes": [
+        "Bug",
+        "Bug"
+      ],
+      "owner": "T05",
+      "owner_task": "tasks/05-values-heap-gc.md",
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError."
+    }
+  ],
+  "passed_ids": [
+    "sloppy-script:built-ins/Temporal/Duration/prototype/toString/options-read-before-algorithmic-validation.js",
+    "sloppy-script:built-ins/Temporal/Duration/prototype/toString/round-cross-unit-boundary.js",
+    "sloppy-script:built-ins/Temporal/Duration/prototype/toString/throws-when-rounded-duration-is-invalid.js",
+    "sloppy-script:built-ins/Temporal/Duration/prototype/toString/total-of-duration-time-units-out-of-range.js",
+    "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+    "sloppy-script:built-ins/Temporal/Instant/from/argument-string.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/compare/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/compare/argument-zoneddatetime-slots.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/from/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/from/argument-zoneddatetime-slots.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/equals/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/equals/argument-zoneddatetime-slots.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/since/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/since/argument-zoneddatetime-slots.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/until/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/until/argument-zoneddatetime-slots.js",
+    "sloppy-script:built-ins/Temporal/PlainDate/prototype/with/order-of-operations.js",
+    "sloppy-script:built-ins/Temporal/PlainTime/from/argument-plaindatetime.js",
+    "sloppy-script:built-ins/Temporal/ZonedDateTime/timezone-iso-string.js",
+    "sloppy-script:staging/sm/Atomics/cross-compartment.js",
+    "sloppy-script:staging/sm/TypedArray/from_basics.js",
+    "sloppy-script:staging/sm/TypedArray/from_realms.js",
+    "sloppy-script:staging/sm/TypedArray/from_string.js",
+    "sloppy-script:staging/sm/TypedArray/from_this.js",
+    "sloppy-script:staging/sm/TypedArray/iterator-next-with-detached.js",
+    "sloppy-script:staging/sm/TypedArray/of.js",
+    "sloppy-script:staging/sm/TypedArray/set-wrapped.js",
+    "sloppy-script:staging/sm/TypedArray/sort_modifications.js",
+    "sloppy-script:staging/sm/TypedArray/sort_sorted.js",
+    "strict-script:built-ins/Temporal/Duration/prototype/toString/options-read-before-algorithmic-validation.js",
+    "strict-script:built-ins/Temporal/Duration/prototype/toString/round-cross-unit-boundary.js",
+    "strict-script:built-ins/Temporal/Duration/prototype/toString/throws-when-rounded-duration-is-invalid.js",
+    "strict-script:built-ins/Temporal/Duration/prototype/toString/total-of-duration-time-units-out-of-range.js",
+    "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+    "strict-script:built-ins/Temporal/Instant/from/argument-string.js",
+    "strict-script:built-ins/Temporal/PlainDate/compare/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/PlainDate/compare/argument-zoneddatetime-slots.js",
+    "strict-script:built-ins/Temporal/PlainDate/from/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/PlainDate/from/argument-zoneddatetime-slots.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/equals/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/equals/argument-zoneddatetime-slots.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/since/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/since/argument-zoneddatetime-slots.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/until/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/until/argument-zoneddatetime-slots.js",
+    "strict-script:built-ins/Temporal/PlainDate/prototype/with/order-of-operations.js",
+    "strict-script:built-ins/Temporal/PlainTime/from/argument-plaindatetime.js",
+    "strict-script:built-ins/Temporal/ZonedDateTime/timezone-iso-string.js",
+    "strict-script:staging/sm/Atomics/cross-compartment.js",
+    "strict-script:staging/sm/TypedArray/from_basics.js",
+    "strict-script:staging/sm/TypedArray/from_realms.js",
+    "strict-script:staging/sm/TypedArray/from_string.js",
+    "strict-script:staging/sm/TypedArray/iterator-next-with-detached.js",
+    "strict-script:staging/sm/TypedArray/of.js",
+    "strict-script:staging/sm/TypedArray/set-wrapped.js",
+    "strict-script:staging/sm/TypedArray/sort_modifications.js",
+    "strict-script:staging/sm/TypedArray/sort_sorted.js"
+  ]
+}

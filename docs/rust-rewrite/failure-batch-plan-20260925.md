@@ -81,4 +81,6 @@ complete broad rerun. Logs: `target/watched/failure-batch-focused-corrected.log`
 and `target/watched/failure-batch-import-fix.log`. Formatting, diff whitespace,
 module boundaries, host ABI, repository identity, legacy retirement and the
 named-zone/time-zone-name/Intl identity generation checks passed. The original
-Test262 failure rerun and broad verification are still pending.
+Test262 failure rerun and six affected-family checks have completed; see the
+[results checkpoint](failure-batch-checkpoint-20260925.md). Broad verification
+and the generator lane remain in progress.
