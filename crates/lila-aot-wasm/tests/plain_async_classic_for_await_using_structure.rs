@@ -1,6 +1,8 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const FOR_LOOP_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
+const FOR_LOOP_CONTINUATION_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_loop/continuation.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
@@ -166,9 +168,10 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
             "let update = for_loop",
             "let (body, body_kind) = self.lower_loop_body(for_loop.body())",
             "self.finish_async_disposable_for_init(pending)",
-            "StatementIr::For {",
+            "self.finish_classic_for_continuation(PreparedClassicForContinuation {",
         ],
     );
+    assert!(FOR_LOOP_CONTINUATION_SOURCE.contains("StatementIr::For {"));
     assert!(for_loop.contains("suspension inside an await using classic-for loop"));
     assert!(for_loop.contains("Some(ForInitIr::AsyncDisposable(_)) =>"));
 

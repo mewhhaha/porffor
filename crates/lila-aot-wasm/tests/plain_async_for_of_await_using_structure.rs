@@ -1,5 +1,7 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const FOR_OF_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
+const GENERATOR_FOR_OF_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_of/generator.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
 const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
@@ -258,11 +260,12 @@ fn lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states(
             "self.lower_for_head_expression_with_tdz(mode, &name, for_of.iterable())",
             "self.begin_async_disposable_for_of_if_needed(head_kind, &storage_name)",
             "self.declare_binding(",
-            "let (mut body, body_kind) = self.lower_loop_body(for_of.body())",
+            "self.lower_for_of_body_with_generator_region(for_of, generator_entry_state)",
             "self.finish_async_disposable_for_of_head(pending)",
             "LoweredForOfHeadKind::AsyncDisposable => Self::async_disposable_for_of_statement(",
         ],
     );
+    assert!(GENERATOR_FOR_OF_SOURCE.contains("self.lower_loop_body(for_of.body())"));
     assert_eq!(
         lower
             .matches("&& head_kind == LoweredForOfHeadKind::Assignment")

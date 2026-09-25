@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE: &str =
-    include_str!("../src/control_flow/async_function_for_of_iterator.rs");
+const RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE: &str =
+    include_str!("../src/control_flow/resumable_sync_for_of_iterator.rs");
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const MATH_SOURCE: &str = include_str!("../src/builtins/math.rs");
 const ARRAY_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/array.rs");
@@ -207,13 +207,13 @@ fn each_shared_semantic_owner_constructs_one_consumer_and_borrows_it_for_the_ful
     assert_eq!(MATH_SOURCE.matches("&consumer").count(), 2);
 
     assert_eq!(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
             .matches("let consumer = SyncIteratorConsumer::ForOf;")
             .count(),
         1
     );
     assert_eq!(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
             .matches("&consumer")
             .count(),
         2
@@ -227,7 +227,7 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
         26
     );
     assert_eq!(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
             .matches("SyncIteratorConsumer")
             .count(),
         1

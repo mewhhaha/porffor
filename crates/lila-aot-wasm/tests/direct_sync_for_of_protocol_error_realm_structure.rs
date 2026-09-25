@@ -1,6 +1,6 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE: &str =
-    include_str!("../src/control_flow/async_function_for_of_iterator.rs");
+const RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE: &str =
+    include_str!("../src/control_flow/resumable_sync_for_of_iterator.rs");
 
 const FOR_OF_PROTOCOL_ERRORS: [&str; 5] = [
     "NotIterable",
@@ -189,8 +189,8 @@ fn async_disposable_for_of_boxes_primitives_in_the_current_function_realm() {
 #[test]
 fn resumable_sync_for_of_delegates_five_typed_protocol_checks() {
     let owner = bounded(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
-        "    pub(crate) fn compile_async_function_for_of_iterator(",
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    pub(super) fn compile_resumable_sync_for_of_iterator(",
         "\n    }\n}",
     );
     assert_eq!(
@@ -222,8 +222,15 @@ fn resumable_sync_for_of_delegates_five_typed_protocol_checks() {
         "        if has_iteration_environment {",
         "        let resumed_iterator_storage = self",
     );
-    assert!(resume.contains("HEAP_ASYNC_ENV_OFFSET"));
+    assert!(resume.contains("owner.environment_offset()"));
     assert!(resume.contains("self.current_env_local"));
+    let environment_owner = bounded(
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    fn environment_offset(self) -> u64 {",
+        "pub(super) struct ResumableSyncForOfView<'a> {",
+    );
+    assert!(environment_owner.contains("Self::AsyncFunction => HEAP_ASYNC_ENV_OFFSET"));
+    assert!(environment_owner.contains("Self::Generator => HEAP_GENERATOR_LEXICAL_ENV_OFFSET"));
 
     let acquisition_delegation = bounded(
         owner,

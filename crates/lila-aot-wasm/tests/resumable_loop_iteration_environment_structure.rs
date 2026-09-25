@@ -1,6 +1,8 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ENVIRONMENTS_SOURCE: &str = include_str!("../src/environments.rs");
 const FOR_LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
+const FOR_LOOP_CONTINUATION_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_loop/continuation.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -76,8 +78,9 @@ fn resumable_loop_environment_domain_and_activation_offsets_are_exhaustive() {
 
 #[test]
 fn async_generator_classic_for_registers_activation_owned_lexicals_before_loop_plan() {
+    assert!(FOR_LOOP_LOWERING_SOURCE.contains("self.finish_classic_for_continuation("));
     let loop_split = bounded(
-        FOR_LOOP_LOWERING_SOURCE,
+        FOR_LOOP_CONTINUATION_SOURCE,
         "Self::split_resumable_loop_body(",
         "StatementIr::GeneratorLoop {",
     );

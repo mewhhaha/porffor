@@ -1,6 +1,8 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const LOOP_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
+const LOOP_CONTINUATION_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/for_loop/continuation.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const STATEMENT_COMPLETION_SOURCE: &str =
@@ -95,8 +97,10 @@ fn closed_initializer_keeps_the_classic_for_as_the_direct_control_owner() {
     assert!(!resource_init.contains("ForInitIr::Lexical"));
 
     let loop_lowering = LOOP_LOWERING_SOURCE;
-    assert!(loop_lowering.contains("StatementIr::For {\n                init,"));
+    assert!(loop_lowering.contains("self.finish_classic_for_continuation("));
+    assert!(LOOP_CONTINUATION_SOURCE.contains("StatementIr::For {\n                init,"));
     assert!(!loop_lowering.contains("StatementIr::Block(Box::new(StatementIr::For"));
+    assert!(!LOOP_CONTINUATION_SOURCE.contains("StatementIr::Block(Box::new(StatementIr::For"));
     assert!(CONTRACT.contains("The containing node remains `StatementIr::For`"));
 }
 

@@ -9,6 +9,8 @@ const OBLIGATIONS_SOURCE: &str = include_str!("../../lila-ir/src/iterator_obliga
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE: &str =
     include_str!("../src/control_flow/async_function_for_of_iterator.rs");
+const RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE: &str =
+    include_str!("../src/control_flow/resumable_sync_for_of_iterator.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const EMISSION_SITES_SOURCE: &str = include_str!("../src/emission_sites.rs");
@@ -102,7 +104,19 @@ fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
     );
     assert!(!CONTROL_FLOW_SOURCE.contains("pub mod async_function_for_of_iterator;"));
     assert!(!CONTROL_FLOW_SOURCE.contains("pub(crate) mod async_function_for_of_iterator;"));
-    for source in [CONTROL_FLOW_SOURCE, ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE] {
+    assert_eq!(
+        CONTROL_FLOW_SOURCE
+            .matches("\nmod resumable_sync_for_of_iterator;\n")
+            .count(),
+        1
+    );
+    assert!(!CONTROL_FLOW_SOURCE.contains("pub mod resumable_sync_for_of_iterator;"));
+    assert!(!CONTROL_FLOW_SOURCE.contains("pub(crate) mod resumable_sync_for_of_iterator;"));
+    for source in [
+        CONTROL_FLOW_SOURCE,
+        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+    ] {
         assert!(!source.contains("include!("));
         assert!(!source.contains("#[path"));
     }
@@ -120,6 +134,57 @@ fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
         .contains("    pub fn compile_async_function_for_of_iterator("));
     assert!(!CONTROL_FLOW_SOURCE.contains("fn compile_async_function_for_of_iterator("));
     assert_eq!(
+        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
+            .matches("    pub(crate) fn compile_generator_for_of_iterator(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE
+            .matches("    pub(super) fn compile_resumable_sync_for_of_iterator(")
+            .count(),
+        1
+    );
+    let activation_owner = bounded(
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "pub(super) enum ResumableSyncForOfOwner {",
+        "pub(super) struct ResumableSyncForOfView<'a> {",
+    );
+    for marker in [
+        "AsyncFunction,",
+        "Generator,",
+        "Self::AsyncFunction => HEAP_ASYNC_RESUME_STATE_OFFSET",
+        "Self::Generator => HEAP_GENERATOR_RESUME_STATE_OFFSET",
+        "Self::AsyncFunction => HEAP_ASYNC_ENV_OFFSET",
+        "Self::Generator => HEAP_GENERATOR_LEXICAL_ENV_OFFSET",
+    ] {
+        assert!(
+            activation_owner.contains(marker),
+            "activation owner: {marker}"
+        );
+    }
+    assert!(!activation_owner.contains("_ =>"));
+    let shared_walk = bounded(
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    pub(super) fn compile_resumable_sync_for_of_iterator(",
+        "\n    }\n}",
+    );
+    positions_in_order(
+        shared_walk,
+        &[
+            "self.emit_get_iterator_from_value_locals(",
+            "self.emit_sync_iterator_step_value(",
+            "match owner {",
+            "ResumableSyncForOfOwner::AsyncFunction => self.compile_async_statement_sequence(",
+            "ResumableSyncForOfOwner::Generator => self.compile_generator_statement_sequence(",
+            "self.emit_iterator_close_preserving_current_throw(",
+            "self.emit_dispatch_current_completion(function)?",
+            "self.release_sync_iterator_locals(iterator_locals)",
+        ],
+    );
+    assert!(!ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE
+        .contains("fn compile_resumable_sync_for_of_iterator("));
+    assert_eq!(
         CONTROL_FLOW_SOURCE
             .matches("self.compile_async_function_for_of_iterator(iterable, plan, function)?;")
             .count(),
@@ -128,6 +193,18 @@ fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
     assert_eq!(
         EMISSION_SITES_SOURCE
             .matches("FunctionBuilder::compile_async_function_for_of_iterator")
+            .count(),
+        1
+    );
+    assert_eq!(
+        CONTROL_FLOW_SOURCE
+            .matches("self.compile_generator_for_of_iterator(iterable, plan, function)?;")
+            .count(),
+        1
+    );
+    assert_eq!(
+        EMISSION_SITES_SOURCE
+            .matches("FunctionBuilder::compile_generator_for_of_iterator")
             .count(),
         1
     );
@@ -143,6 +220,22 @@ fn resumable_sync_for_of_emitter_has_one_private_child_owner() {
     );
     assert_eq!(
         rust_source_occurrences(&source_root, "compile_async_function_for_of_iterator"),
+        3
+    );
+    assert_eq!(
+        rust_source_occurrences(&source_root, "mod resumable_sync_for_of_iterator;"),
+        1
+    );
+    assert_eq!(
+        rust_source_occurrences(&source_root, "fn compile_resumable_sync_for_of_iterator("),
+        1
+    );
+    assert_eq!(
+        rust_source_occurrences(&source_root, "compile_resumable_sync_for_of_iterator"),
+        3
+    );
+    assert_eq!(
+        rust_source_occurrences(&source_root, "compile_generator_for_of_iterator"),
         3
     );
 }
@@ -308,6 +401,10 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         assert!(
             !ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE.contains(retired),
             "resumable backend still contains {retired}"
+        );
+        assert!(
+            !RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE.contains(retired),
+            "shared resumable backend still contains {retired}"
         );
         assert!(
             !PLANNING_SOURCE.contains(retired),
@@ -496,7 +593,7 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         .contains("RESUMABLE_SYNC_ITERATOR_PROTOCOL => IteratorProtocolWitness::emitted_by("));
     assert!(OBLIGATIONS_SOURCE.contains("EmissionSite::ResumableSyncForOfIterator"));
     assert!(EMISSION_SITES_SOURCE.contains(
-        "EmissionSite::ResumableSyncForOfIterator => {\n            let _ = FunctionBuilder::compile_async_function_for_of_iterator;"
+        "EmissionSite::ResumableSyncForOfIterator => {\n            let _ = FunctionBuilder::compile_async_function_for_of_iterator;\n            let _ = FunctionBuilder::compile_generator_for_of_iterator;"
     ));
 }
 
@@ -555,13 +652,13 @@ fn checked_body_preserves_structure_and_rejects_unowned_continuations() {
 #[test]
 fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
     let emitter = bounded(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
-        "    pub(crate) fn compile_async_function_for_of_iterator(",
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    pub(super) fn compile_resumable_sync_for_of_iterator(",
         "\n    }\n}",
     );
     let allocation = bounded(
         emitter,
-        "        let entry_local_storage = match plan.value_storage() {",
+        "        let entry_local_storage = match &view.value_storage {",
         "        let iterator_storage = self.allocate_binding(",
     );
     for variant in [
@@ -584,7 +681,7 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
             "self.allocate_binding(binding.name.clone(), binding.mode, ValueKind::Dynamic)",
             "BindingStorage::EnvSlot",
             "AsyncFunctionForOfIteratorValueStorageIr::IterationEnvironment(binding)",
-            "iteration_environment_owns_binding(plan.head_environment(), &binding.name)",
+            "iteration_environment_owns_binding(view.head_environment, &binding.name)",
             "AsyncFunctionForOfIteratorValueStorageIr::EntryLocal { name }",
             "self.allocate_binding(name.clone(), BindingMode::Let, ValueKind::Dynamic)",
             "BindingStorage::Dynamic",
@@ -594,7 +691,7 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
 
     let resolution = bounded(
         emitter,
-        "        let (value_storage, value_is_entry_local) = match plan.value_storage() {",
+        "        let (value_storage, value_is_entry_local) = match &view.value_storage {",
         "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
     );
     for variant in [
@@ -623,27 +720,27 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
     positions_in_order(
         emitter,
         &[
-            "let entry_local_storage = match plan.value_storage()",
+            "let entry_local_storage = match &view.value_storage",
             "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)",
             "self.emit_enter_resumable_lexical_environment(",
-            "let (value_storage, value_is_entry_local) = match plan.value_storage()",
+            "let (value_storage, value_is_entry_local) = match &view.value_storage",
         ],
     );
 
     let entry_write = bounded(
         emitter,
         "        let close_frame = self.open_frame(ControlFrameKind::Block, function);",
-        "        self.compile_async_statement_sequence(",
+        "self.compile_async_statement_sequence(",
     );
     positions_in_order(
         entry_write,
         &[
-            "plan.entry_state()",
+            "view.entry_state",
             "self.open_frame(ControlFrameKind::If, function)",
-            "if !value_is_entry_local && plan.value_mode() != BindingMode::Var",
+            "if !value_is_entry_local && view.value_mode != BindingMode::Var",
             "self.write_binding_from_locals(",
             "if !value_is_entry_local",
-            "self.mirror_binding_to_global_object(plan.value_name(), value_storage, function)?",
+            "self.mirror_binding_to_global_object(view.value_name(), value_storage, function)?",
         ],
     );
 }
@@ -651,8 +748,8 @@ fn backend_exhaustively_uses_each_resumable_value_storage_lifetime() {
 #[test]
 fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
     let emitter = bounded(
-        ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE,
-        "    pub(crate) fn compile_async_function_for_of_iterator(",
+        RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE,
+        "    pub(super) fn compile_resumable_sync_for_of_iterator(",
         "\n    }\n}",
     );
     assert_eq!(
@@ -677,9 +774,9 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
     positions_in_order(
         active_states,
         &[
-            "plan.entry_state()",
+            "view.entry_state",
             "Instruction::I64GeU",
-            "plan.body().exit_state()",
+            "view.body_exit_state",
             "Instruction::I64LeU",
             "Instruction::I32And",
         ],
@@ -687,7 +784,7 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
 
     let acquisition = bounded(
         emitter,
-        "        function.instruction(&Instruction::LocalGet(state_local));\n        function.instruction(&Instruction::I64Const(i64::from(plan.entry_state())));",
+        "        function.instruction(&Instruction::LocalGet(state_local));\n        function.instruction(&Instruction::I64Const(i64::from(view.entry_state)));",
         "        let break_frame = self.open_frame(ControlFrameKind::Block, function);",
     );
     positions_in_order(
@@ -705,12 +802,12 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
     let step = bounded(
         emitter,
         "        let loop_frame = self.open_frame(ControlFrameKind::Loop, function);",
-        "        let (value_storage, value_is_entry_local) = match plan.value_storage() {",
+        "        let (value_storage, value_is_entry_local) = match &view.value_storage {",
     );
     positions_in_order(
         step,
         &[
-            "plan.entry_state()",
+            "view.entry_state",
             "self.open_frame(ControlFrameKind::If, function);",
             "self.emit_sync_iterator_step_value(",
             "self.write_binding_from_locals(\n            done_storage",
@@ -735,9 +832,9 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
             "self.finally_stack.push(close_frame)",
             "self.write_binding_from_locals(",
             "self.compile_async_statement_sequence(",
-            "plan.body().statements(),",
-            "plan.entry_state(),",
-            "HEAP_ASYNC_RESUME_STATE_OFFSET,",
+            "view.body,",
+            "view.entry_state,",
+            "owner.resume_state_offset(),",
             "self.finally_stack.pop()",
         ],
     );
@@ -746,18 +843,18 @@ fn backend_steps_only_on_entry_and_closes_only_body_owned_completions() {
     let cleanup = bounded(
         emitter,
         "        self.save_current_completion(",
-        "        self.emit_set_async_resume_state(activation_local, plan.entry_state(), function);",
+        "        self.store_i64_const_at_offset(\n            activation_local,\n            owner.resume_state_offset(),\n            u64::from(view.entry_state),",
     );
     positions_in_order(
         cleanup,
         &[
             "self.emit_leave_lexical_environment(function)",
-            "HEAP_ASYNC_ENV_OFFSET",
+            "owner.environment_offset()",
             "COMPLETION_KIND_THROW",
             "self.emit_iterator_close_preserving_current_throw(",
             "function.instruction(&Instruction::Else);",
             "self.emit_iterator_close(",
-            "self.emit_dispatch_async_completion(function)?",
+            "self.emit_dispatch_current_completion(function)?",
         ],
     );
 }
@@ -787,6 +884,10 @@ fn planner_adds_every_persistent_record_local_to_the_deepest_child() {
         assert!(
             consumer.contains("StatementIr::AsyncFunctionForOfIterator"),
             "statement traversal omitted the resumable iterator form"
+        );
+        assert!(
+            consumer.contains("StatementIr::GeneratorForOfIterator"),
+            "statement traversal omitted the generator iterator form"
         );
     }
 }
