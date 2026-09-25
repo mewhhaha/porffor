@@ -1,3 +1,5 @@
+mod generator;
+
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
@@ -117,56 +119,14 @@ impl<'a> ScriptLowerer<'a> {
         }
 
         if let Some(entry_state) = generator_entry_state {
-            let (then_before_yield, then_yield_statement, then_after_yield) =
-                Self::split_generator_if_branch(then_branch.clone());
-            let (else_before_yield, else_yield_statement, else_after_yield) = else_branch
-                .as_deref()
-                .cloned()
-                .map(Self::split_generator_if_branch)
-                .unwrap_or_default();
-            if then_yield_statement.is_some() || else_yield_statement.is_some() {
-                let then_resume_state = then_yield_statement.as_ref().and_then(|statement| {
-                    let StatementIr::GeneratorYield { resume_state, .. } = statement else {
-                        return None;
-                    };
-                    Some(*resume_state)
-                });
-                let else_resume_state = else_yield_statement.as_ref().and_then(|statement| {
-                    let StatementIr::GeneratorYield { resume_state, .. } = statement else {
-                        return None;
-                    };
-                    Some(*resume_state)
-                });
-                let exit_state = self.current_generator_resume_state.unwrap_or(entry_state) + 1;
-                if let Some(plan) = self.current_resumable_plan.as_mut() {
-                    for suspension in plan
-                        .suspension_points
-                        .iter_mut()
-                        .skip(self.next_resumable_suspension_index)
-                    {
-                        suspension.suspend_state += 1;
-                        suspension.resume_state += 1;
-                    }
-                    plan.state_count += 1;
-                    self.current_async_resume_state = Some(exit_state);
-                }
-                self.current_generator_resume_state = Some(exit_state);
-                return (
-                    StatementIr::GeneratorIf {
-                        condition,
-                        then_before_yield,
-                        then_yield_statement: then_yield_statement.map(Box::new),
-                        then_after_yield,
-                        else_before_yield,
-                        else_yield_statement: else_yield_statement.map(Box::new),
-                        else_after_yield,
-                        entry_state,
-                        then_resume_state,
-                        else_resume_state,
-                        exit_state,
-                    },
-                    result_kind,
-                );
+            if let Some(generator_if) = self.finish_simple_generator_if(
+                &condition,
+                &then_branch,
+                else_branch.as_deref(),
+                result_kind,
+                entry_state,
+            ) {
+                return generator_if;
             }
         }
 

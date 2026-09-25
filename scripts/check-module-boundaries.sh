@@ -464,6 +464,21 @@ check_no_inline_legacy_includes "$ir_for_loop_lowering"
 # maintenance of the classic-for lifecycle, not unrelated loop lowering.
 # The source-proof admission wrapper adds one line beyond the former margin.
 check_raw_line_budget "$ir_for_loop_lowering" 268
+ir_for_loop_continuation="crates/lila-ir/src/lowering/for_loop/continuation.rs"
+require_file "$ir_for_loop_continuation"
+require_module_decl "$ir_for_loop_lowering" "continuation"
+require_fixed_string_count \
+  "$ir_for_loop_continuation" \
+  'pub(super) fn finish_classic_for_continuation(' \
+  1 \
+  'complete classic-for continuation choice'
+require_fixed_string_count \
+  "$ir_for_loop_lowering" \
+  'fn finish_classic_for_continuation(' \
+  0 \
+  'classic-for continuation choice outside its child'
+check_no_inline_legacy_includes "$ir_for_loop_continuation"
+check_raw_line_budget "$ir_for_loop_continuation" 185
 require_module_decl "$ir_lowering" "synchronous_resource_loop"
 require_file "crates/lila-ir/src/lowering/synchronous_resource_loop.rs"
 check_raw_line_budget "crates/lila-ir/src/lowering/synchronous_resource_loop.rs" 155
@@ -592,6 +607,21 @@ check_no_inline_legacy_includes "$ir_for_of_protocol_lowering"
 # margin is for maintenance of the complete for-of lowering family, not
 # unrelated lowering.
 check_raw_line_budget "$ir_for_of_lowering" 760
+ir_for_of_generator="crates/lila-ir/src/lowering/for_of/generator.rs"
+require_file "$ir_for_of_generator"
+require_module_decl "$ir_for_of_lowering" "generator"
+require_fixed_string_count \
+  "$ir_for_of_generator" \
+  'pub(super) fn finish_generator_for_of_iterator(' \
+  1 \
+  'generator-owned iterator finalization'
+require_fixed_string_count \
+  "$ir_for_of_generator" \
+  'pub(super) fn lower_for_of_body_with_generator_region(' \
+  1 \
+  'generator-owned iterator body region'
+check_no_inline_legacy_includes "$ir_for_of_generator"
+check_raw_line_budget "$ir_for_of_generator" 120
 # Measured after extraction: 98 raw lines. The child owns only the protocol
 # witness carrier and its constructors.
 check_raw_line_budget "$ir_for_of_protocol_lowering" 120
@@ -645,6 +675,16 @@ check_no_inline_legacy_includes "$ir_if_statement_lowering"
 # Measured with typed plain-async branch ranges: 190 raw lines. The margin is
 # for if-statement lowering only; plan invariants remain in async_if.rs.
 check_raw_line_budget "$ir_if_statement_lowering" 210
+ir_if_generator="crates/lila-ir/src/lowering/if_statement/generator.rs"
+require_file "$ir_if_generator"
+require_module_decl "$ir_if_statement_lowering" "generator"
+require_fixed_string_count \
+  "$ir_if_generator" \
+  'pub(super) fn finish_simple_generator_if(' \
+  1 \
+  'legacy generator branch finalization'
+check_no_inline_legacy_includes "$ir_if_generator"
+check_raw_line_budget "$ir_if_generator" 80
 # T02's labelled-statement boundary owns nested label collection, target-kind
 # classification and final Labelled IR assembly. The active-label stack types
 # remain parent-owned because break/continue lowering also consumes them.
@@ -1173,7 +1213,7 @@ require_fixed_string_count \
   'for_finalized_body' \
   0 \
   'body-only source-call proof admission'
-for source_call_flow_variant_spec in 'StatementIr|39' 'ExprIr|93' 'SpecOperationIr|30'; do
+for source_call_flow_variant_spec in 'StatementIr|42' 'ExprIr|93' 'SpecOperationIr|30'; do
   source_call_flow_variant_domain="${source_call_flow_variant_spec%%|*}"
   expected_source_call_flow_variants="${source_call_flow_variant_spec#*|}"
   observed_source_call_flow_variants="$({
@@ -1280,6 +1320,7 @@ require_regex_count \
   'block throw-inference entry point'
 for private_owner in \
   merge_optional_value_info \
+  infer_for_init_throw_info \
   infer_statement_throw_info \
   infer_expr_throw_info \
   infer_expr_operand_throw_info \
@@ -1293,6 +1334,7 @@ do
 done
 for throw_owner in \
   merge_optional_value_info \
+  infer_for_init_throw_info \
   infer_block_throw_info \
   infer_statement_throw_info \
   infer_expr_throw_info \
@@ -1305,18 +1347,18 @@ do
     0 \
     "${throw_owner} outside throw-inference child"
 done
-# Five private methods plus the reviewed pub(super) entry point are the entire
+# Six private methods plus the reviewed pub(super) entry point are the entire
 # child method surface. Count modifier-qualified declarations as well, so a
 # const/async/unsafe/extern/default helper cannot evade the closed owner set.
 require_regex_count \
   "$ir_throw_inference_lowering" \
   '^[[:space:]]*fn[[:space:]]+' \
-  5 \
+  6 \
   'private method'
 require_regex_count \
   "$ir_throw_inference_lowering" \
   '^[[:space:]]*((pub(\([^)]*\))?|default|const|async|unsafe|extern|"[^"]*")[[:space:]]+)*fn[[:space:]]+(r#)?[[:alpha:]_][[:alnum:]_]*[[:space:]]*[<(]' \
-  6 \
+  7 \
   'total function declaration'
 require_regex_count \
   "$ir_throw_inference_lowering" \
@@ -2332,107 +2374,124 @@ for module in abi arguments_protocol control_flow data emit environments express
   require_module_decl "$wasm_lib" "$module"
 done
 
-# T02 gives the complete resumable synchronous for-of emitter one real private
-# child owner. Its crate visibility is required by emission_sites.rs, which
-# names the method as the obligation ledger witness.
+# T02 keeps the async and generator for-of entry points thin. One private
+# child owns their complete shared synchronous Iterator Record pipeline.
 wasm_control_flow="crates/lila-aot-wasm/src/control_flow.rs"
 wasm_async_function_for_of_iterator="crates/lila-aot-wasm/src/control_flow/async_function_for_of_iterator.rs"
+wasm_resumable_sync_for_of_iterator="crates/lila-aot-wasm/src/control_flow/resumable_sync_for_of_iterator.rs"
 wasm_emission_sites="crates/lila-aot-wasm/src/emission_sites.rs"
 require_file "$wasm_async_function_for_of_iterator"
+require_file "$wasm_resumable_sync_for_of_iterator"
+for child in async_function_for_of_iterator resumable_sync_for_of_iterator; do
+  require_exact_line_count \
+    "$wasm_control_flow" \
+    "mod ${child};" \
+    1 \
+    "private ${child} child declarations"
+  require_tree_regex_count \
+    crates/lila-aot-wasm/src \
+    "^[[:space:]]*mod[[:space:]]+${child};" \
+    1 \
+    "private ${child} child declarations"
+  if grep -Eq "^(pub(\\([^)]*\\))?[[:space:]]+)mod[[:space:]]+${child};" "$wasm_control_flow"; then
+    fail "$wasm_control_flow must keep ${child} private"
+  fi
+done
+for owner in async_function_for_of_iterator generator_for_of_iterator; do
+  require_exact_line_count \
+    "$wasm_async_function_for_of_iterator" \
+    "    pub(crate) fn compile_${owner}(" \
+    1 \
+    "crate-visible ${owner} wrapper declarations"
+  require_tree_regex_count \
+    crates/lila-aot-wasm/src \
+    "^[[:space:]]*(pub(\\([^)]*\\))?[[:space:]]+)?fn[[:space:]]+compile_${owner}[[:space:]]*\\(" \
+    1 \
+    "complete ${owner} wrapper declarations"
+  require_fixed_string_count \
+    "$wasm_control_flow" \
+    "self.compile_${owner}(iterable, plan, function)?;" \
+    1 \
+    "${owner} statement-dispatch calls"
+  require_exact_line_count \
+    "$wasm_emission_sites" \
+    "            let _ = FunctionBuilder::compile_${owner};" \
+    1 \
+    "${owner} obligation-ledger references"
+  require_tree_regex_count \
+    crates/lila-aot-wasm/src \
+    "compile_${owner}" \
+    3 \
+    "${owner} wrapper, dispatch and obligation-ledger sites"
+done
 require_exact_line_count \
-  "$wasm_control_flow" \
-  'mod async_function_for_of_iterator;' \
+  "$wasm_resumable_sync_for_of_iterator" \
+  '    pub(super) fn compile_resumable_sync_for_of_iterator(' \
   1 \
-  'private async-function for-of child declarations'
+  'single shared synchronous for-of pipeline declarations'
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
-  '^[[:space:]]*mod[[:space:]]+async_function_for_of_iterator;' \
+  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+compile_resumable_sync_for_of_iterator[[:space:]]*\(' \
   1 \
-  'private async-function for-of child declarations'
-if grep -Eq '^(pub(\([^)]*\))?[[:space:]]+)mod[[:space:]]+async_function_for_of_iterator;' "$wasm_control_flow"; then
-  fail "$wasm_control_flow must keep async_function_for_of_iterator private"
-fi
-require_exact_line_count \
-  "$wasm_async_function_for_of_iterator" \
-  '    pub(crate) fn compile_async_function_for_of_iterator(' \
-  1 \
-  'crate-visible resumable synchronous for-of owners'
+  'single shared synchronous for-of pipeline declarations'
 require_fixed_string_count \
   "$wasm_async_function_for_of_iterator" \
-  'fn compile_async_function_for_of_iterator(' \
-  1 \
-  'complete resumable synchronous for-of owner declarations'
-require_fixed_string_count \
-  "$wasm_control_flow" \
-  'fn compile_async_function_for_of_iterator(' \
-  0 \
-  'resumable synchronous for-of owner declarations outside the child'
+  'self.compile_resumable_sync_for_of_iterator(' \
+  2 \
+  'async and generator wrapper calls into the shared pipeline'
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
-  '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+compile_async_function_for_of_iterator[[:space:]]*\(' \
-  1 \
-  'complete resumable synchronous for-of owners'
-require_fixed_string_count \
-  "$wasm_control_flow" \
-  'self.compile_async_function_for_of_iterator(iterable, plan, function)?;' \
-  1 \
-  'resumable synchronous for-of statement-dispatch calls'
-require_exact_line_count \
-  "$wasm_emission_sites" \
-  '            let _ = FunctionBuilder::compile_async_function_for_of_iterator;' \
-  1 \
-  'resumable synchronous for-of obligation-ledger references'
-require_tree_regex_count \
-  crates/lila-aot-wasm/src \
-  'compile_async_function_for_of_iterator' \
+  'compile_resumable_sync_for_of_iterator' \
   3 \
-  'resumable synchronous for-of owner, dispatch and obligation-ledger sites'
+  'shared pipeline declaration and both wrapper calls'
+for protocol_step in emit_get_iterator_from_value_locals emit_sync_iterator_step_value \
+                     emit_iterator_close_preserving_current_throw; do
+  require_fixed_string_count \
+    "$wasm_async_function_for_of_iterator" \
+    "$protocol_step" \
+    0 \
+    "${protocol_step} calls in thin wrappers"
+done
 check_no_inline_legacy_includes "$wasm_control_flow"
 check_no_inline_legacy_includes "$wasm_async_function_for_of_iterator"
+check_no_inline_legacy_includes "$wasm_resumable_sync_for_of_iterator"
 
-async_function_for_of_iterator_owner="$({
+resumable_sync_for_of_iterator_owner="$({
   sed -n \
-    '/^    pub(crate) fn compile_async_function_for_of_iterator(/,/^    }$/p' \
-    "$wasm_async_function_for_of_iterator"
+    '/^    pub(super) fn compile_resumable_sync_for_of_iterator(/,/^    }$/p' \
+    "$wasm_resumable_sync_for_of_iterator"
 })"
-async_function_for_of_iterator_owner_lines="$(printf '%s\n' "$async_function_for_of_iterator_owner" | wc -l | tr -d '[:space:]')"
-if [ "$async_function_for_of_iterator_owner_lines" -ne 429 ]; then
-  fail "$wasm_async_function_for_of_iterator must retain the reviewed 429-line complete owner (found $async_function_for_of_iterator_owner_lines)"
+resumable_sync_for_of_iterator_owner_lines="$(printf '%s\n' "$resumable_sync_for_of_iterator_owner" | wc -l | tr -d '[:space:]')"
+if [ "$resumable_sync_for_of_iterator_owner_lines" -ne 466 ]; then
+  fail "$wasm_resumable_sync_for_of_iterator must retain the reviewed 466-line complete pipeline (found $resumable_sync_for_of_iterator_owner_lines)"
 fi
-async_function_for_of_iterator_owner_sha256="$(printf '%s\n' "$async_function_for_of_iterator_owner" | sha256_stream)"
-if [ "$async_function_for_of_iterator_owner_sha256" != 'cea1570169edf74278a09048a16b5ca4b2b443ee460d37fb5767666330ff6bcc' ]; then
-  fail "$wasm_async_function_for_of_iterator complete owner changed from the reviewed synchronous-iterator consumer SHA-256 (found $async_function_for_of_iterator_owner_sha256)"
+resumable_sync_for_of_iterator_owner_sha256="$(printf '%s\n' "$resumable_sync_for_of_iterator_owner" | sha256_stream)"
+if [ "$resumable_sync_for_of_iterator_owner_sha256" != 'f202e831c575e4abd2035c07c6ab80dabb58920edac11395294ce79a649148e3' ]; then
+  fail "$wasm_resumable_sync_for_of_iterator complete pipeline changed from the reviewed synchronous-iterator consumer SHA-256 (found $resumable_sync_for_of_iterator_owner_sha256)"
 fi
 if ! awk '
   index($0, "let activation_local =") && !activation { activation = NR }
   index($0, "self.emit_get_iterator_from_value_locals(") && !acquire { acquire = NR }
-  index($0, "let loop_frame = self.open_frame") && !loop { loop = NR }
   index($0, "self.emit_sync_iterator_step_value(") && !step { step = NR }
   index($0, "ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment)") && !environment { environment = NR }
-  index($0, "let (value_storage, value_is_entry_local) = match plan.value_storage()") && !value { value = NR }
-  index($0, "self.finally_stack.push(close_frame);") && !close_frame { close_frame = NR }
-  index($0, "self.compile_async_statement_sequence(") && !body_dispatch { body_dispatch = NR }
-  index($0, "self.save_current_completion(") && !save { save = NR }
-  index($0, "self.emit_leave_lexical_environment(function);") && !leave_environment { leave_environment = NR }
-  index($0, "self.emit_iterator_close_preserving_current_throw(") && !close_throw { close_throw = NR }
-  index($0, "self.emit_dispatch_async_completion(function)?;") && !dispatch { dispatch = NR }
+  index($0, "self.compile_async_statement_sequence(") && !body { body = NR }
+  index($0, "self.emit_iterator_close_preserving_current_throw(") && !close_step { close_step = NR }
+  index($0, "self.emit_dispatch_current_completion(function)?;") && !dispatch { dispatch = NR }
   index($0, "self.release_sync_iterator_locals(iterator_locals);") && !release { release = NR }
   END {
-    exit !(activation < acquire && acquire < loop && loop < step \
-      && step < environment && environment < value && value < close_frame \
-      && close_frame < body_dispatch && body_dispatch < save \
-      && save < leave_environment && leave_environment < close_throw \
-      && close_throw < dispatch && dispatch < release)
+    exit !(activation < acquire && acquire < step && step < environment \
+      && environment < body && body < close_step && close_step < dispatch && dispatch < release)
   }
-' <<<"$async_function_for_of_iterator_owner"; then
-  fail "$wasm_async_function_for_of_iterator must retain acquisition, iteration, close, dispatch and release order"
+' <<<"$resumable_sync_for_of_iterator_owner"; then
+  fail "$wasm_resumable_sync_for_of_iterator must retain acquisition, step, environment, body, close, completion and release order"
 fi
 
-# Measured immediately after extraction: 13,220 parent lines and 424 child
-# lines. The margins admit narrow maintenance without letting the owner return
-# to the parent or become another control-flow monolith.
+# Measured after the shared-pipeline extraction: 12,642 parent, 60 wrapper,
+# and 527 pipeline lines. Keep the existing parent/wrapper limits and give the
+# new child only a narrow margin.
 check_raw_line_budget "$wasm_control_flow" 13288
 check_raw_line_budget "$wasm_async_function_for_of_iterator" 440
+check_raw_line_budget "$wasm_resumable_sync_for_of_iterator" 540
 
 # T05's typed Wasm-GC schema is the sole raw struct-instruction boundary. The
 # encoder dependency necessarily accepts interchangeable u32 immediates, so

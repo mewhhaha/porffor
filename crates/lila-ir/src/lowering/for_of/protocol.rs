@@ -90,6 +90,7 @@ impl ForOfLoweringIr {
             !matches!(
                 self.statement,
                 StatementIr::AsyncFunctionForOfIterator { .. }
+                    | StatementIr::GeneratorForOfIterator { .. }
             ) || self.protocol == IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL,
             "a resumable synchronous for-of must carry its dedicated protocol witness",
         );

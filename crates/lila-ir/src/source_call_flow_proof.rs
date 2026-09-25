@@ -82,8 +82,7 @@ fn block_preserves_caller_flow(block: &BlockIr) -> bool {
 
 fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
     match statement {
-        StatementIr::ModuleImportBinding(_) => true,
-        StatementIr::Empty => true,
+        StatementIr::ModuleImportBinding(_) | StatementIr::Empty => true,
         StatementIr::AsyncModuleInstantiation => false,
         StatementIr::ModuleUnitOnce {
             module: _module,
@@ -152,9 +151,20 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             resume_state: _resume_state,
             exit_state: _exit_state,
         } => false,
-        StatementIr::GeneratorStructuredLoop { .. }
-        | StatementIr::GeneratorStructuredIf { .. }
-        | StatementIr::GeneratorForOfIterator { .. } => false,
+        StatementIr::GeneratorStructuredLoop {
+            init: _init,
+            test: _test,
+            update: _update,
+            plan: _plan,
+        } => false,
+        StatementIr::GeneratorStructuredIf {
+            condition: _condition,
+            plan: _plan,
+        } => false,
+        StatementIr::GeneratorForOfIterator {
+            iterable: _iterable,
+            plan: _plan,
+        } => false,
         StatementIr::GeneratorIf {
             condition: _condition,
             then_before_yield: _then_before_yield,
@@ -323,12 +333,8 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         | ExprIr::This
         | ExprIr::Arguments
         | ExprIr::NewTarget => true,
-        ExprIr::Boolean(_value) => true,
-        ExprIr::Number(_bits) => true,
-        ExprIr::BigInt(_value) => true,
-        ExprIr::String(_value) => true,
-        ExprIr::FunctionValue(_function_id) => true,
-        ExprIr::Identifier(_name) => true,
+        ExprIr::Boolean(_) | ExprIr::Number(_) | ExprIr::BigInt(_) | ExprIr::String(_) => true,
+        ExprIr::FunctionValue(_) | ExprIr::Identifier(_) => true,
         ExprIr::Symbol { description } => description
             .as_deref()
             .is_none_or(expr_preserves_caller_flow),

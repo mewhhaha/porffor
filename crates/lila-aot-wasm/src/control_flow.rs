@@ -28,6 +28,7 @@ mod for_await_iterator_symbol;
 mod for_in;
 mod generator_nested;
 mod resumable_array_destructuring;
+mod resumable_sync_for_of_iterator;
 pub(crate) use for_in::{
     FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
 };

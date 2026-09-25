@@ -22,6 +22,44 @@ impl<'a> ScriptLowerer<'a> {
         info
     }
 
+    fn infer_for_init_throw_info(&self, init: &ForInitIr) -> Option<ValueInfo> {
+        match init {
+            ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+                self.infer_expr_throw_info(init)
+            }
+            ForInitIr::LexicalBlock(bindings) => bindings.iter().fold(None, |info, binding| {
+                self.merge_optional_value_info(info, self.infer_expr_throw_info(&binding.init))
+            }),
+            ForInitIr::Var(decls) => decls.iter().fold(None, |info, decl| {
+                self.merge_optional_value_info(
+                    info,
+                    decl.init
+                        .as_ref()
+                        .and_then(|init| self.infer_expr_throw_info(init)),
+                )
+            }),
+            ForInitIr::Statements(statements) => statements.iter().fold(None, |info, statement| {
+                self.merge_optional_value_info(info, self.infer_statement_throw_info(statement))
+            }),
+            ForInitIr::SyncDisposable(resources) => {
+                resources.iter().fold(None, |info, resource| {
+                    self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(&resource.initializer),
+                    )
+                })
+            }
+            ForInitIr::AsyncDisposable(init) => {
+                init.resources().iter().fold(None, |info, resource| {
+                    self.merge_optional_value_info(
+                        info,
+                        self.infer_expr_throw_info(resource.initializer()),
+                    )
+                })
+            }
+        }
+    }
+
     fn infer_statement_throw_info(&self, statement: &StatementIr) -> Option<ValueInfo> {
         match statement {
             StatementIr::ResumableClassDefinition(_) => Some(unknown_runtime_value_info()),
@@ -168,57 +206,9 @@ impl<'a> ScriptLowerer<'a> {
                 body,
                 ..
             } => {
-                let mut info = init.as_ref().and_then(|init| match init {
-                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
-                        self.infer_expr_throw_info(init)
-                    }
-                    ForInitIr::LexicalBlock(bindings) => {
-                        let mut info = None;
-                        for binding in bindings {
-                            info = self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&binding.init),
-                            );
-                        }
-                        info
-                    }
-                    ForInitIr::Var(decls) => {
-                        let mut info = None;
-                        for decl in decls {
-                            if let Some(init) = &decl.init {
-                                info = self.merge_optional_value_info(
-                                    info,
-                                    self.infer_expr_throw_info(init),
-                                );
-                            }
-                        }
-                        info
-                    }
-                    ForInitIr::Statements(statements) => {
-                        statements.iter().fold(None, |info, statement| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_statement_throw_info(statement),
-                            )
-                        })
-                    }
-                    ForInitIr::SyncDisposable(resources) => {
-                        resources.iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&resource.initializer),
-                            )
-                        })
-                    }
-                    ForInitIr::AsyncDisposable(init) => {
-                        init.resources().iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(resource.initializer()),
-                            )
-                        })
-                    }
-                });
+                let mut info = init
+                    .as_ref()
+                    .and_then(|init| self.infer_for_init_throw_info(init));
                 info = self.merge_optional_value_info(
                     info,
                     test.as_ref()
@@ -242,51 +232,9 @@ impl<'a> ScriptLowerer<'a> {
                 after_suspension,
                 ..
             } => {
-                let mut info = init.as_ref().and_then(|init| match init {
-                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
-                        self.infer_expr_throw_info(init)
-                    }
-                    ForInitIr::LexicalBlock(bindings) => {
-                        bindings.iter().fold(None, |info, binding| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&binding.init),
-                            )
-                        })
-                    }
-                    ForInitIr::Var(decls) => decls.iter().fold(None, |info, decl| {
-                        self.merge_optional_value_info(
-                            info,
-                            decl.init
-                                .as_ref()
-                                .and_then(|init| self.infer_expr_throw_info(init)),
-                        )
-                    }),
-                    ForInitIr::Statements(statements) => {
-                        statements.iter().fold(None, |info, statement| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_statement_throw_info(statement),
-                            )
-                        })
-                    }
-                    ForInitIr::SyncDisposable(resources) => {
-                        resources.iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&resource.initializer),
-                            )
-                        })
-                    }
-                    ForInitIr::AsyncDisposable(init) => {
-                        init.resources().iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(resource.initializer()),
-                            )
-                        })
-                    }
-                });
+                let mut info = init
+                    .as_ref()
+                    .and_then(|init| self.infer_for_init_throw_info(init));
                 info = self.merge_optional_value_info(
                     info,
                     test.as_ref()
@@ -342,51 +290,9 @@ impl<'a> ScriptLowerer<'a> {
                 update,
                 plan,
             } => {
-                let mut info = init.as_ref().and_then(|init| match init {
-                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
-                        self.infer_expr_throw_info(init)
-                    }
-                    ForInitIr::LexicalBlock(bindings) => {
-                        bindings.iter().fold(None, |info, binding| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&binding.init),
-                            )
-                        })
-                    }
-                    ForInitIr::Var(decls) => decls.iter().fold(None, |info, decl| {
-                        self.merge_optional_value_info(
-                            info,
-                            decl.init
-                                .as_ref()
-                                .and_then(|init| self.infer_expr_throw_info(init)),
-                        )
-                    }),
-                    ForInitIr::Statements(statements) => {
-                        statements.iter().fold(None, |info, statement| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_statement_throw_info(statement),
-                            )
-                        })
-                    }
-                    ForInitIr::SyncDisposable(resources) => {
-                        resources.iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(&resource.initializer),
-                            )
-                        })
-                    }
-                    ForInitIr::AsyncDisposable(init) => {
-                        init.resources().iter().fold(None, |info, resource| {
-                            self.merge_optional_value_info(
-                                info,
-                                self.infer_expr_throw_info(resource.initializer()),
-                            )
-                        })
-                    }
-                });
+                let mut info = init
+                    .as_ref()
+                    .and_then(|init| self.infer_for_init_throw_info(init));
                 for expression in [test.as_ref(), update.as_ref()].into_iter().flatten() {
                     info = self
                         .merge_optional_value_info(info, self.infer_expr_throw_info(expression));
