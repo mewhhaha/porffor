@@ -1,4 +1,5 @@
 use super::*;
+use crate::objects::ReferencePropertyKeyLocals;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr, RegExpProgram};
 
 mod environment_identifier;
@@ -31,8 +32,7 @@ struct ReadyToWriteOrdinaryPropertyAssignmentLocals {
     base_and_receiver_tag: u32,
     target_object_payload: u32,
     target_object_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    property_key: ReferencePropertyKeyLocals,
     rhs_payload: u32,
     rhs_tag: u32,
     set_result: u32,
@@ -45,8 +45,7 @@ struct ReadOrdinaryPropertyReferenceLocals {
     base_and_receiver_tag: u32,
     target_object_payload: u32,
     target_object_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    property_key: ReferencePropertyKeyLocals,
     old_value_payload: u32,
     old_value_tag: u32,
 }
@@ -58,8 +57,7 @@ struct ReadOrdinaryPropertyNumericUpdateLocals {
     base_and_receiver_tag: u32,
     target_object_payload: u32,
     target_object_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    property_key: ReferencePropertyKeyLocals,
     old_value_payload: u32,
     old_value_tag: u32,
 }
@@ -71,8 +69,7 @@ struct ReadyToWriteOrdinaryPropertyReferenceLocals {
     base_and_receiver_tag: u32,
     target_object_payload: u32,
     target_object_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    property_key: ReferencePropertyKeyLocals,
     old_value_payload: u32,
     old_value_tag: u32,
     result_payload: u32,
@@ -87,8 +84,7 @@ struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
     base_and_receiver_tag: u32,
     target_object_payload: u32,
     target_object_tag: u32,
-    property_key_payload: u32,
-    property_key_tag: u32,
+    property_key: ReferencePropertyKeyLocals,
     old_value_payload: u32,
     old_value_tag: u32,
     new_value_payload: u32,
@@ -472,19 +468,19 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
+        let property_key = self.emit_reference_property_key_locals(
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             function,
         )?;
-        self.emit_object_read_with_key_tag(
+        self.emit_reference_get_value(
             target_object_payload,
             target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
-            property_key_payload,
-            Some(property_key_tag),
+            property_key,
             old_value_payload,
             old_value_tag,
             function,
@@ -500,8 +496,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         })
@@ -579,8 +574,9 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;
-        self.emit_propagate_throw_from_locals_if_needed(
+        let property_key = self.emit_reference_property_key_locals(
+            target_object_payload,
+            target_object_tag,
             property_key_payload,
             property_key_tag,
             function,
@@ -592,8 +588,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             rhs_payload,
             rhs_tag,
             set_result,
@@ -613,20 +608,18 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             rhs_payload,
             rhs_tag,
             set_result,
         } = reference;
 
-        self.emit_ordinary_set_result_via_helper(
+        self.emit_reference_set_result(
             target_object_payload,
             target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             rhs_payload,
             rhs_tag,
             set_result,
@@ -656,8 +649,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(target_object_payload);
         self.release_temp_local(rhs_tag);
         self.release_temp_local(rhs_payload);
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
+        self.release_temp_local(property_key.tag());
+        self.release_temp_local(property_key.payload());
         self.release_temp_local(base_and_receiver_tag);
         self.release_temp_local(base_and_receiver_payload);
         Ok(())
@@ -695,8 +688,7 @@ impl<'a> FunctionBuilder<'a> {
         base_and_receiver_tag: u32,
         target_object_payload: u32,
         target_object_tag: u32,
-        property_key_payload: u32,
-        property_key_tag: u32,
+        property_key: ReferencePropertyKeyLocals,
         rhs_payload: u32,
         rhs_tag: u32,
         set_result: u32,
@@ -706,13 +698,12 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         self.compile_expr_to_locals(assignment.rhs(), rhs_payload, rhs_tag, function)?;
         self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;
-        self.emit_ordinary_set_result_via_helper(
+        self.emit_reference_set_result(
             target_object_payload,
             target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             rhs_payload,
             rhs_tag,
             set_result,
@@ -780,8 +771,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         } = reference;
@@ -806,8 +796,7 @@ impl<'a> FunctionBuilder<'a> {
                     base_and_receiver_tag,
                     target_object_payload,
                     target_object_tag,
-                    property_key_payload,
-                    property_key_tag,
+                    property_key,
                     rhs_payload,
                     rhs_tag,
                     set_result,
@@ -842,8 +831,7 @@ impl<'a> FunctionBuilder<'a> {
                     base_and_receiver_tag,
                     target_object_payload,
                     target_object_tag,
-                    property_key_payload,
-                    property_key_tag,
+                    property_key,
                     rhs_payload,
                     rhs_tag,
                     set_result,
@@ -860,8 +848,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(rhs_payload);
         self.release_temp_local(target_object_tag);
         self.release_temp_local(target_object_payload);
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
+        self.release_temp_local(property_key.tag());
+        self.release_temp_local(property_key.payload());
         self.release_temp_local(base_and_receiver_tag);
         self.release_temp_local(base_and_receiver_payload);
         self.release_temp_local(old_value_tag);
@@ -880,8 +868,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         } = reference;
@@ -911,8 +898,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
             result_payload,
@@ -934,8 +920,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
             result_payload,
@@ -943,13 +928,12 @@ impl<'a> FunctionBuilder<'a> {
             set_result,
         } = reference;
 
-        self.emit_ordinary_set_result_via_helper(
+        self.emit_reference_set_result(
             target_object_payload,
             target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             result_payload,
             result_tag,
             set_result,
@@ -979,8 +963,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(result_payload);
         self.release_temp_local(target_object_tag);
         self.release_temp_local(target_object_payload);
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
+        self.release_temp_local(property_key.tag());
+        self.release_temp_local(property_key.payload());
         self.release_temp_local(base_and_receiver_tag);
         self.release_temp_local(base_and_receiver_payload);
         self.release_temp_local(old_value_tag);
@@ -1039,8 +1023,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         } = reference;
@@ -1063,8 +1046,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         })
@@ -1081,8 +1063,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
         } = reference;
@@ -1105,8 +1086,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
             new_value_payload,
@@ -1128,8 +1108,7 @@ impl<'a> FunctionBuilder<'a> {
             base_and_receiver_tag,
             target_object_payload,
             target_object_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             old_value_payload,
             old_value_tag,
             new_value_payload,
@@ -1137,13 +1116,12 @@ impl<'a> FunctionBuilder<'a> {
             set_result,
         } = reference;
 
-        self.emit_ordinary_set_result_via_helper(
+        self.emit_reference_set_result(
             target_object_payload,
             target_object_tag,
             base_and_receiver_payload,
             base_and_receiver_tag,
-            property_key_payload,
-            property_key_tag,
+            property_key,
             new_value_payload,
             new_value_tag,
             set_result,
@@ -1177,8 +1155,8 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(new_value_payload);
         self.release_temp_local(target_object_tag);
         self.release_temp_local(target_object_payload);
-        self.release_temp_local(property_key_tag);
-        self.release_temp_local(property_key_payload);
+        self.release_temp_local(property_key.tag());
+        self.release_temp_local(property_key.payload());
         self.release_temp_local(base_and_receiver_tag);
         self.release_temp_local(base_and_receiver_payload);
         self.release_temp_local(old_value_tag);

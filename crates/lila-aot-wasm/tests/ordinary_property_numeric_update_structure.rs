@@ -306,7 +306,7 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
         put,
         &[
             "let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {",
-            "self.emit_ordinary_set_result_via_helper(",
+            "self.emit_reference_set_result(",
             "if update.strictness().throws_on_failed_set() {",
             "self.emit_throw_runtime_error_to_active_handler(",
             "\"Cannot assign to property\"",
@@ -346,9 +346,9 @@ fn exhaustive_consumers_and_temp_budget_name_each_numeric_update_phase() {
         "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
+        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 1 + 2;",
         "const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 1 + 4 + 2;",
     ] {
         assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
     }

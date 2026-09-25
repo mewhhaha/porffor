@@ -4,6 +4,7 @@ use super::*;
 use crate::emit::{NumericErrorRealmSource, ObjectReadErrorRealmSource};
 use lila_ir::StaticRegExpCompilation;
 
+mod canonical_numeric_index;
 mod has_instance;
 mod number_remainder;
 mod number_to_string;
@@ -5882,44 +5883,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    pub(crate) fn emit_canonical_numeric_index_string(
-        &mut self,
-        string_payload_local: u32,
-        number_payload_local: u32,
-        is_canonical_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let canonical_string_payload_local = self.reserve_temp_local();
-
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-0")));
-        function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_string_payload_equality_i32(string_payload_local, self.scratch_local, function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::F64Const(Ieee64::from(-0.0)));
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
-        function.instruction(&Instruction::Else);
-        self.emit_string_to_number_payload(string_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(number_payload_local));
-        self.emit_number_to_string_payload(number_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(canonical_string_payload_local));
-        self.emit_string_payload_equality_i32(
-            string_payload_local,
-            canonical_string_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(is_canonical_local));
-        function.instruction(&Instruction::End);
-
-        self.release_temp_local(canonical_string_payload_local);
         Ok(())
     }
 

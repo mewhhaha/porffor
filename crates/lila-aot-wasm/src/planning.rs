@@ -8897,14 +8897,16 @@ const SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
 // helper then reserves four own locals plus its two-local argument-vector
 // phase. Strictness itself is a compile-time property of this fused Reference,
 // so there is no carried flag local; a strict false Set still builds an error
-// object while every write-persistent local remains live, however.
+// object while every write-persistent local remains live, however. Both the
+// Get and the Set first reserve one element-index local for a Number key on a
+// TypedArray (`integer_indexed_number_key`), live under either branch.
 const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;
 const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;
 const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;
 const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;
-const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;
+const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 1 + 2;
 const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;
-const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 1 + 4 + 2;
 // `emit_runtime_error_object` retains object/key/value payload/value tag while
 // `emit_object_define_data` materializes its three complete-descriptor flags.
 const ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS: usize = 4 + 3;
@@ -8914,7 +8916,8 @@ const ORDINARY_PROPERTY_FAILED_SET_ERROR_TEMP_LOCALS: usize = 4 + 3;
 // run. RHS evaluation adds its payload/tag. PutValue then canonicalizes the
 // retained raw key after reserving the distinct boxed target, then adds its
 // single Set-result local. The final phase is the larger of the Set helper's
-// four own locals plus two-local argument vector and a strict failed-Set error.
+// four own locals plus two-local argument vector, both under the Number-key
+// element-index local, and a strict failed-Set error.
 const ORDINARY_PROPERTY_ASSIGNMENT_RAW_TEMP_LOCALS: usize = 4;
 const ORDINARY_PROPERTY_ASSIGNMENT_EVALUATED_TEMP_LOCALS: usize = 4 + 2;
 const ORDINARY_PROPERTY_ASSIGNMENT_CANONICAL_TEMP_LOCALS: usize = 4 + 2 + 2;
@@ -8925,7 +8928,7 @@ const ORDINARY_PROPERTY_ASSIGNMENT_READY_TEMP_LOCALS: usize = 4 + 2 + 2 + 1;
 // five, so the boxed-string peak is eight.
 const ORDINARY_PROPERTY_ASSIGNMENT_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;
 const ORDINARY_PROPERTY_ASSIGNMENT_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;
-const ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;
+const ORDINARY_PROPERTY_ASSIGNMENT_SET_HELPER_TEMP_LOCALS: usize = 1 + 4 + 2;
 
 fn count_sync_disposable_resources_temp_locals(
     resources: &SyncDisposableResourcesIr,

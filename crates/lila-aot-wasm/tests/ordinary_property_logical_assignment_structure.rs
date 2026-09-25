@@ -351,8 +351,7 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
         "base_and_receiver_tag",
         "target_object_payload",
         "target_object_tag",
-        "property_key_payload",
-        "property_key_tag",
+        "property_key: ReferencePropertyKeyLocals",
         "old_value_payload",
         "old_value_tag",
     ] {
@@ -386,8 +385,8 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
             "let target_object_payload = self.reserve_temp_local();",
             "let target_object_tag = self.reserve_temp_local();",
             "self.emit_value_to_object_locals(",
-            "self.emit_value_to_property_key_locals(property_key_payload, property_key_tag, function)?;",
-            "self.emit_object_read_with_key_tag(",
+            "let property_key = self.emit_reference_property_key_locals(",
+            "self.emit_reference_get_value(",
             "target_object_payload",
             "target_object_tag",
             "base_and_receiver_payload",
@@ -395,7 +394,8 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
             "Ok(ReadOrdinaryPropertyReferenceLocals {",
         ],
     );
-    assert_eq!(get.matches("emit_value_to_property_key_locals(").count(), 1);
+    assert_eq!(get.matches("emit_reference_property_key_locals(").count(), 1);
+    assert!(!get.contains("emit_value_to_property_key_locals("));
 
     let taken = bounded(
         EXPRESSIONS_SOURCE,
@@ -407,13 +407,12 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
         &[
             "self.compile_expr_to_locals(assignment.rhs(), rhs_payload, rhs_tag, function)?;",
             "self.emit_propagate_throw_from_locals_if_needed(rhs_payload, rhs_tag, function)?;",
-            "self.emit_ordinary_set_result_via_helper(",
+            "self.emit_reference_set_result(",
             "target_object_payload",
             "target_object_tag",
             "base_and_receiver_payload",
             "base_and_receiver_tag",
-            "property_key_payload",
-            "property_key_tag",
+            "property_key",
             "if assignment.strictness().throws_on_failed_set()",
             "self.emit_throw_runtime_error_to_active_handler(",
             "Instruction::LocalGet(rhs_payload)",
@@ -460,8 +459,8 @@ fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
         "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 1 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 1 + 4 + 2;",
         "fn dynamic_property_keys_root_every_possible_shape_accessor()",
         "fn joined_logical_property_base_roots_every_carried_builtin_accessor()",
         "fn joined_eager_property_base_roots_every_carried_builtin_getter()",

@@ -20,12 +20,14 @@ use lila_ir::property_descriptor::{
 mod arguments_properties;
 mod descriptor_object;
 mod has_property;
+mod integer_indexed_number_key;
 mod module_namespace;
 
 pub(crate) use descriptor_object::{
     DescriptorFlag, DescriptorObjectFields, DescriptorObjectPrototype,
 };
 
+pub(crate) use integer_indexed_number_key::ReferencePropertyKeyLocals;
 use module_namespace::NamespaceBindingRead;
 pub(crate) use module_namespace::NamespaceOwnKeys;
 mod private_elements;
@@ -4361,7 +4363,7 @@ impl<'a> FunctionBuilder<'a> {
                 if matches!(key, PropertyKeyIr::StringExpr(_)) {
                     let key_payload_local = self.reserve_temp_local();
                     let key_tag_local = self.reserve_temp_local();
-                    self.compile_object_key_to_locals(
+                    self.compile_object_key_to_locals_deferring_number(
                         key,
                         key_payload_local,
                         key_tag_local,
@@ -6245,12 +6247,10 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(key_payload_local));
                         function.instruction(&Instruction::End);
                     } else {
-                        self.emit_value_to_property_key_locals(
-                            key_payload_local,
-                            key_tag_local,
-                            function,
-                        )?;
-                        self.emit_propagate_throw_from_locals_if_needed(
+                        // The dynamic `[[Get]]` below accepts a Number key and
+                        // builds its String only for a receiver that is not a
+                        // TypedArray.
+                        self.emit_value_to_property_key_locals_deferring_number(
                             key_payload_local,
                             key_tag_local,
                             function,
@@ -6307,7 +6307,7 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::LocalSet(key_tag_local));
                         Ok(())
                     }
-                    _ => self.compile_object_key_to_locals(
+                    _ => self.compile_object_key_to_locals_deferring_number(
                         key,
                         key_payload_local,
                         key_tag_local,
@@ -6423,15 +6423,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::Block(BlockType::Empty));
 
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(key_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        function.instruction(&Instruction::End);
+        self.emit_materialize_number_property_key(key_payload_local, key_tag_local, function)?;
 
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -6553,16 +6545,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
 
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_number_to_string_payload(key_payload_local, function)?;
-        function.instruction(&Instruction::LocalSet(key_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(key_tag_local));
-        function.instruction(&Instruction::End);
-
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(typed_array_index_read_local));
         self.emit_typed_array_canonical_numeric_index_i32(
@@ -6603,6 +6585,24 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(typed_array_index_read_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_array_number_key_get_if_array_index(
+            TaggedLocals::new(target_payload_local, target_tag_local),
+            TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+            key_payload_local,
+            key_tag_local,
+            TaggedLocals::new(payload_local, tag_local),
+            typed_array_index_read_local,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(typed_array_index_read_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // Only a receiver that is neither integer-indexed nor an Array read by
+        // array index needs a Number key's String form; those were answered
+        // above from the Number itself.
+        self.emit_materialize_number_property_key(key_payload_local, key_tag_local, function)?;
         self.emit_value_to_object_locals(
             target_payload_local,
             target_tag_local,
@@ -7167,6 +7167,37 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_cohome_thrown_value_into_locals(value_payload_local, value_tag_local, function);
         Ok(())
+    }
+
+    /// TypedArraySetElement(`target`, `index`, value) for a `target` the caller
+    /// has already established is a TypedArray whose buffer is not immutable,
+    /// through the same shared write composite.
+    ///
+    /// The composite's key parameter is read only by its ordinary-object arm,
+    /// which a TypedArray target never reaches, so no property-key String is
+    /// built for it; `index_local` is passed in that slot purely to fill it.
+    /// `index_local` is the witness's unsigned element index: a value that is
+    /// not a valid integer index (`u64::MAX` for NaN, fractions, negatives)
+    /// still has the value coerced and then stores nothing, as
+    /// TypedArraySetElement requires.
+    pub(crate) fn emit_known_typed_array_element_write_from_locals(
+        &mut self,
+        target_local: u32,
+        target_tag_local: u32,
+        index_local: u32,
+        value_payload_local: u32,
+        value_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_typed_array_or_object_index_write_from_locals(
+            target_local,
+            target_tag_local,
+            index_local,
+            index_local,
+            value_payload_local,
+            value_tag_local,
+            function,
+        )
     }
 
     /// On an adopted throw completion, copies the thrown value out of the
@@ -8624,6 +8655,20 @@ impl<'a> FunctionBuilder<'a> {
 
         match rhs.kind {
             ValueKind::Object | ValueKind::Function => {
+                // A Number key on a TypedArray is answered from the Number;
+                // `key_tag_local` doubles as the handled flag.
+                self.emit_typed_array_number_key_has_property_i32(
+                    rhs_payload_local,
+                    rhs_tag_local,
+                    lhs_payload_local,
+                    lhs_tag_local,
+                    result_local,
+                    key_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(key_tag_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_value_to_property_key_payload(
                     lhs_payload_local,
                     lhs_tag_local,
@@ -8639,6 +8684,7 @@ impl<'a> FunctionBuilder<'a> {
                     result_local,
                     function,
                 )?;
+                function.instruction(&Instruction::End);
             }
             ValueKind::Array => {
                 self.emit_value_to_property_key_payload(
@@ -8723,6 +8769,20 @@ impl<'a> FunctionBuilder<'a> {
                 }
             }
             ValueKind::Dynamic => {
+                // As above: a Number key on a TypedArray (an object, so no
+                // TypeError is due) skips ToPropertyKey's String.
+                self.emit_typed_array_number_key_has_property_i32(
+                    rhs_payload_local,
+                    rhs_tag_local,
+                    lhs_payload_local,
+                    lhs_tag_local,
+                    result_local,
+                    key_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(key_tag_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_value_to_property_key_payload(
                     lhs_payload_local,
                     lhs_tag_local,
@@ -8753,6 +8813,7 @@ impl<'a> FunctionBuilder<'a> {
                 } else {
                     self.emit_return_current_completion(function);
                 }
+                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
             }
             _ => {
@@ -9007,28 +9068,92 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
     }
 
+    /// Property-key identity for an own-property scan: equal Symbols are the
+    /// same payload, a Symbol never equals a String, and Strings compare by
+    /// content.
+    ///
+    /// This is the comparison in every linear own-property lookup, run once
+    /// per entry, so the cheap answers come first: an identical payload is the
+    /// same key; after that, any Symbol involved means a different key; two
+    /// Strings of different byte length, or whose first or last bytes differ,
+    /// are different keys. Only equal-length Strings that agree at both ends
+    /// pay for the call into the shared byte comparison. (A String payload is
+    /// `offset << 32 | byte length`, and String equality is byte equality.)
     pub(crate) fn emit_property_key_payload_equality_i32(
         &mut self,
         stored_key_local: u32,
         key_local: u32,
         function: &mut Function,
     ) {
-        self.emit_property_key_payload_is_symbol_i32(key_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
-        self.emit_property_key_payload_is_symbol_i32(stored_key_local, function);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         function.instruction(&Instruction::LocalGet(stored_key_local));
         function.instruction(&Instruction::LocalGet(key_local));
         function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(stored_key_local));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Const(PROPERTY_KEY_SYMBOL_MARKER as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::LocalGet(stored_key_local));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Xor);
+        function.instruction(&Instruction::I64Const(0xFFFF_FFFF));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         function.instruction(&Instruction::I32Const(0));
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
-        self.emit_property_key_payload_is_symbol_i32(stored_key_local, function);
+        // Two Strings of one length; an empty one has no first byte to load.
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(0xFFFF_FFFF));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(stored_key_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        function.instruction(&Instruction::LocalGet(key_local));
+        function.instruction(&Instruction::I64Const(32));
+        function.instruction(&Instruction::I64ShrU);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        function.instruction(&Instruction::I32Ne);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
+        function.instruction(&Instruction::I32Const(0));
+        function.instruction(&Instruction::Else);
+        // Then the last byte: keys built as `prefix + counter` share their
+        // first byte and differ at the end.
+        for payload_local in [stored_key_local, key_local] {
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::I64Const(32));
+            function.instruction(&Instruction::I64ShrU);
+            function.instruction(&Instruction::LocalGet(payload_local));
+            function.instruction(&Instruction::I64Const(0xFFFF_FFFF));
+            function.instruction(&Instruction::I64And);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::I32WrapI64);
+            function.instruction(&Instruction::I32Const(1));
+            function.instruction(&Instruction::I32Sub);
+            function.instruction(&Instruction::I32Load8U(Self::memarg8(0)));
+        }
+        function.instruction(&Instruction::I32Ne);
         function.instruction(&Instruction::If(BlockType::Result(ValType::I32)));
         function.instruction(&Instruction::I32Const(0));
         function.instruction(&Instruction::Else);
         self.emit_string_payload_equality_i32(stored_key_local, key_local, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
     }
@@ -19883,10 +20008,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(canonical_numeric_index_local));
         self.emit_is_typed_array_i32(object_payload_local, object_tag_local, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(key_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_canonical_numeric_index_string(
             key_payload_local,
@@ -19894,6 +20019,23 @@ impl<'a> FunctionBuilder<'a> {
             canonical_numeric_index_local,
             function,
         )?;
+        function.instruction(&Instruction::Else);
+        // A Number key whose ToString has been deferred (see
+        // `integer_indexed_number_key`): its canonical numeric index is the
+        // Number itself, -0 excepted.
+        function.instruction(&Instruction::LocalGet(key_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_number_property_key_numeric_index(
+            key_payload_local,
+            numeric_index_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(canonical_numeric_index_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(canonical_numeric_index_local));

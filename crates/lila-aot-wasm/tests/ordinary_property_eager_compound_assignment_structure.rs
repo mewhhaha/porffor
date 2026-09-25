@@ -293,14 +293,14 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
             "self.emit_throw_runtime_error(",
             "self.emit_propagate_throw_from_locals_if_needed(",
             "self.emit_value_to_object_locals(",
-            "self.emit_value_to_property_key_locals(",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-            "self.emit_object_read_with_key_tag(",
+            "let property_key = self.emit_reference_property_key_locals(",
+            "self.emit_reference_get_value(",
             "target_object_payload,\n            target_object_tag,\n            base_and_receiver_payload,\n            base_and_receiver_tag,",
             "Ok(ReadOrdinaryPropertyReferenceLocals {",
         ],
     );
-    assert_eq!(get.matches("emit_value_to_property_key_locals(").count(), 1);
+    assert_eq!(get.matches("emit_reference_property_key_locals(").count(), 1);
+    assert!(!get.contains("emit_value_to_property_key_locals("));
     assert!(!get.contains("compile_raw_property_key_expression_to_locals("));
 
     let result = bounded(
@@ -328,7 +328,7 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
         put,
         &[
             "let ReadyToWriteOrdinaryPropertyReferenceLocals {",
-            "self.emit_ordinary_set_result_via_helper(",
+            "self.emit_reference_set_result(",
             "if strictness.throws_on_failed_set() {",
             "self.emit_throw_runtime_error_to_active_handler(",
             "\"Cannot assign to property\"",
@@ -365,8 +365,8 @@ fn exhaustive_consumers_and_temp_budget_name_every_fused_phase() {
         "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
         "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 1 + 2;",
+        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 1 + 4 + 2;",
     ] {
         assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
     }
