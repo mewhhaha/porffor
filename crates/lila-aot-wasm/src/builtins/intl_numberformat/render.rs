@@ -290,9 +290,15 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let value = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let input = NfNumericLocals::reserve(self);
-        self.emit_nf_record_from_receiver(record, function)?;
+        self.emit_nf_record_from_receiver(
+            NfReceiverOperation::FormatToParts,
+            receiver,
+            record,
+            function,
+        )?;
         self.emit_builtin_arg_to_locals(0, value.payload, value.tag, function);
         self.emit_nf_observe_numeric(value, &input, function)?;
         self.emit_nf_provider_format(
@@ -308,7 +314,13 @@ impl FunctionBuilder<'_> {
             function,
         );
         input.release(self);
-        for local in [value.tag, value.payload, record] {
+        for local in [
+            value.tag,
+            value.payload,
+            receiver.tag,
+            receiver.payload,
+            record,
+        ] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -319,11 +331,17 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let left = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let right = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let start = NfNumericLocals::reserve(self);
         let end = NfNumericLocals::reserve(self);
-        self.emit_nf_record_from_receiver(record, function)?;
+        self.emit_nf_record_from_receiver(
+            NfReceiverOperation::FormatRange,
+            receiver,
+            record,
+            function,
+        )?;
         self.emit_builtin_arg_to_locals(0, left.payload, left.tag, function);
         self.emit_builtin_arg_to_locals(1, right.payload, right.tag, function);
         for tag in [left.tag, right.tag] {
@@ -353,7 +371,15 @@ impl FunctionBuilder<'_> {
         );
         end.release(self);
         start.release(self);
-        for local in [right.tag, right.payload, left.tag, left.payload, record] {
+        for local in [
+            right.tag,
+            right.payload,
+            left.tag,
+            left.payload,
+            receiver.tag,
+            receiver.payload,
+            record,
+        ] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -363,8 +389,14 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let bound = self.reserve_temp_local();
-        self.emit_nf_record_from_receiver(record, function)?;
+        self.emit_nf_record_from_receiver(
+            NfReceiverOperation::FormatGetter,
+            receiver,
+            record,
+            function,
+        )?;
         self.load_i64_to_local_from_offset(
             record,
             HEAP_INTL_NF_BOUND_FORMAT_OFFSET,
@@ -381,13 +413,9 @@ impl FunctionBuilder<'_> {
             .ok_or_else(|| {
                 EmitError::unsupported("missing NumberFormat bound format dependency")
             })?;
-        self.emit_current_builtin_realm_closure_value(
-            &meta,
-            self.this_payload_local
-                .expect("checked NumberFormat receiver"),
-            bound,
-            function,
-        )?;
+        // The bound function captures the unwrapped NumberFormat, not a
+        // legacy-constructed `this` that merely carries it.
+        self.emit_current_builtin_realm_closure_value(&meta, receiver.payload, bound, function)?;
         self.store_i64_local_at_offset(record, HEAP_INTL_NF_BOUND_FORMAT_OFFSET, bound, function);
         function.instruction(&Instruction::End);
         self.emit_nf_copy(bound, self.result_local, function);
@@ -397,6 +425,8 @@ impl FunctionBuilder<'_> {
             function,
         );
         self.release_temp_local(bound);
+        self.release_temp_local(receiver.tag);
+        self.release_temp_local(receiver.payload);
         self.release_temp_local(record);
         Ok(())
     }

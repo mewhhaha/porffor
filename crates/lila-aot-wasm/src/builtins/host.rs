@@ -23,6 +23,7 @@ mod created_realm_dynamic_function_intrinsics;
 mod created_realm_finalization_registry_intrinsics;
 mod created_realm_intl_intrinsics;
 mod created_realm_iterator_next;
+mod created_realm_symbol_description;
 mod created_realm_temporal_intrinsics;
 mod created_realm_weak_collection_intrinsics;
 mod created_realm_weak_ref_intrinsics;
@@ -6817,6 +6818,12 @@ impl<'a> FunctionBuilder<'a> {
             )?;
             self.release_temp_local(method_payload_local);
         }
+        self.emit_define_created_realm_symbol_description_getter(
+            symbol_prototype_local,
+            &realm_functions,
+            type_error_prototype_local,
+            function,
+        )?;
         let symbol_to_primitive_payload_local = self.reserve_temp_local();
         self.emit_function_value_payload_in_realm(
             &symbol_to_primitive_meta,

@@ -13,10 +13,16 @@ try { new NF("en-US", null); } catch (error) { caught = error; }
 check(caught instanceof TypeError, "constructor null options rejected");
 const receiver = Object.create(NF.prototype);
 const result = NF.call(receiver, "en-US");
-check(result !== receiver && Object.getPrototypeOf(result) === NF.prototype, "selected ordinary construction policy");
-check(Object.getOwnPropertySymbols(receiver).length === 0, "no legacy fallback symbol installed");
-check(typeof result.format(1) === "string", "ordinary result is branded");
+check(result === receiver, "normative-optional constructor mode chains onto an inheriting receiver");
+const symbols = Object.getOwnPropertySymbols(receiver);
+check(symbols.length === 1 && symbols[0].description === "IntlLegacyConstructedSymbol", "fallback symbol installed");
+const chained = receiver[symbols[0]];
+check(chained !== receiver && Object.getPrototypeOf(chained) === NF.prototype, "chained formatter is ordinary");
+check(typeof chained.format(1) === "string" && receiver.format(1) === chained.format(1), "format unwraps the receiver");
+check(receiver.resolvedOptions().locale === "en-US", "resolvedOptions unwraps the receiver");
 caught = undefined;
-try { receiver.resolvedOptions(); } catch (error) { caught = error; }
-check(caught instanceof TypeError, "receiver was not initialized through legacy chaining");
+try { NF.prototype.formatToParts.call(receiver, 1); } catch (error) { caught = error; }
+check(caught instanceof TypeError, "formatToParts requires the internal slot itself");
+const plain = NF.call({}, "en-US");
+check(Object.getPrototypeOf(plain) === NF.prototype && typeof plain.format(1) === "string", "unrelated receiver gets a new formatter");
 print("ok supported options and ordinary construction");

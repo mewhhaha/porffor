@@ -177,6 +177,8 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     IntlLocalePrototype,
     IntlDateTimeFormatPrototype,
     IntlNumberFormatPrototype,
+    /// `%Intl%.[[FallbackSymbol]]`, a Symbol rather than a prototype.
+    IntlFallbackSymbol,
     Float64ArrayPrototype,
     Float32ArrayPrototype,
     Float16ArrayPrototype,
@@ -416,6 +418,7 @@ impl NonArrayRealmIntrinsicSlot {
             Self::IntlNumberFormatPrototype => {
                 HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET
             }
+            Self::IntlFallbackSymbol => HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET,
             Self::Float64ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT64_ARRAY_PROTOTYPE_OFFSET,
             Self::Float32ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT32_ARRAY_PROTOTYPE_OFFSET,
             Self::Float16ArrayPrototype => HEAP_REALM_INTRINSICS_FLOAT16_ARRAY_PROTOTYPE_OFFSET,

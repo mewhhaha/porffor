@@ -2580,6 +2580,16 @@ impl RuntimeBootstrapPlan {
             // descriptor path, even when user code never references Object.
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
+        if matches!(
+            builtin,
+            StandardBuiltinId::IntlNumberFormatConstructor
+                | StandardBuiltinId::IntlDateTimeFormatConstructor
+        ) {
+            // ChainNumberFormat / ChainDateTimeFormat perform
+            // DefinePropertyOrThrow through the canonical definition builtin,
+            // which owns every exotic and Proxy `this`.
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
+        }
         if builtin == StandardBuiltinId::IteratorZipKeyed {
             self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
             self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);

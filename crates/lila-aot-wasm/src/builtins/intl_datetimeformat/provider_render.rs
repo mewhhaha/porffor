@@ -257,9 +257,11 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let input = self.reserve_temp_local();
         let output = self.reserve_temp_local();
         self.emit_intl_dtf_record_from_receiver(
+            receiver,
             record,
             &IntlDateTimeFormatReceiverOperation::FormatToParts,
             function,
@@ -279,7 +281,7 @@ impl FunctionBuilder<'_> {
             ValueKind::Array.tag() as i64,
             function,
         );
-        for local in [output, input, record] {
+        for local in [output, input, receiver.tag, receiver.payload, record] {
             self.release_temp_local(local);
         }
         Ok(())
@@ -291,6 +293,7 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let start = self.reserve_temp_local();
         let end = self.reserve_temp_local();
         let output = self.reserve_temp_local();
@@ -304,7 +307,7 @@ impl FunctionBuilder<'_> {
                 ValueKind::Array,
             ),
         };
-        self.emit_intl_dtf_record_from_receiver(record, &receiver_operation, function)?;
+        self.emit_intl_dtf_record_from_receiver(receiver, record, &receiver_operation, function)?;
         self.emit_dtf_range_inputs(record, start, end, function)?;
         self.emit_dtf_provider_format(
             record,
@@ -316,7 +319,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalGet(output));
         function.instruction(&Instruction::LocalSet(self.result_local));
         self.emit_dtf_set_const(self.result_tag_local, result_kind.tag() as i64, function);
-        for local in [output, end, start, record] {
+        for local in [output, end, start, receiver.tag, receiver.payload, record] {
             self.release_temp_local(local);
         }
         Ok(())
