@@ -20,15 +20,23 @@ at `7ab7faf` (2026-09-23). The TypedArray split dispatcher accepts only the new
 `testTypedArray.js` and copies its immutable-buffer argument factory and
 include/exclude factory selection verbatim; the literal-helper contract covers
 320 physical sources. The spec-exec `Test262Error`, like upstream `sta.js`, is
-callable without `new`. Cases that need immutable ArrayBuffers remain behind the
-explicit Wasm-AOT `immutable-arraybuffer` gate. On 2026-09-24 the release CLI
+callable without `new`. On 2026-09-24 the release CLI
 (`LILA_TEST262_FORCE_CASE_RUNNER=1 lila --jobs 1 test262 run <dir>
 --execution-backend wasm-aot --threads 3 --timeout-ms 60000`) passed
 `TypedArray/prototype` `every` 88/88, `find` 72/72, `slice` 182/184 and
 `copyWithin` 122/130, `TypedArrayConstructors/ctors` 230/232 and
 `DataView/prototype/setInt8` 44/44.
-The four `slice`/`copyWithin` immutable-buffer executions are typed
-`Unsupported`. Upstream now runs the six `copyWithin`
+Immutable ArrayBuffers are now implemented in the Wasm-AOT backend and the
+runner no longer gates `immutable-arraybuffer`; see the
+[immutable ArrayBuffer contract](docs/rust-rewrite/contracts/immutable-array-buffer.md).
+On 2026-09-25 the same command passed `built-ins/ArrayBuffer` 442/442,
+`TypedArray` 2884/2890, `TypedArrayConstructors` 1444/1446, `DataView`
+1122/1122, `Atomics` 778/778, `SharedArrayBuffer` 206/208 and `Uint8Array`
+140/140. The remaining failures are the six `copyWithin` executions and two
+`ctors` executions below and the dynamic-code `SharedArrayBuffer`
+`proto-from-ctor-realm.js`. The five `language/import/import-bytes` cases, no
+longer masked by the gate, fail because bytes-module imports are unimplemented.
+Upstream now runs the six `copyWithin`
 `coerced-values-*-detached*` executions through every argument factory; they
 time out at 60 s, and with a 600 s bound they exhaust the Wasm heap in
 `copyIntoArrayBuffer`'s element-wise index stores whether or not the split
