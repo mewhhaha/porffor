@@ -200,7 +200,7 @@ fn created_realm_materializes_and_links_one_dedicated_identity() {
     );
     assert!(!materializer.contains("StandardBuiltinId::FunctionConstructor"));
 
-    let publication = bounded(
+    let constructor_publication = bounded(
         HOST_SOURCE,
         "        self.emit_realm_typed_array_constructor_value_payload(",
         concat!(
@@ -208,6 +208,9 @@ fn created_realm_materializes_and_links_one_dedicated_identity() {
             "            &aggregate_error_meta,"
         ),
     );
+    let (publication, static_methods) = constructor_publication
+        .split_once("        for (name, builtin) in [")
+        .expect("TypedArray constructor static methods follow the intrinsic identity");
     let publication = without_whitespace(publication);
     assert!(publication.starts_with("&realm_functions,typed_array_constructor_local,function,)?;"));
     assert!(publication.contains(concat!(
@@ -222,6 +225,25 @@ fn created_realm_materializes_and_links_one_dedicated_identity() {
         "false,false,false,true,function,)?;"
     )));
     assert!(!publication.contains("emit_function_value_payload_in_realm("));
+
+    let static_methods = without_whitespace(static_methods);
+    for method in [
+        "(\"from\",StandardBuiltinId::TypedArrayFrom)",
+        "(\"of\",StandardBuiltinId::TypedArrayOf)",
+    ] {
+        assert_eq!(static_methods.matches(method).count(), 1);
+    }
+    assert_eq!(
+        static_methods
+            .matches("self.emit_function_value_payload_in_realm(&meta,&realm_functions,method_local,function,)?;")
+            .count(),
+        1,
+        "both static methods must use the coupled realm/prototype context"
+    );
+    assert!(static_methods.contains(concat!(
+        "self.emit_object_define_local_data(typed_array_constructor_local,",
+        "name,method_local,tag_local,function,)?;"
+    )));
 
     let concrete_constructors = bounded(
         HOST_SOURCE,

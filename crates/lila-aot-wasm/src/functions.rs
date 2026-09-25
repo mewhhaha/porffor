@@ -592,10 +592,10 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            // 88 since the created-realm Proxy constructor moved to
-            // `emit_realm_proxy_constructor_value_payload`, which supplies
-            // its bootstrap prototype through the context-taking variant.
-            ("builtins/host.rs", host, 88, "&realm_functions"),
+            // 90: the created-realm Proxy constructor uses its dedicated
+            // context-taking materializer, while `%TypedArray%.from` and
+            // `%TypedArray%.of` each add a realm-local function allocation.
+            ("builtins/host.rs", host, 90, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",
                 created_realm_iterator_next,
@@ -641,7 +641,7 @@ mod realm_function_materialization_tests {
             direct_sites += source_sites;
         }
         assert_eq!(
-            direct_sites, 92,
+            direct_sites, 94,
             "created-realm bootstrap site count drifted"
         );
 

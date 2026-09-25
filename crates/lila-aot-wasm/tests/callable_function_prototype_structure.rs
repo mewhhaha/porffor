@@ -339,10 +339,21 @@ fn created_realm_records_publish_their_typed_eval_script_function() {
     let host_dependencies = bounded(
         EMIT_SOURCE,
         "    let mut compiled_host_builtins = script.host_builtins.clone();",
-        "    for builtin in HostBuiltinId::ALL {",
+        "    let stubbed_host_builtins = HostBuiltinId::ALL",
     );
-    assert!(host_dependencies.contains("HostBuiltinId::CreateRealm"));
-    assert!(host_dependencies.contains("HostBuiltinId::RealmEvalScript"));
+    let realm_dependencies = bounded(
+        host_dependencies,
+        "    if compiled_host_builtins.contains(&HostBuiltinId::CreateRealm) {",
+        "\n    }\n",
+    );
+    assert_eq!(
+        realm_dependencies
+            .matches("HostBuiltinId::RealmEvalScript,")
+            .count(),
+        1,
+        "created-realm evalScript must be compiled as a realm dependency"
+    );
+    assert!(realm_dependencies.contains("compiled_host_builtins.push(dependency);"));
 
     let create_realm = bounded(
         HOST_SOURCE,
