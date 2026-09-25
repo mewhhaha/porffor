@@ -27,7 +27,11 @@ fn whole(seconds: i64) -> TemporalSeconds {
     TemporalSeconds::new(seconds, false)
 }
 
-fn epoch_for(zone: &str, at: i64, disambiguation: TemporalDisambiguation) -> TemporalTimeZoneAnswer {
+fn epoch_for(
+    zone: &str,
+    at: i64,
+    disambiguation: TemporalDisambiguation,
+) -> TemporalTimeZoneAnswer {
     ask(
         zone,
         TemporalTimeZoneQuery::EpochFor {
@@ -82,7 +86,10 @@ fn new_york_repeated_and_skipped_local_times() {
     );
     // 2017-03-12T02:30 does not exist.
     let skipped = local(2017, 3, 12, 2, 30);
-    assert!(named("America/New_York").candidates(skipped).unwrap().is_empty());
+    assert!(named("America/New_York")
+        .candidates(skipped)
+        .unwrap()
+        .is_empty());
     // compatible/later: 03:30-04:00; earlier: 01:30-05:00.
     for (disambiguation, expected) in [
         (Compatible, skipped + 3_600 + 4 * 3_600),
@@ -132,7 +139,10 @@ fn transitions_match_known_tzdb_values() {
         TemporalTimeZoneAnswer::Seconds(dst_end_2017)
     );
     assert_eq!(
-        next("America/New_York", TemporalSeconds::new(dst_start_2017 - 1, true)),
+        next(
+            "America/New_York",
+            TemporalSeconds::new(dst_start_2017 - 1, true)
+        ),
         TemporalTimeZoneAnswer::Seconds(dst_start_2017)
     );
     // Strictly before: only a non-zero remainder puts the instant after it.
@@ -267,7 +277,11 @@ fn offset_zones_use_the_balanced_date_and_instant_limits() {
     // The last local time whose instant is valid, and the first after it.
     let last_local = TEMPORAL_EPOCH_SECONDS_LIMIT - 19_800;
     assert_eq!(
-        seconds(epoch_for(zone, last_local, TemporalDisambiguation::Compatible)),
+        seconds(epoch_for(
+            zone,
+            last_local,
+            TemporalDisambiguation::Compatible
+        )),
         TEMPORAL_EPOCH_SECONDS_LIMIT
     );
     assert_eq!(
@@ -320,7 +334,10 @@ fn transition_search_agrees_with_the_offset_selector_for_every_zone() {
                 break;
             }
             assert!(found > cursor, "{identifier} at {cursor}");
-            assert!(rules.is_transition(found).unwrap(), "{identifier} at {found}");
+            assert!(
+                rules.is_transition(found).unwrap(),
+                "{identifier} at {found}"
+            );
             transitions.push(found);
             cursor = found;
         }
@@ -338,7 +355,11 @@ fn transition_search_agrees_with_the_offset_selector_for_every_zone() {
                     "{identifier}: unexplained change before {probe}"
                 );
             }
-            assert_eq!(rules.offset_at(edge - 1).unwrap(), offset, "{identifier} before {edge}");
+            assert_eq!(
+                rules.offset_at(edge - 1).unwrap(),
+                offset,
+                "{identifier} before {edge}"
+            );
             previous_edge = edge;
         }
         for pair in transitions.windows(2) {
@@ -360,7 +381,12 @@ fn transition_search_agrees_with_the_offset_selector_for_every_zone() {
 
 #[test]
 fn every_candidate_has_its_own_offset_around_every_transition() {
-    for identifier in ["America/New_York", "Australia/Lord_Howe", "Antarctica/Casey", "Europe/Dublin"] {
+    for identifier in [
+        "America/New_York",
+        "Australia/Lord_Howe",
+        "Antarctica/Casey",
+        "Europe/Dublin",
+    ] {
         let rules = named(identifier);
         let mut cursor = local(1990, 1, 1, 0, 0);
         while let Some(found) = rules.next_transition(cursor).unwrap() {

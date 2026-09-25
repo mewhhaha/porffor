@@ -1391,7 +1391,9 @@ impl<'a> FunctionBuilder<'a> {
                 overflow_local,
                 function,
             )?;
-            self.emit_temporal_plain_date_epoch_days(date[0], date[1], date[2], days_local, function);
+            self.emit_temporal_plain_date_epoch_days(
+                date[0], date[1], date[2], days_local, function,
+            );
         }
         // Inside when `sign * (dest - start) >= 0` and `sign * (dest - end) <= 0`,
         // comparing (epoch day, time of day) pairs; both window ends share the

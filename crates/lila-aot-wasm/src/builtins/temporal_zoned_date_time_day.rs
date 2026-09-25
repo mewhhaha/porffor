@@ -291,7 +291,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(day_local));
         function.instruction(&Instruction::End);
-        for local in [offset_local, subsecond_local, seconds_local, time_zone_local] {
+        for local in [
+            offset_local,
+            subsecond_local,
+            seconds_local,
+            time_zone_local,
+        ] {
             self.release_temp_local(local);
         }
         Ok(())

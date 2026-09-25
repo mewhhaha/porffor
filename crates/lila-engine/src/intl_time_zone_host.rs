@@ -74,11 +74,13 @@ pub(super) fn query_temporal_time_zone(
     let request = TemporalTimeZoneRequest::decode(copied.bytes()).map_err(|error| {
         wasmtime::Error::msg(format!("invalid Temporal time-zone query: {error}"))
     })?;
-    let handle = kernel.operation::<QueryTemporalTimeZone>().map_err(|error| {
-        wasmtime::Error::msg(format!(
-            "Temporal time-zone kernel capability mismatch: {error}"
-        ))
-    })?;
+    let handle = kernel
+        .operation::<QueryTemporalTimeZone>()
+        .map_err(|error| {
+            wasmtime::Error::msg(format!(
+                "Temporal time-zone kernel capability mismatch: {error}"
+            ))
+        })?;
     let answer = handle.execute(request).map_err(|error| {
         wasmtime::Error::msg(format!("Temporal time-zone query failed: {error}"))
     })?;

@@ -238,7 +238,9 @@ impl ZoneRules<'_> {
             .min_by_key(|interval| interval.start + interval.offset);
         match (before, after) {
             (Some(before), Some(after)) => Ok((before.offset, *after)),
-            _ => Err(InvalidTimeZoneData("skipped local time has no neighbouring local times").into()),
+            _ => Err(
+                InvalidTimeZoneData("skipped local time has no neighbouring local times").into(),
+            ),
         }
     }
 }
@@ -269,7 +271,9 @@ pub(super) fn answer(
     match request.query() {
         TemporalTimeZoneQuery::OffsetAt { epoch } => {
             require_query_domain(epoch.seconds())?;
-            Ok(TemporalTimeZoneAnswer::Seconds(rules.offset_at(epoch.seconds())?))
+            Ok(TemporalTimeZoneAnswer::Seconds(
+                rules.offset_at(epoch.seconds())?,
+            ))
         }
         TemporalTimeZoneQuery::EpochFor {
             local,
@@ -392,9 +396,7 @@ fn disambiguate(
             return Ok(TemporalTimeZoneAnswer::Seconds(*last))
         }
         ([], TemporalDisambiguation::Earlier) => GapShift::Earlier,
-        ([], TemporalDisambiguation::Compatible | TemporalDisambiguation::Later) => {
-            GapShift::Later
-        }
+        ([], TemporalDisambiguation::Compatible | TemporalDisambiguation::Later) => GapShift::Later,
     };
     // Steps 6-26: shift the local time by the size of the gap and take the
     // outermost candidate on that side.
@@ -416,9 +418,7 @@ fn disambiguate(
     chosen
         .copied()
         .map(TemporalTimeZoneAnswer::Seconds)
-        .ok_or_else(|| {
-            InvalidTimeZoneData("local time moved across a gap is still skipped").into()
-        })
+        .ok_or_else(|| InvalidTimeZoneData("local time moved across a gap is still skipped").into())
 }
 
 /// Which side of a skipped local time `DisambiguatePossibleEpochNanoseconds`
@@ -465,9 +465,7 @@ fn epoch_for_offset(
         TemporalOffsetMismatch::Reject => Ok(TemporalTimeZoneAnswer::RangeError(
             TemporalTimeZoneRangeError::OffsetMismatch,
         )),
-        TemporalOffsetMismatch::Prefer => {
-            disambiguate(rules, &candidates, local, disambiguation)
-        }
+        TemporalOffsetMismatch::Prefer => disambiguate(rules, &candidates, local, disambiguation),
     }
 }
 
@@ -536,7 +534,8 @@ fn rule_instant(year: i64, date: TransitionDate, utc_offset: i64) -> i64 {
             let first = days_from_civil(year, month, 1);
             // 1970-01-01 was a Thursday; weekday 0 is Sunday.
             let first_weekday = (first + 4).rem_euclid(7);
-            let mut day = (i64::from(week) - 1) * 7 + (i64::from(weekday) - first_weekday).rem_euclid(7);
+            let mut day =
+                (i64::from(week) - 1) * 7 + (i64::from(weekday) - first_weekday).rem_euclid(7);
             if day >= days_in_month(year, month) {
                 day -= 7;
             }

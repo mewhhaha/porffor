@@ -359,7 +359,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Const(1_000_000_000));
             function.instruction(&Instruction::I64RemS);
             function.instruction(&Instruction::LocalSet(subsecond_local));
-            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
+            function.instruction(&Instruction::I64Const(
+                TemporalOffsetBehaviour::Option.code(),
+            ));
             function.instruction(&Instruction::LocalSet(behaviour_local));
             function.instruction(&Instruction::LocalGet(offset_seconds_local));
             function.instruction(&Instruction::I64Const(1_000_000_000));
@@ -378,7 +380,11 @@ impl<'a> FunctionBuilder<'a> {
                 subsecond_local,
                 function,
             )?;
-            for local in [offset_option_local, offset_nanoseconds_local, behaviour_local] {
+            for local in [
+                offset_option_local,
+                offset_nanoseconds_local,
+                behaviour_local,
+            ] {
                 self.release_temp_local(local);
             }
         }

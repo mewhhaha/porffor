@@ -32,7 +32,8 @@ use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, 
 /// exact-time range, exclusive at both ends.
 pub(super) const TEMPORAL_ISO_DATE_TIME_SECONDS_LIMIT: i64 = TEMPORAL_EPOCH_SECONDS_LIMIT + 86_400;
 
-pub(super) const TEMPORAL_INVALID_TIME_ZONE_MESSAGE: &str = "Invalid Temporal.ZonedDateTime time zone";
+pub(super) const TEMPORAL_INVALID_TIME_ZONE_MESSAGE: &str =
+    "Invalid Temporal.ZonedDateTime time zone";
 
 /// Every message the time-zone boundary and the zoned arithmetic can throw.
 /// Any program that touches a ZonedDateTime or a zoned `relativeTo` can reach
@@ -263,9 +264,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-                function.instruction(&Instruction::I64Const(TemporalOffsetMismatch::Reject.wire()));
+                function.instruction(&Instruction::I64Const(
+                    TemporalOffsetMismatch::Reject.wire(),
+                ));
                 function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::I64Const(TemporalOffsetMismatch::Prefer.wire()));
+                function.instruction(&Instruction::I64Const(
+                    TemporalOffsetMismatch::Prefer.wire(),
+                ));
                 function.instruction(&Instruction::End);
                 match matching {
                     TemporalOffsetMatchSource::Exactly => {
@@ -698,7 +703,13 @@ impl<'a> FunctionBuilder<'a> {
         seconds_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        self.emit_temporal_plain_date_epoch_days(date[0], date[1], date[2], seconds_local, function);
+        self.emit_temporal_plain_date_epoch_days(
+            date[0],
+            date[1],
+            date[2],
+            seconds_local,
+            function,
+        );
         self.emit_temporal_start_of_epoch_day(
             time_zone_payload_local,
             seconds_local,
@@ -787,10 +798,14 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         // Exact, or `offset: "use"`: the wall clock minus the given offset.
         function.instruction(&Instruction::LocalGet(behaviour_local));
-        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalOffsetBehaviour::Exact.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(behaviour_local));
-        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalOffsetBehaviour::Option.code(),
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(offset_option_local));
         function.instruction(&Instruction::I64Const(OffsetOption::Use.code()));
@@ -1078,10 +1093,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(-TEMPORAL_ISO_DATE_TIME_SECONDS_LIMIT));
+        function.instruction(&Instruction::I64Const(
+            -TEMPORAL_ISO_DATE_TIME_SECONDS_LIMIT,
+        ));
         function.instruction(&Instruction::I64LtS);
         function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(-TEMPORAL_ISO_DATE_TIME_SECONDS_LIMIT));
+        function.instruction(&Instruction::I64Const(
+            -TEMPORAL_ISO_DATE_TIME_SECONDS_LIMIT,
+        ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(subsecond_local));
         function.instruction(&Instruction::I64Eqz);

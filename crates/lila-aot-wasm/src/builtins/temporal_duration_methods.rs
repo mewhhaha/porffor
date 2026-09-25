@@ -11,11 +11,11 @@ use super::temporal_duration::{
     TemporalDurationFields, TemporalDurationNumberProjection, TemporalDurationSubsecondUnit,
     TEMPORAL_DURATION_ALPHABETICAL_FIELDS, TEMPORAL_DURATION_FIELD_NAMES,
 };
-use super::temporal_plain_date_time_methods::ResolvedTemporalDateTimeDifferenceSettings;
 use super::temporal_options::{
     TemporalRoundingMode, TemporalTimeUnit, TemporalUnit, TemporalUnitOptionProperty,
     TemporalUnitSlot, TEMPORAL_UNIT_SECONDS,
 };
+use super::temporal_plain_date_time_methods::ResolvedTemporalDateTimeDifferenceSettings;
 
 enum TemporalDurationArithmeticOperation {
     Add,
@@ -1494,7 +1494,9 @@ impl<'a> FunctionBuilder<'a> {
             TemporalRoundingMode::HalfExpand.code(),
         ));
         function.instruction(&Instruction::LocalSet(mode_local));
-        function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Undefined.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalRelativeToKind::Undefined.code(),
+        ));
         function.instruction(&Instruction::LocalSet(relative.kind_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
@@ -1851,7 +1853,9 @@ impl<'a> FunctionBuilder<'a> {
         let relative = self.reserve_temporal_relative_to();
 
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
-        function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Undefined.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalRelativeToKind::Undefined.code(),
+        ));
         function.instruction(&Instruction::LocalSet(relative.kind_local));
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         function.instruction(&Instruction::LocalGet(argument_tag_local));

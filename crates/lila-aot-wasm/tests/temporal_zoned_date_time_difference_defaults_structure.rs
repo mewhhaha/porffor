@@ -239,7 +239,10 @@ fn zoned_calendar_candidates_are_resolved_only_by_the_time_zone_kernel() {
         "fn emit_temporal_compute_nudge_window_zoned(",
         "fn emit_temporal_zoned_window_bound(",
     );
-    assert_eq!(window.matches("emit_temporal_zoned_window_bound(").count(), 2);
+    assert_eq!(
+        window.matches("emit_temporal_zoned_window_bound(").count(),
+        2
+    );
     let bound = bounded(
         ZONED_DIFFERENCE,
         "fn emit_temporal_zoned_window_bound(",

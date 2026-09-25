@@ -43,8 +43,8 @@ use crate::{
     MinimizeLocale, QueryTemporalTimeZone, ResolveDateTimeLocale, ResolveTimeZone,
     ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat,
     SupportedDateTimeLocales, SupportedValues, SupportedValuesRequest, SupportedValuesResult,
-    TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneRequest,
-    TimeZoneResolveError, TimeZoneSelection, UnknownTimeZone,
+    TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneRequest, TimeZoneResolveError,
+    TimeZoneSelection, UnknownTimeZone,
 };
 
 /// Composite SHA-256 of exact locale, IANA transition/catalogue and CLDR name

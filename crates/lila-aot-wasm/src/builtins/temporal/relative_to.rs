@@ -66,7 +66,10 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(in crate::builtins) fn release_temporal_relative_to(&mut self, relative: TemporalRelativeTo) {
+    pub(in crate::builtins) fn release_temporal_relative_to(
+        &mut self,
+        relative: TemporalRelativeTo,
+    ) {
         for local in [
             relative.time_zone_payload_local,
             relative.epoch_subsecond_local,
@@ -103,7 +106,9 @@ impl<'a> FunctionBuilder<'a> {
         let time_zone_tag_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
 
-        function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Undefined.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalRelativeToKind::Undefined.code(),
+        ));
         function.instruction(&Instruction::LocalSet(relative.kind_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -181,9 +186,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         for (offset, local) in [
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET, relative.date_locals[0]),
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET, relative.date_locals[1]),
-            (HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET, relative.date_locals[2]),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_ISO_YEAR_OFFSET,
+                relative.date_locals[0],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_ISO_MONTH_OFFSET,
+                relative.date_locals[1],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_ISO_DAY_OFFSET,
+                relative.date_locals[2],
+            ),
             (
                 HEAP_TEMPORAL_PLAIN_DATE_CALENDAR_PAYLOAD_OFFSET,
                 relative.calendar_payload_local,
@@ -204,9 +218,18 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         for (offset, local) in [
-            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET, relative.date_locals[0]),
-            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET, relative.date_locals[1]),
-            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET, relative.date_locals[2]),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET,
+                relative.date_locals[0],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET,
+                relative.date_locals[1],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET,
+                relative.date_locals[2],
+            ),
             (
                 HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
                 relative.calendar_payload_local,
@@ -404,12 +427,7 @@ impl<'a> FunctionBuilder<'a> {
         let length_local = self.reserve_temp_local();
         let cursor_local = self.reserve_temp_local();
         let byte_local = self.reserve_temp_local();
-        self.emit_unpack_string_payload(
-            string_payload_local,
-            offset_local,
-            length_local,
-            function,
-        );
+        self.emit_unpack_string_payload(string_payload_local, offset_local, length_local, function);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::I64Const(0));

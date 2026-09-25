@@ -15,7 +15,11 @@ fn zoned_date_time_defaults_name_the_zone_only_for_exact_inputs() {
             .map(|part| part.value.clone())
     };
     assert_eq!(
-        zone_name(DateTimeDefaults::ZonedDateTime, DateTimeComponents::default()).as_deref(),
+        zone_name(
+            DateTimeDefaults::ZonedDateTime,
+            DateTimeComponents::default()
+        )
+        .as_deref(),
         Some("GMT+1")
     );
     assert_eq!(

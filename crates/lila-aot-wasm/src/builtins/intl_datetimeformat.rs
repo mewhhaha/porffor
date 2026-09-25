@@ -18,9 +18,9 @@ mod provider_render;
 mod provider_wire;
 mod time_zone;
 mod zoned_locale_string;
-pub(in crate::builtins) use time_zone::NamedTimeZoneRejection;
 pub(crate) use initialization::IntlDateTimeFormatPurpose;
 use provider_input::INTL_DTF_CALENDAR_MISMATCH;
+pub(in crate::builtins) use time_zone::NamedTimeZoneRejection;
 
 struct IntlDtfOption {
     property: &'static str,

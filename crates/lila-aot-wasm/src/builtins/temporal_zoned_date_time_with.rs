@@ -336,7 +336,9 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
         function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Wall.code()));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalOffsetBehaviour::Option.code(),
+        ));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalSet(behaviour_local));
         self.emit_temporal_interpret_iso_date_time_offset(

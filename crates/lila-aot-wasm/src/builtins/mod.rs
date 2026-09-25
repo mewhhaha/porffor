@@ -84,6 +84,9 @@ mod temporal_plain_time;
 mod temporal_plain_time_methods;
 mod temporal_plain_year_month;
 mod temporal_plain_year_month_methods;
+/// The one time-zone boundary of the Temporal emitters: every zone-dependent
+/// step is a query to the pinned time-zone kernel.
+mod temporal_time_zone;
 mod temporal_zoned_date_time_day;
 /// `Temporal.ZonedDateTime.prototype.{add,subtract,until,since,withCalendar}`.
 ///
@@ -96,9 +99,6 @@ mod temporal_zoned_date_time_format;
 mod temporal_zoned_date_time_methods;
 mod temporal_zoned_date_time_round;
 mod temporal_zoned_date_time_with;
-/// The one time-zone boundary of the Temporal emitters: every zone-dependent
-/// step is a query to the pinned time-zone kernel.
-mod temporal_time_zone;
 pub(crate) use temporal_time_zone::temporal_time_zone_pool_strings;
 mod temporal_zoned_difference;
 mod temporal_zoned_wall_clock;

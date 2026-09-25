@@ -68,7 +68,10 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(super) fn release_temporal_internal_duration(&mut self, duration: TemporalInternalDuration) {
+    pub(super) fn release_temporal_internal_duration(
+        &mut self,
+        duration: TemporalInternalDuration,
+    ) {
         self.release_temp_local(duration.time_subsecond);
         self.release_temp_local(duration.time_seconds);
         for local in duration.date.into_iter().rev() {
@@ -155,7 +158,11 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Leaves an `i32`: whether a date duration is all zero.
-    fn emit_temporal_date_duration_is_zero_i32(&mut self, date: &[u32; 4], function: &mut Function) {
+    fn emit_temporal_date_duration_is_zero_i32(
+        &mut self,
+        date: &[u32; 4],
+        function: &mut Function,
+    ) {
         function.instruction(&Instruction::LocalGet(date[0]));
         for local in &date[1..] {
             function.instruction(&Instruction::LocalGet(*local));
@@ -1079,7 +1086,10 @@ impl<'a> FunctionBuilder<'a> {
         let magnitude_local = self.reserve_temp_local();
         let high_local = self.reserve_temp_local();
         let low_local = self.reserve_temp_local();
-        for (local, pair) in [(numerator_local, numerator), (denominator_local, denominator)] {
+        for (local, pair) in [
+            (numerator_local, numerator),
+            (denominator_local, denominator),
+        ] {
             function.instruction(&Instruction::LocalGet(pair.seconds));
             function.instruction(&Instruction::I64Const(1_000_000_000));
             function.instruction(&Instruction::I64Mul);

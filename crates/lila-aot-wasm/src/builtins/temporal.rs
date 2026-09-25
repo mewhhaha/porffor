@@ -1,14 +1,14 @@
 use super::super::*;
 use super::intl_datetimeformat::NamedTimeZoneRejection;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
-use super::temporal_time_zone::{
-    TemporalDisambiguationSource, TemporalOffsetBehaviour, TemporalOffsetMatchSource,
-    TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
-};
 use super::temporal_plain_date::{
     TemporalCalendarCanonicalizationContext, TemporalCalendarId, TemporalEraField,
 };
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
+use super::temporal_time_zone::{
+    TemporalDisambiguationSource, TemporalOffsetBehaviour, TemporalOffsetMatchSource,
+    TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
+};
 use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 use crate::operations::BigIntNumberPolicy;
 
@@ -1037,9 +1037,7 @@ impl<'a> FunctionBuilder<'a> {
             epoch_tag_local,
             TemporalIsoParseGoal::ZonedDateTime {
                 offset_option_local,
-                disambiguation: TemporalDisambiguationSource::Option(
-                    disambiguation_option_local,
-                ),
+                disambiguation: TemporalDisambiguationSource::Option(disambiguation_option_local),
                 time_zone_payload_local,
                 time_zone_tag_local,
                 calendar_payload_local,
@@ -4601,7 +4599,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalOffsetBehaviour::Exact.code(),
+        ));
         function.instruction(&Instruction::LocalSet(offset_kind_local));
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Else);
@@ -4613,7 +4613,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
+        function.instruction(&Instruction::I64Const(
+            TemporalOffsetBehaviour::Option.code(),
+        ));
         function.instruction(&Instruction::LocalSet(offset_kind_local));
         function.instruction(&Instruction::LocalGet(byte_local));
         function.instruction(&Instruction::I64Const(b'-' as i64));
@@ -4767,7 +4769,9 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+            function.instruction(&Instruction::I64Const(
+                TemporalOffsetBehaviour::Exact.code(),
+            ));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
@@ -4839,7 +4843,9 @@ impl<'a> FunctionBuilder<'a> {
             // a wall-clock time, so the UTC designator is a RangeError.
             // A numeric offset (an `Option` offset kind) is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+            function.instruction(&Instruction::I64Const(
+                TemporalOffsetBehaviour::Exact.code(),
+            ));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
@@ -4938,7 +4944,9 @@ impl<'a> FunctionBuilder<'a> {
             // date-time, so the UTC designator is a RangeError. A numeric
             // offset (an `Option` offset kind) is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+            function.instruction(&Instruction::I64Const(
+                TemporalOffsetBehaviour::Exact.code(),
+            ));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
@@ -5008,7 +5016,9 @@ impl<'a> FunctionBuilder<'a> {
             // An `Exact` offset kind is the `Z` form; `Option` is an explicit
             // numeric offset, which is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
+            function.instruction(&Instruction::I64Const(
+                TemporalOffsetBehaviour::Exact.code(),
+            ));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(

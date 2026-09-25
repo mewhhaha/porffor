@@ -833,7 +833,13 @@ impl<'a> FunctionBuilder<'a> {
             overflow_local,
             function,
         )?;
-        self.emit_temporal_plain_date_epoch_days(later[0], later[1], later[2], epoch_local, function);
+        self.emit_temporal_plain_date_epoch_days(
+            later[0],
+            later[1],
+            later[2],
+            epoch_local,
+            function,
+        );
         function.instruction(&Instruction::LocalGet(days_local));
         function.instruction(&Instruction::LocalGet(epoch_local));
         function.instruction(&Instruction::I64Add);

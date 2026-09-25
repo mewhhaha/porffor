@@ -10,7 +10,9 @@ pub(crate) enum IntlDateTimeFormatPurpose {
     /// `Temporal.ZonedDateTime.prototype.toLocaleString`. The local holds the
     /// receiver's `[[TimeZone]]` identifier, which is the
     /// `toLocaleStringTimeZone` that replaces the `timeZone` option.
-    ZonedDateTime { time_zone_local: u32 },
+    ZonedDateTime {
+        time_zone_local: u32,
+    },
 }
 
 enum RejectedDateTimeStyle {

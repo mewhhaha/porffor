@@ -386,11 +386,9 @@ impl TemporalTimeZoneRequest {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, InvalidTemporalTimeZoneRequest> {
-        let header = bytes
-            .get(..TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES)
-            .ok_or(InvalidTemporalTimeZoneRequest(
-                "truncated time-zone query header",
-            ))?;
+        let header = bytes.get(..TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES).ok_or(
+            InvalidTemporalTimeZoneRequest("truncated time-zone query header"),
+        )?;
         let word = |offset: u64| {
             let offset = offset as usize;
             i64::from_le_bytes(header[offset..offset + 8].try_into().expect("header word"))
@@ -401,12 +399,14 @@ impl TemporalTimeZoneRequest {
                 "time-zone identifier extent is invalid",
             ));
         }
-        let identifier = core::str::from_utf8(identifier).map_err(|_| {
-            InvalidTemporalTimeZoneRequest("time-zone identifier is not UTF-8")
-        })?;
+        let identifier = core::str::from_utf8(identifier)
+            .map_err(|_| InvalidTemporalTimeZoneRequest("time-zone identifier is not UTF-8"))?;
         let zone = TemporalTimeZone::parse_stored(identifier)?;
-        let kind = TemporalTimeZoneQueryKind::from_wire(word(TEMPORAL_TIME_ZONE_REQUEST_KIND_OFFSET))
-            .ok_or(InvalidTemporalTimeZoneRequest("unknown time-zone query kind"))?;
+        let kind =
+            TemporalTimeZoneQueryKind::from_wire(word(TEMPORAL_TIME_ZONE_REQUEST_KIND_OFFSET))
+                .ok_or(InvalidTemporalTimeZoneRequest(
+                    "unknown time-zone query kind",
+                ))?;
         let seconds = word(TEMPORAL_TIME_ZONE_REQUEST_SECONDS_OFFSET);
         let subsecond = word(TEMPORAL_TIME_ZONE_REQUEST_SUBSECOND_OFFSET);
         if !(0..1_000_000_000).contains(&subsecond) {
@@ -542,7 +542,8 @@ impl TemporalTimeZoneRequest {
                 0,
             ),
         };
-        let mut bytes = Vec::with_capacity(TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES + identifier.len());
+        let mut bytes =
+            Vec::with_capacity(TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES + identifier.len());
         for word in [
             kind.wire(),
             at.seconds(),
@@ -615,11 +616,8 @@ mod tests {
     use super::*;
 
     fn request(identifier: &str, query: TemporalTimeZoneQuery) -> Vec<u8> {
-        TemporalTimeZoneRequest::new(
-            TemporalTimeZone::parse_stored(identifier).unwrap(),
-            query,
-        )
-        .encode()
+        TemporalTimeZoneRequest::new(TemporalTimeZone::parse_stored(identifier).unwrap(), query)
+            .encode()
     }
 
     #[test]
@@ -669,7 +667,10 @@ mod tests {
             TemporalTimeZone::Offset(TemporalOffsetMinutes::new(1439).unwrap())
         );
         for invalid in ["+24:00", "+0530", "-05:60", "+05:3x", "", "+05:30:00"] {
-            assert!(TemporalTimeZone::parse_stored(invalid).is_err(), "{invalid}");
+            assert!(
+                TemporalTimeZone::parse_stored(invalid).is_err(),
+                "{invalid}"
+            );
         }
     }
 
