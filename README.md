@@ -10,7 +10,15 @@ checks are recorded in the [recovery checkpoint](docs/rust-rewrite/recovered-int
 The published full-suite conformance counts remain unchanged.
 The follow-up [failure-repair plan](docs/rust-rewrite/failure-batch-plan-20260925.md)
 tracks Temporal conversion/rounding, Math.log10, TypedArray iteration/realms/sort,
-and the remaining generator and garbage-collection work. The [integrated repair checkpoint](docs/rust-rewrite/failure-batch-integrated-20260925.md) records **69/103 original failures fixed**, with 34 remaining, on 2026-09-25. Six affected families passed 326/326 executions, and the full TypedArray.set family passed 220/220. Nested-generator and set-ordering fixes are integrated; broad verification is in progress.
+and the remaining generator and garbage-collection work. The
+[integrated repair checkpoint](docs/rust-rewrite/failure-batch-integrated-20260925.md)
+records **69/103 original failures fixed**, with 34 remaining, on 2026-09-25.
+Six affected families passed 326/326 executions, and the full TypedArray.set
+family passed 220/220. Nested-generator and set-ordering fixes are integrated.
+Broad verification completed on 2026-09-26: 4,513 core, 244 selected engine
+integration, and 774 engine library tests passed; the main CLI suite passed
+806 tests with one existing ignored stress test. Exact revisions and refresh
+commands are in the checkpoint.
 
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,
