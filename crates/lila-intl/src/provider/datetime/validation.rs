@@ -3,14 +3,15 @@ use crate::datetime::DateTimeFormatError;
 use super::{
     names::NameKey,
     pattern::{DayPeriod, Field, NameContext, NameWidth, Pattern, Token},
-    profile::{invalid, Calendar, Locale, Profile},
+    profile::{invalid, Calendar, CalendarData, Locale, Profile, YearKind},
 };
 
 impl Profile {
     pub(super) fn validate_names(&self) -> Result<(), DateTimeFormatError> {
         for locale in &self.locales {
-            validate_calendar(locale, &locale.gregorian, false)?;
-            validate_calendar(locale, &locale.chinese, true)?;
+            for data in CalendarData::ALL {
+                validate_calendar(locale, &locale.calendars[data.index()], data.years())?;
+            }
         }
         Ok(())
     }
@@ -19,8 +20,12 @@ impl Profile {
 fn validate_calendar(
     locale: &Locale,
     calendar: &Calendar,
-    cyclic: bool,
+    years: YearKind,
 ) -> Result<(), DateTimeFormatError> {
+    let cyclic = match years {
+        YearKind::Eras(_) => false,
+        YearKind::Cyclic => true,
+    };
     if calendar.append_era.is_some() == cyclic {
         return Err(invalid(
             "calendar era append availability disagrees with its year kind",
@@ -28,13 +33,16 @@ fn validate_calendar(
     }
     let names = &calendar.names;
     for width in [NameWidth::Abbreviated, NameWidth::Wide, NameWidth::Narrow] {
-        if cyclic {
-            for year in 1..=60 {
-                names.get(NameKey::CyclicYear(width, year))?;
+        match years {
+            YearKind::Cyclic => {
+                for year in 1..=60 {
+                    names.get(NameKey::CyclicYear(width, year))?;
+                }
             }
-        } else {
-            for era in 0..=1 {
-                names.get(NameKey::Era(width, era))?;
+            YearKind::Eras(eras) => {
+                for era in eras {
+                    names.get(NameKey::Era(width, *era))?;
+                }
             }
         }
         for context in [NameContext::Format, NameContext::Standalone] {

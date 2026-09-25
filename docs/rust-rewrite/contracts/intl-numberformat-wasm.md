@@ -10,9 +10,15 @@ object, callback, source string to execute, or parser state.
 `Intl.NumberFormat` allocates through `NewTarget.prototype` before it observes
 locales or options. A move-only reserved-object token becomes publishable only
 after the complete private record and brand are installed. Plain calls create
-an ordinary NumberFormat in the called function's Realm. Legacy chaining is not
-implemented: a supplied `this` object is never branded or given a fallback
-symbol.
+an ordinary NumberFormat in the called function's Realm. A supplied `this`
+object is never branded. ECMA-402's normative-optional ChainNumberFormat runs
+after publication: with an undefined NewTarget and a `this` inheriting from the
+running Realm's `%Intl.NumberFormat.prototype%`, the new formatter is defined on
+`this` under that Realm's `%Intl%.[[FallbackSymbol]]` (non-writable,
+non-enumerable, non-configurable) and `this` is returned. The `format` getter
+and `resolvedOptions` apply UnwrapNumberFormat, an observable `Get` of that
+Symbol, before RequireInternalSlot; `formatToParts` and the range methods do
+not. See [the legacy constructor mode](../intl-architecture.md#legacy-constructor-mode).
 
 Canonical locale-list conversion precedes `CoerceOptionsToObject`. Undefined
 creates a null-prototype options object, null rejects, and every other primitive

@@ -20,6 +20,7 @@ mod keyword_aliases;
 mod language_domain;
 #[cfg(test)]
 mod likely_subtags_tests;
+mod locale_info;
 mod named_time_zones;
 mod time_zone_names;
 mod time_zone_snapshot;
@@ -35,11 +36,13 @@ use crate::{
     DateTimeSupportedLocalesResult, EmptyIntlProfile, FormatDateTimeParts,
     FormatDateTimeRangeParts, IntlDataDigest, IntlDataIdentity, IntlDataPlacement,
     IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService, IntlServiceSet,
-    InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleTransformError, LocaleTransformRequest,
-    LocaleTransformResult, LookupNamedTimeZone, LookupNamedTimeZoneRequest,
-    LookupNamedTimeZoneResult, MaximizeLocale, MinimizeLocale, ResolveDateTimeLocale,
-    ResolveTimeZone, ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat,
-    SupportedDateTimeLocales, TimeZoneResolveError, TimeZoneSelection, UnknownTimeZone,
+    InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleInfo, LocaleInfoError, LocaleInfoRequest,
+    LocaleInfoResult, LocaleTransformError, LocaleTransformRequest, LocaleTransformResult,
+    LookupNamedTimeZone, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult, MaximizeLocale,
+    MinimizeLocale, ResolveDateTimeLocale, ResolveTimeZone, ResolveTimeZoneRequest,
+    ResolvedTimeZoneSnapshot, SelectDateTimeFormat, SupportedDateTimeLocales, SupportedValues,
+    SupportedValuesRequest, SupportedValuesResult, TimeZoneResolveError, TimeZoneSelection,
+    UnknownTimeZone,
 };
 
 /// Composite SHA-256 of exact locale, IANA transition/catalogue and CLDR name
@@ -47,12 +50,13 @@ use crate::{
 /// outer digest can remain stale when a component is regenerated.
 fn embedded_intl_data_digest() -> IntlDataDigest {
     let mut digest = Sha256::new();
-    digest.update(b"lila-intl-provider-v5\0");
+    digest.update(b"lila-intl-provider-v6\0");
     digest.update(keyword_aliases::PROVIDER_DATA_SHA256);
     digest.update(named_time_zones::PROVIDER_DATA_SHA256);
     digest.update(time_zone_names::PROVIDER_DATA_SHA256);
     digest.update(datetime::PROVIDER_DATA_SHA256);
     digest.update(NUMBER_FORMAT_DATA_SHA256);
+    digest.update(locale_info::PROVIDER_DATA_SHA256);
     IntlDataDigest::from_sha256(digest.finalize().into())
 }
 
@@ -111,7 +115,9 @@ pub fn embedded_intl_data_identity() -> Result<IntlDataIdentity, EmbeddedIntlPro
     let profile = IntlProfilePlan::minimal(services)
         .map_err(EmbeddedIntlProviderSetupError::EmptyProfile)?
         .with_operation::<LookupNamedTimeZone>()
-        .with_operation::<ResolveTimeZone>();
+        .with_operation::<ResolveTimeZone>()
+        .with_operation::<LocaleInfo>()
+        .with_operation::<SupportedValues>();
     let default_locale = CanonicalLocaleId::from_data("en-US")
         .map_err(EmbeddedIntlProviderSetupError::InvalidDefaultLocale)?;
     Ok(IntlDataIdentity::new(
@@ -167,6 +173,33 @@ impl IntlOperationProvider<MinimizeLocale> for EmbeddedIntlProvider {
             &self.reserved_language_rules,
         )?;
         Ok(LocaleTransformResult::new(locale))
+    }
+}
+
+impl EmbeddedIntlProvider {
+    fn locale_information(&self) -> locale_info::LocaleInformation<'_> {
+        locale_info::LocaleInformation {
+            canonicalizer: &self.canonicalizer,
+            expander: &self.expander,
+            rules: &self.reserved_language_rules,
+            numbers: self.numbers,
+            named_time_zones: &self.named_time_zones,
+        }
+    }
+}
+
+impl IntlOperationProvider<LocaleInfo> for EmbeddedIntlProvider {
+    fn execute(&self, request: LocaleInfoRequest) -> Result<LocaleInfoResult, LocaleInfoError> {
+        self.locale_information().locale_info(request)
+    }
+}
+
+impl IntlOperationProvider<SupportedValues> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: SupportedValuesRequest,
+    ) -> Result<SupportedValuesResult, LocaleInfoError> {
+        self.locale_information().supported_values(request.key())
     }
 }
 

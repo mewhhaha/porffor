@@ -67,6 +67,33 @@ fn independent_modern_fields_keep_local_order_names_and_related_year_parts() {
 }
 
 #[test]
+fn german_abbreviated_weekday_keeps_its_pinned_comma_without_a_year() {
+    let components = DateTimeComponents {
+        weekday: Some(DateTimeTextWidth::Short),
+        month: Some(DateTimeMonthWidth::Long),
+        day: Some(DateTimeNumericWidth::Numeric),
+        ..Default::default()
+    };
+    for locale in ["de", "de-DE"] {
+        let parts = format(
+            request(locale, DateTimeStyleSelection::Components(components)),
+            date(2022, 12, 24),
+        );
+        assert_eq!(
+            values(&parts),
+            [
+                ("weekday", "Sa."),
+                ("literal", ", "),
+                ("day", "24"),
+                ("literal", ". "),
+                ("month", "Dezember"),
+            ],
+            "{locale}"
+        );
+    }
+}
+
+#[test]
 fn far_domain_plain_dates_use_exact_iso_fields_and_selected_digits() {
     for (iso, expected_year) in [((-271821, 4, 19), "٢٧١٨٢٢"), ((275760, 9, 13), "٢٧٥٧٦٠")]
     {

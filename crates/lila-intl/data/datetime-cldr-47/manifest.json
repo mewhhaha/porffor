@@ -34,6 +34,16 @@
       "sha256": "5b80cfe93e16c89b23dcd046ec76d9e39781386e6dfdfa7bb2d8f6dbc87955a7"
     },
     {
+      "path": "common/main/de.xml",
+      "bytes": 592674,
+      "sha256": "7530b4c93f36102965b09685aea50b82934707a2bd025b7fc61ae0acb8a7114c"
+    },
+    {
+      "path": "common/main/de_DE.xml",
+      "bytes": 459,
+      "sha256": "99f0946614cae7042b1ddfe8cc2c9dbdac4e2dae03737458b35f89e203123d12"
+    },
+    {
       "path": "common/main/en.xml",
       "bytes": 435987,
       "sha256": "cdb3d09f4d5cd206616a57cc8a8cb54c458c6678758c59b8b817125fe2dfb147"
@@ -105,9 +115,9 @@
     },
     {
       "path": "selector.json",
-      "bytes": 576,
-      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+      "bytes": 751,
+      "sha256": "8bace7b173066110bfd104a6a256110cfe5f8f0c188055067d366171c8ab4a0e"
     }
   ],
-  "total_bytes": 4315663
+  "total_bytes": 4908971
 }

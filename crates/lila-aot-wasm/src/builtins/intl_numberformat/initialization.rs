@@ -220,6 +220,11 @@ impl FunctionBuilder<'_> {
         let initialized =
             self.emit_initialize_intl_number_format_object(reserved, record, function);
         self.emit_publish_intl_number_format_object(initialized, function);
+        // ECMA-402 16.1.1 step 5: the normative-optional constructor mode.
+        self.emit_intl_chain_legacy_constructed(
+            IntlLegacyConstructedService::NumberFormat,
+            function,
+        )?;
         selected.release(self);
         for local in [
             record,

@@ -1,0 +1,41 @@
+{
+  "cldr_release": "47.0.0",
+  "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
+  "source_manifest_sha256": "27451c9411d7ef19c605d3efb8b502c7f7a1c6379f925ce3b7e0c08cc719e3fb",
+  "rows_sha256": "485bac83feca77ee7099c98c0b5e657f029917976511d8ef436232b97575b39c",
+  "provider_data_sha256": "6a1815bca1af99c7988d81d1d242822f03f722646530b42493d03805085db569",
+  "calendar_preference_regions": 52,
+  "hour_cycle_keys": 275,
+  "hour_cycle_language_region_keys": 23,
+  "week_data_regions": 156,
+  "script_directions": 173,
+  "collation_files": 133,
+  "collator_locales": 131,
+  "collation_sets": 9,
+  "available_collations": [
+    "compat",
+    "dict",
+    "emoji",
+    "eor",
+    "phonebk",
+    "phonetic",
+    "pinyin",
+    "searchjl",
+    "stroke",
+    "trad",
+    "unihan",
+    "zhuyin"
+  ],
+  "excluded_collation_types": [
+    {
+      "locale": "cs",
+      "type": "digits-after",
+      "reason": "not a registered BCP47 collation type"
+    }
+  ],
+  "excluded_posix_locales": [
+    "en_US_POSIX"
+  ],
+  "time_zone_regions": 247,
+  "time_zones": 418
+}

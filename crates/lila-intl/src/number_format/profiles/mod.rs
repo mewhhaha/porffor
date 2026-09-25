@@ -375,6 +375,19 @@ impl NumberProfiles {
         &self.fractions
     }
 
+    /// Every ISO 4217 code with localized NumberFormat labels in any profile,
+    /// sorted and duplicate-free (AvailableCanonicalCurrencies).
+    pub fn labeled_currency_codes(&self) -> Vec<[u8; 3]> {
+        let mut codes: Vec<[u8; 3]> = self
+            .currency_sets
+            .iter()
+            .flat_map(|set| set.0.iter().map(|labels| labels.code))
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        codes
+    }
+
     pub(super) fn profile(&self, locale: &str) -> Option<&LocaleProfile> {
         self.locales
             .binary_search(&locale)

@@ -2,6 +2,7 @@
 //! The pinned provider selects patterns and formats primitive exact input records.
 
 use super::super::*;
+use super::intl_legacy_constructed::IntlLegacyConstructedService;
 use crate::functions::NewTargetPrototypeFallback;
 use crate::objects::TaggedLocals;
 use lila_intl::{
@@ -266,6 +267,15 @@ impl IntlDateTimeFormatReceiverOperation {
         Self::FormatRangeToParts,
     ];
 
+    /// Whether ECMA-402's normative-optional UnwrapDateTimeFormat precedes
+    /// this method's RequireInternalSlot.
+    const fn unwraps_legacy_receiver(&self) -> bool {
+        match self {
+            Self::ResolvedOptions | Self::FormatGetter => true,
+            Self::FormatToParts | Self::FormatRange | Self::FormatRangeToParts => false,
+        }
+    }
+
     const fn full_message(&self) -> &'static str {
         match self {
             Self::ResolvedOptions => {
@@ -348,8 +358,13 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalSet(local));
     }
 
+    /// Resolve the DateTimeFormat instance of the `this` value into
+    /// `receiver` and its record into `record_local`: UnwrapDateTimeFormat
+    /// when `operation` requires it, then
+    /// RequireInternalSlot(dtf, [[InitializedDateTimeFormat]]).
     fn emit_intl_dtf_record_from_receiver(
         &mut self,
+        receiver: TaggedLocals,
         record_local: u32,
         operation: &IntlDateTimeFormatReceiverOperation,
         function: &mut Function,
@@ -364,16 +379,28 @@ impl FunctionBuilder<'_> {
                 "unsupported in lila wasm-aot first slice: Intl.DateTimeFormat method without receiver tag",
             )
         })?;
-        let brand_local = self.reserve_temp_local();
         let message = operation.full_message();
+        function.instruction(&Instruction::LocalGet(this_payload_local));
+        function.instruction(&Instruction::LocalSet(receiver.payload));
+        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::LocalSet(receiver.tag));
+        if operation.unwraps_legacy_receiver() {
+            self.emit_intl_unwrap_legacy_constructed(
+                IntlLegacyConstructedService::DateTimeFormat,
+                receiver,
+                message,
+                function,
+            )?;
+        }
+        let brand_local = self.reserve_temp_local();
 
         self.emit_dtf_set_const(record_local, 0, function);
-        function.instruction(&Instruction::LocalGet(this_tag_local));
+        function.instruction(&Instruction::LocalGet(receiver.tag));
         function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            this_payload_local,
+            receiver.payload,
             HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
             brand_local,
             function,
@@ -385,7 +412,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.load_i64_to_local_from_offset(
-            this_payload_local,
+            receiver.payload,
             HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
             record_local,
             function,
@@ -1094,6 +1121,7 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let object_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let payload_local = self.reserve_temp_local();
@@ -1102,6 +1130,7 @@ impl FunctionBuilder<'_> {
         let hour_local = self.reserve_temp_local();
 
         self.emit_intl_dtf_record_from_receiver(
+            receiver,
             record_local,
             &IntlDateTimeFormatReceiverOperation::ResolvedOptions,
             function,
@@ -1312,6 +1341,8 @@ impl FunctionBuilder<'_> {
             payload_local,
             key_local,
             object_local,
+            receiver.tag,
+            receiver.payload,
             record_local,
         ] {
             self.release_temp_local(local);
@@ -1342,14 +1373,11 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
+        let receiver = TaggedLocals::new(self.reserve_temp_local(), self.reserve_temp_local());
         let bound_local = self.reserve_temp_local();
-        let this_payload_local = self.this_payload_local.ok_or_else(|| {
-            EmitError::unsupported(
-                "unsupported in lila wasm-aot first slice: format getter without receiver",
-            )
-        })?;
 
         self.emit_intl_dtf_record_from_receiver(
+            receiver,
             record_local,
             &IntlDateTimeFormatReceiverOperation::FormatGetter,
             function,
@@ -1372,9 +1400,11 @@ impl FunctionBuilder<'_> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Intl.DateTimeFormat Format Function`",
                 )
             })?;
+        // The bound function captures the unwrapped DateTimeFormat, not a
+        // legacy-constructed `this` that merely carries it.
         self.emit_current_builtin_realm_closure_value(
             &meta,
-            this_payload_local,
+            receiver.payload,
             bound_local,
             function,
         )?;
@@ -1392,6 +1422,8 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
         self.release_temp_local(bound_local);
+        self.release_temp_local(receiver.tag);
+        self.release_temp_local(receiver.payload);
         self.release_temp_local(record_local);
         Ok(())
     }

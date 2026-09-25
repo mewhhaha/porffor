@@ -55,12 +55,19 @@ Bounded verification and remaining scope are recorded in the
 [constructor contract](docs/rust-rewrite/aot-intl-locale-options.md). The provider
 now includes all 65 keyword-value aliases from pinned CLDR 47; broader Intl
 services remain open.
+The seven Locale information methods (`getCalendars`, `getCollations`,
+`getHourCycles`, `getNumberingSystems`, `getTimeZones`, `getTextInfo`,
+`getWeekInfo`) and `Intl.supportedValuesOf` run through typed Intl ABI 6
+operations over generated CLDR 47 collation, calendar-preference, time,
+week and script data plus IANA 2026a `zone.tab`; see the
+[data rules](crates/lila-intl/data/locale-info-cldr-47/README.md).
 Published conformance counts are unchanged.
 
 The direct Wasm `Intl.DateTimeFormat` path now uses a pure host provider for
 pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
-`en`/`en-US`, `ar`/`ar-EG` and Simplified Chinese, with Gregorian, ISO8601 and
-Chinese calendars and all 77 positional numbering systems. Date and Plain
+`en`/`en-US`, `ar`/`ar-EG`, Simplified Chinese and `de`/`de-DE`, with Gregorian, ISO8601,
+Chinese, Buddhist, Indian, Persian and ROC calendars and all 77 positional
+numbering systems. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
 The Instant locale method now uses that intrinsic boundary with exact
 nanoseconds and called-method Realm semantics; its verification is pending.
@@ -77,7 +84,7 @@ is pending and published conformance counts are unchanged.
 The `Intl.NumberFormat` implementation covers construction, scalar and range
 formatting, parts, resolved and supported locales, and Number/BigInt locale
 methods. JavaScript observations compile to Wasm; exact numeric operations and
-pinned CLDR 47 formatting run in the pure Rust provider through Intl ABI 5.
+pinned CLDR 47 formatting run in the pure Rust provider through Intl ABI 6.
 See the [NumberFormat contract](docs/rust-rewrite/contracts/intl-numberformat-wasm.md)
 for option ordering, Realm ownership and provider limits. Focused product
 verification passes all 16 tests after preserving arbitrary constructor
@@ -1170,7 +1177,8 @@ the generated status block above, not by this task summary.
 - `crates/lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
 - `crates/lila-intl`: Intl data/profile/protocol domains and a pinned host provider
   for locale canonicalization, likely subtags and IANA 2026a time-zone snapshots.
-  `Intl.Locale` supports `maximize()` and `minimize()` through pinned ICU4X data.
+  `Intl.Locale` supports `maximize()` and `minimize()` through pinned ICU4X data
+  and the Locale information methods through generated CLDR 47 tables.
   `Intl.DateTimeFormat` and Date locale methods use historical offsets, future
   transitions and CLDR47 zone names for their existing en/en-US locale domain.
   Range endpoints resolve independently; Plain Temporal fields remain local.

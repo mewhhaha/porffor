@@ -196,7 +196,7 @@ fn corrupted_required_profile_records_fail_at_construction() {
 fn every_inherited_pattern_has_a_renderable_checked_field_closure() {
     let profile = &provider().profile;
     for locale in &profile.locales {
-        for calendar in [DateTimeCalendar::Gregorian, DateTimeCalendar::Chinese] {
+        for &calendar in DateTimeCalendar::ALL {
             let mut input = request(
                 locale.identifier.as_str(),
                 DateTimeStyleSelection::Components(date_components()),

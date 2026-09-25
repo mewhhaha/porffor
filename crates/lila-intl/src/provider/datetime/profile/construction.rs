@@ -53,20 +53,17 @@ impl Locale {
             .ok_or_else(|| invalid("missing twenty-four-hour preference"))?;
         let decimal = symbol_table(raw.decimal_separators, digits)?;
         let minus = symbol_table(raw.minus_signs, digits)?;
-        let gregorian = Calendar::from_raw(
-            raw.calendars
-                .remove("gregorian")
-                .ok_or_else(|| invalid("missing Gregorian patterns"))?,
-            digits,
-            algorithmic,
-        )?;
-        let chinese = Calendar::from_raw(
-            raw.calendars
-                .remove("chinese")
-                .ok_or_else(|| invalid("missing Chinese patterns"))?,
-            digits,
-            algorithmic,
-        )?;
+        let mut calendars = Vec::with_capacity(CalendarData::ALL.len());
+        for data in CalendarData::ALL {
+            let source = raw
+                .calendars
+                .remove(data.source())
+                .ok_or_else(|| invalid(format!("missing {} patterns", data.source())))?;
+            calendars.push(Calendar::from_raw(source, data, digits, algorithmic)?);
+        }
+        let calendars = calendars
+            .try_into()
+            .map_err(|_| invalid("calendar data count"))?;
         if !raw.calendars.is_empty() {
             return Err(invalid("unexpected calendar profile"));
         }
@@ -81,8 +78,7 @@ impl Locale {
             hour_cycle12,
             hour_cycle24,
             periods: PeriodRules::from_raw(raw.day_period_rules)?,
-            gregorian,
-            chinese,
+            calendars,
             zones: raw.zone_names,
         })
     }
@@ -110,10 +106,11 @@ fn symbol_table(
 impl Calendar {
     fn from_raw(
         mut raw: raw::Calendar,
+        data: CalendarData,
         digits: &BTreeMap<String, [char; 10]>,
         algorithmic: &BTreeMap<String, Vec<String>>,
     ) -> Result<Self, DateTimeFormatError> {
-        if !matches!(raw.calendar.as_str(), "gregorian" | "chinese")
+        if raw.calendar != data.source()
             || raw.available.is_empty()
             || raw.intervals.is_empty()
             || raw.excluded_non_ecma_formats.iter().any(|row| {

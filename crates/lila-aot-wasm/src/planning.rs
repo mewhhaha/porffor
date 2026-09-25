@@ -1990,8 +1990,9 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 41] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
+    StandardBuiltinId::IntlSupportedValuesOf,
     StandardBuiltinId::IntlLocaleConstructor,
     StandardBuiltinId::IntlLocalePrototypeLanguageGetter,
     StandardBuiltinId::IntlLocalePrototypeScriptGetter,
@@ -2008,6 +2009,13 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 33] = [
     StandardBuiltinId::IntlLocalePrototypeToString,
     StandardBuiltinId::IntlLocalePrototypeMaximize,
     StandardBuiltinId::IntlLocalePrototypeMinimize,
+    StandardBuiltinId::IntlLocalePrototypeGetCalendars,
+    StandardBuiltinId::IntlLocalePrototypeGetCollations,
+    StandardBuiltinId::IntlLocalePrototypeGetHourCycles,
+    StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems,
+    StandardBuiltinId::IntlLocalePrototypeGetTimeZones,
+    StandardBuiltinId::IntlLocalePrototypeGetTextInfo,
+    StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,
     StandardBuiltinId::IntlDateTimeFormatConstructor,
     StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
     StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions,
@@ -2573,6 +2581,16 @@ impl RuntimeBootstrapPlan {
             // descriptor path, even when user code never references Object.
             self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
         }
+        if matches!(
+            builtin,
+            StandardBuiltinId::IntlNumberFormatConstructor
+                | StandardBuiltinId::IntlDateTimeFormatConstructor
+        ) {
+            // ChainNumberFormat / ChainDateTimeFormat perform
+            // DefinePropertyOrThrow through the canonical definition builtin,
+            // which owns every exotic and Proxy `this`.
+            self.require_standard_builtin(StandardBuiltinId::ObjectDefineProperty);
+        }
         if builtin == StandardBuiltinId::IteratorZipKeyed {
             self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
             self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
@@ -2780,6 +2798,7 @@ impl RuntimeBootstrapPlan {
                     .insert(StandardBuiltinId::PromiseSpeciesGetter);
             }
             StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlSupportedValuesOf
             | StandardBuiltinId::IntlLocaleConstructor
             | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
             | StandardBuiltinId::IntlLocalePrototypeScriptGetter
@@ -2796,6 +2815,13 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlLocalePrototypeToString
             | StandardBuiltinId::IntlLocalePrototypeMaximize
             | StandardBuiltinId::IntlLocalePrototypeMinimize
+            | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+            | StandardBuiltinId::IntlLocalePrototypeGetCollations
+            | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+            | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
+            | StandardBuiltinId::IntlLocalePrototypeGetTimeZones
+            | StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+            | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo
             | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
@@ -7759,7 +7785,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalDurationPrototypeToJson
         | StandardBuiltinId::TemporalDurationPrototypeToLocaleString
         | StandardBuiltinId::TemporalDurationPrototypeValueOf => 0,
-        StandardBuiltinId::IntlGetCanonicalLocales | StandardBuiltinId::IntlLocaleConstructor => 1,
+        StandardBuiltinId::IntlGetCanonicalLocales
+        | StandardBuiltinId::IntlSupportedValuesOf
+        | StandardBuiltinId::IntlLocaleConstructor => 1,
         // ECMA-402 11.1.1/11.2.2/11.3.4/11.1.5: `Intl.DateTimeFormat` has
         // length 0, `supportedLocalesOf` and the format functions length 1.
         StandardBuiltinId::IntlDateTimeFormatConstructor
@@ -7794,7 +7822,14 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
         | StandardBuiltinId::IntlLocalePrototypeToString
         | StandardBuiltinId::IntlLocalePrototypeMaximize
-        | StandardBuiltinId::IntlLocalePrototypeMinimize => 0,
+        | StandardBuiltinId::IntlLocalePrototypeMinimize
+        | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+        | StandardBuiltinId::IntlLocalePrototypeGetCollations
+        | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+        | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
+        | StandardBuiltinId::IntlLocalePrototypeGetTimeZones
+        | StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+        | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo => 0,
         StandardBuiltinId::ErrorIsError => 1,
         StandardBuiltinId::ErrorPrototypeStackGetter => 0,
         StandardBuiltinId::ErrorPrototypeStackSetter => 1,

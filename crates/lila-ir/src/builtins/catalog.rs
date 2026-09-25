@@ -3614,6 +3614,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "getCanonicalLocales",
     }
+    IntlSupportedValuesOf {
+        function: FunctionOrdinal(854) => "$builtin.Intl.supportedValuesOf",
+        debug: "Intl.supportedValuesOf",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "supportedValuesOf",
+    }
     IntlLocaleConstructor {
         function: FunctionOrdinal(486) => BUILTIN_INTL_LOCALE_FUNCTION_ID,
         debug: "Intl.Locale",
@@ -3718,6 +3725,55 @@ standard_builtin_catalog! {
         flags: [INTL_HOST],
         installer: None,
         native: "minimize",
+    }
+    IntlLocalePrototypeGetCalendars {
+        function: FunctionOrdinal(855) => "$builtin.Intl.Locale.prototype.getCalendars",
+        debug: "Intl.Locale.prototype.getCalendars",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getCalendars",
+    }
+    IntlLocalePrototypeGetCollations {
+        function: FunctionOrdinal(856) => "$builtin.Intl.Locale.prototype.getCollations",
+        debug: "Intl.Locale.prototype.getCollations",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getCollations",
+    }
+    IntlLocalePrototypeGetHourCycles {
+        function: FunctionOrdinal(857) => "$builtin.Intl.Locale.prototype.getHourCycles",
+        debug: "Intl.Locale.prototype.getHourCycles",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getHourCycles",
+    }
+    IntlLocalePrototypeGetNumberingSystems {
+        function: FunctionOrdinal(858) => "$builtin.Intl.Locale.prototype.getNumberingSystems",
+        debug: "Intl.Locale.prototype.getNumberingSystems",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getNumberingSystems",
+    }
+    IntlLocalePrototypeGetTimeZones {
+        function: FunctionOrdinal(859) => "$builtin.Intl.Locale.prototype.getTimeZones",
+        debug: "Intl.Locale.prototype.getTimeZones",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getTimeZones",
+    }
+    IntlLocalePrototypeGetTextInfo {
+        function: FunctionOrdinal(860) => "$builtin.Intl.Locale.prototype.getTextInfo",
+        debug: "Intl.Locale.prototype.getTextInfo",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getTextInfo",
+    }
+    IntlLocalePrototypeGetWeekInfo {
+        function: FunctionOrdinal(861) => "$builtin.Intl.Locale.prototype.getWeekInfo",
+        debug: "Intl.Locale.prototype.getWeekInfo",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "getWeekInfo",
     }
     IntlLocalePrototypeToString {
         function: FunctionOrdinal(491) => BUILTIN_INTL_LOCALE_PROTOTYPE_TO_STRING_FUNCTION_ID,
@@ -6261,6 +6317,7 @@ mod tests {
                 StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
                 StandardBuiltinId::IntlGetCanonicalLocales,
+                StandardBuiltinId::IntlSupportedValuesOf,
                 StandardBuiltinId::IntlLocaleConstructor,
                 StandardBuiltinId::IntlDateTimeFormatConstructor,
                 StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf,
@@ -6272,6 +6329,13 @@ mod tests {
                 StandardBuiltinId::NumberPrototypeToLocaleString,
                 StandardBuiltinId::IntlLocalePrototypeMaximize,
                 StandardBuiltinId::IntlLocalePrototypeMinimize,
+                StandardBuiltinId::IntlLocalePrototypeGetCalendars,
+                StandardBuiltinId::IntlLocalePrototypeGetCollations,
+                StandardBuiltinId::IntlLocalePrototypeGetHourCycles,
+                StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems,
+                StandardBuiltinId::IntlLocalePrototypeGetTimeZones,
+                StandardBuiltinId::IntlLocalePrototypeGetTextInfo,
+                StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,
                 StandardBuiltinId::IntlNumberFormatConstructor,
                 StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
                 StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts,

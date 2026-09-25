@@ -5,6 +5,7 @@ use crate::{CanonicalLocaleId, TimeZoneId, TimeZoneSelection};
 
 use super::{DateTimeProvider, NamedTimeZones};
 
+mod era_calendars;
 mod locale_selection;
 mod parts;
 mod ranges;

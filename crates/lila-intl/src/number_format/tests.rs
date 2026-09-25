@@ -121,7 +121,8 @@ fn currency(code: &str, display: CurrencyDisplay, sign: CurrencySign) -> NumberF
 #[test]
 fn complete_locale_inventory_and_currency_precision_share_one_profile_authority() {
     let profiles = profiles();
-    assert_eq!(profiles.available_locales().len(), 1082);
+    // 1,082 CLDR main locales plus 52 ECMA-402 9.1 script-elided tags.
+    assert_eq!(profiles.available_locales().len(), 1134);
     assert_eq!(profiles.numbering_systems().len(), 77);
     for locale in profiles.available_locales() {
         let selected = configuration(locale, options());
@@ -723,6 +724,134 @@ fn unit_forms_keep_numeric_omission_and_medial_placeholders() {
     assert_eq!(
         configuration("ja", options()).locale.resolved().as_str(),
         "ja"
+    );
+}
+
+#[test]
+fn measurement_names_wrap_the_signed_number() {
+    let kph = |display| unit("kilometer-per-hour", display);
+    assert_eq!(
+        scalar("ja-JP", "-987", kph(UnitDisplay::Long)).to_text(),
+        "時速 -987 キロメートル"
+    );
+    let kinds: Vec<_> = scalar("ja-JP", "-987", kph(UnitDisplay::Long))
+        .parts()
+        .iter()
+        .map(|part| part.kind())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            NumberPartKind::Unit,
+            NumberPartKind::Literal,
+            NumberPartKind::MinusSign,
+            NumberPartKind::Integer,
+            NumberPartKind::Literal,
+            NumberPartKind::Unit,
+        ]
+    );
+    assert_eq!(
+        scalar("ja-JP", "-987", kph(UnitDisplay::Short)).to_text(),
+        "-987 km/h"
+    );
+    assert_eq!(
+        scalar("en", "-3", unit("meter", UnitDisplay::Long)).to_text(),
+        "-3 meters"
+    );
+    assert_eq!(
+        scalar(
+            "en",
+            "-1",
+            currency("USD", CurrencyDisplay::Name, CurrencySign::Standard)
+        )
+        .to_text(),
+        "-1.00 US dollars"
+    );
+    // A numeral-omitting form still shows the value's sign.
+    let dual = scalar("ar", "-2", unit("meter", UnitDisplay::Short));
+    assert!(dual.to_text().ends_with("متران"));
+    assert!(dual
+        .parts()
+        .iter()
+        .any(|part| part.kind() == NumberPartKind::MinusSign));
+    assert!(!dual
+        .parts()
+        .iter()
+        .any(|part| part.kind() == NumberPartKind::Integer));
+    // Approximation stays beside the sign inside the measurement name.
+    let approximate: Vec<_> = range("ja-JP", "-987", "-987", kph(UnitDisplay::Long))
+        .parts()
+        .iter()
+        .map(|part| part.kind_name())
+        .collect();
+    assert_eq!(
+        approximate,
+        [
+            "unit",
+            "literal",
+            "approximatelySign",
+            "minusSign",
+            "integer",
+            "literal",
+            "unit"
+        ]
+    );
+}
+
+#[test]
+fn script_elided_region_locales_share_their_likely_script_data() {
+    let profiles = profiles();
+    for (elided, source) in [
+        ("zh-TW", "zh-Hant-TW"),
+        ("zh-HK", "zh-Hant-HK"),
+        ("zh-SG", "zh-Hans-SG"),
+        ("sr-RS", "sr-Cyrl-RS"),
+        ("sr-ME", "sr-Latn-ME"),
+        ("az-AZ", "az-Latn-AZ"),
+        ("az-TR", "az-Latn"),
+        ("pa-PK", "pa-Arab-PK"),
+    ] {
+        assert!(profiles.available_locales().contains(&elided), "{elided}");
+        assert_eq!(
+            configuration(elided, options()).locale.resolved().as_str(),
+            elided
+        );
+        for display in [UnitDisplay::Short, UnitDisplay::Narrow, UnitDisplay::Long] {
+            assert_eq!(
+                scalar(elided, "-987", unit("kilometer-per-hour", display)).to_text(),
+                scalar(source, "-987", unit("kilometer-per-hour", display)).to_text(),
+                "{elided}"
+            );
+        }
+    }
+    // Every language-script-region element has its script-elided companion.
+    for locale in profiles.available_locales() {
+        let parts: Vec<_> = locale.split('-').collect();
+        if parts.len() == 3 && parts[1].len() == 4 {
+            let elided = format!("{}-{}", parts[0], parts[2]);
+            assert!(
+                profiles.available_locales().contains(&elided.as_str()),
+                "{locale} lacks {elided}"
+            );
+        }
+    }
+    assert_eq!(
+        scalar(
+            "zh-TW",
+            "-987",
+            unit("kilometer-per-hour", UnitDisplay::Long)
+        )
+        .to_text(),
+        "每小時 -987 公里"
+    );
+    assert_eq!(
+        scalar(
+            "zh-TW",
+            "-987",
+            unit("kilometer-per-hour", UnitDisplay::Short)
+        )
+        .to_text(),
+        "-987 公里/小時"
     );
 }
 

@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 3506,
+      "bytes": 3816,
       "path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
-      "sha256": "289ec8de0100e551b3a1b18fa6cc4bde2488b948b213dfedf2eed819a4ae0b88"
+      "sha256": "7837e26eed4d6404d8aace74e90bb83aad4624c429da5c070f016364670ee1f6"
     },
     {
-      "bytes": 576,
+      "bytes": 751,
       "path": "crates/lila-intl/data/datetime-cldr-47/selector.json",
-      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+      "sha256": "8bace7b173066110bfd104a6a256110cfe5f8f0c188055067d366171c8ab4a0e"
     },
     {
       "bytes": 3280,
@@ -21,24 +21,24 @@
       "sha256": "36084a4e8daebb68fa8dd8783ebc7597ff5dd36f7a918f46b5159aa2dfccebfb"
     },
     {
-      "bytes": 12185,
+      "bytes": 12741,
       "path": "crates/lila-intl/src/datetime.rs",
-      "sha256": "01068b7bd5fa96210d6cd5e52dc1ff1bed7586f9a1565736b75e74e639f6ff64"
+      "sha256": "b38e8321a79e9fb1fa6a2651032f54f86d826b12f59fc582bcff5315bb5aaad3"
     },
     {
-      "bytes": 25900,
+      "bytes": 25953,
       "path": "crates/lila-intl/src/datetime_protocol.rs",
-      "sha256": "ec70f569f2afd911025ee4dc4e456e124956eb04988c04b1ad44eeda02475a83"
+      "sha256": "8f8848a615baae28735393b724a7351f8a05f2cdc063cf5d0794574e00e657c4"
     },
     {
-      "bytes": 3230,
+      "bytes": 4731,
       "path": "crates/lila-intl/src/provider/datetime/calendar.rs",
-      "sha256": "c044b06b68fdc4189dd379fc31cfa7543f5dbb332b4069d689e33563e6718657"
+      "sha256": "0a13fc82850a1e07cca3b7d0cd8d7fd93681a788663c378cbfd0f83787914bba"
     },
     {
-      "bytes": 4840947,
+      "bytes": 12337373,
       "path": "crates/lila-intl/src/provider/datetime/generated/profile.json",
-      "sha256": "ec7edea93b764703e9559ca2e919549603d3e5ec392b7d462b08c7a739db9496"
+      "sha256": "f326692d8303e0c898c26cd7d2c0bc7b70e9a9ba5743a7c04c14fe001ad6237e"
     },
     {
       "bytes": 6636,
@@ -76,14 +76,14 @@
       "sha256": "581bf63d4d45dbc347404393661ca81c0b96a781dfca627e59af887f30cc9194"
     },
     {
-      "bytes": 11574,
+      "bytes": 11595,
       "path": "crates/lila-intl/src/provider/datetime/profile/construction.rs",
-      "sha256": "db0f626210b3f37e818cbf1374ae0535578a7c5b27371641f2b706a27b8adb41"
+      "sha256": "f72ab77599b14a4c74d615a75139c21a3f11d00c521e36a787ab75ac5c1a1438"
     },
     {
-      "bytes": 6441,
+      "bytes": 8834,
       "path": "crates/lila-intl/src/provider/datetime/profile.rs",
-      "sha256": "3bfc1845af15d74dd77f65417a64f4057ce3adc0cb2963dc1764efe54f7f32fa"
+      "sha256": "d1a2d7ebf26f8ec6dae4bdb438df11eca2cd743b80b61dcc25d52bb957a08f55"
     },
     {
       "bytes": 7915,
@@ -111,9 +111,9 @@
       "sha256": "1c7a45039fe06628495cbfa3c4851c11b36be57fc2556df405bdce02a8651975"
     },
     {
-      "bytes": 3791,
+      "bytes": 4055,
       "path": "crates/lila-intl/src/provider/datetime/validation.rs",
-      "sha256": "9b5639222dcadef1f8b266cb648fc706bd83439fca518afe892757a7ff1e0057"
+      "sha256": "5ff4ce168e4c4620eed9b57fc0afe986e8adc212a6cb9b3b4b35031ec616afdc"
     },
     {
       "bytes": 4692,
@@ -381,7 +381,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "fbe87a0c4cd4fbd0c60e464d84811db80aef89cff4f4f3bb4553fcd901b6a1b5",
+  "provider_data_sha256": "a8310a15490894b89d261bfc68a189457c4843d9d3cd1be47e878ec394fd7feb",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

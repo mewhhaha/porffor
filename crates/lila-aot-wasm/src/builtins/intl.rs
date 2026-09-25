@@ -16,6 +16,8 @@ mod construction_lifecycle;
 mod extension_options;
 mod language_options;
 mod likely_subtags;
+mod locale_info;
+pub(crate) use locale_info::intl_locale_info_pool_strings;
 mod provider;
 
 mod canonical_locale_tag_invocation {

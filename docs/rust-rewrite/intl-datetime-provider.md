@@ -34,12 +34,42 @@ compatibility before sending those fields. Chinese conversion uses the
 [documented canonical calendar domain](intl-calendar-domain.md), including its
 retained astronomical interval and distant integer approximation.
 
-The profile supplies English, Arabic and simplified Chinese data, Gregorian,
-ISO and Chinese calendars, and all 77 CLDR 47 positional digit mappings. Named
+The profile supplies English, Arabic, simplified Chinese and German data, the
+Gregorian, ISO, Chinese, Buddhist, Indian, Persian and ROC calendars, and all 77
+CLDR 47 positional digit mappings. Named
 zones use the same pinned IANA transition authority as other Intl operations.
 Only complete locale/calendar profile entries participate in negotiation;
 unsupported valid keywords follow ECMA-402 resolution. This profile is bounded
 and does not establish full Intl or Test262 conformance.
+
+## Calendars
+
+`DateTimeCalendar` is AvailableCalendars (ECMA-402 6.9.1): the Wasm option
+parser, `resolvedOptions().calendar`, `Intl.supportedValuesOf("calendar")` and
+Locale `getCalendars()` all read its closed `ALL` list. Each member maps
+exhaustively to one CLDR `<calendar type>` data set (`CalendarData`); ISO 8601
+formats with Gregorian data. The profile validates `selector.json` against that
+mapping, so a calendar cannot be admitted without its generated names and
+patterns, and every data set is checked for its full era or cyclic-year name
+closure.
+
+Calendar fields come from the vendored ICU4X 2.0.6 arithmetic. ICU4X documents
+its `era_index` as unrelated to CLDR, so conversion maps the era code instead:
+Gregorian `bce`/`ce` → CLDR eras 0/1, Buddhist `be` → 0, Indian `shaka` → 0,
+Persian `ap` → 0 and ROC `broc`/`roc` → 0/1, each with ICU4X's era year (which
+may be zero or negative for the single-era calendars, rendered with the locale's
+minus sign). Names, patterns, intervals and the era append item come from the
+pinned CLDR 47 inheritance, including root's `generic` aliases. Locale default
+calendars still come from `calendarPreference`; for the pinned `en`, `ar` and
+`zh` locales the first admitted preference remains `gregory`.
+
+Other CLDR calendars stay unadmitted until each is exact: Coptic and Ethiopic
+need a thirteenth month and a CLDR era split that ICU4X's single `am` era does
+not express directly; Hebrew needs leap-year month naming; the Hijri variants
+need ICU4X's `bh` era mapped onto CLDR's single AH era and the observational
+`islamic`/`islamic-rgsa` rules have no pinned arithmetic; Japanese needs the
+full CLDR era table, which ICU4X's modern-era calendar does not provide; and
+Dangi is not yet wired through the cyclic path.
 
 The obsolete English pattern renderer, extension-key tables and range-local
 carriers in the AOT backend are removed. Their seven source-spelling/privacy

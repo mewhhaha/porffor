@@ -1977,8 +1977,11 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlLocalePrototypeHourCycleGetter
             | StandardBuiltinId::IntlLocalePrototypeCaseFirstGetter
             | StandardBuiltinId::IntlLocalePrototypeNumberingSystemGetter
-            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter => None,
-            StandardBuiltinId::IntlDateTimeFormatConstructor
+            | StandardBuiltinId::IntlLocalePrototypeVariantsGetter
+            | StandardBuiltinId::IntlLocalePrototypeGetTimeZones => None,
+            StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+            | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo
+            | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
             | StandardBuiltinId::IntlNumberFormatConstructor
             | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => Some(ValueInfo {
@@ -1988,6 +1991,11 @@ impl<'a> ScriptLowerer<'a> {
                 function_targets: FunctionTargetKnowledge::none(),
             }),
             StandardBuiltinId::IntlGetCanonicalLocales
+            | StandardBuiltinId::IntlSupportedValuesOf
+            | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+            | StandardBuiltinId::IntlLocalePrototypeGetCollations
+            | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+            | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
             | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts

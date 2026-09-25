@@ -42,6 +42,7 @@ mod intl_datetime_host;
 mod intl_host_probe;
 mod intl_host_request;
 mod intl_locale_host;
+mod intl_locale_info_host;
 mod intl_number_host;
 mod intl_time_zone_host;
 mod module_loader;
@@ -1747,6 +1748,12 @@ fn wasm_intl_call(
         IntlHostOp::FormatNumberRangeParts => intl_number_host::call::<
             lila_intl::FormatNumberRangeParts,
         >(caller, request_span_wire, result_span_wire),
+        IntlHostOp::LocaleInfo => {
+            intl_locale_info_host::locale_info(caller, request_span_wire, result_span_wire)
+        }
+        IntlHostOp::SupportedValues => {
+            intl_locale_info_host::supported_values(caller, request_span_wire, result_span_wire)
+        }
     }
 }
 

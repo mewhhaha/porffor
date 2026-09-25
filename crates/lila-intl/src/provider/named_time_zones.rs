@@ -93,6 +93,18 @@ impl NamedTimeZones {
         Ok(Self { zones })
     }
 
+    /// AvailablePrimaryTimeZoneIdentifiers (ECMA-402 6.5.3), in code unit order.
+    pub(super) fn primary_identifiers(&self) -> Vec<&str> {
+        let mut primaries: Vec<&str> = self
+            .zones
+            .values()
+            .filter(|zone| zone.identity.identifier() == zone.identity.primary_identifier())
+            .map(|zone| zone.identity.identifier())
+            .collect();
+        primaries.sort_unstable();
+        primaries
+    }
+
     pub(super) fn lookup(
         &self,
         identifier: &TimeZoneId,

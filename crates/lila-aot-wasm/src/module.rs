@@ -218,6 +218,9 @@ pub(crate) const MODULE_EVALUATION_PROMISE_GLOBAL_INDEX: u32 = 143;
 pub(crate) const MODULE_EVALUATION_STATUS_GLOBAL_INDEX: u32 = 144;
 pub(crate) const INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 145;
 pub(crate) const INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 146;
+// The entry Realm's `%Intl%.[[FallbackSymbol]]`, appended after the previous
+// maximum. Created Realms keep theirs only in the Realm intrinsic record.
+pub(crate) const INTL_FALLBACK_SYMBOL_GLOBAL_INDEX: u32 = 147;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -858,6 +861,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "Intl.NumberFormat",
         index: INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "%Intl%.[[FallbackSymbol]]",
+        index: INTL_FALLBACK_SYMBOL_GLOBAL_INDEX,
     },
 ];
 
@@ -1720,6 +1727,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
         | StandardBuiltinId::TemporalZonedDateTimePrototypeSince
         | StandardBuiltinId::IntlGetCanonicalLocales
+        | StandardBuiltinId::IntlSupportedValuesOf
         | StandardBuiltinId::IntlLocalePrototypeLanguageGetter
         | StandardBuiltinId::IntlLocalePrototypeScriptGetter
         | StandardBuiltinId::IntlLocalePrototypeRegionGetter
@@ -1735,6 +1743,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlLocalePrototypeToString
         | StandardBuiltinId::IntlLocalePrototypeMaximize
         | StandardBuiltinId::IntlLocalePrototypeMinimize
+        | StandardBuiltinId::IntlLocalePrototypeGetCalendars
+        | StandardBuiltinId::IntlLocalePrototypeGetCollations
+        | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
+        | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
+        | StandardBuiltinId::IntlLocalePrototypeGetTimeZones
+        | StandardBuiltinId::IntlLocalePrototypeGetTextInfo
+        | StandardBuiltinId::IntlLocalePrototypeGetWeekInfo
         | StandardBuiltinId::IntlDateTimeFormatSupportedLocalesOf
         | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
@@ -2119,7 +2134,7 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX as usize + 1,
+            INTL_FALLBACK_SYMBOL_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );

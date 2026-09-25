@@ -95,6 +95,41 @@ const LOCALE_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
         kind: IntlIntrinsicPropertyKind::Method,
     },
     IntlIntrinsicProperty {
+        name: "getCalendars",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetCalendars,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getCollations",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetCollations,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getHourCycles",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetHourCycles,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getNumberingSystems",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getTimeZones",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetTimeZones,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getTextInfo",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetTextInfo,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "getWeekInfo",
+        builtin: StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
         name: "toString",
         builtin: StandardBuiltinId::IntlLocalePrototypeToString,
         kind: IntlIntrinsicPropertyKind::Method,

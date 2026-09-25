@@ -7,12 +7,18 @@
     "ar-EG",
     "zh",
     "zh-Hans",
-    "zh-Hans-CN"
+    "zh-Hans-CN",
+    "de",
+    "de-DE"
   ],
   "calendars": [
     "gregory",
     "iso8601",
-    "chinese"
+    "chinese",
+    "buddhist",
+    "indian",
+    "persian",
+    "roc"
   ],
   "default_locale": "en-US",
   "minimum_draft": "contributed",
@@ -20,7 +26,11 @@
   "calendar_identifiers": {
     "gregory": "gregorian",
     "iso8601": "gregorian",
-    "chinese": "chinese"
+    "chinese": "chinese",
+    "buddhist": "buddhist",
+    "indian": "indian",
+    "persian": "persian",
+    "roc": "roc"
   },
   "release": "47.0.0",
   "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"

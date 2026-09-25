@@ -309,16 +309,23 @@ impl FormatContext<'_> {
         Ok(result)
     }
 
+    /// Substitutes `number` and `argument` into a message pattern. The second
+    /// result is the row at which `number` begins, or `None` when the selected
+    /// form omits the numeral (for example an Arabic dual unit name).
     fn message(
         &self,
         pattern: PatternId,
         number: &Pieces,
         argument: &Pieces,
-    ) -> Result<Pieces, NumberFormatKernelError> {
+    ) -> Result<(Pieces, Option<usize>), NumberFormatKernelError> {
         let mut result = Pieces::new();
+        let mut number_at = None;
         for token in &self.profiles.pattern(pattern).0 {
             match token {
-                Token::Number => result.append(number, self.limits)?,
+                Token::Number => {
+                    number_at = Some(result.rows.len());
+                    result.append(number, self.limits)?;
+                }
                 Token::Argument1 => result.append(argument, self.limits)?,
                 Token::Literal(text) => result.push(
                     NumberPartKind::Literal,
@@ -339,7 +346,7 @@ impl FormatContext<'_> {
                 | Token::Compact(_) => unreachable!("validated message pattern role"),
             }
         }
-        Ok(result)
+        Ok((result, number_at))
     }
 
     fn unit_message(
@@ -349,7 +356,7 @@ impl FormatContext<'_> {
         rounded: Option<&RoundedDecimal>,
         category: CardinalCategory,
         number: &Pieces,
-    ) -> Result<Pieces, NumberFormatKernelError> {
+    ) -> Result<(Pieces, Option<usize>), NumberFormatKernelError> {
         let width = match display {
             UnitDisplay::Short => 0,
             UnitDisplay::Narrow => 1,
@@ -379,20 +386,27 @@ impl FormatContext<'_> {
                 if let Some(pair) = set.pair(numerator, denominator) {
                     return self.message(select(pair), number, &Pieces::new());
                 }
-                let numerator = self.message(
+                let (numerator, inner) = self.message(
                     select(set.simple[numerator].choices),
                     number,
                     &Pieces::new(),
                 )?;
+                let nested = |(message, outer): (Pieces, Option<usize>)| {
+                    (
+                        message,
+                        outer.zip(inner).map(|(outer, inner)| outer + inner),
+                    )
+                };
                 if let Some(per) = set.simple[denominator].per_unit {
-                    return self.message(per, &numerator, &Pieces::new());
+                    return self.message(per, &numerator, &Pieces::new()).map(nested);
                 }
-                let denominator = self.message(
+                let (denominator, _) = self.message(
                     set.simple[denominator].denominator,
                     &Pieces::new(),
                     &Pieces::new(),
                 )?;
                 self.message(set.per_pattern, &numerator, &denominator)
+                    .map(nested)
             }
         }
     }
@@ -643,18 +657,26 @@ impl FormatContext<'_> {
                     .0;
             }
         }
-        match &self.options.style {
+        // A measurement name wraps the complete signed number: the number
+        // pattern (and therefore the sign) is substituted into the unit or
+        // currency-name message's {0}, e.g. ja `時速 -987 キロメートル`.
+        let measurement = match &self.options.style {
             NumberStyle::Unit {
                 identifier,
                 display,
             } => {
-                number = self.unit_message(
-                    *identifier,
-                    *display,
-                    name_quantity,
-                    selected_category,
-                    &number,
-                )?
+                let (signed, signed_approximate_at) =
+                    self.number_pattern(pattern, sign, &number, &currency)?;
+                Some((
+                    self.unit_message(
+                        *identifier,
+                        *display,
+                        name_quantity,
+                        selected_category,
+                        &signed,
+                    )?,
+                    signed_approximate_at,
+                ))
             }
             NumberStyle::Currency {
                 display: CurrencyDisplay::Name,
@@ -673,9 +695,34 @@ impl FormatContext<'_> {
                     Owner::Measurement,
                     self.limits,
                 )?;
-                number = self.message(message, &number, &label)?;
+                let (signed, signed_approximate_at) =
+                    self.number_pattern(pattern, sign, &number, &currency)?;
+                Some((
+                    self.message(message, &signed, &label)?,
+                    signed_approximate_at,
+                ))
             }
-            NumberStyle::Decimal | NumberStyle::Percent | NumberStyle::Currency { .. } => {}
+            NumberStyle::Decimal | NumberStyle::Percent | NumberStyle::Currency { .. } => None,
+        };
+        if let Some(((message, number_at), signed_approximate_at)) = measurement {
+            return match number_at {
+                Some(number_at) => Ok(Formatted {
+                    pieces: message,
+                    category,
+                    approximate_at: number_at + signed_approximate_at,
+                }),
+                // A form that omits the numeral still displays the value's
+                // sign, which the ordinary number pattern then owns.
+                None => {
+                    let (pieces, approximate_at) =
+                        self.number_pattern(pattern, sign, &message, &currency)?;
+                    Ok(Formatted {
+                        pieces,
+                        category,
+                        approximate_at,
+                    })
+                }
+            };
         }
         if matches!(
             self.options.style,

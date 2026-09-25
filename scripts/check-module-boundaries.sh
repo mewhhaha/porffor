@@ -1080,11 +1080,12 @@ check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # (including toLocaleString and toZonedDateTimeISO): 2,274 raw lines. The
 # `ArrayBuffer.prototype.immutable` getter shares the detached getter's Boolean
 # result arm (+1): 2,275 raw lines.
-# +8 for the two Error.prototype.stack accessor result rows: 2,283 raw lines.
+# +8 for the seven Intl.Locale information methods and Intl.supportedValuesOf.
+# +8 for the two Error.prototype.stack accessor result rows: 2,291 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
 # +15 for the Iterator chunks/windows/includes/join result rows, which this
 # exhaustive table must carry.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2300
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2308
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.
@@ -6849,6 +6850,12 @@ require_tree_regex_count \
   '\.emit_alloc_array_payload_with_length_in_current_function_realm[[:space:]]*\(' \
   7 \
   'current-function Realm Array allocator consumers'
+# Intl.Locale information lists and Intl.supportedValuesOf share one reader.
+require_fixed_string_count \
+  crates/lila-aot-wasm/src/builtins/intl/locale_info.rs \
+  'emit_alloc_array_payload_with_length_in_current_function_realm(' \
+  1 \
+  'Intl Locale information current-function Realm Array consumer'
 
 for number_format_array_consumer in \
   crates/lila-aot-wasm/src/builtins/intl_numberformat/render.rs \

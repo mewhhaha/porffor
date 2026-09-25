@@ -786,6 +786,20 @@ impl<'a> FunctionBuilder<'a> {
             get_canonical_locales_meta,
             function,
         )?;
+        let supported_values_of_meta = self
+            .functions
+            .get(&StandardBuiltinId::IntlSupportedValuesOf.function_id())
+            .ok_or_else(|| {
+                EmitError::unsupported(
+                    "unsupported in lila wasm-aot first slice: missing builtin meta `Intl.supportedValuesOf`",
+                )
+            })?;
+        self.emit_object_define_function_data(
+            object_local,
+            "supportedValuesOf",
+            supported_values_of_meta,
+            function,
+        )?;
         // One list, `INTL_NAMESPACE_CONSTRUCTORS`, decides both what the IR
         // shape claims `Intl` has (`ScriptLowerer::intl_object_value_info`) and
         // what actually gets installed here. They used to be two
@@ -852,6 +866,17 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::GlobalSet(INTL_OBJECT_GLOBAL_INDEX));
+        // %Intl%.[[FallbackSymbol]] is a new Symbol of this Realm. Builtins
+        // reached with a zero environment read the global; those reached
+        // through a Realm-backed environment read the Realm record.
+        self.emit_alloc_intl_fallback_symbol(payload_local, function)?;
+        function.instruction(&Instruction::LocalGet(payload_local));
+        function.instruction(&Instruction::GlobalSet(INTL_FALLBACK_SYMBOL_GLOBAL_INDEX));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_FALLBACK_SYMBOL_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlFallbackSymbol,
+            function,
+        );
 
         self.release_temp_local(tag_local);
         self.release_temp_local(payload_local);

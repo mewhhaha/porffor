@@ -22503,6 +22503,48 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::IntlLocalePrototypeToString => {
                 self.emit_intl_locale_to_string_builtin(function)?;
             }
+            StandardBuiltinId::IntlLocalePrototypeGetCalendars => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::Calendars,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetCollations => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::Collations,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetHourCycles => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::HourCycles,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::NumberingSystems,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetTimeZones => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::TimeZones,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetTextInfo => {
+                self.emit_intl_locale_info_builtin(
+                    lila_intl::LocaleInfoQuery::TextDirection,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::IntlLocalePrototypeGetWeekInfo => {
+                self.emit_intl_locale_info_builtin(lila_intl::LocaleInfoQuery::WeekInfo, function)?;
+            }
+            StandardBuiltinId::IntlSupportedValuesOf => {
+                self.emit_intl_supported_values_of(function)?;
+            }
             StandardBuiltinId::DateConstructor => {
                 let value_payload_local = self.reserve_temp_local();
                 let value_tag_local = self.reserve_temp_local();

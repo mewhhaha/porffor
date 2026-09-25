@@ -283,7 +283,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 520;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 528;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -719,6 +719,9 @@ pub(crate) const HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET: u
 pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_INSTANT_PROTOTYPE_OFFSET: u64 = 496;
 pub(crate) const HEAP_REALM_INTRINSICS_TEMPORAL_DURATION_PROTOTYPE_OFFSET: u64 = 504;
 pub(crate) const HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET: u64 = 512;
+/// ECMA-402 %Intl%.[[FallbackSymbol]]: one Symbol per Realm, described
+/// "IntlLegacyConstructedSymbol" (normative-optional constructor mode, 4.3 Note 1).
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET: u64 = 520;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -4003,6 +4006,13 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         width: 8,
         pointer: true,
     },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl%.[[FallbackSymbol]]",
+        offset: HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET,
+        width: 8,
+        pointer: true,
+    },
 ];
 
 #[allow(dead_code)]
@@ -6272,7 +6282,8 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 520);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 528);
+        assert_eq!(HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET, 520);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
         assert_eq!(HEAP_REALM_INTRINSICS_WEAK_REF_PROTOTYPE_OFFSET, 320);
