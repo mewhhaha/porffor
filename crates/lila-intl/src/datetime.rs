@@ -9,11 +9,18 @@ pub use input::{
     DateTimeExactInput, DateTimeInput, DateTimeIsoFields, DateTimePlainInput, DateTimeValueKind,
 };
 
+/// The calendars Intl.DateTimeFormat formats (ECMA-402 AvailableCalendars).
+/// Every spelling is the canonical BCP47 `ca` value, so no alias needs to be
+/// listed alongside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateTimeCalendar {
     Gregorian,
     Iso8601,
     Chinese,
+    Buddhist,
+    Indian,
+    Persian,
+    Roc,
 }
 
 impl DateTimeCalendar {
@@ -22,6 +29,10 @@ impl DateTimeCalendar {
             Self::Gregorian => "gregory",
             Self::Iso8601 => "iso8601",
             Self::Chinese => "chinese",
+            Self::Buddhist => "buddhist",
+            Self::Indian => "indian",
+            Self::Persian => "persian",
+            Self::Roc => "roc",
         }
     }
     pub(crate) fn parse(value: &str) -> Option<Self> {
@@ -29,6 +40,10 @@ impl DateTimeCalendar {
             "gregory" => Some(Self::Gregorian),
             "iso8601" => Some(Self::Iso8601),
             "chinese" => Some(Self::Chinese),
+            "buddhist" => Some(Self::Buddhist),
+            "indian" => Some(Self::Indian),
+            "persian" => Some(Self::Persian),
+            "roc" => Some(Self::Roc),
             _ => None,
         }
     }

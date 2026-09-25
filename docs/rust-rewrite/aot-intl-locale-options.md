@@ -141,9 +141,11 @@ keywords, the same source as the corresponding getters. Add Likely Subtags uses
 the provider's `MaximizeLocale` implementation, whose failure retains the input,
 which is the specified error behavior. CalendarsOfLocale keeps only
 AvailableCalendars, i.e. `DateTimeCalendar::ALL`, the calendars DateTimeFormat
-formats; region calendars outside that set (for example `buddhist`, `japanese`,
-`persian`, `indian`) are therefore not reported until DateTimeFormat supports
-them. NumberingSystemsOfLocale uses the NumberFormat profile's prefix match and
+formats (`gregory`, `iso8601`, `chinese`, `buddhist`, `indian`, `persian`,
+`roc`); region calendars outside that set (for example `japanese`, `coptic` or
+the Hijri variants) are not reported until DateTimeFormat supports them, as the
+[DateTimeFormat calendar notes](intl-datetime-provider.md#calendars) describe.
+NumberingSystemsOfLocale uses the NumberFormat profile's prefix match and
 default system. The CLDR47 and IANA2026a tables are generated; see the [data
 provenance and rules](../../crates/lila-intl/data/locale-info-cldr-47/README.md).
 

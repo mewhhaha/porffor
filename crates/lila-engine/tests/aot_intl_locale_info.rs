@@ -48,7 +48,8 @@ same(new Intl.Locale('en-US-u-sd-gbeng-rg-gbzzzz').getHourCycles(), new Intl.Loc
 same(new Intl.Locale('en-u-sd-gbeng').getHourCycles(), new Intl.Locale('en-GB').getHourCycles(), 'sd');
 same(new Intl.Locale('eo').getHourCycles(), new Intl.Locale('eo-001').getHourCycles(), '001');
 same(new Intl.Locale('en', { hourCycle: 'h11' }).getHourCycles(), ['h11'], 'hc');
-same(new Intl.Locale('zh-TW').getCalendars(), ['gregory', 'chinese'], 'calendars');
+same(new Intl.Locale('zh-TW').getCalendars(), ['gregory', 'roc', 'chinese'], 'calendars');
+same(new Intl.Locale('fa-JP-u-sd-inka-rg-thzzzz').getCalendars(), ['buddhist', 'gregory'], 'rg calendars');
 same(new Intl.Locale('th', { calendar: 'buddhist' }).getCalendars(), ['buddhist'], 'ca');
 same(new Intl.Locale('de-AT').getCollations(), ['emoji', 'eor', 'phonebk'], 'collations');
 same(new Intl.Locale('qfz').getCollations(), ['emoji', 'eor'], 'unmatched collations');
@@ -82,7 +83,7 @@ fn supported_values_of_reads_one_closed_key_after_to_string() {
     assert_prints_ok(
         r#"
 var calendars = Intl.supportedValuesOf({ toString() { return 'calendar'; } });
-if (JSON.stringify(calendars) !== '["chinese","gregory","iso8601"]') throw 'calendars';
+if (JSON.stringify(calendars) !== '["buddhist","chinese","gregory","indian","iso8601","persian","roc"]') throw 'calendars';
 for (var key of ['collation', 'currency', 'numberingSystem', 'timeZone', 'unit']) {
   var values = Intl.supportedValuesOf(key);
   if (!Array.isArray(values) || values.length === 0) throw key;

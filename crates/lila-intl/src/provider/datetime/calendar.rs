@@ -1,6 +1,6 @@
 use icu_calendar::{
-    cal::{Chinese, Gregorian, Iso},
-    types::RataDie,
+    cal::{Buddhist, Chinese, Gregorian, Indian, Iso, Persian, Roc},
+    types::{EraYear, RataDie},
     Date,
 };
 
@@ -56,17 +56,44 @@ pub(super) fn convert(
     let (year, month, leap_month, day) = match calendar {
         DateTimeCalendar::Gregorian | DateTimeCalendar::Iso8601 => {
             let date = iso.to_calendar(Gregorian);
-            let year = date.era_year();
-            let era = match year.era.as_str() {
-                "bce" => 0,
-                "ce" => 1,
-                _ => return Err(super::profile::invalid("unexpected Gregorian era")),
-            };
             (
-                Year::Era {
-                    era,
-                    year: year.year,
-                },
+                era_year(date.era_year(), &[("bce", 0), ("ce", 1)])?,
+                date.month().month_number(),
+                false,
+                date.day_of_month().0,
+            )
+        }
+        DateTimeCalendar::Buddhist => {
+            let date = iso.to_calendar(Buddhist);
+            (
+                era_year(date.era_year(), &[("be", 0)])?,
+                date.month().month_number(),
+                false,
+                date.day_of_month().0,
+            )
+        }
+        DateTimeCalendar::Indian => {
+            let date = iso.to_calendar(Indian);
+            (
+                era_year(date.era_year(), &[("shaka", 0)])?,
+                date.month().month_number(),
+                false,
+                date.day_of_month().0,
+            )
+        }
+        DateTimeCalendar::Persian => {
+            let date = iso.to_calendar(Persian);
+            (
+                era_year(date.era_year(), &[("ap", 0)])?,
+                date.month().month_number(),
+                false,
+                date.day_of_month().0,
+            )
+        }
+        DateTimeCalendar::Roc => {
+            let date = iso.to_calendar(Roc);
+            (
+                era_year(date.era_year(), &[("broc", 0), ("roc", 1)])?,
                 date.month().month_number(),
                 false,
                 date.day_of_month().0,
@@ -100,5 +127,20 @@ pub(super) fn convert(
         minute: fields.minute,
         second: fields.second,
         nanosecond: fields.nanosecond,
+    })
+}
+
+/// Maps an ICU4X era code to its CLDR `<era type>` index. ICU4X documents its
+/// own `era_index` as unrelated to CLDR, so only the era code is trusted; the
+/// year is the era year ICU4X computes for that code.
+fn era_year(year: EraYear, eras: &[(&str, u8)]) -> Result<Year, DateTimeFormatError> {
+    let era = eras
+        .iter()
+        .find(|(code, _)| *code == year.era.as_str())
+        .map(|(_, era)| *era)
+        .ok_or_else(|| super::profile::invalid("unexpected calendar era code"))?;
+    Ok(Year::Era {
+        era,
+        year: year.year,
     })
 }

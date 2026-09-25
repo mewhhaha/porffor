@@ -115,9 +115,9 @@
     },
     {
       "path": "selector.json",
-      "bytes": 599,
-      "sha256": "588b8a81984220d0a9f1e77fe47069e6c50a8112ded0bb0d1d20157e5d09dcba"
+      "bytes": 751,
+      "sha256": "8bace7b173066110bfd104a6a256110cfe5f8f0c188055067d366171c8ab4a0e"
     }
   ],
-  "total_bytes": 4908819
+  "total_bytes": 4908971
 }

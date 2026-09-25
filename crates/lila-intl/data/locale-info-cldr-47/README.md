@@ -38,7 +38,8 @@ Data rules:
   through the BCP47 `ca` aliases (`gregorian` → `gregory`). CLDR47 keys these
   by region only; a language-region row fails generation instead of being
   ignored. At runtime CalendarsOfLocale keeps only AvailableCalendars, the
-  calendars `Intl.DateTimeFormat` formats, and falls back to `gregory`.
+  calendars `Intl.DateTimeFormat` formats (`DateTimeCalendar::ALL`), and falls
+  back to `gregory`.
 - **Hour cycles** come from `timeData`, keyed by region or by
   `language-region` (`fr_CA` → `fr-CA`). The preferred symbol comes first,
   followed by the allowed symbols, mapped by UTS35 Part 4: `h`/`hb`/`hB` →

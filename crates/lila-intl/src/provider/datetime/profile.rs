@@ -27,9 +27,95 @@ pub(super) struct Locale {
     pub(super) hour_cycle12: DateTimeHourCycle,
     pub(super) hour_cycle24: DateTimeHourCycle,
     pub(super) periods: PeriodRules,
-    pub(super) gregorian: Calendar,
-    pub(super) chinese: Calendar,
+    /// One checked data set per [`CalendarData`], indexed by its position.
+    pub(super) calendars: [Calendar; CalendarData::ALL.len()],
     pub(super) zones: raw::ZoneNames,
+}
+
+/// A CLDR `<calendar type=…>` data set. ISO 8601 formats with Gregorian data;
+/// every other DateTimeFormat calendar owns its own names and patterns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CalendarData {
+    Gregorian,
+    Chinese,
+    Buddhist,
+    Indian,
+    Persian,
+    Roc,
+}
+
+/// How a calendar's year field is represented and named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum YearKind {
+    /// Era-numbered years; the slice lists every CLDR era type it can produce.
+    Eras(&'static [u8]),
+    /// Sexagenary years with a related ISO year and leap months.
+    Cyclic,
+}
+
+impl CalendarData {
+    pub(super) const ALL: [Self; 6] = [
+        Self::Gregorian,
+        Self::Chinese,
+        Self::Buddhist,
+        Self::Indian,
+        Self::Persian,
+        Self::Roc,
+    ];
+
+    /// The LDML calendar type selected by `selector.json`.
+    pub(super) const fn source(self) -> &'static str {
+        match self {
+            Self::Gregorian => "gregorian",
+            Self::Chinese => "chinese",
+            Self::Buddhist => "buddhist",
+            Self::Indian => "indian",
+            Self::Persian => "persian",
+            Self::Roc => "roc",
+        }
+    }
+
+    pub(super) const fn index(self) -> usize {
+        match self {
+            Self::Gregorian => 0,
+            Self::Chinese => 1,
+            Self::Buddhist => 2,
+            Self::Indian => 3,
+            Self::Persian => 4,
+            Self::Roc => 5,
+        }
+    }
+
+    /// CLDR47 era types reachable from the pinned ICU4X arithmetic; see
+    /// `calendar::convert` for the era-code mapping.
+    pub(super) const fn years(self) -> YearKind {
+        match self {
+            Self::Gregorian | Self::Roc => YearKind::Eras(&[0, 1]),
+            Self::Buddhist | Self::Indian | Self::Persian => YearKind::Eras(&[0]),
+            Self::Chinese => YearKind::Cyclic,
+        }
+    }
+}
+
+const _: () = {
+    let mut index = 0;
+    while index < CalendarData::ALL.len() {
+        assert!(CalendarData::ALL[index].index() == index);
+        index += 1;
+    }
+};
+
+impl DateTimeCalendar {
+    pub(super) const fn data(self) -> CalendarData {
+        match self {
+            Self::Gregorian | Self::Iso8601 => CalendarData::Gregorian,
+            Self::Chinese => CalendarData::Chinese,
+            Self::Buddhist => CalendarData::Buddhist,
+            Self::Indian => CalendarData::Indian,
+            Self::Persian => CalendarData::Persian,
+            Self::Roc => CalendarData::Roc,
+        }
+    }
 }
 pub(super) struct Calendar {
     pub(super) names: FieldNames,
@@ -55,10 +141,7 @@ pub(super) struct Interval {
 
 impl Locale {
     pub(super) fn calendar(&self, calendar: DateTimeCalendar) -> &Calendar {
-        match calendar {
-            DateTimeCalendar::Gregorian | DateTimeCalendar::Iso8601 => &self.gregorian,
-            DateTimeCalendar::Chinese => &self.chinese,
-        }
+        &self.calendars[calendar.data().index()]
     }
 }
 
@@ -73,23 +156,19 @@ impl Profile {
             || selector.commit != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
             || selector.minimum_draft != "contributed"
             || selector.alt_selection != "ascii date/time patterns when supplied; default names; short territory for generic location names"
-            || selector.calendar_identifiers.len() != 3
-            || selector.calendars != ["gregory", "iso8601", "chinese"]
-            || selector
-                .calendar_identifiers
-                .get("gregory")
+            || selector.calendar_identifiers.len() != DateTimeCalendar::ALL.len()
+            || !selector
+                .calendars
+                .iter()
                 .map(String::as_str)
-                != Some("gregorian")
-            || selector
-                .calendar_identifiers
-                .get("iso8601")
-                .map(String::as_str)
-                != Some("gregorian")
-            || selector
-                .calendar_identifiers
-                .get("chinese")
-                .map(String::as_str)
-                != Some("chinese")
+                .eq(DateTimeCalendar::ALL.iter().map(|calendar| calendar.as_str()))
+            || DateTimeCalendar::ALL.iter().any(|calendar| {
+                selector
+                    .calendar_identifiers
+                    .get(calendar.as_str())
+                    .map(String::as_str)
+                    != Some(calendar.data().source())
+            })
         {
             return Err(invalid("unreviewed date/time profile schema or recipe"));
         }

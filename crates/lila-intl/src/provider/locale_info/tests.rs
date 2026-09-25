@@ -82,11 +82,17 @@ fn hour_cycles_prefer_language_region_time_data() {
 fn calendars_are_filtered_to_date_time_format_calendars() {
     let provider = provider();
     let calendars = |tag| list(&provider, LocaleInfoQuery::Calendars, tag);
-    assert_eq!(calendars("zh-TW"), ["gregory", "chinese"]);
+    assert_eq!(calendars("zh-TW"), ["gregory", "roc", "chinese"]);
     assert_eq!(calendars("zh"), ["gregory", "chinese"]);
     assert_eq!(calendars("en-US-u-rg-cnzzzz"), ["gregory", "chinese"]);
     assert_eq!(calendars("en"), ["gregory"]);
-    assert_eq!(calendars("th-u-ca-buddhist"), ["buddhist"]);
+    assert_eq!(calendars("th"), ["buddhist", "gregory"]);
+    assert_eq!(calendars("fa"), ["persian", "gregory"]);
+    assert_eq!(calendars("hi"), ["gregory", "indian"]);
+    // Japanese and the Hijri calendars are not DateTimeFormat calendars.
+    assert_eq!(calendars("ja"), ["gregory"]);
+    assert_eq!(calendars("ar-SA"), ["gregory"]);
+    assert_eq!(calendars("th-u-ca-japanese"), ["japanese"]);
 }
 
 #[test]
@@ -201,7 +207,7 @@ fn supported_values_are_sorted_canonical_lists() {
     };
     assert_eq!(
         values(SupportedValuesKey::Calendar),
-        ["chinese", "gregory", "iso8601"]
+        ["buddhist", "chinese", "gregory", "indian", "iso8601", "persian", "roc"]
     );
     let collations = values(SupportedValuesKey::Collation);
     assert!(!collations.contains(&"standard".to_string()));
