@@ -4,6 +4,7 @@ use std::path::Path;
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/obsolete-builtin-emitter-removal.md");
 const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
+const TYPED_ARRAY_SET: &str = include_str!("../src/builtins/typed_array_set.rs");
 
 fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
     fs::read_dir(dir)
@@ -47,10 +48,10 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
     for (name, expected) in [
         ("emit_date_positive_mod", 13),
         ("emit_date_make_time", 4),
-        // 6 -> 10: the shared immutable throw gained the write-access
-        // witness, DetachArrayBuffer, ArrayBufferCopyAndDetach and the
-        // Uint8Array codec as callers (definition plus nine calls).
-        ("emit_throw_if_array_buffer_immutable", 10),
+        // The shared immutable throw also has TypedArray.set's early guard:
+        // detached bounds are checked after offset coercion, but immutable
+        // backing buffers are rejected before it (definition plus ten calls).
+        ("emit_throw_if_array_buffer_immutable", 11),
         (
             "emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start",
             2,
@@ -62,6 +63,13 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
             "`{name}`"
         );
     }
+    assert_eq!(
+        TYPED_ARRAY_SET
+            .matches("self.emit_throw_if_array_buffer_immutable(")
+            .count(),
+        1,
+        "TypedArray.set owns the early immutable-buffer rejection"
+    );
 }
 
 #[test]

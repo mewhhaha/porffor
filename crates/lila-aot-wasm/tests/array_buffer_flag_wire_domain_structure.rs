@@ -122,12 +122,11 @@ fn array_buffer_flag_is_one_capability_free_four_row_wire_authority() {
 #[test]
 fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    // 33 -> 28: six per-site `Immutable` reads (fill, codec, resize, slice
-    // species, transfer, the old immutable throw) collapsed into the single
-    // IsImmutableBuffer predicate, which owns one projection.
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 28);
-    // 31 -> 26: the same six removals and one predicate projection.
-    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 26);
+    // The shared IsImmutableBuffer predicate replaced six per-site immutable
+    // projections. Stable TypedArray sort subsequently dropped its direct
+    // Detached probe and now writes through TypedArraySetElement.
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag"), 27);
+    assert_eq!(count_in_rust_sources(&source_root, "ArrayBufferFlag::"), 25);
     for old_name in [
         "ARRAY_BUFFER_FLAG_RESIZABLE",
         "ARRAY_BUFFER_FLAG_SHARED",
@@ -145,8 +144,9 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
     // Unchanged count: the immutable throw lost its projection and the
     // IsImmutableBuffer predicate gained one.
     assert_eq!(BINARY_DATA.matches("ArrayBufferFlag::").count(), 6);
-    // 17 -> 14: resize, slice-species and transfer now ask the predicate.
-    assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 14);
+    // Resize, slice-species and transfer ask the immutable predicate; stable
+    // sort uses the per-element witness instead of its old Detached probe.
+    assert_eq!(STANDARD.matches("ArrayBufferFlag::").count(), 13);
     // 1 -> 0: the codec's write validation calls the shared immutable throw.
     assert_eq!(UINT8_ARRAY_CODECS.matches("ArrayBufferFlag::").count(), 0);
     // 1 -> 0: fill validates write access through its method-entry witness.
@@ -168,8 +168,8 @@ fn all_array_buffer_flag_projections_use_the_closed_vocabulary() {
                 .count()
         })
         .sum::<usize>(),
-        // 27 -> 22: the five removed product `word()` rows listed above.
-        22
+        // The sort Detached projection is no longer a product `word()` row.
+        21
     );
 }
 
@@ -255,7 +255,14 @@ fn every_product_projection_stays_with_its_single_algorithm_owner() {
         "    fn emit_typed_array_stable_sort(",
         "    fn compile_typed_array_prototype_to_sorted_builtin(",
     );
-    assert_eq!(stable_sort.matches("ArrayBufferFlag::").count(), 1);
+    assert_eq!(stable_sort.matches("ArrayBufferFlag::").count(), 0);
+    assert_eq!(
+        stable_sort
+            .matches("self.emit_typed_array_element_write_from_locals(")
+            .count(),
+        1,
+        "stable sort writes its snapshot through the current-view element path"
+    );
     let standard_compiler = STANDARD
         .split_once("    pub(crate) fn compile_standard_builtin(")
         .expect("standard builtin compiler")
@@ -357,17 +364,17 @@ fn closed_flag_selection_preserves_the_frozen_wire_projection_sequence() {
         (1773, 0xa28c_7750_59da_a571)
     );
 
-    // The immutable-ArrayBuffer work removed exactly three per-site
-    // `Immutable` reads from the legacy sequence: `resize` (row 17), the
-    // grouped `slice` species check (row 21) and the transfer family's
-    // receiver check (row 23). Each now asks the shared IsImmutableBuffer
-    // predicate, whose own projection replaces the old immutable throw's at
-    // row 7, so every other row keeps its frozen position and value.
-    const REMOVED_LEGACY_ROWS: [usize; 3] = [17, 21, 23];
+    // Stable sort dropped its direct Detached probe (row 10) when writes
+    // moved to TypedArraySetElement. The immutable-ArrayBuffer work removed
+    // three per-site Immutable reads: resize (row 17), grouped slice species
+    // (row 21) and transfer receiver (row 23). Those ask IsImmutableBuffer,
+    // whose projection replaces the old immutable throw's at row 7.
+    const REMOVED_LEGACY_ROWS: [usize; 4] = [10, 17, 21, 23];
     let legacy_sequence = projection_sequence(legacy_rows, "ARRAY_BUFFER_FLAG_");
     assert_eq!(legacy_sequence.len(), 25);
     for row in REMOVED_LEGACY_ROWS {
-        assert_eq!(legacy_sequence[row], "Immutable", "legacy row {row}");
+        let removed_flag = if row == 10 { "Detached" } else { "Immutable" };
+        assert_eq!(legacy_sequence[row], removed_flag, "legacy row {row}");
     }
     let expected_sequence = legacy_sequence
         .iter()
