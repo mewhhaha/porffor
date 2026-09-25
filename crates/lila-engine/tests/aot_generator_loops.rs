@@ -148,8 +148,8 @@ fn generator_branches_resume_nested_yields_and_declarations() {
         r#"
 function* nestedBlock(flag) { if (flag) { let value = 1; { yield value; } } }
 function* multiple(flag) { if (flag) { let value = 1; yield value; yield 2; } }
-function* captured(flag) { if (flag) { let value = 1; const read = () => value; yield read(); } }
-function* klass(flag) { if (flag) { class Value {} yield Value; } }
+function* captured(flag) { if (flag) { let value = 1; const read = () => value; yield read(); value = 2; yield read(); } }
+function* klass(flag) { if (flag) { class Value {} yield Value; yield Value; } }
 function report(label, result) { print(label + ':' + result.value + ':' + result.done); }
 
 let iterator = nestedBlock(true);
@@ -162,9 +162,12 @@ report('multiple', iterator.next());
 iterator = captured(true);
 report('captured', iterator.next());
 report('captured', iterator.next());
+report('captured', iterator.next());
 iterator = klass(true);
 let result = iterator.next();
 print('class:' + result.value.name + ':' + result.done);
+let resumed = iterator.next();
+print('class-same:' + (resumed.value === result.value) + ':' + resumed.done);
 report('class', iterator.next());
 report('false', klass(false).next());
 "#,
@@ -175,8 +178,10 @@ report('false', klass(false).next());
             "multiple:2:false",
             "multiple:undefined:true",
             "captured:1:false",
+            "captured:2:false",
             "captured:undefined:true",
             "class:Value:false",
+            "class-same:true:false",
             "class:undefined:true",
             "false:undefined:true",
         ],

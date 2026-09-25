@@ -592,9 +592,9 @@ mod realm_function_materialization_tests {
         let mut direct_sites = 0;
         let marker = "self.emit_function_value_payload_in_realm(";
         for (source_name, realm_bootstrap_source, expected_sites, context_argument) in [
-            // 90: the created-realm Proxy constructor uses its dedicated
-            // context-taking materializer, while `%TypedArray%.from` and
-            // `%TypedArray%.of` each add a realm-local function allocation.
+            // 90: one new site installs `%TypedArray%.from`/`.of`, and one
+            // installs the created realm's $262 host methods. Both loops
+            // materialize each callable through the coupled realm context.
             ("builtins/host.rs", host, 90, "&realm_functions"),
             (
                 "builtins/host/created_realm_iterator_next.rs",

@@ -68,7 +68,8 @@ fn all_five_converters_match_every_observable_overflow_read_exhaustively() {
             TIME_SOURCE,
             "    pub(super) fn emit_to_temporal_time(",
             "    pub(crate) fn emit_temporal_plain_time_from(",
-            3,
+            // PlainTime slots, PlainDateTime slots, fields, and strings.
+            4,
         ),
         (
             DATE_TIME_SOURCE,
