@@ -288,6 +288,10 @@ execute as an independent global Script. Host globals referenced only by
 prepared Script, Function or module-prelude sources are included in entry
 initialization, while their declarations still wait for source execution;
 Script-entry and source-phase drivers retain explicit scope and lifecycle gaps.
+The filesystem host serves the `type: "json"` and `type: "text"` import
+attributes as JSON and text modules, keyed apart from the same file's
+JavaScript module; `ParseJSONModule` runs at load time, so invalid JSON fails
+the importing graph's load. Every other import attribute is a resolution error.
 The next batch adds [word boundaries and reverse whitespace](crates/lila-aot-wasm/docs/regexp-word-boundary.md),
 [case-insensitive backreference comparison](crates/lila-aot-wasm/docs/regexp-backreference-folding.md),
 correct forward non-whitespace movement across UTF-16 surrogate pairs,
