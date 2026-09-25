@@ -20402,12 +20402,11 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
     }
 
     #[test]
-    fn wasm_backend_rejects_unsupported_param_and_arguments_forms() {
+    fn wasm_backend_checks_parameter_errors_and_executes_default_setters() {
         for source in [
             "function f(x = y, y = 1) { return x; } f();",
             "function f(x = x) { return x; } f();",
             "({ get x(a) { return a; } }).x;",
-            "({ set x(v = 1) {} }).x = 1;",
         ] {
             let err = engine()
                 .run_script(
@@ -20418,9 +20417,39 @@ if (ordinary.call(globalThis) !== globalThis) throw "ordinary activation this";
                         ..RunOptions::default()
                     },
                 )
-                .expect_err("unsupported param or arguments form should stay unsupported");
+                .expect_err("parameter TDZ and getter parameter errors must be reported");
             assert!(!err.message().trim().is_empty());
         }
+
+        // A setter's single FormalParameter may have an initializer; see the
+        // pinned language/expressions/object/setter-length-dflt.js coverage.
+        let source = r#"
+            let defaultCalls = 0;
+            let values = [];
+            let receiver;
+            let object = {
+                set x(value = (defaultCalls += 1, 17)) {
+                    receiver = this;
+                    values.push(value);
+                }
+            };
+            let omittedValue = object.x = undefined;
+            let explicitValue = object.x = 3;
+            defaultCalls === 1 && values.join(",") === "17,3"
+                && omittedValue === undefined && explicitValue === 3
+                && receiver === object;
+        "#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("setter parameter defaults should execute");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
     }
 
     #[test]
@@ -29562,7 +29591,8 @@ try {
             lines.lock().expect("capture mutex poisoned").as_slice(),
             &[
                 "sync:0:7".to_string(),
-                "return:1:1:1:1".to_string(),
+                // ECMA-262 §27.1.4.1 calls return with « », not « undefined ».
+                "return:1:0:1:1".to_string(),
                 "settled:7:2:3:2".to_string(),
             ]
         );
@@ -32298,16 +32328,21 @@ try {
 
     #[test]
     fn wasm_backend_promise_try_returns_a_same_constructor_promise_unwrapped() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
         let source = r#"
             class SubPromise extends Promise {}
             let plain = Promise.resolve(1);
             let sub = SubPromise.resolve(2);
+            let rejected = SubPromise.try(function () { throw 0; });
+            rejected.catch(function (reason) {
+                print("rejected:" + (reason === 0));
+            });
             Promise.try(function () { return plain; }) === plain
                 && SubPromise.try(function () { return sub; }) === sub
                 && SubPromise.try(function () { return plain; }) !== plain
-                && SubPromise.try(function () { throw 0; }) instanceof SubPromise;
+                && rejected instanceof SubPromise;
         "#;
-        let outcome = engine()
+        let outcome = engine_with_captured_prints(Arc::clone(&lines))
             .run_script(
                 source,
                 CompileOptions::default(),
@@ -32318,6 +32353,10 @@ try {
             )
             .unwrap_or_else(|err| panic!("Promise.try unwrapped return should run: {err:?}"));
         assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+        assert_eq!(
+            lines.lock().expect("capture mutex poisoned").as_slice(),
+            &["rejected:true".to_string()]
+        );
     }
 
     #[test]
