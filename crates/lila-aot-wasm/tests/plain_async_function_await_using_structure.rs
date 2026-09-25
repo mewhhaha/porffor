@@ -105,11 +105,12 @@ fn positions_in_order(source: &str, markers: &[&str]) {
 
 #[test]
 fn ir_owns_a_nonempty_async_resource_domain_and_closed_finalizer_states() {
-    let statement = bounded(
+    let statement_enum = bounded(
         IR_SOURCE,
-        "AsyncDisposableScope {",
-        "ParameterInitialization {",
+        "pub enum StatementIr {",
+        "    ParameterInitialization {",
     );
+    let statement = bounded(statement_enum, "    AsyncDisposableScope {", "    },");
     assert!(statement.contains("execution: AsyncDisposableScopeExecutionIr"));
     assert!(statement.contains("resources: AsyncDisposableResourcesIr"));
     assert!(statement.contains("body: BlockIr"));

@@ -99,23 +99,58 @@ fn branch_lexicals_have_distinct_activation_slots_on_both_sides_of_yield() {
 }
 
 #[test]
-fn branch_declarations_preserve_unplanned_suspension_and_environment_rejections() {
-    for source in [
-        "function* values(flag) { if (flag) { const value = yield 1; yield value; } }",
-        "function* values(flag) { if (flag) { let value = 1; { yield value; } } }",
-        "function* values(flag) { if (flag) { let value = 1; yield value; yield 2; } }",
-        "function* values(flag) { if (flag) { let value = 1; const read = () => value; yield read(); } }",
-        "function* values(flag) { if (flag) { class Value {} yield Value; } }",
+fn branch_declaration_initializer_yield_remains_unplanned() {
+    let source = "function* values(flag) { if (flag) { const value = yield 1; yield value; } }";
+    let unit = parse(source, ParseOptions::script()).expect("generator source must parse");
+    let program = lower(&unit);
+    assert!(!program.is_wasm_supported(), "{source}");
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains(
+                "a nested declaration contains a yield, which has no linear suspension plan"
+            )),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn branch_declarations_with_nested_yields_have_structured_continuations() {
+    for (source, expected_yields) in [
+        (
+            "function* values(flag) { if (flag) { let value = 1; { yield value; } } }",
+            1,
+        ),
+        (
+            "function* values(flag) { if (flag) { let value = 1; yield value; yield 2; } }",
+            2,
+        ),
+        (
+            "function* values(flag) { if (flag) { let value = 1; const read = () => value; yield read(); } }",
+            1,
+        ),
+        (
+            "function* values(flag) { if (flag) { class Value {} yield Value; } }",
+            1,
+        ),
     ] {
-        let unit = parse(source, ParseOptions::script()).expect("generator source must parse");
-        let program = lower(&unit);
-        assert!(!program.is_wasm_supported(), "{source}");
-        assert!(
-            program.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
-                .contains("an `if` branch whose yields are not a direct sequence")),
-            "{source}: {:?}",
-            program.diagnostics
-        );
+        let function = lower_values(source);
+        let plan = function
+            .body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::GeneratorStructuredIf { plan, .. } => Some(plan),
+                _ => None,
+            })
+            .expect("nested branch yields must have a checked continuation");
+        let generator = function.generator_plan.as_ref().expect("generator plan");
+        assert_eq!(generator.suspension_points.len(), expected_yields, "{source}");
+        assert_eq!(plan.entry_state(), generator.entry_state, "{source}");
+        assert_eq!(plan.exit_state() + 1, generator.state_count, "{source}");
+        assert!(plan.then_entry_state() < plan.then_exit_state(), "{source}");
+        assert!(matches!(plan.then_branch(), StatementIr::Block(_)), "{source}");
     }
 }

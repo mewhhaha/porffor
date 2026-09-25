@@ -143,6 +143,47 @@ report(right.next());
 }
 
 #[test]
+fn generator_branches_resume_nested_yields_and_declarations() {
+    assert_generator_trace(
+        r#"
+function* nestedBlock(flag) { if (flag) { let value = 1; { yield value; } } }
+function* multiple(flag) { if (flag) { let value = 1; yield value; yield 2; } }
+function* captured(flag) { if (flag) { let value = 1; const read = () => value; yield read(); } }
+function* klass(flag) { if (flag) { class Value {} yield Value; } }
+function report(label, result) { print(label + ':' + result.value + ':' + result.done); }
+
+let iterator = nestedBlock(true);
+report('block', iterator.next());
+report('block', iterator.next());
+iterator = multiple(true);
+report('multiple', iterator.next());
+report('multiple', iterator.next());
+report('multiple', iterator.next());
+iterator = captured(true);
+report('captured', iterator.next());
+report('captured', iterator.next());
+iterator = klass(true);
+let result = iterator.next();
+print('class:' + result.value.name + ':' + result.done);
+report('class', iterator.next());
+report('false', klass(false).next());
+"#,
+        &[
+            "block:1:false",
+            "block:undefined:true",
+            "multiple:1:false",
+            "multiple:2:false",
+            "multiple:undefined:true",
+            "captured:1:false",
+            "captured:undefined:true",
+            "class:Value:false",
+            "class:undefined:true",
+            "false:undefined:true",
+        ],
+    );
+}
+
+#[test]
 fn conditional_while_generator_consumes_return_and_throw_before_continuing_iteration() {
     assert_generator_trace(
         r#"

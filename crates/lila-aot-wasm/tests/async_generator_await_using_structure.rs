@@ -49,11 +49,12 @@ fn positions_in_order(source: &str, markers: &[&str]) {
 
 #[test]
 fn ir_makes_the_async_dispose_execution_owner_closed_and_distinct() {
-    let statement = bounded(
+    let statement_enum = bounded(
         IR_SOURCE,
-        "AsyncDisposableScope {",
-        "ParameterInitialization {",
+        "pub enum StatementIr {",
+        "    ParameterInitialization {",
     );
+    let statement = bounded(statement_enum, "    AsyncDisposableScope {", "    },");
     assert!(statement.contains("execution: AsyncDisposableScopeExecutionIr"));
     assert!(statement.contains("resources: AsyncDisposableResourcesIr"));
     assert!(statement.contains("body: BlockIr"));
