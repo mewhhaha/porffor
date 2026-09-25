@@ -403,6 +403,18 @@ mod tests {
                         collect(else_branch, copies);
                     }
                 }
+                StatementIr::GeneratorStructuredIf { plan, .. } => {
+                    collect(plan.then_branch(), copies);
+                    if let Some(else_branch) = plan.else_branch() {
+                        collect(else_branch, copies);
+                    }
+                }
+                StatementIr::GeneratorStructuredLoop { plan, .. } => collect(plan.body(), copies),
+                StatementIr::GeneratorForOfIterator { plan, .. } => {
+                    for statement in plan.body() {
+                        collect(statement, copies);
+                    }
+                }
                 StatementIr::While { body, .. }
                 | StatementIr::DoWhile { body, .. }
                 | StatementIr::For { body, .. }
@@ -534,6 +546,12 @@ mod tests {
                         collect(else_branch, names);
                     }
                 }
+                StatementIr::GeneratorStructuredIf { plan, .. } => {
+                    collect(plan.then_branch(), names);
+                    if let Some(else_branch) = plan.else_branch() {
+                        collect(else_branch, names);
+                    }
+                }
                 StatementIr::While { body, .. }
                 | StatementIr::DoWhile { body, .. }
                 | StatementIr::Labelled {
@@ -576,6 +594,44 @@ mod tests {
                         }
                     }
                     collect(body, names);
+                }
+                StatementIr::GeneratorStructuredLoop { init, plan, .. } => {
+                    if let Some(init) = init {
+                        match init {
+                            ForInitIr::Lexical { name, .. } => {
+                                names.insert(name.clone());
+                            }
+                            ForInitIr::LexicalBlock(bindings) => {
+                                names.extend(bindings.iter().map(|binding| binding.name.clone()));
+                            }
+                            ForInitIr::Var(declarators) => {
+                                names.extend(
+                                    declarators.iter().map(|declarator| declarator.name.clone()),
+                                );
+                            }
+                            ForInitIr::Expression(_) => {}
+                            ForInitIr::Statements(statements) => {
+                                for statement in statements {
+                                    collect(statement, names);
+                                }
+                            }
+                            ForInitIr::SyncDisposable(resources) => {
+                                names.extend(
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.binding_name.clone()),
+                                );
+                            }
+                            ForInitIr::AsyncDisposable(init) => {
+                                names.extend(
+                                    init.resources()
+                                        .iter()
+                                        .map(|resource| resource.binding_name().to_string()),
+                                );
+                            }
+                        }
+                    }
+                    collect(plan.body(), names);
                 }
                 StatementIr::GeneratorLoop {
                     init,
@@ -683,6 +739,12 @@ mod tests {
                 StatementIr::AsyncFunctionForOfIterator { plan, .. } => {
                     names.insert(plan.value_name().to_string());
                     for statement in plan.body().statements() {
+                        collect(statement, names);
+                    }
+                }
+                StatementIr::GeneratorForOfIterator { plan, .. } => {
+                    names.insert(plan.head().name.clone());
+                    for statement in plan.body() {
                         collect(statement, names);
                     }
                 }

@@ -1008,6 +1008,19 @@ fn async_generator_contains_suspension(
             .chain(std::iter::once(suspension_statement.as_ref()))
             .chain(after_suspension)
             .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::GeneratorStructuredLoop { plan, .. } => {
+            async_generator_contains_suspension(plan.body(), suspension)
+        }
+        StatementIr::GeneratorForOfIterator { plan, .. } => plan
+            .body()
+            .iter()
+            .any(|statement| async_generator_contains_suspension(statement, suspension)),
+        StatementIr::GeneratorStructuredIf { plan, .. } => {
+            async_generator_contains_suspension(plan.then_branch(), suspension)
+                || plan.else_branch().is_some_and(|else_branch| {
+                    async_generator_contains_suspension(else_branch, suspension)
+                })
+        }
         StatementIr::AsyncFunctionForOfIterator { .. } => {
             matches!(suspension, AsyncGeneratorSuspension::Await)
         }
@@ -1244,6 +1257,11 @@ fn async_generator_dispatcher_unsupported_feature(statement: &StatementIr) -> Op
         }
         StatementIr::AsyncFunctionForOfIterator { .. } => {
             Some("resumable synchronous for-of requires a plain async function")
+        }
+        StatementIr::GeneratorStructuredLoop { .. }
+        | StatementIr::GeneratorStructuredIf { .. }
+        | StatementIr::GeneratorForOfIterator { .. } => {
+            Some("structured generator continuation requires a synchronous generator")
         }
         StatementIr::GeneratorIf {
             then_before_yield,

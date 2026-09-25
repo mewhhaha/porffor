@@ -277,6 +277,9 @@ impl BodyValidation {
             | StatementIr::AsyncModuleInstantiation
             | StatementIr::GeneratorLoop { .. }
             | StatementIr::GeneratorIf { .. }
+            | StatementIr::GeneratorStructuredLoop { .. }
+            | StatementIr::GeneratorStructuredIf { .. }
+            | StatementIr::GeneratorForOfIterator { .. }
             | StatementIr::AsyncFunctionForOfIterator { .. }
             | StatementIr::Break { .. }
             | StatementIr::Continue { .. } => {

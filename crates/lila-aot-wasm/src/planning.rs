@@ -4139,6 +4139,17 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                 || update.as_ref().is_some_and(expr_exposes_global_object)
                 || statement_exposes_global_object(body)
         }
+        StatementIr::GeneratorStructuredLoop {
+            init,
+            test,
+            update,
+            plan,
+        } => {
+            init.as_ref().is_some_and(for_init_exposes_global_object)
+                || test.as_ref().is_some_and(expr_exposes_global_object)
+                || update.as_ref().is_some_and(expr_exposes_global_object)
+                || statement_exposes_global_object(plan.body())
+        }
         StatementIr::GeneratorLoop {
             init,
             test,
@@ -4164,6 +4175,17 @@ fn statement_exposes_global_object(statement: &StatementIr) -> bool {
                     .statements()
                     .iter()
                     .any(statement_exposes_global_object)
+        }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            expr_exposes_global_object(iterable)
+                || plan.body().iter().any(statement_exposes_global_object)
+        }
+        StatementIr::GeneratorStructuredIf { condition, plan } => {
+            expr_exposes_global_object(condition)
+                || statement_exposes_global_object(plan.then_branch())
+                || plan
+                    .else_branch()
+                    .is_some_and(statement_exposes_global_object)
         }
         StatementIr::GeneratorIf {
             condition,
@@ -4833,6 +4855,23 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             }
             collect_statement_global_property_names(body, names);
         }
+        StatementIr::GeneratorStructuredLoop {
+            init,
+            test,
+            update,
+            plan,
+        } => {
+            if let Some(init) = init {
+                collect_for_init_global_property_names(init, names);
+            }
+            if let Some(test) = test {
+                collect_expr_global_property_names(test, names);
+            }
+            if let Some(update) = update {
+                collect_expr_global_property_names(update, names);
+            }
+            collect_statement_global_property_names(plan.body(), names);
+        }
         StatementIr::GeneratorLoop {
             init,
             test,
@@ -4863,6 +4902,19 @@ fn collect_statement_global_property_names(statement: &StatementIr, names: &mut 
             collect_expr_global_property_names(iterable, names);
             for statement in plan.body().statements() {
                 collect_statement_global_property_names(statement, names);
+            }
+        }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            collect_expr_global_property_names(iterable, names);
+            for statement in plan.body() {
+                collect_statement_global_property_names(statement, names);
+            }
+        }
+        StatementIr::GeneratorStructuredIf { condition, plan } => {
+            collect_expr_global_property_names(condition, names);
+            collect_statement_global_property_names(plan.then_branch(), names);
+            if let Some(else_branch) = plan.else_branch() {
+                collect_statement_global_property_names(else_branch, names);
             }
         }
         StatementIr::GeneratorIf {
@@ -5676,6 +5728,22 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .is_some_and(|update| expr_references_function(update, target))
                 || statement_references_function(body, target)
         }
+        StatementIr::GeneratorStructuredLoop {
+            init,
+            test,
+            update,
+            plan,
+        } => {
+            init.as_ref()
+                .is_some_and(|init| for_init_references_function(init, target))
+                || test
+                    .as_ref()
+                    .is_some_and(|test| expr_references_function(test, target))
+                || update
+                    .as_ref()
+                    .is_some_and(|update| expr_references_function(update, target))
+                || statement_references_function(plan.body(), target)
+        }
         StatementIr::GeneratorLoop {
             init,
             test,
@@ -5708,6 +5776,20 @@ pub(crate) fn statement_references_function(statement: &StatementIr, target: &Fu
                     .statements()
                     .iter()
                     .any(|statement| statement_references_function(statement, target))
+        }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            expr_references_function(iterable, target)
+                || plan
+                    .body()
+                    .iter()
+                    .any(|statement| statement_references_function(statement, target))
+        }
+        StatementIr::GeneratorStructuredIf { condition, plan } => {
+            expr_references_function(condition, target)
+                || statement_references_function(plan.then_branch(), target)
+                || plan
+                    .else_branch()
+                    .is_some_and(|branch| statement_references_function(branch, target))
         }
         StatementIr::GeneratorIf {
             condition,
@@ -8383,6 +8465,22 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .unwrap_or(0)
                 + count_statement_lexicals(body)
         }
+        StatementIr::GeneratorStructuredLoop { init, plan, .. } => {
+            let init_count = init
+                .as_ref()
+                .map(|init| match init {
+                    ForInitIr::Lexical { .. } => 2,
+                    ForInitIr::LexicalBlock(bindings) => 2 * bindings.len(),
+                    ForInitIr::Var(_) | ForInitIr::Expression(_) => 0,
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().map(count_statement_lexicals).sum()
+                    }
+                    ForInitIr::SyncDisposable(resources) => 2 * resources.len(),
+                    ForInitIr::AsyncDisposable(init) => 2 * init.resources().len(),
+                })
+                .unwrap_or(0);
+            init_count + count_statement_lexicals(plan.body())
+        }
         StatementIr::GeneratorLoop {
             init,
             before_suspension,
@@ -8423,6 +8521,24 @@ pub(crate) fn count_statement_lexicals(statement: &StatementIr) -> usize {
                 .iter()
                 .map(count_statement_lexicals)
                 .sum::<usize>()
+        }
+        StatementIr::GeneratorForOfIterator { plan, .. } => {
+            count_for_in_of_binding_lexicals(
+                plan.head().mode,
+                &plan.head().name,
+                plan.head_environment(),
+            ) + plan
+                .body()
+                .iter()
+                .map(count_statement_lexicals)
+                .sum::<usize>()
+        }
+        StatementIr::GeneratorStructuredIf { plan, .. } => {
+            count_statement_lexicals(plan.then_branch())
+                + plan
+                    .else_branch()
+                    .map(count_statement_lexicals)
+                    .unwrap_or(0)
         }
         StatementIr::GeneratorIf {
             then_before_yield,
@@ -8675,6 +8791,19 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     .max(body_temps),
             }
         }
+        StatementIr::GeneratorStructuredLoop {
+            init,
+            test,
+            update,
+            plan,
+        } => init
+            .as_ref()
+            .map(count_for_init_temp_locals)
+            .unwrap_or(0)
+            .max(test.as_ref().map(count_expr_temp_locals).unwrap_or(0))
+            .max(update.as_ref().map(count_expr_temp_locals).unwrap_or(0))
+            .max(count_statement_temp_locals(plan.body()))
+            .max(1),
         StatementIr::GeneratorLoop {
             init,
             test,
@@ -8713,6 +8842,27 @@ pub(crate) fn count_statement_temp_locals(statement: &StatementIr) -> usize {
                     .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
                     .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
         }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            RESUMABLE_SYNC_FOR_OF_ITERATOR_PERSISTENT_TEMP_LOCALS
+                + count_expr_temp_locals(iterable)
+                    .max(
+                        plan.body()
+                            .iter()
+                            .map(count_statement_temp_locals)
+                            .max()
+                            .unwrap_or(0),
+                    )
+                    .max(FOR_OF_ITERATOR_HELPER_TEMP_LOCALS)
+                    .max(GLOBAL_BINDING_PUBLICATION_TEMP_LOCALS)
+        }
+        StatementIr::GeneratorStructuredIf { condition, plan } => count_expr_temp_locals(condition)
+            .max(count_statement_temp_locals(plan.then_branch()))
+            .max(
+                plan.else_branch()
+                    .map(count_statement_temp_locals)
+                    .unwrap_or(0),
+            )
+            .max(1),
         StatementIr::GeneratorIf {
             condition,
             then_before_yield,
@@ -10097,6 +10247,12 @@ pub(crate) fn collect_hoisted_vars_statement(
             }
             collect_hoisted_vars_statement(body, names);
         }
+        StatementIr::GeneratorStructuredLoop { init, plan, .. } => {
+            if let Some(init) = init {
+                collect_hoisted_vars_for_init(init, names);
+            }
+            collect_hoisted_vars_statement(plan.body(), names);
+        }
         StatementIr::GeneratorLoop {
             init,
             before_suspension,
@@ -10121,6 +10277,20 @@ pub(crate) fn collect_hoisted_vars_statement(
             }
             for statement in plan.body().statements() {
                 collect_hoisted_vars_statement(statement, names);
+            }
+        }
+        StatementIr::GeneratorForOfIterator { plan, .. } => {
+            if plan.head().mode == BindingMode::Var {
+                names.insert(plan.head().name.clone());
+            }
+            for statement in plan.body() {
+                collect_hoisted_vars_statement(statement, names);
+            }
+        }
+        StatementIr::GeneratorStructuredIf { plan, .. } => {
+            collect_hoisted_vars_statement(plan.then_branch(), names);
+            if let Some(else_branch) = plan.else_branch() {
+                collect_hoisted_vars_statement(else_branch, names);
             }
         }
         StatementIr::GeneratorIf {

@@ -9,7 +9,14 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             (Vec::new(), self.lower_expression(if_statement.cond()))
         };
-        if condition_prefix.is_empty() {
+        let generator_branch_yields =
+            contains(if_statement.body(), ContainsSymbol::YieldExpression)
+                || if_statement
+                    .else_node()
+                    .is_some_and(|branch| contains(branch, ContainsSymbol::YieldExpression));
+        if condition_prefix.is_empty()
+            && !(generator_entry_state.is_some() && generator_branch_yields)
+        {
             if let Some(value) = Self::static_bool_expr(&condition) {
                 if value {
                     return self.lower_statement(if_statement.body());
@@ -21,6 +28,18 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         let async_entry_state = self.plain_async_entry_state();
+        let structured_generator_if = generator_entry_state.is_some()
+            && generator_branch_yields
+            && (self.generator_structured_depth > 0
+                || simple_generator_if_branch_yield_count(if_statement.body()).is_none()
+                || if_statement.else_node().is_some_and(|branch| {
+                    simple_generator_if_branch_yield_count(branch).is_none()
+                }));
+        if structured_generator_if {
+            self.current_generator_resume_state = Some(
+                generator_entry_state.expect("structured generator branch has an entry state") + 1,
+            );
+        }
         if let Some(entry_state) = async_entry_state {
             let Some(then_entry_state) = entry_state.checked_add(1) else {
                 self.unsupported("async conditional continuation state overflow");
@@ -29,7 +48,16 @@ impl<'a> ScriptLowerer<'a> {
             self.current_async_resume_state = Some(then_entry_state);
         }
         let before = self.capture_conditional_flow_facts();
+        if structured_generator_if {
+            self.generator_structured_depth += 1;
+        }
         let (then_branch, then_kind) = self.lower_statement(if_statement.body());
+        let generator_then_exit_state = structured_generator_if
+            .then_some(self.current_generator_resume_state)
+            .flatten();
+        if let Some(then_exit_state) = generator_then_exit_state {
+            self.current_generator_resume_state = Some(then_exit_state + 1);
+        }
         let async_then_exit_state = self.plain_async_entry_state();
         if let Some(then_exit_state) = async_then_exit_state {
             let Some(else_entry_state) = then_exit_state.checked_add(1) else {
@@ -61,6 +89,32 @@ impl<'a> ScriptLowerer<'a> {
                 (None, ValueKind::Undefined)
             }
         };
+        if structured_generator_if {
+            self.generator_structured_depth -= 1;
+        }
+
+        if let (Some(entry_state), Some(then_exit_state)) =
+            (generator_entry_state, generator_then_exit_state)
+        {
+            let else_exit_state = self
+                .current_generator_resume_state
+                .expect("structured generator else retains a state");
+            let Some(plan) = GeneratorStructuredIfPlanIr::new(
+                entry_state,
+                then_exit_state,
+                else_exit_state,
+                then_branch,
+                else_branch,
+            ) else {
+                self.unsupported("generator branch continuation state overflow");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            self.current_generator_resume_state = Some(plan.exit_state());
+            return (
+                StatementIr::GeneratorStructuredIf { condition, plan },
+                result_kind,
+            );
+        }
 
         if let Some(entry_state) = generator_entry_state {
             let (then_before_yield, then_yield_statement, then_after_yield) =

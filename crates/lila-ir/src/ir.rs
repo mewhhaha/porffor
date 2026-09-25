@@ -3265,6 +3265,317 @@ pub struct AsyncFunctionForOfIteratorPlanIr {
     exit_state: u32,
 }
 
+/// A synchronous generator's activation-owned Iterator Record and body
+/// continuation. Its states enclose every child suspension and reserve a
+/// separate exit after the final child state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorForOfIteratorPlanIr {
+    head: ForOfAssignmentIr,
+    record: IteratorRecordIr,
+    head_environment: Option<ForInOfEnvironmentIr>,
+    iteration_environment: ResumableLoopIterationEnvironmentIr,
+    body: Vec<StatementIr>,
+    entry_state: u32,
+    body_exit_state: u32,
+}
+
+impl GeneratorForOfIteratorPlanIr {
+    pub(crate) fn new(
+        head: ForOfAssignmentIr,
+        record: IteratorRecordIr,
+        head_environment: Option<ForInOfEnvironmentIr>,
+        body: Vec<StatementIr>,
+        entry_state: u32,
+        body_exit_state: u32,
+    ) -> Option<Self> {
+        let body_entry_state = entry_state.checked_add(1)?;
+        body_exit_state.checked_add(1)?;
+        if body_exit_state < body_entry_state {
+            return None;
+        }
+        if generator_continuation_sequence_exit(&body, body_entry_state)? != body_exit_state {
+            return None;
+        }
+        match head.mode {
+            BindingMode::Var if head_environment.is_some() => return None,
+            BindingMode::Let | BindingMode::Const if head_environment.is_none() => return None,
+            _ => {}
+        }
+        if let Some(environment) = &head_environment {
+            if environment.tdz_binding_names.len() != 1 {
+                return None;
+            }
+            if let Some(iteration) = &environment.iteration_environment {
+                let names = validate_async_function_for_of_environment(
+                    "generator for-of iteration environment",
+                    iteration,
+                    &[head.name.clone()],
+                )
+                .ok()?;
+                if names != [head.name.clone()] {
+                    return None;
+                }
+            } else if environment.tdz_environment.is_some() {
+                return None;
+            }
+        }
+        let iteration_environment = match head_environment
+            .as_ref()
+            .and_then(|environment| environment.iteration_environment.as_ref())
+        {
+            Some(environment) => {
+                ResumableLoopIterationEnvironmentIr::FreshPerIteration(environment.clone())
+            }
+            None => ResumableLoopIterationEnvironmentIr::StorageOnly,
+        };
+        Some(Self {
+            head,
+            record,
+            head_environment,
+            iteration_environment,
+            body,
+            entry_state,
+            body_exit_state,
+        })
+    }
+
+    pub fn head(&self) -> &ForOfAssignmentIr {
+        &self.head
+    }
+    pub fn record(&self) -> &IteratorRecordIr {
+        &self.record
+    }
+    pub fn head_environment(&self) -> Option<&ForInOfEnvironmentIr> {
+        self.head_environment.as_ref()
+    }
+    pub fn iteration_environment(&self) -> &ResumableLoopIterationEnvironmentIr {
+        &self.iteration_environment
+    }
+    pub fn body(&self) -> &[StatementIr] {
+        &self.body
+    }
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+    pub fn body_entry_state(&self) -> u32 {
+        self.entry_state + 1
+    }
+    pub fn body_exit_state(&self) -> u32 {
+        self.body_exit_state
+    }
+    pub fn exit_state(&self) -> u32 {
+        self.body_exit_state + 1
+    }
+}
+
+fn generator_continuation_sequence_exit(statements: &[StatementIr], mut state: u32) -> Option<u32> {
+    for statement in statements {
+        state = generator_continuation_statement_exit(statement, state)?;
+    }
+    Some(state)
+}
+
+fn generator_continuation_statement_exit(statement: &StatementIr, state: u32) -> Option<u32> {
+    match statement {
+        StatementIr::GeneratorYield {
+            suspend_state,
+            resume_state,
+            ..
+        } => (*suspend_state == state && *resume_state == state.checked_add(1)?)
+            .then_some(*resume_state),
+        StatementIr::GeneratorForOfIterator { plan, .. } => {
+            (plan.entry_state() == state).then_some(plan.exit_state())
+        }
+        StatementIr::GeneratorStructuredLoop { plan, .. } => {
+            if plan.entry_state() != state
+                || generator_continuation_statement_exit(plan.body(), plan.body_entry_state())?
+                    != plan.body_exit_state()
+            {
+                return None;
+            }
+            Some(plan.exit_state())
+        }
+        StatementIr::GeneratorStructuredIf { plan, .. } => {
+            if plan.entry_state() != state
+                || generator_continuation_statement_exit(
+                    plan.then_branch(),
+                    plan.then_entry_state(),
+                )? != plan.then_exit_state()
+            {
+                return None;
+            }
+            let else_exit = match plan.else_branch() {
+                Some(branch) => {
+                    generator_continuation_statement_exit(branch, plan.else_entry_state())?
+                }
+                None => plan.else_entry_state(),
+            };
+            (else_exit == plan.else_exit_state()).then_some(plan.exit_state())
+        }
+        StatementIr::Block(block) => generator_continuation_sequence_exit(&block.statements, state),
+        StatementIr::LexicalBlock(statements) => {
+            generator_continuation_sequence_exit(statements, state)
+        }
+        StatementIr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            if generator_continuation_statement_exit(then_branch, state)? != state
+                || else_branch.as_deref().is_some_and(|branch| {
+                    generator_continuation_statement_exit(branch, state) != Some(state)
+                })
+            {
+                return None;
+            }
+            Some(state)
+        }
+        StatementIr::For { body, .. }
+        | StatementIr::ForOfIterator { body, .. }
+        | StatementIr::While { body, .. }
+        | StatementIr::DoWhile { body, .. }
+        | StatementIr::ForInArray { body, .. }
+        | StatementIr::ForInString { body, .. }
+        | StatementIr::ForInObject { body, .. } => {
+            (generator_continuation_statement_exit(body, state)? == state).then_some(state)
+        }
+        StatementIr::GeneratorLoop {
+            entry_state,
+            exit_state,
+            ..
+        }
+        | StatementIr::GeneratorIf {
+            entry_state,
+            exit_state,
+            ..
+        } => (*entry_state == state && *exit_state > state).then_some(*exit_state),
+        StatementIr::AsyncAwait { .. }
+        | StatementIr::AsyncFunctionForOfIterator { .. }
+        | StatementIr::AsyncFunctionIf { .. }
+        | StatementIr::ResumableClassDefinition(_)
+        | StatementIr::AsyncModuleInstantiation
+        | StatementIr::ModuleUnitOnce { .. }
+        | StatementIr::SyncDisposableScope { .. }
+        | StatementIr::AsyncDisposableScope { .. }
+        | StatementIr::ParameterInitialization { .. }
+        | StatementIr::Switch { .. }
+        | StatementIr::Labelled { .. }
+        | StatementIr::TryCatch { .. }
+        | StatementIr::TryFinally { .. }
+        | StatementIr::TryCatchFinally { .. }
+        | StatementIr::Break { .. }
+        | StatementIr::Continue { .. } => None,
+        StatementIr::Empty
+        | StatementIr::ModuleImportBinding(_)
+        | StatementIr::Lexical { .. }
+        | StatementIr::AnnexBFunctionCopy { .. }
+        | StatementIr::Var(_)
+        | StatementIr::DeclarationEvaluation(_)
+        | StatementIr::Expression(_)
+        | StatementIr::Debugger
+        | StatementIr::Throw(_)
+        | StatementIr::Return(_) => Some(state),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorStructuredLoopPlanIr {
+    entry_state: u32,
+    body_exit_state: u32,
+    body: Box<StatementIr>,
+}
+
+impl GeneratorStructuredLoopPlanIr {
+    pub(crate) fn new(entry_state: u32, body_exit_state: u32, body: StatementIr) -> Option<Self> {
+        let body_entry_state = entry_state.checked_add(1)?;
+        body_exit_state.checked_add(1)?;
+        (body_exit_state >= body_entry_state
+            && generator_continuation_statement_exit(&body, body_entry_state)? == body_exit_state)
+            .then_some(Self {
+                entry_state,
+                body_exit_state,
+                body: Box::new(body),
+            })
+    }
+    pub fn body(&self) -> &StatementIr {
+        &self.body
+    }
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+    pub fn body_entry_state(&self) -> u32 {
+        self.entry_state + 1
+    }
+    pub fn body_exit_state(&self) -> u32 {
+        self.body_exit_state
+    }
+    pub fn exit_state(&self) -> u32 {
+        self.body_exit_state + 1
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratorStructuredIfPlanIr {
+    entry_state: u32,
+    then_exit_state: u32,
+    else_exit_state: u32,
+    then_branch: Box<StatementIr>,
+    else_branch: Option<Box<StatementIr>>,
+}
+
+impl GeneratorStructuredIfPlanIr {
+    pub(crate) fn new(
+        entry_state: u32,
+        then_exit_state: u32,
+        else_exit_state: u32,
+        then_branch: StatementIr,
+        else_branch: Option<Box<StatementIr>>,
+    ) -> Option<Self> {
+        let then_entry_state = entry_state.checked_add(1)?;
+        let else_entry_state = then_exit_state.checked_add(1)?;
+        else_exit_state.checked_add(1)?;
+        (then_exit_state >= then_entry_state
+            && else_exit_state >= else_entry_state
+            && generator_continuation_statement_exit(&then_branch, then_entry_state)?
+                == then_exit_state
+            && match else_branch.as_deref() {
+                Some(branch) => generator_continuation_statement_exit(branch, else_entry_state)?,
+                None => else_entry_state,
+            } == else_exit_state)
+            .then_some(Self {
+                entry_state,
+                then_exit_state,
+                else_exit_state,
+                then_branch: Box::new(then_branch),
+                else_branch,
+            })
+    }
+    pub fn then_branch(&self) -> &StatementIr {
+        &self.then_branch
+    }
+    pub fn else_branch(&self) -> Option<&StatementIr> {
+        self.else_branch.as_deref()
+    }
+    pub fn entry_state(&self) -> u32 {
+        self.entry_state
+    }
+    pub fn then_entry_state(&self) -> u32 {
+        self.entry_state + 1
+    }
+    pub fn then_exit_state(&self) -> u32 {
+        self.then_exit_state
+    }
+    pub fn else_entry_state(&self) -> u32 {
+        self.then_exit_state + 1
+    }
+    pub fn else_exit_state(&self) -> u32 {
+        self.else_exit_state
+    }
+    pub fn exit_state(&self) -> u32 {
+        self.else_exit_state + 1
+    }
+}
+
 impl AsyncFunctionForOfIteratorPlanIr {
     pub(crate) fn new(
         head: AsyncFunctionForOfIteratorHeadIr,
@@ -3776,6 +4087,16 @@ pub enum StatementIr {
         resume_state: u32,
         exit_state: u32,
     },
+    GeneratorStructuredLoop {
+        init: Option<ForInitIr>,
+        test: Option<TypedExpr>,
+        update: Option<TypedExpr>,
+        plan: GeneratorStructuredLoopPlanIr,
+    },
+    GeneratorForOfIterator {
+        iterable: TypedExpr,
+        plan: GeneratorForOfIteratorPlanIr,
+    },
     GeneratorIf {
         condition: TypedExpr,
         then_before_yield: Vec<StatementIr>,
@@ -3788,6 +4109,10 @@ pub enum StatementIr {
         then_resume_state: Option<u32>,
         else_resume_state: Option<u32>,
         exit_state: u32,
+    },
+    GeneratorStructuredIf {
+        condition: TypedExpr,
+        plan: GeneratorStructuredIfPlanIr,
     },
     Block(BlockIr),
     If {
@@ -4265,6 +4590,9 @@ impl StatementIr {
             | Self::AsyncAwait { .. }
             | Self::GeneratorLoop { .. }
             | Self::GeneratorIf { .. }
+            | Self::GeneratorStructuredLoop { .. }
+            | Self::GeneratorStructuredIf { .. }
+            | Self::GeneratorForOfIterator { .. }
             | Self::Block(_)
             | Self::If { .. }
             | Self::AsyncFunctionIf { .. }
@@ -5128,6 +5456,39 @@ impl IrSummaryCounts {
                 self.visit_statement(suspension_statement);
                 for statement in after_suspension {
                     self.visit_statement(statement);
+                }
+            }
+            StatementIr::GeneratorStructuredLoop {
+                init,
+                test,
+                update,
+                plan,
+            } => {
+                self.fors += 1;
+                if let Some(init) = init {
+                    self.visit_for_init(init);
+                }
+                if let Some(test) = test {
+                    self.visit_expr(test);
+                }
+                if let Some(update) = update {
+                    self.visit_expr(update);
+                }
+                self.visit_statement(plan.body());
+            }
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                self.fors += 1;
+                self.visit_expr(iterable);
+                for statement in plan.body() {
+                    self.visit_statement(statement);
+                }
+            }
+            StatementIr::GeneratorStructuredIf { condition, plan } => {
+                self.ifs += 1;
+                self.visit_expr(condition);
+                self.visit_statement(plan.then_branch());
+                if let Some(else_branch) = plan.else_branch() {
+                    self.visit_statement(else_branch);
                 }
             }
             StatementIr::GeneratorIf {

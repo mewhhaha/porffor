@@ -26,6 +26,10 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         let generator_entry_state = self.current_generator_resume_state;
+        let structured_generator_loop = generator_entry_state.is_some()
+            && contains(for_loop.body(), ContainsSymbol::YieldExpression)
+            && (self.generator_structured_depth > 0
+                || !simple_generator_loop_body_is_supported(for_loop.body()));
         let loop_head_has_await = async_disposable_head.is_none()
             && for_loop
                 .init()
@@ -141,7 +145,20 @@ impl<'a> ScriptLowerer<'a> {
             .final_expr()
             .map(|expr| self.lower_expression(expr));
         self.loop_depth -= 1;
+        if structured_generator_loop {
+            self.current_generator_resume_state =
+                generator_entry_state.map(|entry_state| entry_state + 1);
+        }
+        if structured_generator_loop {
+            self.generator_structured_depth += 1;
+        }
         let (body, body_kind) = self.lower_loop_body(for_loop.body());
+        if structured_generator_loop {
+            self.generator_structured_depth -= 1;
+        }
+        let structured_body_exit_state = structured_generator_loop
+            .then_some(self.current_generator_resume_state)
+            .flatten();
         if let Some(pending) = pending_async_disposable_init {
             init = Some(ForInitIr::AsyncDisposable(
                 self.finish_async_disposable_for_init(pending),
@@ -157,6 +174,30 @@ impl<'a> ScriptLowerer<'a> {
             self.var_bindings = self.merge_var_bindings(&before_vars, &self.var_bindings.clone());
             self.global_properties =
                 self.merge_global_properties(&before_globals, &self.global_properties.clone());
+        }
+
+        if let (Some(entry_state), Some(body_exit_state)) =
+            (generator_entry_state, structured_body_exit_state)
+        {
+            if lexical_environment.is_some() {
+                self.unsupported("generator loop with a captured lexical head");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            }
+            let Some(plan) = GeneratorStructuredLoopPlanIr::new(entry_state, body_exit_state, body)
+            else {
+                self.unsupported("generator loop continuation state overflow");
+                return (StatementIr::Empty, ValueKind::Undefined);
+            };
+            self.current_generator_resume_state = Some(plan.exit_state());
+            return (
+                StatementIr::GeneratorStructuredLoop {
+                    init,
+                    test,
+                    update,
+                    plan,
+                },
+                body_kind,
+            );
         }
 
         if let Some(entry_state) = generator_entry_state.or(if plain_async_await_loop {

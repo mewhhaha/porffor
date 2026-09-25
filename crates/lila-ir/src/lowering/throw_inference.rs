@@ -336,6 +336,86 @@ impl<'a> ScriptLowerer<'a> {
                 }
                 info
             }
+            StatementIr::GeneratorStructuredLoop {
+                init,
+                test,
+                update,
+                plan,
+            } => {
+                let mut info = init.as_ref().and_then(|init| match init {
+                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+                        self.infer_expr_throw_info(init)
+                    }
+                    ForInitIr::LexicalBlock(bindings) => {
+                        bindings.iter().fold(None, |info, binding| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&binding.init),
+                            )
+                        })
+                    }
+                    ForInitIr::Var(decls) => decls.iter().fold(None, |info, decl| {
+                        self.merge_optional_value_info(
+                            info,
+                            decl.init
+                                .as_ref()
+                                .and_then(|init| self.infer_expr_throw_info(init)),
+                        )
+                    }),
+                    ForInitIr::Statements(statements) => {
+                        statements.iter().fold(None, |info, statement| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_statement_throw_info(statement),
+                            )
+                        })
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        resources.iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(&resource.initializer),
+                            )
+                        })
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        init.resources().iter().fold(None, |info, resource| {
+                            self.merge_optional_value_info(
+                                info,
+                                self.infer_expr_throw_info(resource.initializer()),
+                            )
+                        })
+                    }
+                });
+                for expression in [test.as_ref(), update.as_ref()].into_iter().flatten() {
+                    info = self
+                        .merge_optional_value_info(info, self.infer_expr_throw_info(expression));
+                }
+                self.merge_optional_value_info(info, self.infer_statement_throw_info(plan.body()))
+            }
+            StatementIr::GeneratorStructuredIf { condition, plan } => {
+                let mut info = self.merge_optional_value_info(
+                    self.infer_expr_throw_info(condition),
+                    self.infer_statement_throw_info(plan.then_branch()),
+                );
+                if let Some(else_branch) = plan.else_branch() {
+                    info = self.merge_optional_value_info(
+                        info,
+                        self.infer_statement_throw_info(else_branch),
+                    );
+                }
+                info
+            }
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                plan.body()
+                    .iter()
+                    .fold(self.infer_expr_throw_info(iterable), |info, statement| {
+                        self.merge_optional_value_info(
+                            info,
+                            self.infer_statement_throw_info(statement),
+                        )
+                    })
+            }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 let mut info = self.infer_expr_throw_info(iterable);
                 for statement in plan.body().statements() {

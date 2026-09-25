@@ -143,6 +143,23 @@ impl<'a> ScriptLowerer<'a> {
 
     fn lower_for_of_head(&mut self, for_of: &ForOfLoop) -> ForOfLoweringIr {
         let uses_unified_resumable_plan = for_of.r#await() && self.current_resumable_plan.is_some();
+        let generator_entry_state = self.current_generator_resume_state.filter(|_| {
+            self.current_resumable_plan.is_none()
+                && !for_of.r#await()
+                && contains(for_of.body(), ContainsSymbol::YieldExpression)
+        });
+        let generator_identifier_head = match for_of.initializer() {
+            IterableLoopInitializer::Let(Binding::Identifier(_))
+            | IterableLoopInitializer::Const(Binding::Identifier(_)) => true,
+            IterableLoopInitializer::Var(variable) => {
+                matches!(variable.binding(), Binding::Identifier(_))
+            }
+            _ => false,
+        };
+        if generator_entry_state.is_some() && !generator_identifier_head {
+            self.unsupported("resumable generator for-of requires an identifier binding head");
+            return ForOfLoweringIr::no_iteration();
+        }
         if for_of.r#await()
             && !uses_unified_resumable_plan
             && self.current_async_resume_state.is_none()
@@ -548,7 +565,20 @@ impl<'a> ScriptLowerer<'a> {
             Vec::new()
         };
         let plain_async_entry_state = self.plain_async_entry_state();
+        if let Some(entry_state) = generator_entry_state {
+            self.current_generator_resume_state = Some(entry_state + 1);
+        }
+        if generator_entry_state.is_some() {
+            self.generator_structured_depth += 1;
+        }
         let (mut body, body_kind) = self.lower_loop_body(for_of.body());
+        if generator_entry_state.is_some() {
+            self.generator_structured_depth -= 1;
+        }
+        let generator_body_exit_state = generator_entry_state.map(|_| {
+            self.current_generator_resume_state
+                .expect("generator body retains state")
+        });
         let async_disposable_head = pending_async_disposable_head
             .map(|pending| self.finish_async_disposable_for_of_head(pending));
         let async_generator_close_suspension = uses_unified_resumable_plan
@@ -573,6 +603,48 @@ impl<'a> ScriptLowerer<'a> {
         let after_globals = self.global_properties.clone();
         self.var_bindings = self.merge_var_bindings(&before_vars, &after_vars);
         self.global_properties = self.merge_global_properties(&before_globals, &after_globals);
+        if let (Some(entry_state), Some(body_exit_state)) =
+            (generator_entry_state, generator_body_exit_state)
+        {
+            let record = IteratorRecordIr::new(
+                self.alloc_iterator_slot(),
+                self.alloc_next_method_slot(),
+                self.alloc_done_slot(),
+            );
+            let statements = match body {
+                StatementIr::Block(block) if block.lexical_environment.is_none() => {
+                    block.statements
+                }
+                StatementIr::LexicalBlock(statements) => statements,
+                statement => vec![statement],
+            };
+            let Some(plan) = GeneratorForOfIteratorPlanIr::new(
+                ForOfAssignmentIr {
+                    mode,
+                    name: storage_name.clone(),
+                },
+                record,
+                lexical_environment,
+                flatten_suspending_lexical_blocks(statements),
+                entry_state,
+                body_exit_state,
+            ) else {
+                self.unsupported("generator for-of continuation state overflow");
+                return ForOfLoweringIr::no_iteration();
+            };
+            if matches!(
+                plan.iteration_environment(),
+                ResumableLoopIterationEnvironmentIr::StorageOnly
+            ) {
+                self.add_suspension_owned_binding(storage_name);
+            }
+            self.current_generator_resume_state = Some(plan.exit_state());
+            return ForOfLoweringIr::new(
+                StatementIr::GeneratorForOfIterator { iterable, plan },
+                body_kind,
+                IteratorProtocolWitness::RESUMABLE_SYNC_ITERATOR_PROTOCOL,
+            );
+        }
         if plain_async_await_body {
             let head = if let (
                 Some((pattern_mode @ (BindingMode::Let | BindingMode::Const), _)),

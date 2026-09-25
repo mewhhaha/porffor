@@ -17,7 +17,11 @@ fn assert_generator_trace(source: &str, expected: &[&str]) {
         )
         .expect("generator loop must compile and execute through Wasm AOT");
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
-    assert!(matches!(outcome.completion, ObservedCompletion::Normal(_)));
+    assert!(
+        matches!(&outcome.completion, ObservedCompletion::Normal(_)),
+        "completion: {:?}\nsource:\n{source}",
+        outcome.completion
+    );
     let expected = expected
         .iter()
         .map(|line| HostOutputEvent::PrintLine((*line).to_string()))
@@ -219,5 +223,234 @@ fn array_from_async_array_like_path_preserves_try_block_lexicals_across_await() 
 void 0;
 "#,
         &["0,1,2:true", "restored:true"],
+    );
+}
+
+#[test]
+fn nested_for_of_generator_resumes_without_restarting_either_iterable() {
+    assert_generator_trace(
+        r#"
+let outerReads = 0;
+let innerReads = 0;
+function* product(xs, ys) {
+  for (let x of xs) {
+    for (let y of ys) {
+      yield x + ':' + y;
+    }
+  }
+}
+const xs = { [Symbol.iterator]() { outerReads++; return [1, 2][Symbol.iterator](); } };
+const ys = { [Symbol.iterator]() { innerReads++; return ['a', 'b'][Symbol.iterator](); } };
+const p = product(xs, ys);
+for (let i = 0; i < 5; i++) {
+  const result = p.next();
+  print(result.value + ':' + result.done);
+}
+print('reads:' + outerReads + ':' + innerReads);
+"#,
+        &[
+            "1:a:false",
+            "1:b:false",
+            "2:a:false",
+            "2:b:false",
+            "undefined:true",
+            "reads:1:2",
+        ],
+    );
+}
+
+#[test]
+fn nested_if_for_and_for_of_generator_keeps_branch_and_loop_progress() {
+    assert_generator_trace(
+        r#"
+function* permutations(items) {
+  if (items.length === 0) {
+    yield [];
+  } else {
+    for (let i = 0; i < items.length; i++) {
+      let tail = items.slice();
+      let head = tail.splice(i, 1);
+      for (let rest of permutations(tail)) {
+        yield head.concat(rest);
+      }
+    }
+  }
+}
+print(Array.from(permutations([1, 2, 3]), x => x.join('')).join(','));
+"#,
+        &["123,132,213,231,312,321"],
+    );
+}
+
+#[test]
+fn nested_generator_for_of_closes_each_active_iterator_on_return_and_throw() {
+    assert_generator_trace(
+        r#"
+const log = [];
+function iter(label) {
+  let step = 0;
+  return {
+    [Symbol.iterator]() { return this; },
+    next() { return step++ < 2 ? { value: label + step, done: false } : { done: true }; },
+    return() { log.push(label); return { done: true }; }
+  };
+}
+function* values() {
+  for (let x of iter('outer')) {
+    for (let y of iter('inner')) yield x + y;
+  }
+}
+const returned = values();
+print(returned.next().value);
+print(returned.return(9).value + ':' + returned.next().done);
+print(log.join(','));
+log.length = 0;
+const thrown = values();
+print(thrown.next().value);
+const marker = {};
+try { thrown.throw(marker); } catch (error) { print('same:' + (error === marker)); }
+print(log.join(','));
+"#,
+        &[
+            "outer1inner1",
+            "9:true",
+            "inner,outer",
+            "outer1inner1",
+            "same:true",
+            "inner,outer",
+        ],
+    );
+}
+
+#[test]
+fn generator_for_of_captured_lexicals_keep_distinct_iteration_cells() {
+    assert_generator_trace(
+        r#"
+const reads = [];
+function* values() {
+  for (let x of [3, 4]) {
+    reads.push(() => x);
+    yield x;
+  }
+}
+
+const g = values();
+print(g.next().value);
+print(g.next().value);
+print(g.next().done);
+print(reads.map(read => read()).join(','));
+"#,
+        &["3", "4", "true", "3,4"],
+    );
+}
+
+#[test]
+fn generator_for_of_iterator_errors_follow_close_precedence() {
+    assert_generator_trace(
+        r#"
+function* values(iterable) { for (const value of iterable) yield value; }
+function iterator(next, close) {
+  return { [Symbol.iterator]() { return this; }, next, return: close };
+}
+
+const nextError = {};
+let nextCloses = 0;
+const badNext = values(iterator(
+  () => { throw nextError; },
+  () => { nextCloses++; return { done: true }; }
+));
+try { badNext.next(); } catch (error) { print('next:' + (error === nextError)); }
+print('next-close:' + nextCloses);
+
+const valueError = {};
+let valueCloses = 0;
+const badValue = values(iterator(
+  () => ({ done: false, get value() { throw valueError; } }),
+  () => { valueCloses++; return { done: true }; }
+));
+try { badValue.next(); } catch (error) { print('value:' + (error === valueError)); }
+print('value-close:' + valueCloses);
+
+const thrown = {};
+const closeError = {};
+let throwCloses = 0;
+const badThrow = values(iterator(
+  () => ({ value: 1, done: false }),
+  () => { throwCloses++; throw closeError; }
+));
+badThrow.next();
+try { badThrow.throw(thrown); } catch (error) { print('throw:' + (error === thrown)); }
+print('throw-close:' + throwCloses);
+
+let returnCloses = 0;
+const badReturn = values(iterator(
+  () => ({ value: 1, done: false }),
+  () => { returnCloses++; throw closeError; }
+));
+badReturn.next();
+try { badReturn.return(9); } catch (error) { print('return:' + (error === closeError)); }
+print('return-close:' + returnCloses);
+
+let primitiveCloses = 0;
+const primitiveReturn = values(iterator(
+  () => ({ value: 1, done: false }),
+  () => { primitiveCloses++; return 7; }
+));
+primitiveReturn.next();
+try { primitiveReturn.return(9); } catch (error) { print('primitive:' + (error instanceof TypeError)); }
+print('primitive-close:' + primitiveCloses);
+"#,
+        &[
+            "next:true",
+            "next-close:0",
+            "value:true",
+            "value-close:0",
+            "throw:true",
+            "throw-close:1",
+            "return:true",
+            "return-close:1",
+            "primitive:true",
+            "primitive-close:1",
+        ],
+    );
+}
+
+#[test]
+fn nested_generator_mixes_inert_and_direct_yield_children() {
+    assert_generator_trace(
+        r#"
+function* values(xs) {
+  for (let x of xs) {
+    if (x === 1) print('inert-if');
+    for (let j = 0; j < 1; j++) print('inert-for:' + j);
+    for (let v of [x]) print('inert-of:' + v);
+    if (x > 0) yield 'if:' + x;
+    for (let k = 0; k < 1; k++) yield 'for:' + x + ':' + k;
+    if (true) { for (let z of [x]) yield 'constant:' + z; }
+    yield 'tail:' + x;
+  }
+}
+const g = values([1, 2]);
+for (let n = 0; n < 9; n++) {
+  const result = g.next();
+  print(result.value + ':' + result.done);
+}
+"#,
+        &[
+            "inert-if",
+            "inert-for:0",
+            "inert-of:1",
+            "if:1:false",
+            "for:1:0:false",
+            "constant:1:false",
+            "tail:1:false",
+            "inert-for:0",
+            "inert-of:2",
+            "if:2:false",
+            "for:2:0:false",
+            "constant:2:false",
+            "tail:2:false",
+            "undefined:true",
+        ],
     );
 }

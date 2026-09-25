@@ -1109,6 +1109,9 @@ pub(crate) struct ScriptLowerer<'a> {
     current_param_names: Vec<String>,
     current_return: Option<FunctionReturnObservation>,
     current_generator_resume_state: Option<u32>,
+    /// Nested structured generator owners choose the same state layout as the
+    /// recursive source planner, including direct-yield child loops/branches.
+    generator_structured_depth: u32,
     current_async_resume_state: Option<u32>,
     current_resumable_plan: Option<ResumablePlanIr>,
     next_resumable_suspension_index: usize,
@@ -1527,6 +1530,7 @@ impl<'a> ScriptLowerer<'a> {
             current_param_names: Vec::new(),
             current_return: None,
             current_generator_resume_state: None,
+            generator_structured_depth: 0,
             current_async_resume_state: None,
             current_resumable_plan: None,
             next_resumable_suspension_index: 0,

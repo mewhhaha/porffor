@@ -716,13 +716,11 @@ pub(crate) enum GeneratorPlanRejection {
     LoopControlFlow,
     /// `if (<condition containing a yield>)`.
     YieldInIfCondition,
-    /// An `if` branch whose yields are not a countable direct sequence.
-    IfBranchYieldNotDirect,
     /// A `try`, `catch` or `finally` block whose yields are not a countable
     /// direct sequence.
     YieldInTryStatement,
     /// Any other statement kind that contains a yield: `switch`, labelled
-    /// statements, `do`-`while`, `for`-`in`, `for`-`of`, and so on.
+    /// statements, `do`-`while`, `for`-`in`, and so on.
     YieldInUnsupportedStatement,
 }
 
@@ -790,11 +788,6 @@ impl GeneratorPlanRejection {
                 "generator body: a yield in an `if` condition has no linear suspension plan",
                 None,
             ),
-            Self::IfBranchYieldNotDirect => (
-                "generator body: an `if` branch whose yields are not a direct sequence has no \
-                 linear suspension plan",
-                None,
-            ),
             Self::YieldInTryStatement => (
                 "generator body: a `try`/`catch`/`finally` block whose yields are not a direct \
                  sequence has no linear suspension plan",
@@ -802,7 +795,7 @@ impl GeneratorPlanRejection {
             ),
             Self::YieldInUnsupportedStatement => (
                 "generator body: a yield inside a statement kind with no resumable lowering \
-                 (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear \
+                 (`switch`, a label, `do`-`while`, `for`-`in`) has no linear \
                  suspension plan",
                 None,
             ),
@@ -934,7 +927,19 @@ pub(crate) fn linear_generator_plan_with_reason(
         };
         if let Some((loop_body, reject_nested_functions, loop_statement)) = loop_shape {
             if !simple_generator_loop_body_is_supported(loop_body) {
-                return Err(GeneratorPlanRejection::LoopBodyYieldNotDirect);
+                if !contains(loop_body, ContainsSymbol::YieldExpression) {
+                    continue;
+                }
+                if generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions)
+                {
+                    return Err(GeneratorPlanRejection::LoopControlFlow);
+                }
+                append_nested_generator_statement_suspensions(
+                    statement.as_ref(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                continue;
             }
             if generator_loop_has_unsupported_construct(loop_statement, reject_nested_functions) {
                 return Err(GeneratorPlanRejection::LoopControlFlow);
@@ -974,12 +979,18 @@ pub(crate) fn linear_generator_plan_with_reason(
             if contains(if_statement.cond(), ContainsSymbol::YieldExpression) {
                 return Err(GeneratorPlanRejection::YieldInIfCondition);
             }
-            let then_yields = simple_generator_if_branch_yield_count(if_statement.body())
-                .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?;
+            let then_yields = simple_generator_if_branch_yield_count(if_statement.body());
             let else_yields = match if_statement.else_node() {
-                Some(branch) => simple_generator_if_branch_yield_count(branch)
-                    .ok_or(GeneratorPlanRejection::IfBranchYieldNotDirect)?,
-                None => 0,
+                Some(branch) => simple_generator_if_branch_yield_count(branch),
+                None => Some(0),
+            };
+            let (Some(then_yields), Some(else_yields)) = (then_yields, else_yields) else {
+                append_nested_generator_statement_suspensions(
+                    statement.as_ref(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                continue;
             };
             let yield_count = then_yields + else_yields;
             if yield_count == 0 {
@@ -993,6 +1004,16 @@ pub(crate) fn linear_generator_plan_with_reason(
             }
             current_state += yield_count as u32 + 1;
             continue;
+        }
+        if let Statement::ForOfLoop(for_of) = statement.as_ref() {
+            if !for_of.r#await() && contains(for_of.body(), ContainsSymbol::YieldExpression) {
+                append_nested_generator_statement_suspensions(
+                    statement.as_ref(),
+                    &mut current_state,
+                    &mut suspension_points,
+                )?;
+                continue;
+            }
         }
         if let Statement::Try(try_statement) = statement.as_ref() {
             append_structured_generator_suspensions(
@@ -1028,6 +1049,122 @@ pub(crate) fn linear_generator_plan_with_reason(
         state_count: current_state + 1,
         suspension_points,
     })
+}
+
+/// Reserve a distinct entry and exit for each structured owner. A child may
+/// resume anywhere in its interval; its parent must not re-evaluate the loop
+/// head or branch condition when that happens.
+fn append_nested_generator_statement_suspensions(
+    statement: &Statement,
+    current_state: &mut u32,
+    suspension_points: &mut Vec<GeneratorSuspensionPointIr>,
+) -> Result<(), GeneratorPlanRejection> {
+    match statement {
+        Statement::Block(block) => {
+            for item in block.statement_list().statements() {
+                match item {
+                    StatementListItem::Statement(statement) => {
+                        append_nested_generator_statement_suspensions(
+                            statement,
+                            current_state,
+                            suspension_points,
+                        )?;
+                    }
+                    item if contains(item, ContainsSymbol::YieldExpression) => {
+                        return Err(GeneratorPlanRejection::YieldInDeclaration);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Statement::Expression(Expression::Yield(yield_expression)) => {
+            append_direct_generator_yield_suspensions(
+                yield_expression.target(),
+                true,
+                current_state,
+                suspension_points,
+            )?;
+        }
+        Statement::ForOfLoop(for_of) if !for_of.r#await() => {
+            if contains(for_of.iterable(), ContainsSymbol::YieldExpression)
+                || contains(for_of.initializer(), ContainsSymbol::YieldExpression)
+            {
+                return Err(GeneratorPlanRejection::YieldInUnsupportedStatement);
+            }
+            if generator_loop_has_unsupported_construct(for_of, false) {
+                return Err(GeneratorPlanRejection::LoopControlFlow);
+            }
+            if !contains(for_of.body(), ContainsSymbol::YieldExpression) {
+                return Ok(());
+            }
+            *current_state += 1;
+            append_nested_generator_statement_suspensions(
+                for_of.body(),
+                current_state,
+                suspension_points,
+            )?;
+            *current_state += 1;
+        }
+        Statement::ForLoop(for_loop) => {
+            if for_loop
+                .init()
+                .is_some_and(|init| contains(init, ContainsSymbol::YieldExpression))
+                || for_loop
+                    .condition()
+                    .is_some_and(|test| contains(test, ContainsSymbol::YieldExpression))
+                || for_loop
+                    .final_expr()
+                    .is_some_and(|update| contains(update, ContainsSymbol::YieldExpression))
+            {
+                return Err(GeneratorPlanRejection::YieldInUnsupportedStatement);
+            }
+            if generator_loop_has_unsupported_construct(for_loop, false) {
+                return Err(GeneratorPlanRejection::LoopControlFlow);
+            }
+            if !contains(for_loop.body(), ContainsSymbol::YieldExpression) {
+                return Ok(());
+            }
+            *current_state += 1;
+            append_nested_generator_statement_suspensions(
+                for_loop.body(),
+                current_state,
+                suspension_points,
+            )?;
+            *current_state += 1;
+        }
+        Statement::If(branch) => {
+            if contains(branch.cond(), ContainsSymbol::YieldExpression) {
+                return Err(GeneratorPlanRejection::YieldInIfCondition);
+            }
+            if !contains(branch.body(), ContainsSymbol::YieldExpression)
+                && !branch.else_node().is_some_and(|else_branch| {
+                    contains(else_branch, ContainsSymbol::YieldExpression)
+                })
+            {
+                return Ok(());
+            }
+            *current_state += 1;
+            append_nested_generator_statement_suspensions(
+                branch.body(),
+                current_state,
+                suspension_points,
+            )?;
+            *current_state += 1;
+            if let Some(else_branch) = branch.else_node() {
+                append_nested_generator_statement_suspensions(
+                    else_branch,
+                    current_state,
+                    suspension_points,
+                )?;
+            }
+            *current_state += 1;
+        }
+        statement if contains(statement, ContainsSymbol::YieldExpression) => {
+            return Err(GeneratorPlanRejection::YieldInUnsupportedStatement);
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn append_structured_generator_suspensions(
@@ -1400,7 +1537,7 @@ fn append_discarded_generator_expression_suspensions(
     }
 }
 
-fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
+pub(crate) fn simple_generator_if_branch_yield_count(branch: &Statement) -> Option<usize> {
     let statements = match branch {
         Statement::Block(block) => block.statement_list().statements(),
         _ => {

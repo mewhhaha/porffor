@@ -484,6 +484,13 @@ fn statement_contains_this_before_super(
                 statement_contains_this_before_super(else_branch, state);
             }
         }
+        StatementIr::GeneratorStructuredIf { condition, plan } => {
+            expr_contains_this_before_super(condition, state);
+            statement_contains_this_before_super(plan.then_branch(), state);
+            if let Some(else_branch) = plan.else_branch() {
+                statement_contains_this_before_super(else_branch, state);
+            }
+        }
         StatementIr::While { condition, body } => {
             expr_contains_this_before_super(condition, state);
             statement_contains_this_before_super(body, state);
@@ -540,6 +547,54 @@ fn statement_contains_this_before_super(
                 expr_contains_this_before_super(update, state);
             }
             statement_contains_this_before_super(body, state);
+        }
+        StatementIr::GeneratorStructuredLoop {
+            init,
+            test,
+            update,
+            plan,
+        } => {
+            if let Some(init) = init {
+                match init {
+                    ForInitIr::Lexical { init, .. } | ForInitIr::Expression(init) => {
+                        expr_contains_this_before_super(init, state);
+                    }
+                    ForInitIr::LexicalBlock(bindings) => {
+                        for binding in bindings {
+                            expr_contains_this_before_super(&binding.init, state);
+                        }
+                    }
+                    ForInitIr::Var(decls) => {
+                        for decl in decls {
+                            if let Some(init) = &decl.init {
+                                expr_contains_this_before_super(init, state);
+                            }
+                        }
+                    }
+                    ForInitIr::Statements(statements) => {
+                        for statement in statements {
+                            statement_contains_this_before_super(statement, state);
+                        }
+                    }
+                    ForInitIr::SyncDisposable(resources) => {
+                        for resource in resources.iter() {
+                            expr_contains_this_before_super(&resource.initializer, state);
+                        }
+                    }
+                    ForInitIr::AsyncDisposable(init) => {
+                        for resource in init.resources().iter() {
+                            expr_contains_this_before_super(resource.initializer(), state);
+                        }
+                    }
+                }
+            }
+            if let Some(test) = test {
+                expr_contains_this_before_super(test, state);
+            }
+            if let Some(update) = update {
+                expr_contains_this_before_super(update, state);
+            }
+            statement_contains_this_before_super(plan.body(), state);
         }
         StatementIr::GeneratorLoop {
             init,
@@ -623,6 +678,15 @@ fn statement_contains_this_before_super(
         StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
             expr_contains_this_before_super(iterable, state);
             for statement in plan.body().statements() {
+                if state.saw_super {
+                    break;
+                }
+                statement_contains_this_before_super(statement, state);
+            }
+        }
+        StatementIr::GeneratorForOfIterator { iterable, plan } => {
+            expr_contains_this_before_super(iterable, state);
+            for statement in plan.body() {
                 if state.saw_super {
                     break;
                 }

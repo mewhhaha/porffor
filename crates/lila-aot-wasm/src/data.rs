@@ -3601,6 +3601,38 @@ impl StringPool {
                     self.collect_statement(statement);
                 }
             }
+            StatementIr::GeneratorStructuredLoop {
+                init,
+                test,
+                update,
+                plan,
+            } => {
+                if let Some(init) = init {
+                    self.collect_for_init(init);
+                }
+                if let Some(test) = test {
+                    self.collect_expr(test);
+                }
+                if let Some(update) = update {
+                    self.collect_expr(update);
+                }
+                self.collect_statement(plan.body());
+            }
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                self.collect_for_in_of_environment(plan.head_environment());
+                self.collect_resumable_iteration_environment(plan.iteration_environment());
+                self.collect_expr(iterable);
+                for statement in plan.body() {
+                    self.collect_statement(statement);
+                }
+            }
+            StatementIr::GeneratorStructuredIf { condition, plan } => {
+                self.collect_expr(condition);
+                self.collect_statement(plan.then_branch());
+                if let Some(else_branch) = plan.else_branch() {
+                    self.collect_statement(else_branch);
+                }
+            }
             StatementIr::AsyncFunctionForOfIterator { iterable, plan } => {
                 self.collect_for_in_of_environment(plan.head_environment());
                 self.collect_resumable_iteration_environment(plan.iteration_environment());

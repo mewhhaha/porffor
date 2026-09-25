@@ -152,6 +152,9 @@ fn statement_preserves_caller_flow(statement: &StatementIr) -> bool {
             resume_state: _resume_state,
             exit_state: _exit_state,
         } => false,
+        StatementIr::GeneratorStructuredLoop { .. }
+        | StatementIr::GeneratorStructuredIf { .. }
+        | StatementIr::GeneratorForOfIterator { .. } => false,
         StatementIr::GeneratorIf {
             condition: _condition,
             then_before_yield: _then_before_yield,

@@ -149,6 +149,9 @@ fn validate(statement: &StatementIr) -> Result<(), SynchronousLoopBodyError> {
         | StatementIr::AsyncModuleInstantiation
         | StatementIr::GeneratorLoop { .. }
         | StatementIr::GeneratorIf { .. }
+        | StatementIr::GeneratorStructuredLoop { .. }
+        | StatementIr::GeneratorStructuredIf { .. }
+        | StatementIr::GeneratorForOfIterator { .. }
         | StatementIr::AsyncFunctionIf { .. }
         | StatementIr::AsyncFunctionForOfIterator { .. } => {
             Err(SynchronousLoopBodyError::ContinuationOwner)

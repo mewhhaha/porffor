@@ -10,8 +10,10 @@ use lila_ir::{
     AsyncFunctionAsyncDisposableForOfCapabilityIr, AsyncFunctionForOfIteratorPlanIr,
     AsyncFunctionForOfIteratorValueStorageIr, AsyncFunctionSyncDisposableCapabilityIr,
     AsyncGeneratorAsyncDisposableCapabilityIr, AsyncGeneratorSyncDisposableCapabilityIr,
-    AsyncResumeModeIr, AsyncTryPlanIr, ForOfAssignmentIr, ForOfIteratorHeadIr,
-    IdentifierWriteErrorIr, ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
+    AsyncResumeModeIr, AsyncTryPlanIr, ForInOfEnvironmentIr, ForOfAssignmentIr,
+    ForOfIteratorHeadIr, GeneratorForOfIteratorPlanIr, GeneratorStructuredIfPlanIr,
+    GeneratorStructuredLoopPlanIr, IdentifierWriteErrorIr, IteratorRecordIr,
+    ObjectDestructuringPatternIr, PlainGeneratorSyncDisposableCapabilityIr,
     ResumableLoopIterationEnvironmentIr, SyncDisposableForOfHeadIr, SyncDisposableResourceIr,
     SyncDisposableResourcesIr, SyncDisposableScopeExecutionIr, SynchronousLoopBodyIr,
 };
@@ -24,6 +26,7 @@ mod constant_number_condition;
 mod for_await_iteration_environment;
 mod for_await_iterator_symbol;
 mod for_in;
+mod generator_nested;
 mod resumable_array_destructuring;
 pub(crate) use for_in::{
     FOR_IN_ENUMERATOR_TEMP_LOCALS, FOR_IN_INTERNAL_METHOD_TEMP_LOCALS, FOR_IN_INTRINSICS,
@@ -1493,6 +1496,9 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::GeneratorYield { suspend_state, .. } => Some(*suspend_state),
             StatementIr::GeneratorLoop { entry_state, .. }
             | StatementIr::GeneratorIf { entry_state, .. } => Some(*entry_state),
+            StatementIr::GeneratorStructuredLoop { plan, .. } => Some(plan.entry_state()),
+            StatementIr::GeneratorStructuredIf { plan, .. } => Some(plan.entry_state()),
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.entry_state()),
             StatementIr::LexicalBlock(statements) => statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
@@ -1575,6 +1581,9 @@ impl<'a> FunctionBuilder<'a> {
             StatementIr::GeneratorYield { resume_state, .. } => Some(*resume_state),
             StatementIr::GeneratorLoop { exit_state, .. }
             | StatementIr::GeneratorIf { exit_state, .. } => Some(*exit_state),
+            StatementIr::GeneratorStructuredLoop { plan, .. } => Some(plan.exit_state()),
+            StatementIr::GeneratorStructuredIf { plan, .. } => Some(plan.exit_state()),
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.exit_state()),
             StatementIr::LexicalBlock(statements) => statements
                 .iter()
                 .rev()
@@ -1691,6 +1700,9 @@ impl<'a> FunctionBuilder<'a> {
                 .find_map(Self::generator_statement_entry_state),
             StatementIr::GeneratorLoop { entry_state, .. }
             | StatementIr::GeneratorIf { entry_state, .. } => Some(*entry_state),
+            StatementIr::GeneratorStructuredLoop { plan, .. } => Some(plan.entry_state()),
+            StatementIr::GeneratorStructuredIf { plan, .. } => Some(plan.entry_state()),
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.entry_state()),
             StatementIr::TryCatch {
                 generator_plan: Some(plan),
                 ..
@@ -1738,6 +1750,9 @@ impl<'a> FunctionBuilder<'a> {
                 .find_map(Self::generator_statement_exit_state),
             StatementIr::GeneratorLoop { exit_state, .. }
             | StatementIr::GeneratorIf { exit_state, .. } => Some(*exit_state),
+            StatementIr::GeneratorStructuredLoop { plan, .. } => Some(plan.exit_state()),
+            StatementIr::GeneratorStructuredIf { plan, .. } => Some(plan.exit_state()),
+            StatementIr::GeneratorForOfIterator { plan, .. } => Some(plan.exit_state()),
             StatementIr::TryCatch {
                 generator_plan: Some(plan),
                 ..
@@ -3232,6 +3247,24 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 }
                 function.instruction(&Instruction::End);
+            }
+            StatementIr::GeneratorStructuredLoop {
+                init,
+                test,
+                update,
+                plan,
+            } => self.compile_generator_structured_loop(
+                init.as_ref(),
+                test.as_ref(),
+                update.as_ref(),
+                plan,
+                function,
+            )?,
+            StatementIr::GeneratorForOfIterator { iterable, plan } => {
+                self.compile_generator_for_of_iterator(iterable, plan, function)?;
+            }
+            StatementIr::GeneratorStructuredIf { condition, plan } => {
+                self.compile_generator_structured_if(condition, plan, function)?
             }
             StatementIr::GeneratorLoop {
                 init,
