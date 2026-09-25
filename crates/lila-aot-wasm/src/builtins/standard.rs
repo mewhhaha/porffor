@@ -23394,6 +23394,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64Const(Ieee64::from(-1.0)));
                 function.instruction(&Instruction::F64Lt);
                 function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::LocalGet(offset_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(
+                    9_007_199_254_740_991.0,
+                )));
+                function.instruction(&Instruction::F64Gt);
+                function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_range_error(
                     "DataView byteOffset out of bounds",
@@ -23425,7 +23432,21 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(byte_offset_local));
                 function.instruction(&Instruction::End);
 
+                // The detached check precedes the offset bound: a byteOffset
+                // coercion that detaches the buffer is a TypeError, not a
+                // RangeError against the emptied length.
                 self.emit_load_array_buffer_data(buffer_payload_local, data_ptr_local, function);
+                function.instruction(&Instruction::LocalGet(data_ptr_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "DataView backing buffer is detached",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
                 self.emit_load_array_buffer_byte_length(
                     buffer_payload_local,
                     buffer_byte_length_local,
@@ -23437,17 +23458,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_range_error(
                     "DataView byteOffset out of bounds",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_return_current_completion(function);
-                function.instruction(&Instruction::End);
-                function.instruction(&Instruction::LocalGet(data_ptr_local));
-                function.instruction(&Instruction::I64Eqz);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_throw_current_function_realm_type_error(
-                    "DataView backing buffer is detached",
                     self.result_local,
                     self.result_tag_local,
                     function,
@@ -23494,6 +23504,13 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(-1.0)));
                 function.instruction(&Instruction::F64Lt);
+                function.instruction(&Instruction::I32Or);
+                function.instruction(&Instruction::LocalGet(length_payload_local));
+                function.instruction(&Instruction::F64ReinterpretI64);
+                function.instruction(&Instruction::F64Const(Ieee64::from(
+                    9_007_199_254_740_991.0,
+                )));
+                function.instruction(&Instruction::F64Gt);
                 function.instruction(&Instruction::I32Or);
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_throw_current_function_realm_range_error(
@@ -23818,6 +23835,36 @@ impl<'a> FunctionBuilder<'a> {
                     typed_array_element_kind(builtin) as i64
                 ));
                 function.instruction(&Instruction::LocalSet(element_kind_local));
+                function.instruction(&Instruction::End);
+
+                // TypedArray(...args) step 6.c: a non-Object first argument
+                // passes through ToIndex before AllocateTypedArray reads
+                // NewTarget.prototype. No argument, or an Object, allocates
+                // first.
+                self.emit_builtin_arg_to_locals(0, arg_payload_local, arg_tag_local, function);
+                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::I64GtU);
+                for object_kind in [ValueKind::Object, ValueKind::Function, ValueKind::Array] {
+                    function.instruction(&Instruction::LocalGet(arg_tag_local));
+                    function.instruction(&Instruction::I64Const(object_kind.tag() as i64));
+                    function.instruction(&Instruction::I64Ne);
+                    function.instruction(&Instruction::I32And);
+                }
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
+                function.instruction(&Instruction::LocalSet(length_payload_local));
+                self.emit_return_current_completion_if_throw(function);
+                self.emit_to_index_from_number_payload(
+                    length_payload_local,
+                    length_local,
+                    "TypedArray length out of range",
+                    function,
+                )?;
+                function.instruction(&Instruction::LocalGet(length_local));
+                function.instruction(&Instruction::LocalGet(bytes_per_element_local));
+                function.instruction(&Instruction::I64Mul);
+                function.instruction(&Instruction::LocalSet(byte_length_local));
                 function.instruction(&Instruction::End);
 
                 self.load_i64_to_local_from_offset(
@@ -24653,25 +24700,6 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(bytes_per_element_local));
                 function.instruction(&Instruction::I64Mul);
                 function.instruction(&Instruction::LocalSet(byte_length_local));
-                function.instruction(&Instruction::Else);
-                function.instruction(&Instruction::LocalGet(self.argc_param_local()));
-                function.instruction(&Instruction::I64Const(0));
-                function.instruction(&Instruction::I64GtU);
-                function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_value_to_number_payload(arg_tag_local, arg_payload_local, function)?;
-                function.instruction(&Instruction::LocalSet(length_payload_local));
-                self.emit_return_current_completion_if_throw(function);
-                self.emit_to_index_from_number_payload(
-                    length_payload_local,
-                    length_local,
-                    "TypedArray length out of range",
-                    function,
-                )?;
-                function.instruction(&Instruction::LocalGet(length_local));
-                function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-                function.instruction(&Instruction::I64Mul);
-                function.instruction(&Instruction::LocalSet(byte_length_local));
-                function.instruction(&Instruction::End);
                 function.instruction(&Instruction::End);
 
                 function.instruction(&Instruction::End);

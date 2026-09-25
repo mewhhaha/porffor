@@ -161,6 +161,26 @@ fn run_wasm_backend_uses_borrowed_dataview_type_error_realm() {
 }
 
 #[test]
+fn run_wasm_backend_checks_dataview_constructor_detachment_before_offset_bound() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_dataview_constructor_detach_order.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(31"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_succeeds_for_supported_dataview_constructor_prototype_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
