@@ -104,18 +104,22 @@ fn resolution_algorithms_and_existing_consumers_keep_their_owners() {
     assert!(!OWNER_SOURCE.contains("fn resolve_export"));
 
     assert_eq!(GRAPH_SOURCE.matches("ModuleBindingNameIr").count(), 2);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleBindingNameIr").count(), 7);
+    // The eighth is the re-exported source binding test.
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleBindingNameIr").count(), 8);
     assert_eq!(GRAPH_SOURCE.matches("ResolvedBindingIr").count(), 10);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ResolvedBindingIr").count(), 9);
+    // The tenth is the re-exported source binding test.
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ResolvedBindingIr").count(), 10);
+    // The fourth resolves a `~source~` indirect export (ResolveExport 5.a.iv).
     assert_eq!(
         GRAPH_RESOLUTION_SOURCE
             .matches("ModuleBindingNameIr")
             .count(),
-        3
+        4
     );
+    // The sixteenth resolves a `~source~` indirect export (ResolveExport 5.a.iv).
     assert_eq!(
         GRAPH_RESOLUTION_SOURCE.matches("ResolvedBindingIr").count(),
-        15
+        16
     );
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ResolvedBindingIr").count(), 3);
     assert_eq!(LINK_SOURCE.matches("ModuleBindingNameIr").count(), 4);

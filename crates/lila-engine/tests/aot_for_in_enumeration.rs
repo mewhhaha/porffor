@@ -245,14 +245,16 @@ fn assignment_heads_preserve_the_empty_body_completion() {
 fn member_expression_heads_store_through_any_base_each_iteration() {
     assert_enumeration(
         r#"
-var let, seen = [];
+var let, seen = "";
+// A string accumulator: pushing onto an array would itself reach this
+// inherited index-1 setter.
 Object.defineProperty(Array.prototype, "1", {
-  set: function (value) { seen.push(value); },
+  set: function (value) { seen += value + ";"; },
   configurable: true
 });
 for ([let][1] in { a: 1, b: 2 }) ;
 delete Array.prototype[1];
-if (seen.join() !== "a,b") throw new Error("array literal base: " + seen.join());
+if (seen !== "a;b;") throw new Error("array literal base: " + seen);
 var target = [];
 for ([target][0][target.length] in { c: 1, d: 2 }) ;
 if (target.join() !== "c,d") throw new Error("re-evaluated key: " + target.join());

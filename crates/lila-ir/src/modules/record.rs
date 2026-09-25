@@ -2180,29 +2180,40 @@ mod tests {
     /// modifier is decided by the token after a following `from`.
     #[test]
     fn source_and_from_are_import_bindings_on_either_side_of_the_source_modifier() {
-        let record = record_of(
-            "import source from './a.mjs';\n\
-             import from from './b.mjs';\n\
-             import source source from './c.mjs';\n\
-             import source from from './d.mjs';\n\
-             import\n  source\n  y from './e.mjs';\n",
-        );
         let source_import = |specifier: &str, local_name: &str| ImportEntryIr {
             request: ModuleRequestIr::from_key(request_key(specifier), ImportPhaseIr::Source),
             import_name: ImportNameIr::Source,
             local_name: local(local_name),
             span: None,
         };
-        assert_eq!(
-            without_spans(&record.import_entries),
-            vec![
-                import("./a.mjs", named("default"), "source"),
-                import("./b.mjs", named("default"), "from"),
-                source_import("./c.mjs", "source"),
-                source_import("./d.mjs", "from"),
-                source_import("./e.mjs", "y"),
-            ]
-        );
+        // Each binding name may be declared once per module, so the forms
+        // that bind `source` and `from` twice live in separate records.
+        for (source, expected) in [
+            (
+                "import source from './a.mjs';\nimport from from './b.mjs';\n",
+                vec![
+                    import("./a.mjs", named("default"), "source"),
+                    import("./b.mjs", named("default"), "from"),
+                ],
+            ),
+            (
+                "import source source from './c.mjs';\nimport source from from './d.mjs';\n",
+                vec![
+                    source_import("./c.mjs", "source"),
+                    source_import("./d.mjs", "from"),
+                ],
+            ),
+            (
+                "import\n  source\n  y from './e.mjs';\n",
+                vec![source_import("./e.mjs", "y")],
+            ),
+        ] {
+            assert_eq!(
+                without_spans(&record_of(source).import_entries),
+                expected,
+                "{source}"
+            );
+        }
     }
 
     #[test]

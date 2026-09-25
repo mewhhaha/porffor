@@ -24,7 +24,8 @@ fn graph_tests_keep_the_inherited_graph_namespace_and_exact_test_census() {
             .count(),
         1
     );
-    assert_eq!(OWNER_SOURCE.matches("#[test]").count(), 60);
+    // The 61st covers ResolveExport through a re-exported source-phase binding.
+    assert_eq!(OWNER_SOURCE.matches("#[test]").count(), 61);
     assert_eq!(OWNER_SOURCE.matches("fn sources_of(").count(), 1);
     assert_eq!(OWNER_SOURCE.matches("fn linked(").count(), 1);
     assert_eq!(OWNER_SOURCE.matches("fn unit_of(").count(), 1);

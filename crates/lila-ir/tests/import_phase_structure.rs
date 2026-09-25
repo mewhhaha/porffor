@@ -122,17 +122,21 @@ fn import_phase_keeps_the_reviewed_ast_projection_and_public_caller_census() {
         assert!(!source.contains("impl ImportPhaseIr"));
     }
     // Includes the three computed-import phase projections.
-    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 34);
+    // Four more: the `~source~` import-name selection and its binding test.
+    assert_eq!(RECORD_SOURCE.matches("ImportPhaseIr").count(), 38);
     assert_eq!(DYNAMIC_SOURCE.matches("ImportPhaseIr").count(), 27);
-    assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 1);
+    // Source imports resolve on `ImportNameIr::Source`, not on the request phase.
+    assert_eq!(GRAPH_SOURCE.matches("ImportPhaseIr").count(), 0);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("ImportPhaseIr").count(), 3);
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE.matches("ImportPhaseIr").count(),
         8
     );
-    assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 1);
+    // Binding aliases skip `ImportNameIr::Source` entries, not source-phase requests.
+    assert_eq!(LINK_SOURCE.matches("ImportPhaseIr").count(), 0);
     assert_eq!(LINK_ERROR_SOURCE.matches("ImportPhaseIr").count(), 2);
-    assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 4);
+    // Module-source aliases follow the resolution, which a re-export can also reach.
+    assert_eq!(NAMESPACE_SOURCE.matches("ImportPhaseIr").count(), 3);
     // Only static source-phase requests keep a graph off the partition.
     assert_eq!(ADMISSION_SOURCE.matches("ImportPhaseIr").count(), 1);
     assert_eq!(SYNCHRONOUS_SOURCE.matches("ImportPhaseIr").count(), 4);

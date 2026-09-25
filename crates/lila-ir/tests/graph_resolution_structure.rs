@@ -87,7 +87,8 @@ fn graph_resolution_callers_keep_the_existing_inherent_api() {
 
     assert_eq!(OWNER_SOURCE.matches("resolve_export(").count(), 1);
     assert_eq!(GRAPH_SOURCE.matches("resolve_export(").count(), 2);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("resolve_export(").count(), 3);
+    // The fourth is the re-exported `import source` binding resolution test.
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("resolve_export(").count(), 4);
     assert_eq!(NAMESPACE_SOURCE.matches("resolve_export(").count(), 1);
 
     assert_eq!(OWNER_SOURCE.matches("resolve_export_inner(").count(), 4);
