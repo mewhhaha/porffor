@@ -13,6 +13,7 @@ function observedFields(counter, fields) {
   return new Proxy(fields, {
     get: function (target, key, receiver) {
       if (key === "calendar") counter.calendar = counter.calendar + 1;
+      if (key === "timeZone") counter.timeZone = counter.timeZone + 1;
       return Reflect.get(target, key, receiver);
     },
   });
@@ -27,12 +28,13 @@ function observedOptions(counter) {
   };
 }
 
-function checkCounts(counter, calendar, overflow, label) {
+function checkCounts(counter, calendar, timeZone, overflow, label) {
   if (counter.calendar !== calendar) throw label + " calendar reads";
+  if (counter.timeZone !== timeZone) throw label + " timeZone reads";
   if (counter.overflow !== overflow) throw label + " overflow reads";
 }
 
-var dateConversion = { calendar: 0, overflow: 0 };
+var dateConversion = { calendar: 0, timeZone: 0, overflow: 0 };
 expectRangeError(function () {
   Temporal.PlainDate.from(
     observedFields(dateConversion, {
@@ -44,9 +46,9 @@ expectRangeError(function () {
     observedOptions(dateConversion),
   );
 }, "PlainDate conversion");
-checkCounts(dateConversion, 1, 0, "PlainDate conversion");
+checkCounts(dateConversion, 1, 0, 0, "PlainDate conversion");
 
-var dateWith = { calendar: 0, overflow: 0 };
+var dateWith = { calendar: 0, timeZone: 0, overflow: 0 };
 var date = new Temporal.PlainDate(2000, 5, 2);
 expectRangeError(function () {
   date.with(
@@ -54,9 +56,9 @@ expectRangeError(function () {
     observedOptions(dateWith),
   );
 }, "PlainDate with");
-checkCounts(dateWith, 0, 0, "PlainDate with");
+checkCounts(dateWith, 1, 1, 0, "PlainDate with");
 
-var dateSuitability = { calendar: 0, overflow: 0 };
+var dateSuitability = { calendar: 0, timeZone: 0, overflow: 0 };
 expectRangeError(function () {
   Temporal.PlainDate.from(
     observedFields(dateSuitability, {
@@ -68,18 +70,18 @@ expectRangeError(function () {
     observedOptions(dateSuitability),
   );
 }, "PlainDate suitability");
-checkCounts(dateSuitability, 1, 1, "PlainDate suitability");
+checkCounts(dateSuitability, 1, 0, 1, "PlainDate suitability");
 
-var dateWithSuitability = { calendar: 0, overflow: 0 };
+var dateWithSuitability = { calendar: 0, timeZone: 0, overflow: 0 };
 expectRangeError(function () {
   date.with(
     observedFields(dateWithSuitability, { monthCode: "M99L" }),
     observedOptions(dateWithSuitability),
   );
 }, "PlainDate with suitability");
-checkCounts(dateWithSuitability, 0, 1, "PlainDate with suitability");
+checkCounts(dateWithSuitability, 1, 1, 1, "PlainDate with suitability");
 
-var monthDayConversion = { calendar: 0, overflow: 0 };
+var monthDayConversion = { calendar: 0, timeZone: 0, overflow: 0 };
 expectRangeError(function () {
   Temporal.PlainMonthDay.from(
     observedFields(monthDayConversion, {
@@ -90,9 +92,9 @@ expectRangeError(function () {
     observedOptions(monthDayConversion),
   );
 }, "PlainMonthDay conversion");
-checkCounts(monthDayConversion, 1, 0, "PlainMonthDay conversion");
+checkCounts(monthDayConversion, 1, 0, 0, "PlainMonthDay conversion");
 
-var monthDayWith = { calendar: 0, overflow: 0 };
+var monthDayWith = { calendar: 0, timeZone: 0, overflow: 0 };
 var monthDay = new Temporal.PlainMonthDay(5, 2);
 expectRangeError(function () {
   monthDay.with(
@@ -100,6 +102,6 @@ expectRangeError(function () {
     observedOptions(monthDayWith),
   );
 }, "PlainMonthDay with");
-checkCounts(monthDayWith, 1, 0, "PlainMonthDay with");
+checkCounts(monthDayWith, 1, 1, 0, "PlainMonthDay with");
 
 262;
