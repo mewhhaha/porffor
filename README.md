@@ -3556,9 +3556,10 @@ Recent focused progress through `2026-09-01`:
   argument conversion. The 21 residual failures group around missing real
   PlainDateTime and Duration support, ISO calendar-string and calendar-object
   conversion, ZonedDateTime string limits, and month-code/offset validation
-  ordering. Named IANA zones remain explicit errors until the compiler has real
-  time-zone transition resolution; they are not guessed through the host
-  `Date` or `TZ` environment.
+  ordering. Named IANA zones now resolve through the pinned IANA 2026a
+  time-zone kernel; see
+  [the named-zone boundary](docs/rust-rewrite/intl-named-time-zones.md). They
+  are never guessed through the host `Date` or `TZ` environment.
   `Temporal.Instant.from` copies that private epoch slot without consulting
   shadowable ZonedDateTime properties, and `Temporal.Instant.prototype.equals`
   compares the exact private BigInt epoch after the same intrinsic conversion.

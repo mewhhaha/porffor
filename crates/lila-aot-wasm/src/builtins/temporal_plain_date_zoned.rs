@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::temporal_options::TemporalConversionOverflowOptions;
+use super::temporal_time_zone::TemporalDisambiguationSource;
 
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_temporal_plain_date_to_zoned_date_time(
@@ -18,12 +19,10 @@ impl<'a> FunctionBuilder<'a> {
         let time_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
         let seconds_local = self.reserve_temp_local();
         let subsecond_local = self.reserve_temp_local();
         let epoch_payload_local = self.reserve_temp_local();
         let epoch_tag_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
         let prototype_payload_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_plain_date_time_field_locals();
         self.emit_temporal_plain_date_record_from_receiver(record_local, function)?;
@@ -104,11 +103,6 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            offset_seconds_local,
-            function,
-        )?;
         let time_locals = Self::temporal_plain_date_time_time_locals(&field_locals);
         for local in time_locals {
             function.instruction(&Instruction::I64Const(0));
@@ -116,8 +110,24 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::LocalGet(time_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // Step 5: `GetStartOfDay(timeZone, isoDate)`.
+        self.emit_temporal_start_of_day(
+            time_zone_payload_local,
+            [field_locals[0], field_locals[1], field_locals[2]],
+            seconds_local,
+            function,
+        )?;
+        self.emit_temporal_zoned_date_time_day_boundary(
+            seconds_local,
+            epoch_payload_local,
+            epoch_tag_local,
+            function,
+        )?;
+        function.instruction(&Instruction::Else);
+        // Step 6: `ToTemporalTime`, `ISODateTimeWithinLimits`, then
+        // `GetEpochNanosecondsFor(timeZone, isoDateTime, compatible)`.
         self.emit_to_temporal_time(
             time_payload_local,
             time_tag_local,
@@ -126,53 +136,14 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_temporal_reject_date_time_lower_bound(&field_locals, function)?;
-        function.instruction(&Instruction::End);
-        self.emit_temporal_plain_date_epoch_days(
-            field_locals[0],
-            field_locals[1],
-            field_locals[2],
-            days_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(field_locals[3]));
-        function.instruction(&Instruction::I64Const(3600));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[4]));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[5]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(time_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_zoned_date_time_day_boundary(
+        self.emit_temporal_epoch_for_iso_date_time(
+            time_zone_payload_local,
+            &field_locals,
+            TemporalDisambiguationSource::Compatible,
             seconds_local,
-            epoch_payload_local,
-            epoch_tag_local,
+            subsecond_local,
             function,
         )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(field_locals[6]));
-        function.instruction(&Instruction::I64Const(1000000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[7]));
-        function.instruction(&Instruction::I64Const(1000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[8]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
         self.emit_temporal_epoch_nanoseconds_bigint(
             seconds_local,
             subsecond_local,
@@ -180,7 +151,6 @@ impl<'a> FunctionBuilder<'a> {
             epoch_tag_local,
             function,
         )?;
-        self.emit_temporal_instant_validate_range(epoch_payload_local, epoch_tag_local, function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
@@ -198,12 +168,10 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.release_temporal_plain_date_time_field_locals(field_locals);
         self.release_temp_local(prototype_payload_local);
-        self.release_temp_local(days_local);
         self.release_temp_local(epoch_tag_local);
         self.release_temp_local(epoch_payload_local);
         self.release_temp_local(subsecond_local);
         self.release_temp_local(seconds_local);
-        self.release_temp_local(offset_seconds_local);
         self.release_temp_local(calendar_tag_local);
         self.release_temp_local(calendar_payload_local);
         self.release_temp_local(time_tag_local);

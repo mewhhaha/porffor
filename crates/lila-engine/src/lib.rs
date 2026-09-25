@@ -1707,6 +1707,11 @@ fn wasm_intl_call(
         IntlHostOp::ResolveTimeZone => {
             intl_time_zone_host::resolve_time_zone(caller, request_span_wire, result_span_wire)
         }
+        IntlHostOp::QueryTemporalTimeZone => intl_time_zone_host::query_temporal_time_zone(
+            caller,
+            request_span_wire,
+            result_span_wire,
+        ),
         IntlHostOp::ResolveDateTimeLocale => intl_datetime_host::call::<
             lila_intl::ResolveDateTimeLocale,
         >(caller, request_span_wire, result_span_wire),
@@ -11422,7 +11427,7 @@ if (optionReads.length !== 0) throw "invalid before options";
 var errors = 0;
 for (var invalid of [
   "1970-01-01T00:00",
-  "1970-01-01T00:00[Europe/Vienna]",
+  "1970-01-01T00:00[Europe/Atlantis]",
   "1970-01-01T00:00[+01]",
   "1970-01-01T00:00[+24:00]",
   "-000000-01-01T00:00Z[UTC]"
@@ -11646,7 +11651,14 @@ if (tagDescriptor.value !== "Temporal.Now") throw "tag value";
 if (tagDescriptor.writable || tagDescriptor.enumerable) throw "tag flags";
 if (!tagDescriptor.configurable) throw "tag configurable";
 
-for (var name of ["timeZoneId", "instant", "zonedDateTimeISO"]) {
+for (var name of [
+  "timeZoneId",
+  "instant",
+  "plainDateTimeISO",
+  "zonedDateTimeISO",
+  "plainDateISO",
+  "plainTimeISO",
+]) {
   var descriptor = Object.getOwnPropertyDescriptor(now, name);
   if (typeof descriptor.value !== "function") throw "member " + name;
   if (!descriptor.writable || descriptor.enumerable) throw "flags " + name;
@@ -11659,13 +11671,16 @@ var constructErrors = 0;
 for (var member of [
   now.timeZoneId,
   now.instant,
+  now.plainDateTimeISO,
   now.zonedDateTimeISO,
+  now.plainDateISO,
+  now.plainTimeISO,
 ]) {
   try { new member(); } catch (error) {
     if (error instanceof TypeError) constructErrors += 1;
   }
 }
-if (constructErrors !== 3) throw "constructability";
+if (constructErrors !== 6) throw "constructability";
 262;
 "#,
                 CompileOptions::default(),
@@ -11714,8 +11729,23 @@ for (var zone of [null, true, 1, 1n, {}]) {
 }
 if (zoneErrors !== 5) throw "zone type errors";
 
+if (Temporal.Now.zonedDateTimeISO("europe/vienna").timeZoneId !== "Europe/Vienna") {
+  throw "named zone";
+}
+var vienna = Temporal.Now.plainDateTimeISO("Europe/Vienna");
+var viennaZoned = vienna.toZonedDateTime("Europe/Vienna");
+if (viennaZoned.offset !== "+01:00" && viennaZoned.offset !== "+02:00") {
+  throw "named zone offset";
+}
+if (!(Temporal.Now.plainDateISO("Asia/Kolkata") instanceof Temporal.PlainDate)) {
+  throw "plainDateISO";
+}
+if (!(Temporal.Now.plainTimeISO("-05:00") instanceof Temporal.PlainTime)) {
+  throw "plainTimeISO";
+}
+
 var rangeErrors = 0;
-for (var zone of ["", "2021-08-19T17:30", "Europe/Vienna", "-12:12:59.9"]) {
+for (var zone of ["", "2021-08-19T17:30", "Mars/Olympus_Mons", "-12:12:59.9"]) {
   try { Temporal.Now.zonedDateTimeISO(zone); } catch (error) {
     if (error instanceof RangeError) rangeErrors += 1;
   }
@@ -11730,6 +11760,153 @@ if (rangeErrors !== 4) throw "zone range errors";
                 },
             )
             .expect("wasm backend should answer Temporal.Now clock reads");
+        assert!(outcome.note.contains("number(262"));
+    }
+
+    #[test]
+    fn wasm_backend_rounds_and_projects_zoned_date_times_through_named_time_zones() {
+        // Named zones resolve through the pinned IANA data behind the Intl
+        // host call; the Antarctica/Casey cases pin the day whose midnight
+        // occurs twice (`ZonedDateTime/prototype/{round,startOfDay,
+        // hoursInDay}/same-date-starts-twice.js`).
+        let outcome = engine()
+            .run_script(
+                r#"
+function same(actual, expected, label) {
+  if (actual !== expected) throw label + ": " + actual + " !== " + expected;
+}
+
+// Antarctica/Casey: 2010-03-05T02:00+11:00 falls back to 2010-03-04T23:00+08:00,
+// so midnight of 2010-03-05 occurs twice and pieces of the two dates interleave.
+var casey = "[Antarctica/Casey]";
+var startOfMarch4 = Temporal.ZonedDateTime.from("2010-03-04T00:00:00+11:00" + casey);
+var startOfMarch5 = Temporal.ZonedDateTime.from("2010-03-05T00:00:00+11:00" + casey);
+var lateMarch4 = Temporal.ZonedDateTime.from("2010-03-04T23:10:00+08:00" + casey);
+same(lateMarch4.startOfDay().toString(), startOfMarch4.toString(), "startOfDay second piece");
+same(lateMarch4.hoursInDay, 24, "hoursInDay second piece");
+same(startOfMarch5.hoursInDay, 27, "hoursInDay double midnight");
+for (var mode of ["floor", "trunc"]) {
+  same(
+    lateMarch4.round({ smallestUnit: "day", roundingMode: mode }).toString(),
+    startOfMarch4.toString(),
+    "round " + mode
+  );
+}
+for (var mode of ["ceil", "expand", "halfExpand", "halfEven", "halfTrunc", "halfCeil", "halfFloor"]) {
+  same(
+    lateMarch4.round({ smallestUnit: "day", roundingMode: mode }).toString(),
+    startOfMarch5.toString(),
+    "round " + mode
+  );
+}
+
+// Day rounding in a 23-hour day.
+// 12:30 local is 11.5 of its 23 hours: exactly half the day.
+var spring = Temporal.ZonedDateTime.from("2017-03-12T12:30[America/New_York]");
+same(spring.round({ smallestUnit: "day" }).toString(), "2017-03-13T00:00:00-04:00[America/New_York]", "round 23h day");
+same(
+  spring.round({ smallestUnit: "day", roundingMode: "halfTrunc" }).toString(),
+  "2017-03-12T00:00:00-05:00[America/New_York]",
+  "round 23h day halfTrunc"
+);
+
+// withPlainTime / toPlainTime through the named zone.
+var ny = Temporal.ZonedDateTime.from("2017-03-12T12:00[America/New_York]");
+same(ny.toPlainTime().toString(), "12:00:00", "toPlainTime");
+same(ny.withPlainTime("02:30").toString(), "2017-03-12T03:30:00-04:00[America/New_York]", "withPlainTime gap");
+same(ny.withPlainTime().toString(), "2017-03-12T00:00:00-05:00[America/New_York]", "withPlainTime start");
+same(
+  Temporal.PlainDate.from("2018-11-04").toZonedDateTime({ timeZone: "America/Sao_Paulo" }).withPlainTime().toString(),
+  "2018-11-04T01:00:00-02:00[America/Sao_Paulo]",
+  "withPlainTime skipped midnight"
+);
+
+// withTimeZone keeps the exact time.
+same(
+  ny.withTimeZone("Asia/Tokyo").toString(),
+  "2017-03-13T01:00:00+09:00[Asia/Tokyo]",
+  "withTimeZone"
+);
+
+// Duration rounding relative to a zoned start (rounding-increment-relativeto).
+var relativeTo = Temporal.ZonedDateTime.from("2020-01-01T00:00[Europe/Vienna]");
+same(
+  Temporal.Duration.from({ days: 1, hours: 12 }).round({ smallestUnit: "days", roundingIncrement: 2, relativeTo: relativeTo }).toString(),
+  "P2D",
+  "duration round zoned increment"
+);
+same(
+  Temporal.Duration.from({ hours: 25 }).round({ largestUnit: "days", relativeTo: Temporal.ZonedDateTime.from("2017-11-05T00:00[America/New_York]") }).toString(),
+  "P1D",
+  "duration balances across a 25-hour day"
+);
+
+// Now projections through a named zone.
+same(Temporal.Now.plainDateISO("Asia/Kolkata") instanceof Temporal.PlainDate, true, "Now.plainDateISO");
+same(Temporal.Now.plainTimeISO("Europe/Vienna") instanceof Temporal.PlainTime, true, "Now.plainTimeISO");
+same(Temporal.Now.plainDateTimeISO() instanceof Temporal.PlainDateTime, true, "Now.plainDateTimeISO");
+
+// A date-only zoned string starts at GetStartOfDay: Toronto skipped
+// 1919-03-30T23:30 to 00:30, so the day starts 30 minutes before the
+// disambiguated midnight.
+same(
+  Temporal.ZonedDateTime.from("1919-03-31[America/Toronto]")
+    .until(Temporal.ZonedDateTime.from("1919-03-31T00[America/Toronto]"))
+    .toString(),
+  "PT30M",
+  "date-only start of day"
+);
+
+// An exact multiple of a larger unit does not round up: the nudge window
+// starts at 1 week + 0 days, not at the origin.
+var weekStart = Temporal.ZonedDateTime.from("2012-01-01T12:00:00+00:00[UTC]");
+for (var mode of ["ceil", "expand", "halfExpand"]) {
+  same(
+    weekStart.until(Temporal.ZonedDateTime.from("2012-01-08T12:00:00+00:00[UTC]"), {
+      smallestUnit: "days", largestUnit: "weeks", roundingMode: mode
+    }).toString(),
+    "P1W",
+    "exact multiple " + mode
+  );
+}
+
+// toJSON keeps the non-primary identifier; valueOf always throws.
+same(
+  Temporal.ZonedDateTime.from("2020-01-01T00:00+05:30[Asia/Calcutta]").toJSON(),
+  "2020-01-01T00:00:00+05:30[Asia/Calcutta]",
+  "toJSON"
+);
+var valueOfError = null;
+try { ny < ny; } catch (error) { valueOfError = error; }
+same(valueOfError instanceof TypeError, true, "valueOf");
+
+// toLocaleString formats the exact time in the receiver's own zone, names
+// the zone by default, and refuses a timeZone option.
+var viennaEpoch = new Temporal.ZonedDateTime(0n, "Europe/Vienna");
+same(
+  viennaEpoch.toLocaleString("en-US"),
+  new Intl.DateTimeFormat("en-US", {
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric",
+    timeZoneName: "short", timeZone: "Europe/Vienna",
+  }).format(viennaEpoch.toInstant()),
+  "toLocaleString defaults"
+);
+var timeZoneOptionError = null;
+try { viennaEpoch.toLocaleString("en-US", { timeZone: "Europe/Vienna" }); } catch (error) {
+  timeZoneOptionError = error;
+}
+same(timeZoneOptionError instanceof TypeError, true, "toLocaleString timeZone option");
+
+262;
+"#,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("wasm backend should answer named time zone queries");
         assert!(outcome.note.contains("number(262"));
     }
 
@@ -11801,11 +11978,17 @@ try { new nanosecondsDescriptor.get(); } catch (error) {
 }
 if (constructErrors !== 2) throw "constructability";
 
+var vienna = new Temporal.ZonedDateTime(0n, "Europe/Vienna");
+if (vienna.offset !== "+01:00") throw "named zone offset";
+if (vienna.offsetNanoseconds !== 3600000000000) throw "named zone nanoseconds";
+var viennaSummer = new Temporal.ZonedDateTime(1593561600000000000n, "Europe/Vienna");
+if (viennaSummer.offset !== "+02:00") throw "named zone daylight offset";
+
 var namedZoneErrors = 0;
-try { new Temporal.ZonedDateTime(0n, "Europe/Vienna"); } catch (error) {
+try { new Temporal.ZonedDateTime(0n, "Europe/Atlantis"); } catch (error) {
   if (error instanceof RangeError) namedZoneErrors += 1;
 }
-if (namedZoneErrors !== 1) throw "named zone boundary";
+if (namedZoneErrors !== 1) throw "unknown named zone boundary";
 262;
 "#,
                 CompileOptions::default(),
@@ -11986,7 +12169,7 @@ for (var invalid of [
   "+01:30:01",
   "2021-08-19T17:30-07:00:00",
   "-000000-01-01T00:00Z",
-  "Europe/Vienna"
+  "Europe/Atlantis"
 ]) {
   var rangeError = false;
   try { reference.withTimeZone(invalid); } catch (error) {

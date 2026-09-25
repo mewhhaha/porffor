@@ -7,6 +7,10 @@ pub(crate) enum IntlDateTimeFormatPurpose {
     Constructor,
     DateLocale(DateLocaleFormat),
     Temporal(DtfTemporalKind),
+    /// `Temporal.ZonedDateTime.prototype.toLocaleString`. The local holds the
+    /// receiver's `[[TimeZone]]` identifier, which is the
+    /// `toLocaleStringTimeZone` that replaces the `timeZone` option.
+    ZonedDateTime { time_zone_local: u32 },
 }
 
 enum RejectedDateTimeStyle {
@@ -17,9 +21,9 @@ enum RejectedDateTimeStyle {
 impl IntlDateTimeFormatPurpose {
     fn required(&self) -> DateTimeRequired {
         match self {
-            Self::Constructor | Self::DateLocale(DateLocaleFormat::DateAndTime) => {
-                DateTimeRequired::Any
-            }
+            Self::Constructor
+            | Self::DateLocale(DateLocaleFormat::DateAndTime)
+            | Self::ZonedDateTime { .. } => DateTimeRequired::Any,
             Self::DateLocale(DateLocaleFormat::Date) => DateTimeRequired::Date,
             Self::DateLocale(DateLocaleFormat::Time) => DateTimeRequired::Time,
             Self::Temporal(kind) => match kind {
@@ -43,11 +47,21 @@ impl IntlDateTimeFormatPurpose {
                 DtfTemporalKind::PlainTime => DateTimeDefaults::Time,
                 DtfTemporalKind::PlainDateTime | DtfTemporalKind::Instant => DateTimeDefaults::All,
             },
+            Self::ZonedDateTime { .. } => DateTimeDefaults::ZonedDateTime,
+        }
+    }
+    /// The `toLocaleStringTimeZone` argument of `CreateDateTimeFormat`.
+    fn to_locale_string_time_zone(&self) -> Option<u32> {
+        match self {
+            Self::Constructor | Self::DateLocale(_) | Self::Temporal(_) => None,
+            Self::ZonedDateTime { time_zone_local } => Some(*time_zone_local),
         }
     }
     fn rejected_style(&self) -> Option<(RejectedDateTimeStyle, String)> {
         match self {
-            Self::Constructor | Self::DateLocale(DateLocaleFormat::DateAndTime) => None,
+            Self::Constructor
+            | Self::DateLocale(DateLocaleFormat::DateAndTime)
+            | Self::ZonedDateTime { .. } => None,
             Self::DateLocale(DateLocaleFormat::Date) => Some((
                 RejectedDateTimeStyle::Time,
                 "Date.prototype.toLocaleDateString does not support the timeStyle option".into(),
@@ -178,8 +192,13 @@ impl FunctionBuilder<'_> {
             function,
         )?;
 
-        let time_zone =
-            self.emit_intl_dtf_time_zone_option(options_payload, options_tag, time_zone, function)?;
+        let time_zone = self.emit_intl_dtf_time_zone_option(
+            options_payload,
+            options_tag,
+            time_zone,
+            purpose.to_locale_string_time_zone(),
+            function,
+        )?;
         self.emit_dtf_set_const(explicit, 0, function);
         for (option, destination) in INTL_DTF_COMPONENT_OPTIONS.iter().zip(&components) {
             self.emit_intl_dtf_string_option(
@@ -335,7 +354,9 @@ impl FunctionBuilder<'_> {
                     function,
                 )?;
             }
-            IntlDateTimeFormatPurpose::DateLocale(_) | IntlDateTimeFormatPurpose::Temporal(_) => {}
+            IntlDateTimeFormatPurpose::DateLocale(_)
+            | IntlDateTimeFormatPurpose::Temporal(_)
+            | IntlDateTimeFormatPurpose::ZonedDateTime { .. } => {}
         }
 
         self.release_temp_local(fractional);

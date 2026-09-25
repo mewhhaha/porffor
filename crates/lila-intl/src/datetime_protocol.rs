@@ -60,7 +60,7 @@ wire_domain!(DateTimeTextWidth { Narrow = 1, Short = 2, Long = 3 });
 wire_domain!(DateTimeMonthWidth { TwoDigit = 1, Numeric = 2, Narrow = 3, Short = 4, Long = 5 });
 wire_domain!(DateTimeStyle { Full = 1, Long = 2, Medium = 3, Short = 4 });
 wire_domain!(DateTimeRequired { Any = 1, Date = 2, Time = 3 });
-wire_domain!(DateTimeDefaults { All = 1, Date = 2, Time = 3 });
+wire_domain!(DateTimeDefaults { All = 1, Date = 2, Time = 3, ZonedDateTime = 4 });
 wire_domain!(DateTimeValueKind {
     Legacy = 1, Instant = 2, PlainDate = 3, PlainYearMonth = 4,
     PlainMonthDay = 5, PlainTime = 6, PlainDateTime = 7,

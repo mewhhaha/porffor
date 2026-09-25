@@ -16,6 +16,7 @@ mod number_operation;
 mod number_protocol;
 mod protocol;
 mod provider;
+mod temporal_time_zone;
 mod time_zone;
 
 pub use datetime::{
@@ -62,6 +63,21 @@ pub use time_zone::{
     RESOLVE_TIME_ZONE_NAME_STYLE_OFFSET, RESOLVE_TIME_ZONE_RESULT_HEADER_BYTES,
 };
 
+pub use temporal_time_zone::{
+    temporal_offset_match_word, InvalidTemporalTimeZoneRequest, TemporalDisambiguation,
+    TemporalOffsetMatch, TemporalOffsetMinutes, TemporalOffsetMismatch, TemporalSeconds,
+    TemporalTimeZone, TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneQuery,
+    TemporalTimeZoneQueryKind, TemporalTimeZoneRangeError, TemporalTimeZoneRequest,
+    TemporalTransitionDirection, TEMPORAL_EPOCH_SECONDS_LIMIT, TEMPORAL_ISO_DAYS_LIMIT,
+    TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES, TEMPORAL_TIME_ZONE_REQUEST_KIND_OFFSET,
+    TEMPORAL_TIME_ZONE_REQUEST_MATCH_OFFSET, TEMPORAL_TIME_ZONE_REQUEST_MODE_OFFSET,
+    TEMPORAL_TIME_ZONE_REQUEST_OFFSET_NANOSECONDS_OFFSET,
+    TEMPORAL_TIME_ZONE_REQUEST_SECONDS_OFFSET, TEMPORAL_TIME_ZONE_REQUEST_SUBSECOND_OFFSET,
+    TEMPORAL_TIME_ZONE_RESPONSE_BYTES, TEMPORAL_TIME_ZONE_RESPONSE_STATUS_OFFSET,
+    TEMPORAL_TIME_ZONE_RESPONSE_VALUE_OFFSET, TEMPORAL_TIME_ZONE_STATUS_NO_TRANSITION,
+    TEMPORAL_TIME_ZONE_STATUS_SECONDS,
+};
+
 pub use identifiers::{
     CanonicalLocaleId, InvalidCanonicalLocaleId, InvalidLocaleId, InvalidTimeZoneId, LocaleId,
     TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
@@ -72,9 +88,9 @@ pub use protocol::{
     IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider, IntlProvider,
     IntlProviderIdentityMismatch, LocaleInfo, LocaleTransformError, LocaleTransformRequest,
     LocaleTransformResult, LookupNamedTimeZone, MaximizeLocale, MinimizeLocale,
-    MissingIntlCapabilities, ResolveDateTimeLocale, ResolveNumberLocale, ResolveTimeZone,
-    SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales, SupportedValues,
-    UnknownTimeZone, UnsupportedLocale,
+    MissingIntlCapabilities, QueryTemporalTimeZone, ResolveDateTimeLocale, ResolveNumberLocale,
+    ResolveTimeZone, SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales,
+    SupportedValues, UnknownTimeZone, UnsupportedLocale,
 };
 pub use provider::{
     embedded_intl_data_identity, EmbeddedIntlProvider, EmbeddedIntlProviderSetupError,
@@ -118,10 +134,10 @@ macro_rules! closed_string_domain {
 
 pub const INTL_DATA_SCHEMA_VERSION: IntlDataSchemaVersion = IntlDataSchemaVersion(1);
 
-/// Host-call ABI6 adds typed Locale information and supported-values operations.
+/// Host-call ABI7 adds Temporal time-zone queries over the pinned IANA data.
 /// Artifact identity includes this value so an incompatible host is rejected
 /// before instantiation, independently of the pinned ICU/CLDR data identity.
-pub const INTL_HOST_CALL_ABI_VERSION: u16 = 6;
+pub const INTL_HOST_CALL_ABI_VERSION: u16 = 7;
 
 /// Canonical Wasm custom section carrying the Intl provider identity expected
 /// by a compiled artifact.
@@ -766,7 +782,7 @@ mod tests {
                 .expect("identity is canonical UTF-8"),
             concat!(
                 "schema=1\n",
-                "host-call-abi=6\n",
+                "host-call-abi=7\n",
                 "profile=minimal\n",
                 "services=Locale\n",
                 "capabilities=likely-subtags,locale-aliases,parent-locales\n",

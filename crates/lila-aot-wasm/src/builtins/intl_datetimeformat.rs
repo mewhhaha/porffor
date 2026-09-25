@@ -17,6 +17,8 @@ mod provider_input;
 mod provider_render;
 mod provider_wire;
 mod time_zone;
+mod zoned_locale_string;
+pub(in crate::builtins) use time_zone::NamedTimeZoneRejection;
 pub(crate) use initialization::IntlDateTimeFormatPurpose;
 use provider_input::INTL_DTF_CALENDAR_MISMATCH;
 
@@ -714,6 +716,7 @@ impl FunctionBuilder<'_> {
         options_payload_local: u32,
         options_tag_local: u32,
         zone: DtfCanonicalTimeZone,
+        to_locale_string_time_zone: Option<u32>,
         function: &mut Function,
     ) -> Result<DtfResolvedTimeZone, EmitError> {
         let key_local = self.reserve_temp_local();
@@ -737,6 +740,26 @@ impl FunctionBuilder<'_> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
+        if let Some(zone_local) = to_locale_string_time_zone {
+            // A `toLocaleStringTimeZone` caller rejects any `timeZone`
+            // option, even one naming the same zone, and otherwise resolves
+            // its own identifier exactly as a `timeZone` option string.
+            function.instruction(&Instruction::LocalGet(value_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_throw_current_function_realm_type_error(
+                INTL_DTF_ZONED_DATE_TIME_TIME_ZONE_OPTION,
+                self.result_local,
+                self.result_tag_local,
+                function,
+            )?;
+            self.emit_return_current_completion(function);
+            function.instruction(&Instruction::End);
+            function.instruction(&Instruction::LocalGet(zone_local));
+            function.instruction(&Instruction::LocalSet(value_payload_local));
+            self.emit_dtf_set_const(value_tag_local, ValueKind::String.tag() as i64, function);
+        }
         function.instruction(&Instruction::LocalGet(value_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
@@ -1514,6 +1537,9 @@ impl FunctionBuilder<'_> {
     }
 }
 
+const INTL_DTF_ZONED_DATE_TIME_TIME_ZONE_OPTION: &str =
+    "Temporal.ZonedDateTime.prototype.toLocaleString does not accept a timeZone option";
+
 fn intl_dtf_temporal_style_message(type_name: &str, property: &str) -> String {
     format!("{type_name}.prototype.toLocaleString does not support the {property} option")
 }
@@ -1600,5 +1626,6 @@ pub(crate) fn intl_date_time_format_pool_strings() -> Vec<String> {
             values.push(intl_dtf_temporal_style_message(kind.type_name(), property));
         }
     }
+    values.push(INTL_DTF_ZONED_DATE_TIME_TIME_ZONE_OPTION.to_owned());
     values
 }

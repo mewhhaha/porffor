@@ -3,10 +3,9 @@
 //! The option names either a PlainDate or a ZonedDateTime, and the
 //! `Temporal.Duration` operations that read it need only the record fields,
 //! never a heap object: a PlainDate is its ISO date and calendar, and a
-//! ZonedDateTime is its exact time and the fixed UTC offset of its time zone
-//! (this backend resolves no named zone other than `UTC`). So the option is
-//! produced straight into locals, and nothing is allocated for a property bag
-//! or a string.
+//! ZonedDateTime is its exact time, its time-zone identifier and its calendar.
+//! So the option is produced straight into locals, and nothing is allocated
+//! for a property bag or a string.
 
 use super::*;
 
@@ -37,8 +36,7 @@ impl TemporalRelativeToKind {
 ///
 /// - `Plain`: `date_locals` (ISO year, month, day) and the calendar.
 /// - `Zoned`: the exact time as whole seconds plus a subsecond part in
-///   `[0, 10^9)`, the time zone's fixed UTC offset in seconds, and the
-///   calendar.
+///   `[0, 10^9)`, the time-zone identifier, and the calendar.
 ///
 /// The locals are reserved together by
 /// [`FunctionBuilder::reserve_temporal_relative_to`] and must be released with
@@ -49,7 +47,7 @@ pub(in crate::builtins) struct TemporalRelativeTo {
     pub(in crate::builtins) calendar_payload_local: u32,
     pub(in crate::builtins) epoch_seconds_local: u32,
     pub(in crate::builtins) epoch_subsecond_local: u32,
-    pub(in crate::builtins) offset_seconds_local: u32,
+    pub(in crate::builtins) time_zone_payload_local: u32,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -64,13 +62,13 @@ impl<'a> FunctionBuilder<'a> {
             calendar_payload_local: self.reserve_temp_local(),
             epoch_seconds_local: self.reserve_temp_local(),
             epoch_subsecond_local: self.reserve_temp_local(),
-            offset_seconds_local: self.reserve_temp_local(),
+            time_zone_payload_local: self.reserve_temp_local(),
         }
     }
 
     pub(in crate::builtins) fn release_temporal_relative_to(&mut self, relative: TemporalRelativeTo) {
         for local in [
-            relative.offset_seconds_local,
+            relative.time_zone_payload_local,
             relative.epoch_subsecond_local,
             relative.epoch_seconds_local,
             relative.calendar_payload_local,
@@ -230,6 +228,7 @@ impl<'a> FunctionBuilder<'a> {
         let time_zone_present_local = self.reserve_temp_local();
         let offset_option_local = self.reserve_temp_local();
         let overflow_option_local = self.reserve_temp_local();
+        let disambiguation_option_local = self.reserve_temp_local();
         let days_local = self.reserve_temp_local();
         self.emit_temporal_zoned_date_time_from_property_bag(
             value_payload_local,
@@ -238,8 +237,11 @@ impl<'a> FunctionBuilder<'a> {
                 time_zone_present_local,
                 date_destination_locals: relative.date_locals,
             },
-            offset_option_local,
-            overflow_option_local,
+            ZonedDateTimeOptionLocals {
+                disambiguation: disambiguation_option_local,
+                offset: offset_option_local,
+                overflow: overflow_option_local,
+            },
             epoch_payload_local,
             epoch_tag_local,
             time_zone_payload_local,
@@ -268,6 +270,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         for local in [
             days_local,
+            disambiguation_option_local,
             overflow_option_local,
             offset_option_local,
             time_zone_present_local,
@@ -312,6 +315,7 @@ impl<'a> FunctionBuilder<'a> {
             epoch_tag_local,
             TemporalIsoParseGoal::ZonedDateTime {
                 offset_option_local,
+                disambiguation: TemporalDisambiguationSource::Compatible,
                 time_zone_payload_local,
                 time_zone_tag_local,
                 calendar_payload_local: relative.calendar_payload_local,
@@ -347,7 +351,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         // A zoned record keeps its exact time as a normalized seconds pair and
-        // its time zone as the fixed offset it denotes.
+        // its time-zone identifier.
         function.instruction(&Instruction::LocalGet(relative.kind_local));
         function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Zoned.code()));
         function.instruction(&Instruction::I64Eq);
@@ -364,11 +368,8 @@ impl<'a> FunctionBuilder<'a> {
             relative.epoch_subsecond_local,
             function,
         );
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            relative.offset_seconds_local,
-            function,
-        )?;
+        function.instruction(&Instruction::LocalGet(time_zone_payload_local));
+        function.instruction(&Instruction::LocalSet(relative.time_zone_payload_local));
         function.instruction(&Instruction::End);
 
         for local in [

@@ -2046,8 +2046,13 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => {
                 Some(ValueInfo::new(ValueKind::String))
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf => {
+                Some(ValueInfo::new(ValueKind::Undefined))
             }
             StandardBuiltinId::TemporalInstantCompare
             | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
@@ -2105,8 +2110,19 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => Some(
                 Self::value_info_from_shape(Some(Self::temporal_duration_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => Some(
-                Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
+            | StandardBuiltinId::TemporalNowPlainDateIso => Some(Self::value_info_from_shape(
+                Some(Self::temporal_plain_date_instance_shape()),
+            )),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime
+            | StandardBuiltinId::TemporalNowPlainTimeIso => Some(Self::value_info_from_shape(
+                Some(Self::temporal_plain_time_instance_shape()),
+            )),
+            StandardBuiltinId::TemporalNowPlainDateTimeIso => Some(Self::value_info_from_shape(
+                Some(Self::temporal_plain_date_time_instance_shape()),
+            )),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime => Some(
+                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
             StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => Some(
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),

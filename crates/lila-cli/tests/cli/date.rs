@@ -512,6 +512,35 @@ fn run_wasm_backend_succeeds_for_temporal_instant_to_string_options_fixture() {
     assert!(stdout.contains("number(262"));
 }
 
+/// Temporal with named IANA time zones: identifier resolution, offsets,
+/// disambiguation, transitions, day lengths and zoned arithmetic, all through
+/// the pinned time-zone kernel.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_named_time_zones_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_named_time_zones.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains(
+            "temporal-named-time-zones:identifiers|offsets|disambiguation|transitions|days|arithmetic"
+        ),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

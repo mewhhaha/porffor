@@ -22,6 +22,7 @@ mod language_domain;
 mod likely_subtags_tests;
 mod locale_info;
 mod named_time_zones;
+mod temporal_time_zone;
 mod time_zone_names;
 mod time_zone_snapshot;
 use language_domain::{LikelySubtags, ParsedLocale, ReservedLanguageAliasRules};
@@ -39,10 +40,11 @@ use crate::{
     InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleInfo, LocaleInfoError, LocaleInfoRequest,
     LocaleInfoResult, LocaleTransformError, LocaleTransformRequest, LocaleTransformResult,
     LookupNamedTimeZone, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult, MaximizeLocale,
-    MinimizeLocale, ResolveDateTimeLocale, ResolveTimeZone, ResolveTimeZoneRequest,
-    ResolvedTimeZoneSnapshot, SelectDateTimeFormat, SupportedDateTimeLocales, SupportedValues,
-    SupportedValuesRequest, SupportedValuesResult, TimeZoneResolveError, TimeZoneSelection,
-    UnknownTimeZone,
+    MinimizeLocale, QueryTemporalTimeZone, ResolveDateTimeLocale, ResolveTimeZone,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat,
+    SupportedDateTimeLocales, SupportedValues, SupportedValuesRequest, SupportedValuesResult,
+    TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneRequest,
+    TimeZoneResolveError, TimeZoneSelection, UnknownTimeZone,
 };
 
 /// Composite SHA-256 of exact locale, IANA transition/catalogue and CLDR name
@@ -117,7 +119,8 @@ pub fn embedded_intl_data_identity() -> Result<IntlDataIdentity, EmbeddedIntlPro
         .with_operation::<LookupNamedTimeZone>()
         .with_operation::<ResolveTimeZone>()
         .with_operation::<LocaleInfo>()
-        .with_operation::<SupportedValues>();
+        .with_operation::<SupportedValues>()
+        .with_operation::<QueryTemporalTimeZone>();
     let default_locale = CanonicalLocaleId::from_data("en-US")
         .map_err(EmbeddedIntlProviderSetupError::InvalidDefaultLocale)?;
     Ok(IntlDataIdentity::new(
@@ -246,6 +249,17 @@ impl IntlOperationProvider<ResolveTimeZone> for EmbeddedIntlProvider {
             .map(|style| self.time_zone_names.format(input, style, request.locale()))
             .transpose()?;
         ResolvedTimeZoneSnapshot::from_data(offset_seconds, display_name).map_err(Into::into)
+    }
+}
+
+/// Temporal's time-zone operations share the named-zone records, and their
+/// selector, with `ResolveTimeZone`.
+impl IntlOperationProvider<QueryTemporalTimeZone> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: TemporalTimeZoneRequest,
+    ) -> Result<TemporalTimeZoneAnswer, TemporalTimeZoneError> {
+        temporal_time_zone::answer(&self.named_time_zones, &request)
     }
 }
 

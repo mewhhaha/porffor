@@ -165,8 +165,8 @@ fn era_slots_stay_live_across_options_until_the_resolver_consumes_them() {
             "TemporalZonedDateTimeOptionsContext::From,",
             "options_payload_local,",
             "options_tag_local,",
-            "offset_option_local,",
-            "overflow_option_local,",
+            // `disambiguation`, `offset` and `overflow` destinations.
+            "option_locals,",
             "function,",
         ]
     );

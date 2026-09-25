@@ -107,9 +107,19 @@ pub(super) fn select<'p>(
                         .map(|fields| candidates.best(fields))
                         .transpose()
                 };
+            // A `toLocaleStringTimeZone` caller keeps `~all~` for the legacy
+            // format and uses `~zoned-date-time~` for the Instant format only.
+            let (legacy_defaults, instant_defaults) = match request.defaults {
+                DateTimeDefaults::ZonedDateTime => {
+                    (DateTimeDefaults::All, DateTimeDefaults::ZonedDateTime)
+                }
+                defaults @ (DateTimeDefaults::All
+                | DateTimeDefaults::Date
+                | DateTimeDefaults::Time) => (defaults, DateTimeDefaults::All),
+            };
             [
-                pick(required, true, request.defaults)?,
-                pick(Required::Any, true, DateTimeDefaults::All)?,
+                pick(required, true, legacy_defaults)?,
+                pick(Required::Any, true, instant_defaults)?,
                 pick(Required::Date, false, DateTimeDefaults::Date)?,
                 pick(Required::YearMonth, false, DateTimeDefaults::Date)?,
                 pick(Required::MonthDay, false, DateTimeDefaults::Date)?,

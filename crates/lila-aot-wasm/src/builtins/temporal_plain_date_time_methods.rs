@@ -14,7 +14,6 @@
 //! (`CalendarDateUntil` for the ISO calendar).
 
 use super::super::*;
-use super::temporal_difference::{TemporalDifferenceContext, TemporalEqualEndpoints};
 use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
     TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
@@ -22,6 +21,8 @@ use super::temporal_options::{
 use super::temporal_plain_date::TemporalEraLocals;
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
 use super::temporal_plain_time_methods::TEMPORAL_PRECISION_AUTO;
+use super::temporal::{TemporalZonedDateTimeOptionsContext, ZonedDateTimeOptionLocals};
+use super::temporal_time_zone::TemporalDisambiguationSource;
 
 /// Which `add` or `subtract` operation a plain Temporal builtin emits.
 ///
@@ -2311,8 +2312,6 @@ impl<'a> FunctionBuilder<'a> {
             &other_locals,
             &settings,
             operation,
-            TemporalDifferenceContext::Plain,
-            TemporalEqualEndpoints::ReturnZero,
             function,
         )?;
         for local in [
@@ -2523,9 +2522,8 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Temporal proposal 5.3.x `toZonedDateTime`. Only `UTC` and fixed numeric
-    /// offsets resolve in this backend, which is the same limit
-    /// `Temporal.ZonedDateTime` itself carries.
+    /// Temporal proposal 5.3.x `toZonedDateTime(timeZone, options)`:
+    /// `GetEpochNanosecondsFor` with the `disambiguation` option.
     pub(crate) fn emit_temporal_plain_date_time_to_zoned_date_time(
         &mut self,
         function: &mut Function,
@@ -2534,12 +2532,15 @@ impl<'a> FunctionBuilder<'a> {
         let time_zone_tag_local = self.reserve_temp_local();
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
-        let offset_seconds_local = self.reserve_temp_local();
+        let options_payload_local = self.reserve_temp_local();
+        let options_tag_local = self.reserve_temp_local();
+        let disambiguation_local = self.reserve_temp_local();
+        let offset_option_local = self.reserve_temp_local();
+        let overflow_local = self.reserve_temp_local();
         let seconds_local = self.reserve_temp_local();
         let subsecond_local = self.reserve_temp_local();
         let epoch_payload_local = self.reserve_temp_local();
         let epoch_tag_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
         let prototype_payload_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_plain_date_time_field_locals();
 
@@ -2551,6 +2552,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(calendar_tag_local));
         self.emit_builtin_arg_to_locals(0, time_zone_payload_local, time_zone_tag_local, function);
+        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
         function.instruction(&Instruction::LocalGet(time_zone_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -2568,45 +2570,25 @@ impl<'a> FunctionBuilder<'a> {
             time_zone_tag_local,
             function,
         )?;
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
-            offset_seconds_local,
+        self.emit_temporal_zoned_date_time_options(
+            TemporalZonedDateTimeOptionsContext::ToZonedDateTime,
+            options_payload_local,
+            options_tag_local,
+            ZonedDateTimeOptionLocals {
+                disambiguation: disambiguation_local,
+                offset: offset_option_local,
+                overflow: overflow_local,
+            },
             function,
         )?;
-
-        self.emit_temporal_plain_date_epoch_days(
-            field_locals[0],
-            field_locals[1],
-            field_locals[2],
-            days_local,
+        self.emit_temporal_epoch_for_iso_date_time(
+            time_zone_payload_local,
+            &field_locals,
+            TemporalDisambiguationSource::Option(disambiguation_local),
+            seconds_local,
+            subsecond_local,
             function,
-        );
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(field_locals[3]));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[4]));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[5]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(field_locals[6]));
-        function.instruction(&Instruction::I64Const(1_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(field_locals[7]));
-        function.instruction(&Instruction::I64Const(1_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(field_locals[8]));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
+        )?;
         self.emit_temporal_epoch_nanoseconds_bigint(
             seconds_local,
             subsecond_local,
@@ -2614,7 +2596,6 @@ impl<'a> FunctionBuilder<'a> {
             epoch_tag_local,
             function,
         )?;
-        self.emit_temporal_instant_validate_range(epoch_payload_local, epoch_tag_local, function)?;
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
         ));
@@ -2633,12 +2614,15 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temporal_plain_date_time_field_locals(field_locals);
         for local in [
             prototype_payload_local,
-            days_local,
             epoch_tag_local,
             epoch_payload_local,
             subsecond_local,
             seconds_local,
-            offset_seconds_local,
+            overflow_local,
+            offset_option_local,
+            disambiguation_local,
+            options_tag_local,
+            options_payload_local,
             calendar_tag_local,
             calendar_payload_local,
             time_zone_tag_local,

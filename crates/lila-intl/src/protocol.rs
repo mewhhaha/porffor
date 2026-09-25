@@ -16,7 +16,8 @@ use crate::{
     DateTimeRangeParts, DateTimeRangeRequest, DateTimeSupportedLocalesRequest,
     DateTimeSupportedLocalesResult, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
     InvalidCanonicalLocaleId, LocaleId, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
-    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TimeZoneId, TimeZoneResolveError,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TemporalTimeZoneAnswer,
+    TemporalTimeZoneError, TemporalTimeZoneRequest, TimeZoneId, TimeZoneResolveError,
 };
 
 /// Packed offset/length span read by an Intl host operation.
@@ -374,6 +375,14 @@ intl_operations! {
         capabilities: [IntlDataCapability::Calendars, IntlDataCapability::Collation,
             IntlDataCapability::NumberingSystems, IntlDataCapability::UnitsAndCurrencies,
             IntlDataCapability::TimeZoneTransitions],
+    }
+    QueryTemporalTimeZone {
+        code: 16,
+        name: "query-temporal-time-zone",
+        request: TemporalTimeZoneRequest,
+        response: TemporalTimeZoneAnswer,
+        error: TemporalTimeZoneError,
+        capabilities: [IntlDataCapability::TimeZoneTransitions],
     }
 }
 
@@ -833,7 +842,8 @@ mod tests {
         }
         assert_eq!(IntlHostOp::LocaleInfo.wire(), 14);
         assert_eq!(IntlHostOp::SupportedValues.wire(), 15);
-        assert_eq!(IntlHostOp::from_wire(16), None);
+        assert_eq!(IntlHostOp::QueryTemporalTimeZone.wire(), 16);
+        assert_eq!(IntlHostOp::from_wire(17), None);
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

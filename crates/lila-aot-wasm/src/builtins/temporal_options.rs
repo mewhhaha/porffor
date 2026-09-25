@@ -525,9 +525,9 @@ impl StringValuedOption for ShowCalendarName {
     }
 }
 
-/// `GetTemporalDisambiguationOption`. This backend resolves only `UTC` and
-/// fixed offsets, so the value is read, validated and then deliberately
-/// dropped — see `ZonedDateTimeOptionKey::destination`.
+/// `GetTemporalDisambiguationOption`. Its code is the time-zone kernel's wire
+/// value (`Disambiguation::wire`), so an option local crosses the host
+/// boundary unchanged.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Disambiguation {
     Compatible,
@@ -556,12 +556,7 @@ impl StringValuedOption for Disambiguation {
     }
 
     fn code(self) -> i64 {
-        match self {
-            Disambiguation::Compatible => 0,
-            Disambiguation::Earlier => 1,
-            Disambiguation::Later => 2,
-            Disambiguation::Reject => 3,
-        }
+        self.wire().wire()
     }
 }
 

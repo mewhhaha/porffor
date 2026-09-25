@@ -120,16 +120,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Ne);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                // `ToTemporalTimeZoneIdentifier`, then the fixed offset the
-                // resolved identifier denotes.
+                // `ToTemporalTimeZoneIdentifier`; the offset is taken at the
+                // rounded instant below.
                 self.emit_temporal_zoned_date_time_time_zone(
                     time_zone_payload_local,
                     time_zone_tag_local,
-                    function,
-                )?;
-                self.emit_temporal_fixed_time_zone_offset_seconds(
-                    time_zone_payload_local,
-                    offset_seconds_local,
                     function,
                 )?;
                 function.instruction(&Instruction::End);
@@ -203,7 +198,7 @@ impl<'a> FunctionBuilder<'a> {
         );
 
         // `GetISODateTimeFor(outputTimeZone, roundedNs)`: shift the rounded
-        // exact time by the zone's offset (zero for the implicit UTC).
+        // exact time by the zone's offset there (zero for the implicit UTC).
         function.instruction(&Instruction::LocalGet(day_local));
         function.instruction(&Instruction::I64Const(86_400_000));
         function.instruction(&Instruction::I64Mul);
@@ -211,6 +206,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1_000_000));
         function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(milliseconds_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(offset_seconds_local));
+        // Only `toString` can name a time zone; `toJSON` never consults one.
+        match source {
+            InstantStringSource::ToJson => {}
+            InstantStringSource::ToString => {
+                function.instruction(&Instruction::LocalGet(time_zone_tag_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                function.instruction(&Instruction::I64Ne);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_temporal_time_zone_offset_seconds_at_milliseconds(
+                    time_zone_payload_local,
+                    milliseconds_local,
+                    offset_seconds_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
         function.instruction(&Instruction::LocalGet(offset_seconds_local));
         function.instruction(&Instruction::I64Const(1_000));
         function.instruction(&Instruction::I64Mul);
@@ -288,8 +304,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::LocalSet(output_payload_local));
         // No time zone: the `Z` designator. A time zone:
-        // `FormatDateTimeUTCOffsetRounded`, which for the minute-aligned
-        // offsets this backend resolves is the offset itself.
+        // `FormatDateTimeUTCOffsetRounded`.
         function.instruction(&Instruction::LocalGet(time_zone_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -297,7 +312,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(self.strings.payload("Z")));
         function.instruction(&Instruction::LocalSet(piece_payload_local));
         function.instruction(&Instruction::Else);
-        self.emit_temporal_format_fixed_time_zone_offset(
+        self.emit_temporal_format_utc_offset_rounded(
             offset_seconds_local,
             piece_payload_local,
             function,

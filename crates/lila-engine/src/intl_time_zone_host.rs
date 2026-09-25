@@ -1,8 +1,8 @@
 use super::intl_host_request::CopiedIntlHostRequest;
 use super::*;
 use lila_intl::{
-    LookupNamedTimeZone, LookupNamedTimeZoneRequest, ResolveTimeZone, ResolveTimeZoneRequest,
-    TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
+    LookupNamedTimeZone, LookupNamedTimeZoneRequest, QueryTemporalTimeZone, ResolveTimeZone,
+    ResolveTimeZoneRequest, TemporalTimeZoneRequest, TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
 };
 
 pub(super) fn lookup_named_time_zone(
@@ -58,6 +58,31 @@ pub(super) fn resolve_time_zone(
         ));
     }
     copied.write(&mut caller, &result.encode())
+}
+
+/// Temporal's time-zone operations. The compiled program only ever sends
+/// identifiers it stored after `ToTemporalTimeZoneIdentifier`, so a request the
+/// kernel cannot decode or resolve is an ABI fault; RangeErrors the program
+/// must throw come back as answers.
+pub(super) fn query_temporal_time_zone(
+    mut caller: WasmtimeCaller<'_, WasmHostState>,
+    request_wire: i64,
+    result_wire: i64,
+) -> wasmtime::Result<i64> {
+    let kernel = Arc::clone(&caller.data().intl_kernel);
+    let copied = CopiedIntlHostRequest::read(&mut caller, request_wire, result_wire)?;
+    let request = TemporalTimeZoneRequest::decode(copied.bytes()).map_err(|error| {
+        wasmtime::Error::msg(format!("invalid Temporal time-zone query: {error}"))
+    })?;
+    let handle = kernel.operation::<QueryTemporalTimeZone>().map_err(|error| {
+        wasmtime::Error::msg(format!(
+            "Temporal time-zone kernel capability mismatch: {error}"
+        ))
+    })?;
+    let answer = handle.execute(request).map_err(|error| {
+        wasmtime::Error::msg(format!("Temporal time-zone query failed: {error}"))
+    })?;
+    copied.write(&mut caller, &answer.encode())
 }
 
 #[cfg(test)]
@@ -154,6 +179,55 @@ mod tests {
         let bytes = &probe.memory.data(&probe.store)[128..128 + required as usize];
         assert_eq!(i64::from_le_bytes(bytes[..8].try_into().unwrap()), 86_340);
         assert_eq!(&bytes[8..], b"GMT+23:59");
+    }
+
+    #[test]
+    fn temporal_query_answers_named_and_offset_zones_and_faults_on_bad_requests() {
+        use lila_intl::{
+            TemporalSeconds, TemporalTimeZone, TemporalTimeZoneAnswer, TemporalTimeZoneQuery,
+            TEMPORAL_TIME_ZONE_RESPONSE_BYTES,
+        };
+        let mut probe = IntlHostProbe::new();
+        for (identifier, expected) in [("America/New_York", -18_000), ("+05:30", 19_800)] {
+            let request = lila_intl::TemporalTimeZoneRequest::new(
+                TemporalTimeZone::parse_stored(identifier).unwrap(),
+                TemporalTimeZoneQuery::OffsetAt {
+                    epoch: TemporalSeconds::new(0, false),
+                },
+            )
+            .encode(identifier);
+            probe.memory.write(&mut probe.store, 128, &request).unwrap();
+            let span = IntlHostReadSpan::new(128, request.len() as u32);
+            let written = probe
+                .invoke(
+                    IntlHostOp::QueryTemporalTimeZone,
+                    span,
+                    IntlHostWriteSpan::new(1024, TEMPORAL_TIME_ZONE_RESPONSE_BYTES as u32),
+                )
+                .unwrap();
+            assert_eq!(written, TEMPORAL_TIME_ZONE_RESPONSE_BYTES as i64);
+            let bytes = &probe.memory.data(&probe.store)[1024..1024 + 16];
+            assert_eq!(
+                TemporalTimeZoneAnswer::decode(bytes).unwrap(),
+                TemporalTimeZoneAnswer::Seconds(expected)
+            );
+        }
+        // An identifier the program could not have stored is a fault.
+        let request = lila_intl::TemporalTimeZoneRequest::new(
+            TemporalTimeZone::parse_stored("Missing/Zone").unwrap(),
+            TemporalTimeZoneQuery::OffsetAt {
+                epoch: TemporalSeconds::new(0, false),
+            },
+        )
+        .encode("Missing/Zone");
+        probe.memory.write(&mut probe.store, 128, &request).unwrap();
+        assert!(probe
+            .invoke(
+                IntlHostOp::QueryTemporalTimeZone,
+                IntlHostReadSpan::new(128, request.len() as u32),
+                IntlHostWriteSpan::new(1024, 16)
+            )
+            .is_err());
     }
 
     #[test]
