@@ -682,6 +682,26 @@ fn run_wasm_backend_validates_atomics_access_through_typed_array_witness() {
 }
 
 #[test]
+fn run_wasm_backend_revalidates_atomics_access_after_argument_coercion() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_atomics_revalidate_after_coercion.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("number(67"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_preserves_atomics_type_error_branches() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")

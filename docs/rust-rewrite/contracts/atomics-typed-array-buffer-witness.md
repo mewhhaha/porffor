@@ -76,11 +76,56 @@ requirements. Their emitted entry sequence is:
 8. only then coerce `count`, `value`, replacement value or timeout and perform
    the existing atomic operation.
 
-The explicit data-pointer load is not a parallel length observation. Atomics
-still needs the pointer to form the eventual memory address, and retaining its
-pre-coercion snapshot preserves the existing pointer timing when index, count,
-value or timeout coercion runs user code. This lane does not implement the
-separate post-coercion `RevalidateAtomicAccess` requirement.
+The explicit data-pointer load is not a parallel length observation; it only
+backs the entry detachment check. No owner forms a memory address from that
+pre-coercion snapshot any more (see the next section).
+
+## Post-coercion RevalidateAtomicAccess
+
+Index, value, expected and replacement coercions run user code that can detach
+a non-shared buffer or shrink a resizable one after `ValidateAtomicAccess`.
+The current specification therefore runs
+[`RevalidateAtomicAccess`](https://tc39.es/ecma262/multipage/structured-data.html#sec-revalidateatomicaccess)
+in `Atomics.load`, `store`, `compareExchange` and `AtomicReadModifyWrite` after
+the last coercion and before the buffer access.
+
+`crates/lila-aot-wasm/src/builtins/atomics/access.rs` makes that step the only
+way to reach memory. The owner wraps its range-checked index in the
+`#[must_use]` `ValidatedAtomicsIndex`; every element accessor (`load`, `store`,
+`compareExchange` and the read-modify-write family) borrows an
+`AtomicsElementAddress`, whose field is private to `access.rs`. Two emitters
+mint one:
+
+- `emit_revalidate_atomic_access`, called once by the integer-operation owner
+  after all value coercions. It takes a fresh `ValidatedMethodEntry` read
+  witness (ValidateTypedArrayBounds: detached or out of bounds is a TypeError),
+  bounds the index against the new element length with the operation's
+  RangeError, and only then reads the backing pointer again; and
+- `emit_shared_atomics_element_address`, used by `wait` and `waitAsync`
+  (DoWait) and by `notify`, each of which has already required a
+  SharedArrayBuffer. Such a buffer can be neither detached nor shrunk, and the
+  specification performs no revalidation there. `notify` returns `+0` for any
+  other buffer after its count coercion, as the specification requires, before
+  it forms an address.
+
+The RangeError bound is `accessIndex ≥ TypedArrayLength(taRecord)`, that is
+`byteIndexInBuffer + elementSize > [[CachedBufferByteLength]]`. The
+specification states `byteIndexInBuffer ≥ [[CachedBufferByteLength]]`; the two
+differ only for a length-tracking view shrunk to a partial trailing element,
+where the following GetValueFromBuffer/SetValueInBuffer would violate the
+specification's own sufficient-bytes assertion. The element-granular bound is
+the one consistent with that assertion.
+
+`atomics_revalidate_access_structure` pins the private mint, the typed
+accessor signatures, the coercion-then-revalidation order and the non-shared
+`notify` result. The CLI fixture
+`crates/lila-cli/tests/fixtures/wasm_atomics_revalidate_after_coercion.js`
+(`binary_data::run_wasm_backend_revalidates_atomics_access_after_argument_coercion`)
+covers detachment during index and value coercion for every integer and BigInt
+element kind, the compareExchange coercion order, tracking-view shrink and
+partial-element RangeErrors, a fixed view pushed out of bounds, growth during
+coercion and non-shared `notify`. Test262
+`staging/sm/Atomics/detached-buffers.js` exercises the detachment half.
 
 A valid length-tracking view whose current element length is zero is distinct
 from an out-of-bounds view. Its witness succeeds, its side-effecting index is
@@ -147,11 +192,12 @@ every non-success bucket at zero.
 
 ## Explicit nonclaims
 
-This migration does not add post-coercion atomic revalidation, change
-sequentially consistent loads/stores, waiter queues, notification, agent host
-transport or `waitAsync` settlement. It does not change accepted element
-kinds, operation-specific return values, memory-address calculation or the
-relative coercion order of index and later arguments.
+The original migration did not add post-coercion atomic revalidation; that is
+now owned by the section above, which also moved address formation after the
+last coercion. Neither change alters sequentially consistent loads/stores,
+waiter queues, agent host transport, `waitAsync` settlement, accepted element
+kinds, operation-specific return values or the relative coercion order of index
+and later arguments.
 
 It does not migrate other raw TypedArray validators, retire a Test262 harness
 rewrite, refresh an aggregate baseline, change published conformance counts or

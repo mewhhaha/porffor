@@ -1,7 +1,9 @@
 use super::super::*;
 use super::binary_data::{TypedArrayAccessMode, TypedArrayViewLocals, TypedArrayWitnessUse};
+use access::{AtomicsElementAddress, ValidatedAtomicsIndex};
 use lila_runtime::AgentHostOperation;
 
+mod access;
 mod wait_async_result;
 
 enum AtomicsBuiltin {
@@ -581,6 +583,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        let index = ValidatedAtomicsIndex::after_range_check(index_local);
 
         function.instruction(&Instruction::I64Const(i32::MAX as i64));
         function.instruction(&Instruction::LocalSet(count_local));
@@ -614,14 +617,34 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
+        // Only a SharedArrayBuffer can have waiters; any other buffer, even one
+        // the count coercion detached, notifies nobody.
+        self.load_i64_from_offset(
+            buffer_payload_local,
+            HEAP_OBJECT_INTERNAL_BRAND_OFFSET,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_SHARED_ARRAY_BUFFER as i64,
+        ));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(self.result_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+        let address = self.emit_shared_atomics_element_address(
+            buffer_payload_local,
+            byte_offset_local,
+            bytes_per_element_local,
+            index,
+            address_local,
+            function,
+        );
+        let address_local = address.local();
 
         if let Some(agent_call_function_index) = agent_call_function_index {
             function.instruction(&Instruction::I64Const(
@@ -1079,6 +1102,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        let index = ValidatedAtomicsIndex::after_range_check(index_local);
 
         function.instruction(&Instruction::LocalGet(element_kind.local()));
         function.instruction(&Instruction::I64Const(10));
@@ -1118,17 +1142,16 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
-        self.emit_atomics_load_integer_element_to_i64(
+        let address = self.emit_shared_atomics_element_address(
+            buffer_payload_local,
+            byte_offset_local,
+            bytes_per_element_local,
+            index,
             address_local,
+            function,
+        );
+        self.emit_atomics_load_integer_element_to_i64(
+            &address,
             &element_kind,
             current_raw_local,
             function,
@@ -1185,7 +1208,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
-        self.emit_atomics_wait_async_return_promise(address_local, deadline_nanos_local, function)?;
+        self.emit_atomics_wait_async_return_promise(
+            address.local(),
+            deadline_nanos_local,
+            function,
+        )?;
         self.emit_return_current_completion(function);
 
         self.release_temp_local(monotonic_now_local);
@@ -1736,6 +1763,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        let index = ValidatedAtomicsIndex::after_range_check(index_local);
 
         function.instruction(&Instruction::LocalGet(element_kind.local()));
         function.instruction(&Instruction::I64Const(10));
@@ -1775,18 +1803,17 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         function.instruction(&Instruction::End);
 
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
-
         self.emit_atomics_require_agent_can_suspend(function)?;
-        self.emit_atomics_load_integer_element_to_i64(
+        let address = self.emit_shared_atomics_element_address(
+            buffer_payload_local,
+            byte_offset_local,
+            bytes_per_element_local,
+            index,
             address_local,
+            function,
+        );
+        self.emit_atomics_load_integer_element_to_i64(
+            &address,
             &element_kind,
             current_raw_local,
             function,
@@ -1838,7 +1865,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(10));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::LocalGet(address.local()));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::LocalGet(expected_raw_local));
         function.instruction(&Instruction::LocalGet(timeout_nanoseconds_local));
@@ -1846,7 +1873,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(wait_result_local));
         function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(address_local));
+        function.instruction(&Instruction::LocalGet(address.local()));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::LocalGet(expected_raw_local));
         function.instruction(&Instruction::I32WrapI64);
@@ -2079,6 +2106,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
+        let index = ValidatedAtomicsIndex::after_range_check(index_local);
 
         if value_arg_count > 0 {
             self.emit_validated_atomics_bigint_element_kind_i32(&element_kind, function);
@@ -2129,19 +2157,21 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion_if_throw(function);
         }
 
-        function.instruction(&Instruction::LocalGet(data_ptr_local));
-        function.instruction(&Instruction::LocalGet(byte_offset_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(index_local));
-        function.instruction(&Instruction::LocalGet(bytes_per_element_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(address_local));
+        let address = self.emit_revalidate_atomic_access(
+            &typed_array_view,
+            buffer_payload_local,
+            byte_offset_local,
+            bytes_per_element_local,
+            index,
+            range_error_message,
+            address_local,
+            function,
+        )?;
 
         match &operation {
             AtomicsIntegerOperation::Store => {
                 self.emit_atomics_store_integer_element_from_i64(
-                    address_local,
+                    &address,
                     &element_kind,
                     value_raw_local,
                     function,
@@ -2161,7 +2191,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             AtomicsIntegerOperation::Load => {
                 self.emit_atomics_load_integer_element_to_i64(
-                    address_local,
+                    &address,
                     &element_kind,
                     old_raw_local,
                     function,
@@ -2175,7 +2205,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
                 function.instruction(&Instruction::LocalSet(value_raw_local));
                 self.emit_atomics_compare_exchange_integer_element_to_i64(
-                    address_local,
+                    &address,
                     &element_kind,
                     value_raw_local,
                     replacement_raw_local,
@@ -2185,7 +2215,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             AtomicsIntegerOperation::Add => {
                 self.emit_atomics_rmw_integer_element_to_i64(
-                    address_local,
+                    &address,
                     &element_kind,
                     value_raw_local,
                     AtomicsRmwOperation::Add,
@@ -2194,7 +2224,7 @@ impl<'a> FunctionBuilder<'a> {
                 );
             }
             AtomicsIntegerOperation::And => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
+                &address,
                 &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::And,
@@ -2202,7 +2232,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             ),
             AtomicsIntegerOperation::Exchange => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
+                &address,
                 &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Exchange,
@@ -2210,7 +2240,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             ),
             AtomicsIntegerOperation::Or => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
+                &address,
                 &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Or,
@@ -2218,7 +2248,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             ),
             AtomicsIntegerOperation::Sub => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
+                &address,
                 &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Sub,
@@ -2226,7 +2256,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             ),
             AtomicsIntegerOperation::Xor => self.emit_atomics_rmw_integer_element_to_i64(
-                address_local,
+                &address,
                 &element_kind,
                 value_raw_local,
                 AtomicsRmwOperation::Xor,
@@ -2433,7 +2463,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_atomics_rmw_integer_element_to_i64(
         &mut self,
-        address_local: u32,
+        address: &AtomicsElementAddress,
         element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         value_local: u32,
         operation: AtomicsRmwOperation,
@@ -2441,6 +2471,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let element_kind_local = element_kind.local();
+        let address_local = address.local();
         self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));
@@ -2574,7 +2605,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_atomics_compare_exchange_integer_element_to_i64(
         &mut self,
-        address_local: u32,
+        address: &AtomicsElementAddress,
         element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         expected_local: u32,
         replacement_local: u32,
@@ -2582,6 +2613,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let element_kind_local = element_kind.local();
+        let address_local = address.local();
         self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));
@@ -2648,12 +2680,13 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_atomics_load_integer_element_to_i64(
         &mut self,
-        address_local: u32,
+        address: &AtomicsElementAddress,
         element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         output_local: u32,
         function: &mut Function,
     ) {
         let element_kind_local = element_kind.local();
+        let address_local = address.local();
         function.instruction(&Instruction::LocalGet(element_kind_local));
         function.instruction(&Instruction::I64Const(3));
         function.instruction(&Instruction::I64Eq);
@@ -2736,12 +2769,13 @@ impl<'a> FunctionBuilder<'a> {
 
     fn emit_atomics_store_integer_element_from_i64(
         &mut self,
-        address_local: u32,
+        address: &AtomicsElementAddress,
         element_kind: &ValidatedAtomicsIntegerElementKindLocal,
         value_local: u32,
         function: &mut Function,
     ) {
         let element_kind_local = element_kind.local();
+        let address_local = address.local();
         self.emit_validated_atomics_bigint_element_kind_i32(element_kind, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(address_local));

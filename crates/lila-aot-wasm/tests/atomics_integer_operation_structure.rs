@@ -448,9 +448,11 @@ fn atomics_integer_operation_exhausts_emission_and_result_publication() {
         );
     }
 
+    // The element address exists only after RevalidateAtomicAccess, which
+    // follows every value coercion; no pre-coercion pointer reaches memory.
     let address_start = consumer
-        .rfind("        function.instruction(&Instruction::LocalGet(data_ptr_local));")
-        .expect("integer-operation address calculation");
+        .find("        let address = self.emit_revalidate_atomic_access(")
+        .expect("integer-operation RevalidateAtomicAccess");
     let emission_end = consumer
         .rfind("\n\n        Ok(())")
         .expect("integer-operation return after local release");
@@ -458,17 +460,12 @@ fn atomics_integer_operation_exhausts_emission_and_result_publication() {
     assert_eq!(
         normalize_rust(emission_and_release).code,
         concat!(
-            "function.instruction(&Instruction::LocalGet(data_ptr_local));",
-            "function.instruction(&Instruction::LocalGet(byte_offset_local));",
-            "function.instruction(&Instruction::I64Add);",
-            "function.instruction(&Instruction::LocalGet(index_local));",
-            "function.instruction(&Instruction::LocalGet(bytes_per_element_local));",
-            "function.instruction(&Instruction::I64Mul);",
-            "function.instruction(&Instruction::I64Add);",
-            "function.instruction(&Instruction::LocalSet(address_local));",
+            "letaddress=self.emit_revalidate_atomic_access(&typed_array_view,",
+            "buffer_payload_local,byte_offset_local,bytes_per_element_local,index,",
+            "range_error_message,address_local,function,)?;",
             "match&operation{",
             "AtomicsIntegerOperation::Store=>{",
-            "self.emit_atomics_store_integer_element_from_i64(address_local,&element_kind,value_raw_local,function,);",
+            "self.emit_atomics_store_integer_element_from_i64(&address,&element_kind,value_raw_local,function,);",
             "self.emit_validated_atomics_bigint_element_kind_i32(&element_kind,function);",
             "function.instruction(&Instruction::If(BlockType::Empty));",
             "function.instruction(&Instruction::LocalGet(value_bigint_payload_local));",
@@ -482,23 +479,23 @@ fn atomics_integer_operation_exhausts_emission_and_result_publication() {
             "function.instruction(&Instruction::LocalSet(self.result_tag_local));",
             "function.instruction(&Instruction::End);}",
             "AtomicsIntegerOperation::Load=>{",
-            "self.emit_atomics_load_integer_element_to_i64(address_local,&element_kind,old_raw_local,function,);}",
+            "self.emit_atomics_load_integer_element_to_i64(&address,&element_kind,old_raw_local,function,);}",
             "AtomicsIntegerOperation::CompareExchange=>{",
             "self.emit_atomics_normalize_integer_element_i64(value_raw_local,&element_kind,function,);",
             "function.instruction(&Instruction::LocalSet(value_raw_local));",
-            "self.emit_atomics_compare_exchange_integer_element_to_i64(address_local,&element_kind,value_raw_local,replacement_raw_local,old_raw_local,function,);}",
+            "self.emit_atomics_compare_exchange_integer_element_to_i64(&address,&element_kind,value_raw_local,replacement_raw_local,old_raw_local,function,);}",
             "AtomicsIntegerOperation::Add=>{",
-            "self.emit_atomics_rmw_integer_element_to_i64(address_local,&element_kind,value_raw_local,AtomicsRmwOperation::Add,old_raw_local,function,);}",
+            "self.emit_atomics_rmw_integer_element_to_i64(&address,&element_kind,value_raw_local,AtomicsRmwOperation::Add,old_raw_local,function,);}",
             "AtomicsIntegerOperation::And=>self.emit_atomics_rmw_integer_element_to_i64(",
-            "address_local,&element_kind,value_raw_local,AtomicsRmwOperation::And,old_raw_local,function,),",
+            "&address,&element_kind,value_raw_local,AtomicsRmwOperation::And,old_raw_local,function,),",
             "AtomicsIntegerOperation::Exchange=>self.emit_atomics_rmw_integer_element_to_i64(",
-            "address_local,&element_kind,value_raw_local,AtomicsRmwOperation::Exchange,old_raw_local,function,),",
+            "&address,&element_kind,value_raw_local,AtomicsRmwOperation::Exchange,old_raw_local,function,),",
             "AtomicsIntegerOperation::Or=>self.emit_atomics_rmw_integer_element_to_i64(",
-            "address_local,&element_kind,value_raw_local,AtomicsRmwOperation::Or,old_raw_local,function,),",
+            "&address,&element_kind,value_raw_local,AtomicsRmwOperation::Or,old_raw_local,function,),",
             "AtomicsIntegerOperation::Sub=>self.emit_atomics_rmw_integer_element_to_i64(",
-            "address_local,&element_kind,value_raw_local,AtomicsRmwOperation::Sub,old_raw_local,function,),",
+            "&address,&element_kind,value_raw_local,AtomicsRmwOperation::Sub,old_raw_local,function,),",
             "AtomicsIntegerOperation::Xor=>self.emit_atomics_rmw_integer_element_to_i64(",
-            "address_local,&element_kind,value_raw_local,AtomicsRmwOperation::Xor,old_raw_local,function,),}",
+            "&address,&element_kind,value_raw_local,AtomicsRmwOperation::Xor,old_raw_local,function,),}",
             "match&operation{",
             "AtomicsIntegerOperation::Store=>{}",
             "AtomicsIntegerOperation::Load|AtomicsIntegerOperation::Add|AtomicsIntegerOperation::And|",

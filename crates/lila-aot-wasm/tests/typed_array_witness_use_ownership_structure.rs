@@ -293,7 +293,7 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayViewLocals"),
-        54
+        55
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "TypedArrayViewLocals::new("),
@@ -301,7 +301,7 @@ fn view_locals_is_the_exact_non_copyable_borrowed_carrier() {
     );
     assert_eq!(
         count_normalized_in_rust_sources(&source_root, "&TypedArrayViewLocals"),
-        2
+        3
     );
     for capability in [
         "Clone",
@@ -360,7 +360,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayWitnessUse"),
-        72
+        73
     );
     for forbidden in [
         "impl Clone for TypedArrayWitnessUse",
@@ -377,7 +377,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
 fn every_witness_use_route_has_an_exact_closed_projection() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (variant, count) in [
-        ("ValidatedMethodEntry", 36),
+        ("ValidatedMethodEntry", 37),
         ("ArrayLikeLengthSnapshot", 8),
         ("IntegerIndexedProperty", 13),
         ("Accessor", 4),
@@ -393,8 +393,8 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
     }
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "emit_typed_array_witness"),
-        53,
-        "one definition and 52 calls must remain the complete witness boundary"
+        54,
+        "one definition and 53 calls must remain the complete witness boundary"
     );
 
     let identifiers = [
@@ -415,6 +415,7 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
             [1, 1, 1, 1, 1, 0, 0, 0],
         ),
         ("builtins/atomics.rs", [5, 4, 5, 4, 4, 0, 0, 0]),
+        ("builtins/atomics/access.rs", [1, 0, 1, 1, 1, 0, 0, 0]),
         ("builtins/binary_data.rs", [5, 2, 12, 3, 2, 2, 3, 3]),
         ("builtins/iterators.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
         ("builtins/mod.rs", [1, 0, 1, 0, 0, 0, 0, 0]),

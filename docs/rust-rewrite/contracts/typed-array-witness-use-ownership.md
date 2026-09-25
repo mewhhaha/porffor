@@ -55,20 +55,26 @@ boundary, and the borrowed-validation-before-owned-result order. A lexical
 probe prevents comments, nested comments, raw identifiers and literals from
 making the census vacuous.
 
-The current inventory contains 54 view-carrier references, 41 constructors,
-two borrowed type boundaries, and 72 witness-use references. The 53 witness
-sites comprise one definition and 52 calls. The four route counts are
-`ValidatedMethodEntry 36`, `ArrayLikeLengthSnapshot 8`,
+The current inventory contains 55 view-carrier references, 41 constructors,
+three borrowed type boundaries, and 73 witness-use references. The 54 witness
+sites comprise one definition and 53 calls. The four route counts are
+`ValidatedMethodEntry 37`, `ArrayLikeLengthSnapshot 8`,
 `IntegerIndexedProperty 13`, and `Accessor 4`; these include both exhaustive
 matches inside the witness authority.
 
 The guard attributes every reference to its exact source owner: `objects.rs`,
 `builtins/{array,atomics,binary_data,iterators,mod,object,standard,typed_array_fill,typed_array_set,uint8array_codecs}.rs`,
-and `builtins/array/find_via_predicate.rs`. The codec contributes one owned view,
+`builtins/array/find_via_predicate.rs` and `builtins/atomics/access.rs`. The codec contributes one owned view,
 one validated method-entry witness, and the two corresponding imports. Its
 private-state load must precede validation, and validation must precede the
 backing-pointer load. This preserves the late buffer observation after codec
 option getters without changing the earlier immutable-receiver check.
+
+RevalidateAtomicAccess (`builtins/atomics/access.rs`) borrows the owning
+integer operation's view for one more validated observation after every
+argument coercion. It contributes the third borrowed type boundary, one
+`ValidatedMethodEntry` read witness and its call; the resulting length bounds
+the already-validated index and the backing pointer is read again after it.
 
 The dedicated `fill` emitter contributes one owned view, two validated
 observations and its two imports. Its second observation follows value, start
