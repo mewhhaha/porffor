@@ -869,12 +869,12 @@ fn failing_test262_suite_root(name: &str) -> std::path::PathBuf {
     suite_root
 }
 
-fn unsupported_test262_suite_root(name: &str) -> std::path::PathBuf {
+fn unsupported_dynamic_eval_test262_suite_root(name: &str) -> std::path::PathBuf {
     let suite_root = unique_project_dir(name);
     write_project_file(
         &suite_root,
-        "test/language/unsupported/feature.js",
-        "/*---\nfeatures: [SharedArrayBuffer]\nflags: [raw]\n---*/\ntrue;\n",
+        "test/language/unsupported/runtime-eval.js",
+        "/*---\nfeatures: [eval]\nflags: [raw]\n---*/\neval('1/*' + Math.random() + '*/');\n",
     );
     suite_root
 }
@@ -981,7 +981,7 @@ fn test262_run_exits_unsuccessfully_when_selection_is_empty() {
 
 #[test]
 fn test262_run_and_shard_reject_unsupported_and_keep_failure_snapshots() {
-    let suite_root = unsupported_test262_suite_root("test262-unsupported-verdict");
+    let suite_root = unsupported_dynamic_eval_test262_suite_root("test262-unsupported-verdict");
 
     for (command, shard_selector) in [("run", None), ("shard", Some("1/1"))] {
         let snapshot_dir = unique_snapshot_dir(&format!("unsupported-{command}"));
@@ -1040,7 +1040,13 @@ fn test262_run_and_shard_reject_unsupported_and_keep_failure_snapshots() {
             fs::read_to_string(json_path).expect("unsupported failure JSON snapshot should read");
         assert!(json.contains("\"Unsupported\": 1"));
         assert!(json.contains("\"kind\": \"Unsupported\""));
-        assert!(json.contains("language/unsupported/feature.js"));
+        assert!(json.contains("language/unsupported/runtime-eval.js"));
+        assert!(
+            json.contains(
+                "unsupported dynamic-source operation `eval` selected during Wasm execution"
+            ),
+            "test262 {command} should preserve the AOT dynamic-source reason: {json}"
+        );
     }
 }
 
