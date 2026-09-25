@@ -327,6 +327,14 @@ fn every_descriptor_object_producer_routes_through_the_owner() {
             "self.emit_from_complete_property_descriptor(",
             1,
         ),
+        // ECMA-402 ChainNumberFormat/ChainDateTimeFormat step 1.a defines the
+        // fallback-symbol property with DefinePropertyOrThrow, whose descriptor
+        // object a Proxy receiver observes.
+        (
+            "builtins/intl_legacy_constructed.rs",
+            "self.emit_from_complete_property_descriptor(",
+            1,
+        ),
         (
             "builtins/object/get_own_property_descriptor.rs",
             "self.emit_alloc_data_descriptor_from_locals_with_flag_locals(",
