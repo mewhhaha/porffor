@@ -11385,62 +11385,9 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
     if rewrite_wasm_aot_self_contained(case).is_some() {
         return None;
     }
-    let supported_dataview_shared_array_buffer_case = case.path.starts_with("built-ins/DataView/")
-        && (case.path.ends_with("-sab.js") || case.features.contains("SharedArrayBuffer"));
-    // Every `ArrayBuffer.prototype` member rejects a SharedArrayBuffer
-    // receiver by brand; these receiver tests need only the SharedArrayBuffer
-    // constructor, which the Wasm-AOT backend implements.
-    let supported_shared_array_buffer_receiver_case =
-        case.path.starts_with("built-ins/ArrayBuffer/prototype/")
-            && case.path.contains("/this-is-sharedarraybuffer");
-    let supported_shared_array_buffer_metadata_case =
-        supported_wasm_aot_shared_array_buffer_metadata_case(&case.path);
-    let supported_atomics_shared_array_buffer_case =
-        supported_wasm_aot_atomics_shared_array_buffer_case(&case.path);
-    let supported_typed_array_buffer_argument_shared_case = case
-        .path
-        .starts_with("built-ins/TypedArrayConstructors/ctors/buffer-arg/")
-        || case
-            .path
-            .starts_with("built-ins/TypedArrayConstructors/ctors-bigint/buffer-arg/");
-    let supported_typed_array_delete_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-non-strict.js"
-            | "built-ins/TypedArrayConstructors/internals/Delete/BigInt/indexed-value-sab-strict.js"
-    );
-    let supported_typed_array_get_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js"
-            | "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js"
-    );
-    let supported_typed_array_prototype_set_shared_case = matches!(
-        case.path.as_str(),
-        "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-same-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-conversions-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-other-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-diff-buffer-same-type-sab.js"
-            | "built-ins/TypedArray/prototype/set/typedarray-arg-set-values-same-buffer-same-type-sab.js"
-    );
-    if (case.features.contains("SharedArrayBuffer")
-        || case.path.contains("-sab")
-        || case.path.contains("/sab")
-        || case.path.contains("this-is-sharedarraybuffer"))
-        && !supported_shared_array_buffer_receiver_case
-        && !supported_dataview_shared_array_buffer_case
-        && !supported_shared_array_buffer_metadata_case
-        && !supported_atomics_shared_array_buffer_case
-        && !supported_typed_array_buffer_argument_shared_case
-        && !supported_typed_array_delete_shared_case
-        && !supported_typed_array_get_shared_case
-        && !supported_typed_array_prototype_set_shared_case
-    {
-        return Some("SharedArrayBuffer");
-    }
-
+    // SharedArrayBuffer is implemented by the backend. Execute every case
+    // regardless of its directory/name; missing operations must report their
+    // actual compiler/runtime failure instead of a stale feature allowlist.
     if matches!(
         case.path.as_str(),
         "built-ins/Proxy/apply/arguments-realm.js"
@@ -11451,122 +11398,6 @@ fn wasm_aot_unsupported_feature(case: &TestCase) -> Option<&'static str> {
         return Some("dynamic-source");
     }
     None
-}
-
-fn supported_wasm_aot_atomics_shared_array_buffer_case(path: &str) -> bool {
-    path.starts_with("built-ins/Atomics/")
-}
-
-fn supported_wasm_aot_shared_array_buffer_metadata_case(path: &str) -> bool {
-    matches!(
-        path,
-        "language/expressions/class/subclass-builtins/subclass-SharedArrayBuffer.js"
-            | "language/statements/class/subclass-builtins/subclass-SharedArrayBuffer.js"
-            | "built-ins/SharedArrayBuffer/allocation-limit.js"
-            | "built-ins/SharedArrayBuffer/data-allocation-after-object-creation.js"
-            | "built-ins/SharedArrayBuffer/init-zero.js"
-            | "built-ins/SharedArrayBuffer/is-a-constructor.js"
-            | "built-ins/SharedArrayBuffer/length-is-absent.js"
-            | "built-ins/SharedArrayBuffer/length-is-too-large-throws.js"
-            | "built-ins/SharedArrayBuffer/length.js"
-            | "built-ins/SharedArrayBuffer/negative-length-throws.js"
-            | "built-ins/SharedArrayBuffer/newtarget-prototype-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-allocation-limit.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-compared-before-object-creation.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-data-allocation-after-object-creation.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-diminuitive.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-excessive.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-negative.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-object.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-poisoned.js"
-            | "built-ins/SharedArrayBuffer/options-maxbytelength-undefined.js"
-            | "built-ins/SharedArrayBuffer/options-non-object.js"
-            | "built-ins/SharedArrayBuffer/prototype-from-newtarget.js"
-            | "built-ins/SharedArrayBuffer/return-abrupt-from-length-symbol.js"
-            | "built-ins/SharedArrayBuffer/return-abrupt-from-length.js"
-            | "built-ins/SharedArrayBuffer/toindex-length.js"
-            | "built-ins/SharedArrayBuffer/undefined-newtarget-throws.js"
-            | "built-ins/SharedArrayBuffer/zero-length.js"
-            | "built-ins/Object/seal/seal-sharedarraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/Symbol.toStringTag.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/return-bytelength.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-has-no-typedarrayname-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/byteLength/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/return-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-has-no-arraybufferdata-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/growable/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/descriptor.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/extensible.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-larger-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-same-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/grow-smaller-size.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-excessive.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-negative.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/new-length-non-number.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/nonconstructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-not-resizable-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/grow/this-is-sharedarraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-accessor.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/invoked-as-func.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/prop-desc.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/return-maxbytelength-non-growable.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-has-no-arraybufferdata-internal.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/maxByteLength/this-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-arraybuffer-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/context-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/descriptor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-absent.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-default-if-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/end-exceeds-length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/extensible.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/name.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/negative-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/negative-start.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/nonconstructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/not-a-constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/number-conversion.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-constructor-is-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-constructor.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-not-object.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-null.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-is-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-larger-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-not-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-same-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species-returns-smaller-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/species.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-absent.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-default-if-undefined.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/start-exceeds-length.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/this-is-arraybuffer.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-end.js"
-            | "built-ins/SharedArrayBuffer/prototype/slice/tointeger-conversion-start.js"
-    )
 }
 
 fn classify_failure_origin(detail: &str) -> FailureOrigin {
@@ -36179,19 +36010,30 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn wasm_aot_classifies_feature_gated_cases_as_unsupported() {
-        let preludes = real_wasm_aot_preludes();
-        let feature = "SharedArrayBuffer";
-        let mut case = synthetic_case("built-ins/Map/prototype/feature.js");
-        case.features.insert(feature.to_string());
-
-        let result = run_one_case(&case, &preludes, 5_000, ExecutionBackend::WasmAot);
-
-        let TestStatus::Failed(failure) = result.status else {
-            panic!("feature-gated case should fail as unsupported");
-        };
-        assert_eq!(failure.kind, FailureKind::Unsupported);
-        assert!(failure.detail.contains(feature));
+    fn wasm_aot_executes_shared_buffers_outside_legacy_allowed_paths() {
+        let mut case = synthetic_case("staging/sm/Atomics/cross-compartment.js");
+        case.features.insert("SharedArrayBuffer".to_string());
+        case.original_source = Arc::from(
+            r#"
+var other = $262.createRealm().global;
+var shared = new other.SharedArrayBuffer(8);
+var view = new Int32Array(shared);
+assert.sameValue(Atomics.store(view, 0, 37), 37);
+assert.sameValue(other.Atomics.load(new other.Int32Array(shared), 0), 37);
+assert.sameValue(Object.getPrototypeOf(shared), other.SharedArrayBuffer.prototype);
+"#,
+        );
+        let result = run_one_case(
+            &case,
+            &real_wasm_aot_preludes(),
+            60_000,
+            ExecutionBackend::WasmAot,
+        );
+        assert!(
+            matches!(result.status, TestStatus::Passed),
+            "{:?}",
+            result.status
+        );
     }
 
     #[test]
@@ -36257,7 +36099,7 @@ assert.sameValue(bytes[3], 0);
     }
 
     #[test]
-    fn wasm_aot_allows_only_the_supported_object_seal_shared_array_buffer_case() {
+    fn wasm_aot_allows_shared_buffer_object_integrity_operations() {
         let mut seal_case = synthetic_case("built-ins/Object/seal/seal-sharedarraybuffer.js");
         seal_case.features.insert("SharedArrayBuffer".to_string());
         assert_eq!(wasm_aot_unsupported_feature(&seal_case), None);
@@ -36267,10 +36109,7 @@ assert.sameValue(bytes[3], 0);
         unrelated_case
             .features
             .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&unrelated_case), None);
     }
 
     #[test]
@@ -36386,10 +36225,9 @@ assert.sameValue(bytes[3], 0);
             "built-ins/Atomics/wait/good-views.js",
             "built-ins/Atomics/waitAsync/good-views.js",
         ] {
-            assert!(
-                supported_wasm_aot_atomics_shared_array_buffer_case(path),
-                "{path}"
-            );
+            let mut case = synthetic_case(path);
+            case.features.insert("SharedArrayBuffer".to_string());
+            assert_eq!(wasm_aot_unsupported_feature(&case), None, "{path}");
         }
 
         let mut atomics_load_non_view_case = synthetic_case("built-ins/Atomics/load/non-views.js");
@@ -37034,7 +36872,7 @@ assert.sameValue(bytes[3], 0);
     }
 
     #[test]
-    fn wasm_aot_allows_only_supported_shared_typed_array_delete_cases() {
+    fn wasm_aot_allows_shared_typed_array_delete_cases_without_path_gating() {
         for path in [
             "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-non-strict.js",
             "built-ins/TypedArrayConstructors/internals/Delete/indexed-value-sab-strict.js",
@@ -37052,14 +36890,11 @@ assert.sameValue(bytes[3], 0);
         unrelated_case
             .features
             .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&unrelated_case), None);
     }
 
     #[test]
-    fn wasm_aot_allows_only_supported_shared_typed_array_get_cases() {
+    fn wasm_aot_allows_shared_typed_array_get_cases_without_path_gating() {
         for path in [
             "built-ins/TypedArrayConstructors/internals/Get/indexed-value-sab.js",
             "built-ins/TypedArrayConstructors/internals/Get/BigInt/indexed-value-sab.js",
@@ -37075,14 +36910,11 @@ assert.sameValue(bytes[3], 0);
         unrelated_case
             .features
             .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_case),
-            Some("SharedArrayBuffer")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&unrelated_case), None);
     }
 
     #[test]
-    fn wasm_aot_allows_only_supported_typed_array_prototype_set_feature_cases() {
+    fn wasm_aot_allows_typed_array_set_features_without_path_gating() {
         for path in [
             "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-other-type-sab.js",
             "built-ins/TypedArray/prototype/set/BigInt/typedarray-arg-set-values-diff-buffer-same-type-sab.js",
@@ -37121,10 +36953,7 @@ assert.sameValue(bytes[3], 0);
         unrelated_shared_case
             .features
             .insert("SharedArrayBuffer".to_string());
-        assert_eq!(
-            wasm_aot_unsupported_feature(&unrelated_shared_case),
-            Some("SharedArrayBuffer")
-        );
+        assert_eq!(wasm_aot_unsupported_feature(&unrelated_shared_case), None);
 
         let mut unrelated_resizable_case = synthetic_case(
             "built-ins/TypedArray/prototype/set/unimplemented-resizable-array-buffer-case.js",

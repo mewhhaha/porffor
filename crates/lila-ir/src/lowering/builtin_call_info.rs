@@ -1426,19 +1426,12 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::none(),
             }),
-            StandardBuiltinId::DataViewConstructor => {
-                let Some(buffer) = args.first() else {
-                    self.unsupported_with_message(
-                        "unsupported in lila wasm-aot first slice: DataView requires ArrayBuffer"
-                            .to_string(),
-                    );
-                    return None;
-                };
-                let _ = buffer;
-                Some(Self::value_info_from_shape(Some(
-                    Self::data_view_instance_shape(),
-                )))
-            }
+            // Missing or invalid arguments are runtime TypeErrors, including
+            // in dead branches and catchable calls; lowering only describes
+            // the value produced by a normal constructor completion.
+            StandardBuiltinId::DataViewConstructor => Some(Self::value_info_from_shape(Some(
+                Self::data_view_instance_shape(),
+            ))),
             StandardBuiltinId::DataViewPrototypeBufferGetter => Some(Self::value_info_from_shape(
                 Some(Self::array_buffer_instance_shape()),
             )),

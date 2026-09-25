@@ -1483,19 +1483,25 @@ fn emit_script_with_forced_builtins(
                 .standard
                 .contains(&StandardBuiltinId::AtomicsWaitAsync);
     let mut compiled_host_builtins = script.host_builtins.clone();
+    for builtin in HostBuiltinId::ALL {
+        if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
+            compiled_host_builtins.push(*builtin);
+        }
+    }
     if compiled_host_builtins.contains(&HostBuiltinId::CreateHTMLDDA)
         && !compiled_host_builtins.contains(&HostBuiltinId::HTMLDDA)
     {
         compiled_host_builtins.push(HostBuiltinId::HTMLDDA);
     }
-    if compiled_host_builtins.contains(&HostBuiltinId::CreateRealm)
-        && !compiled_host_builtins.contains(&HostBuiltinId::RealmEvalScript)
-    {
-        compiled_host_builtins.push(HostBuiltinId::RealmEvalScript);
-    }
-    for builtin in HostBuiltinId::ALL {
-        if forced.host.contains(builtin) && !compiled_host_builtins.contains(builtin) {
-            compiled_host_builtins.push(*builtin);
+    if compiled_host_builtins.contains(&HostBuiltinId::CreateRealm) {
+        for dependency in [
+            HostBuiltinId::RealmEvalScript,
+            HostBuiltinId::DetachArrayBuffer,
+            HostBuiltinId::Gc,
+        ] {
+            if !compiled_host_builtins.contains(&dependency) {
+                compiled_host_builtins.push(dependency);
+            }
         }
     }
     let stubbed_host_builtins = HostBuiltinId::ALL

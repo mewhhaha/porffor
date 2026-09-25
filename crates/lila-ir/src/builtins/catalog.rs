@@ -2175,14 +2175,14 @@ standard_builtin_catalog! {
     TemporalPlainDateFrom {
         function: FunctionOrdinal(287) => BUILTIN_TEMPORAL_PLAIN_DATE_FROM_FUNCTION_ID,
         debug: "Temporal.PlainDate.from",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "from",
     }
     TemporalPlainDateCompare {
         function: FunctionOrdinal(288) => BUILTIN_TEMPORAL_PLAIN_DATE_COMPARE_FUNCTION_ID,
         debug: "Temporal.PlainDate.compare",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "compare",
     }
@@ -2315,7 +2315,7 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeEquals {
         function: FunctionOrdinal(307) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_EQUALS_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.equals",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "equals",
     }
@@ -2364,14 +2364,14 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeUntil {
         function: FunctionOrdinal(314) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_UNTIL_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.until",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "until",
     }
     TemporalPlainDatePrototypeSince {
         function: FunctionOrdinal(315) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SINCE_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.since",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "since",
     }
@@ -6367,7 +6367,12 @@ mod tests {
                 StandardBuiltinId::DatePrototypeToLocaleDateString,
                 StandardBuiltinId::DatePrototypeToLocaleString,
                 StandardBuiltinId::DatePrototypeToLocaleTimeString,
+                StandardBuiltinId::TemporalPlainDateFrom,
+                StandardBuiltinId::TemporalPlainDateCompare,
+                StandardBuiltinId::TemporalPlainDatePrototypeEquals,
                 StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDatePrototypeUntil,
+                StandardBuiltinId::TemporalPlainDatePrototypeSince,
                 StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
                 StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
                 StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,

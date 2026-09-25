@@ -1,6 +1,8 @@
 use super::super::*;
 use crate::control_flow::SyncIteratorConsumer;
 
+mod log10;
+
 enum MathBuiltin {
     Unary(MathUnaryBuiltin),
     Atan2,
@@ -2024,27 +2026,11 @@ impl<'a> FunctionBuilder<'a> {
                         function.instruction(&Instruction::End);
                     }
                     MathUnaryBuiltin::Log10 => {
-                        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));
-                        function.instruction(&Instruction::I64ReinterpretF64);
-                        function.instruction(&Instruction::LocalSet(self.result_local));
-                        for (input, output) in [
-                            (0.0, f64::NEG_INFINITY),
-                            (f64::INFINITY, f64::INFINITY),
-                            (1.0, 0.0),
-                            (10.0, 1.0),
-                            (100.0, 2.0),
-                            (1000.0, 3.0),
-                        ] {
-                            function.instruction(&Instruction::LocalGet(arg_payload_local));
-                            function.instruction(&Instruction::F64ReinterpretI64);
-                            function.instruction(&Instruction::F64Const(Ieee64::from(input)));
-                            function.instruction(&Instruction::F64Eq);
-                            function.instruction(&Instruction::If(BlockType::Empty));
-                            function.instruction(&Instruction::F64Const(Ieee64::from(output)));
-                            function.instruction(&Instruction::I64ReinterpretF64);
-                            function.instruction(&Instruction::LocalSet(self.result_local));
-                            function.instruction(&Instruction::End);
-                        }
+                        self.emit_math_log10_number_payload(
+                            arg_payload_local,
+                            self.result_local,
+                            function,
+                        );
                     }
                     MathUnaryBuiltin::Log2 => {
                         function.instruction(&Instruction::F64Const(Ieee64::from(f64::NAN)));

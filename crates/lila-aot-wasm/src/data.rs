@@ -2214,6 +2214,9 @@ impl StringPool {
             // Created-Realm record keys are host-authored, so user-source
             // collection cannot discover them.
             pool.intern_string(REALM_EVAL_SCRIPT_METHOD_NAME);
+            for name in ["$262", "createRealm", "detachArrayBuffer", "gc"] {
+                pool.intern_string(name);
+            }
         }
         for builtin in StandardBuiltinId::all_functions() {
             pool.intern_string(&format!(

@@ -119,6 +119,14 @@ enum ZonedPropertyBagConsumer {
 }
 
 #[derive(Clone, Copy)]
+enum TemporalTimeZoneInput {
+    /// A time-zone-like input may use the bracketed zone of an ISO string.
+    TimeZoneLike,
+    /// The ZonedDateTime constructor requires a time-zone identifier itself.
+    ConstructorIdentifier,
+}
+
+#[derive(Clone, Copy)]
 enum ZonedDateTimeCalendarField {
     Year,
     DayOfWeek,
@@ -2242,9 +2250,10 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion_if_throw(function);
         self.emit_temporal_instant_validate_range(epoch_payload_local, epoch_tag_local, function)?;
         self.emit_builtin_arg_to_locals(1, time_zone_payload_local, time_zone_tag_local, function);
-        self.emit_temporal_zoned_date_time_time_zone(
+        self.emit_temporal_zoned_date_time_time_zone_with_input(
             time_zone_payload_local,
             time_zone_tag_local,
+            TemporalTimeZoneInput::ConstructorIdentifier,
             function,
         )?;
         self.emit_builtin_arg_to_locals(2, calendar_payload_local, calendar_tag_local, function);
@@ -2294,6 +2303,21 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         time_zone_payload_local: u32,
         time_zone_tag_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_temporal_zoned_date_time_time_zone_with_input(
+            time_zone_payload_local,
+            time_zone_tag_local,
+            TemporalTimeZoneInput::TimeZoneLike,
+            function,
+        )
+    }
+
+    fn emit_temporal_zoned_date_time_time_zone_with_input(
+        &mut self,
+        time_zone_payload_local: u32,
+        time_zone_tag_local: u32,
+        input: TemporalTimeZoneInput,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let object_brand_local = self.reserve_temp_local();
@@ -2410,16 +2434,27 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(found_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_parse_iso_string(
-            time_zone_payload_local,
-            unused_nanoseconds_payload_local,
-            unused_nanoseconds_tag_local,
-            TemporalIsoParseGoal::TimeZoneIdentifier {
+        match input {
+            TemporalTimeZoneInput::TimeZoneLike => self.emit_temporal_parse_iso_string(
                 time_zone_payload_local,
-                time_zone_tag_local,
-            },
-            function,
-        )?;
+                unused_nanoseconds_payload_local,
+                unused_nanoseconds_tag_local,
+                TemporalIsoParseGoal::TimeZoneIdentifier {
+                    time_zone_payload_local,
+                    time_zone_tag_local,
+                },
+                function,
+            )?,
+            TemporalTimeZoneInput::ConstructorIdentifier => {
+                self.emit_throw_current_function_realm_range_error(
+                    TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+            }
+        }
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
@@ -4687,6 +4722,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
 
         self.emit_temporal_validate_annotations(
+            string_payload_local,
             string_offset_local,
             main_end_local,
             string_len_local,
@@ -4707,7 +4743,7 @@ impl<'a> FunctionBuilder<'a> {
             calendar_start_local,
             calendar_end_local,
             function,
-        );
+        )?;
 
         self.emit_temporal_validate_date_time(
             year_local,
@@ -6284,6 +6320,7 @@ impl<'a> FunctionBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_validate_annotations(
         &mut self,
+        string_payload_local: u32,
         string_offset_local: u32,
         main_end_local: u32,
         string_len_local: u32,
@@ -6304,9 +6341,11 @@ impl<'a> FunctionBuilder<'a> {
         calendar_start_local: u32,
         calendar_end_local: u32,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
         let annotation_end_local = self.reserve_temp_local();
         let key_is_calendar_local = self.reserve_temp_local();
+        let numeric_offset_payload_local = self.reserve_temp_local();
+        let numeric_offset_length_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(main_end_local));
         function.instruction(&Instruction::LocalSet(cursor_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -6546,25 +6585,28 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(annotation_end_local));
         function.instruction(&Instruction::LocalGet(annotation_start_local));
         function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(5));
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::LocalGet(annotation_end_local));
-        function.instruction(&Instruction::LocalGet(annotation_start_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(valid_local));
-        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalSet(numeric_offset_length_local));
+        self.emit_string_slice_payload_from_locals(
+            string_payload_local,
+            annotation_start_local,
+            numeric_offset_length_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(numeric_offset_payload_local));
+        // An Instant ignores the zone's meaning, but the annotation still
+        // has to satisfy the offset-identifier grammar. The same parser
+        // handles ±HH, ±HHMM and ±HH:MM and checks 23:59 bounds.
+        self.emit_temporal_canonicalize_offset_time_zone(numeric_offset_payload_local, function)?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        self.release_temp_local(numeric_offset_length_local);
+        self.release_temp_local(numeric_offset_payload_local);
         self.release_temp_local(key_is_calendar_local);
         self.release_temp_local(annotation_end_local);
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -4,6 +4,7 @@
 //! two halves stay readable; both are `impl FunctionBuilder` blocks.
 
 use super::super::*;
+use super::temporal::TemporalEpochNanosecondsRecord;
 use super::temporal_options::{
     ShowCalendarName, StringValuedOption, TemporalConversionOverflowOptions, TemporalOverflow,
     TemporalRoundingMode, TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
@@ -523,6 +524,10 @@ impl<'a> FunctionBuilder<'a> {
         let month_code_present_local = self.reserve_temp_local();
         let day_present_local = self.reserve_temp_local();
         let handled_local = self.reserve_temp_local();
+        let time_zone_payload_local = self.reserve_temp_local();
+        let seconds_local = self.reserve_temp_local();
+        let subsecond_local = self.reserve_temp_local();
+        let zoned_fields = self.reserve_temporal_plain_date_time_field_locals();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(handled_local));
@@ -564,6 +569,100 @@ impl<'a> FunctionBuilder<'a> {
         ] {
             self.load_i64_to_local_from_offset(record_local, offset, local, function);
         }
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::End);
+
+        // ToTemporalDate reads the ISO date and calendar slots of a
+        // PlainDateTime. Its public getters may have been replaced.
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_PLAIN_DATE_TIME as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            argument_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        for (offset, local) in [
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_YEAR_OFFSET, year_local),
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_MONTH_OFFSET, month_local),
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_ISO_DAY_OFFSET, day_local),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+                calendar_payload_local,
+            ),
+        ] {
+            self.load_i64_to_local_from_offset(record_local, offset, local, function);
+        }
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::End);
+
+        // A ZonedDateTime's date is the local ISO date at its exact instant.
+        // GetISODateTimeFor uses its own time-zone and epoch slots, so no
+        // observable ZonedDateTime property is read.
+        function.instruction(&Instruction::LocalGet(brand_local));
+        function.instruction(&Instruction::I64Const(
+            OBJECT_INTERNAL_BRAND_TEMPORAL_ZONED_DATE_TIME as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            argument_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
+            time_zone_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_ZONED_DATE_TIME_CALENDAR_PAYLOAD_OFFSET,
+            calendar_payload_local,
+            function,
+        );
+        self.emit_temporal_epoch_nanoseconds_pair(
+            record_local,
+            TemporalEpochNanosecondsRecord::ZonedDateTime,
+            seconds_local,
+            subsecond_local,
+            function,
+        );
+        self.emit_temporal_normalize_seconds_and_subseconds(
+            seconds_local,
+            subsecond_local,
+            function,
+        );
+        self.emit_temporal_iso_date_time_for(
+            time_zone_payload_local,
+            seconds_local,
+            subsecond_local,
+            &zoned_fields,
+            function,
+        )?;
+        for (from, to) in [
+            (zoned_fields[0], year_local),
+            (zoned_fields[1], month_local),
+            (zoned_fields[2], day_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(from));
+            function.instruction(&Instruction::LocalSet(to));
+        }
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::End);
+
+        function.instruction(&Instruction::LocalGet(handled_local));
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::If(BlockType::Empty));
         match overflow_options {
             TemporalConversionOverflowOptions::Read {
                 payload_local,
@@ -576,8 +675,6 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
@@ -674,7 +771,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_reject_iso_date(year_local, month_local, day_local, function)?;
         function.instruction(&Instruction::End);
 
+        self.release_temporal_plain_date_time_field_locals(zoned_fields);
         for local in [
+            subsecond_local,
+            seconds_local,
+            time_zone_payload_local,
             handled_local,
             day_present_local,
             month_code_present_local,
@@ -987,21 +1088,25 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // `RejectTemporalLikeObject`: a bag that names a calendar or a time
-        // zone is a caller mistake, not a partial date.
+        // `RejectTemporalLikeObject` observes Get on both keys, including
+        // inherited getters that return undefined.
         for property in ["calendar", "timeZone"] {
             function.instruction(&Instruction::I64Const(self.strings.payload(property)));
             function.instruction(&Instruction::LocalSet(key_local));
-            self.emit_object_own_property_present(
+            self.emit_object_read(
+                argument_payload_local,
+                argument_tag_local,
                 argument_payload_local,
                 argument_tag_local,
                 key_local,
                 present_local,
+                calendar_tag_local,
                 function,
-            );
-            function.instruction(&Instruction::LocalGet(present_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32Eqz);
+            )?;
+            self.emit_return_current_completion_if_throw(function);
+            function.instruction(&Instruction::LocalGet(calendar_tag_local));
+            function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+            function.instruction(&Instruction::I64Ne);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_type_error(
                 "Temporal.PlainDate.prototype.with does not accept calendar or timeZone",

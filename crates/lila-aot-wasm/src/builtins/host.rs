@@ -7246,6 +7246,51 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
+        for (name, builtin) in [
+            ("from", StandardBuiltinId::TypedArrayFrom),
+            ("of", StandardBuiltinId::TypedArrayOf),
+        ] {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "missing realm builtin `{}`",
+                        builtin.debug_name()
+                    ))
+                })?;
+            let method_local = self.reserve_temp_local();
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                method_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                method_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+            function.instruction(&Instruction::LocalSet(tag_local));
+            self.emit_object_define_local_data(
+                typed_array_constructor_local,
+                name,
+                method_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_local);
+        }
+
         self.emit_function_value_payload_in_realm(
             &aggregate_error_meta,
             &realm_functions,
@@ -8489,6 +8534,55 @@ impl<'a> FunctionBuilder<'a> {
             tag_local,
             function,
         )?;
+
+        // The returned host record is also the created global's $262. Its
+        // callables are owned by that Realm, just like evalScript above.
+        for (name, builtin) in [
+            ("createRealm", HostBuiltinId::CreateRealm),
+            ("detachArrayBuffer", HostBuiltinId::DetachArrayBuffer),
+            ("gc", HostBuiltinId::Gc),
+        ] {
+            let meta = self
+                .functions
+                .get(&builtin.function_id())
+                .cloned()
+                .ok_or_else(|| {
+                    EmitError::unsupported(format!(
+                        "missing realm host builtin `{}`",
+                        builtin.as_str()
+                    ))
+                })?;
+            let method_local = self.reserve_temp_local();
+            self.emit_function_value_payload_in_realm(
+                &meta,
+                &realm_functions,
+                method_local,
+                function,
+            )?;
+            self.store_i64_local_at_offset(
+                method_local,
+                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                method_local,
+                function,
+            );
+            self.store_i64_local_at_offset(
+                method_local,
+                HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
+                type_error_prototype_local,
+                function,
+            );
+            self.emit_object_define_local_data(
+                realm_local,
+                name,
+                method_local,
+                tag_local,
+                function,
+            )?;
+            self.release_temp_local(method_local);
+        }
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        self.emit_object_define_local_data(global_local, "$262", realm_local, tag_local, function)?;
 
         function.instruction(&Instruction::LocalGet(realm_local));
         function.instruction(&Instruction::LocalSet(self.result_local));

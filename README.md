@@ -8,6 +8,9 @@ The 2026-09-25 recovery integrates Temporal IANA time zones and TypedArray
 Number-key/detachment repairs. Fresh integrated verification and remaining
 checks are recorded in the [recovery checkpoint](docs/rust-rewrite/recovered-integration-20260925.md).
 The published full-suite conformance counts remain unchanged.
+The follow-up [failure-repair plan](docs/rust-rewrite/failure-batch-plan-20260925.md)
+tracks Temporal conversion/rounding, Math.log10, TypedArray iteration/realms/sort,
+and the remaining generator and garbage-collection work.
 
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,

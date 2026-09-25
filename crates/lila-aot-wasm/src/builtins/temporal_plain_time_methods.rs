@@ -245,6 +245,57 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::End);
 
+        // ToTemporalTime reads PlainDateTime's six internal time slots;
+        // public getters (including overridden prototype getters) are not
+        // involved in this conversion.
+        self.emit_temporal_plain_date_time_brand_check_i32(
+            argument_payload_local,
+            argument_tag_local,
+            brand_local,
+            function,
+        );
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            argument_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            record_local,
+            function,
+        );
+        for (offset, local) in [
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_HOUR_OFFSET, field_locals[0]),
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_MINUTE_OFFSET, field_locals[1]),
+            (HEAP_TEMPORAL_PLAIN_DATE_TIME_SECOND_OFFSET, field_locals[2]),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_MILLISECOND_OFFSET,
+                field_locals[3],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_MICROSECOND_OFFSET,
+                field_locals[4],
+            ),
+            (
+                HEAP_TEMPORAL_PLAIN_DATE_TIME_NANOSECOND_OFFSET,
+                field_locals[5],
+            ),
+        ] {
+            self.load_i64_to_local_from_offset(record_local, offset, local, function);
+        }
+        match overflow_options {
+            TemporalConversionOverflowOptions::Read {
+                payload_local,
+                tag_local,
+            } => self.emit_temporal_plain_time_overflow_option(
+                payload_local,
+                tag_local,
+                overflow_local,
+                function,
+            )?,
+            TemporalConversionOverflowOptions::Omit => {}
+        }
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(handled_local));
+        function.instruction(&Instruction::End);
+
         function.instruction(&Instruction::LocalGet(handled_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));

@@ -2135,19 +2135,18 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_duration_sign(&field_locals, sign_local, function);
-        // Without rounding the components print verbatim; with rounding the
-        // whole time part is rebalanced, because a carry out of the seconds
-        // has to reach the minutes and hours the way `TemporalDurationFromInternal`
-        // would.
-        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[4]));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(hours_local));
-        function.instruction(&Instruction::LocalGet(field_locals.number_bits_locals()[5]));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64S);
-        function.instruction(&Instruction::LocalSet(minutes_local));
+        // Without rounding, keep the original component magnitudes. Rounding
+        // follows TemporalDurationFromInternal: balance through the original
+        // largest unit (up to days), then restore the calendar date fields.
+        for (unit, local) in [
+            (TemporalUnit::Hour, hours_local),
+            (TemporalUnit::Minute, minutes_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::I64TruncF64S);
+            function.instruction(&Instruction::LocalSet(local));
+        }
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
             TemporalUnit::Second,
@@ -2159,10 +2158,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64GtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(hours_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(minutes_local));
         self.emit_temporal_duration_normalize_seconds(
             &field_locals,
             TemporalUnit::Hour,
@@ -2177,8 +2172,8 @@ impl<'a> FunctionBuilder<'a> {
             mode_local,
             function,
         );
-        // `LargerOfTwoTemporalUnits(defaultLargestUnit, second)`, clamped to
-        // hour because the time part never balances up into days.
+        // LargerOfTwoTemporalUnits(defaultLargestUnit, second). Calendar
+        // units remain unbalanced; emit_temporal_duration_balance stops at day.
         self.emit_temporal_duration_default_largest_unit(
             &field_locals,
             default_largest_local,
@@ -2191,51 +2186,58 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
         function.instruction(&Instruction::LocalSet(default_largest_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(default_largest_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::LocalSet(default_largest_local));
+        let rounded_fields = self.reserve_temporal_duration_field_locals();
+        self.emit_temporal_duration_balance(
+            seconds_local,
+            subsecond_local,
+            default_largest_local,
+            &rounded_fields,
+            function,
+        )?;
+        for unit in [TemporalUnit::Year, TemporalUnit::Month, TemporalUnit::Week] {
+            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
+            function.instruction(&Instruction::LocalSet(rounded_fields.number_bits(unit)));
+        }
+        function.instruction(&Instruction::LocalGet(
+            field_locals.number_bits(TemporalUnit::Day),
+        ));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::LocalGet(
+            rounded_fields.number_bits(TemporalUnit::Day),
+        ));
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Add);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(
+            rounded_fields.number_bits(TemporalUnit::Day),
+        ));
+        // Validate only after all option observations and after recombining
+        // days with the rounded time. Rounding may cross the 2^53-second bound.
+        self.emit_temporal_duration_reject_invalid(&rounded_fields, function)?;
+        for unit in TemporalUnit::ALL {
+            function.instruction(&Instruction::LocalGet(rounded_fields.number_bits(unit)));
+            function.instruction(&Instruction::LocalSet(field_locals.number_bits(unit)));
+        }
+        self.release_temporal_duration_field_locals(rounded_fields);
+        for (unit, local) in [
+            (TemporalUnit::Hour, hours_local),
+            (TemporalUnit::Minute, minutes_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(field_locals.number_bits(unit)));
+            function.instruction(&Instruction::F64ReinterpretI64);
+            function.instruction(&Instruction::I64TruncF64S);
+            function.instruction(&Instruction::LocalSet(local));
+        }
+        self.emit_temporal_duration_normalize_seconds(
+            &field_locals,
+            TemporalUnit::Second,
+            seconds_local,
+            subsecond_local,
+            function,
+        );
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(default_largest_local));
-        function.instruction(&Instruction::I64Const(4));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(hours_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(default_largest_local));
-        function.instruction(&Instruction::I64Const(6));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64DivU);
-        function.instruction(&Instruction::LocalSet(minutes_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64RemU);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        // A negative duration rounded to zero prints without a negative sign.
+        self.emit_temporal_duration_sign(&field_locals, sign_local, function);
         // Print magnitudes; the sign is a single prefix.
         for local in [seconds_local, subsecond_local, hours_local, minutes_local] {
             function.instruction(&Instruction::LocalGet(local));
