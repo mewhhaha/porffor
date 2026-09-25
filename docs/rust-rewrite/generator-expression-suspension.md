@@ -104,10 +104,12 @@ destructuring lowering is synchronous-generator only and refuses explicitly
 preplanned structured resume point"). Suspending `var` initializers, `for-of`,
 `switch` and the other statement kinds listed by
 `GeneratorPlanRejection::YieldInUnsupportedStatement` are unchanged. In
-particular the 24 `language/statements/for-of/dstr/*-yield-expr.js` executions
-put the suspending pattern in a `for-of` head; they now report
-`YieldInUnsupportedStatement` instead of the reason-less "generator
-suspension" and need a resumable synchronous `for-of` in plain generators.
+particular the 24 `language/statements/for-of/dstr/*-yield-expr.js` and
+`*-rtrn-close*.js` files (48 executions) put the suspending pattern in a `for-of`
+head;
+all now report `YieldInUnsupportedStatement` (half of them previously reported
+the reason-less "generator suspension") and need a resumable synchronous
+`for-of` in plain generators.
 
 ## Verification
 
@@ -117,3 +119,25 @@ lowered IR for every newly admitted shape and every rejection message.
 the shapes through Wasmtime with exact evaluation-order traces, including
 iterator closing on `return()` and `throw()` resumption, an exhausted iterator,
 abrupt and non-object close results, and ToString order in templates.
+
+Pinned Test262 (`aa55200d`), Wasm-AOT, before (`62ffe7856`) and after
+(`e83145720`) release builds, same machine and options:
+
+| Directory or subset | Before | After |
+| --- | ---: | ---: |
+| `language/expressions/assignment/dstr` | 584/640 | 632/640 |
+| `language/statements/for-of/dstr` | 1039/1095 | 1039/1095 |
+| `language/expressions/in` | 65/69 | 69/69 |
+| `language/expressions/generators` | 546/546 | 546/546 |
+| `language/statements/generators` | 510/510 | 510/510 |
+| `built-ins/GeneratorPrototype` | 122/122 | 122/122 |
+| generator subset (below) | 1471/1478 | 1478/1478 |
+
+The generator subset is `language/expressions/yield`, every
+`language/statements/class/elements/*gen*.js`, every
+`language/{expressions,statements}/async-generator/*yield*.js`, the class
+`*from-yield*.js` files, and every `language/expressions/object` file that
+contains `yield` (823 files). No execution regressed. The 8 remaining
+`assignment/dstr` failures are the pre-existing `*-put-let.js` TDZ Bugs; the
+`for-of/dstr` failures are unchanged in count (48 NotImplemented discussed
+above, 8 pre-existing `*-put-let.js` Bugs).
