@@ -360,7 +360,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "TypedArrayWitnessUse"),
-        73
+        72
     );
     for forbidden in [
         "impl Clone for TypedArrayWitnessUse",
@@ -377,7 +377,7 @@ fn witness_use_is_the_exact_crate_private_move_only_authority() {
 fn every_witness_use_route_has_an_exact_closed_projection() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (variant, count) in [
-        ("ValidatedMethodEntry", 37),
+        ("ValidatedMethodEntry", 36),
         ("ArrayLikeLengthSnapshot", 8),
         ("IntegerIndexedProperty", 13),
         ("Accessor", 4),
@@ -393,8 +393,8 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
     }
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "emit_typed_array_witness"),
-        54,
-        "one definition and 53 calls must remain the complete witness boundary"
+        53,
+        "one definition and 52 calls must remain the complete witness boundary"
     );
 
     let identifiers = [
@@ -421,7 +421,9 @@ fn every_witness_use_route_has_an_exact_closed_projection() {
         ("builtins/mod.rs", [1, 0, 1, 0, 0, 0, 0, 0]),
         ("builtins/object.rs", [2, 1, 2, 1, 0, 1, 0, 0]),
         ("builtins/standard.rs", [11, 10, 12, 11, 10, 1, 0, 0]),
-        ("builtins/typed_array_set.rs", [3, 2, 4, 3, 3, 0, 0, 0]),
+        // Set validates target bounds after offset coercion, then typed sources.
+        // Its earlier immutable-buffer rejection is not a bounds witness.
+        ("builtins/typed_array_set.rs", [3, 2, 3, 2, 2, 0, 0, 0]),
         ("builtins/typed_array_fill.rs", [2, 1, 3, 2, 2, 0, 0, 0]),
         ("builtins/uint8array_codecs.rs", [2, 1, 2, 1, 1, 0, 0, 0]),
     ] {
