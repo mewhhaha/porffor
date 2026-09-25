@@ -11870,6 +11870,21 @@ for (var mode of ["ceil", "expand", "halfExpand"]) {
   );
 }
 
+// ISODateSurpasses compares the unclamped day: January 29 plus one month is
+// "February 29", past February 28.
+same(
+  Temporal.ZonedDateTime.from("1970-01-29T12:34[UTC]")
+    .until(Temporal.ZonedDateTime.from("1970-02-28T12:34[UTC]"), { largestUnit: "months" })
+    .toString(),
+  "P30D",
+  "end of month zoned"
+);
+same(
+  Temporal.PlainDate.from("2020-02-29").until("2021-02-28", { largestUnit: "years" }).toString(),
+  "P11M30D",
+  "end of month plain"
+);
+
 // toJSON keeps the non-primary identifier; valueOf always throws.
 same(
   Temporal.ZonedDateTime.from("2020-01-01T00:00+05:30[Asia/Calcutta]").toJSON(),

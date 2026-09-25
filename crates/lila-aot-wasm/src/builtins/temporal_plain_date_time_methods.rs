@@ -469,8 +469,14 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// `CalendarDateUntil` for the ISO calendar. `largest_unit_local` picks
-    /// between the year/month form (calendar arithmetic with a day clamp) and
-    /// the week/day form (a plain epoch-day subtraction).
+    /// between the year/month form and the week/day form (a plain epoch-day
+    /// subtraction).
+    ///
+    /// The year/month candidates are tested with `ISODateSurpasses`, which
+    /// compares the intermediate year and month with `one`'s *unclamped* day:
+    /// January 29 plus one month is "February 29", which surpasses February
+    /// 28, so that difference is 30 days rather than one month. Only the final
+    /// intermediate is constrained, for the day count.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn emit_temporal_difference_iso_date(
         &mut self,
@@ -559,7 +565,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_temporal_compare_iso_date(
             right,
-            [mid_year_local, mid_month_local, mid_day_local],
+            [mid_year_local, mid_month_local, left[2]],
             mid_sign_local,
             function,
         );
@@ -603,7 +609,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         self.emit_temporal_compare_iso_date(
             right,
-            [mid_year_local, mid_month_local, mid_day_local],
+            [mid_year_local, mid_month_local, left[2]],
             mid_sign_local,
             function,
         );
