@@ -65,6 +65,18 @@ All six full selected families passed: **326/326 executions**, with no omissions
 
 The log is `target/watched/failure-batch-families.log`; each snapshot and binary-hashed receipt is under `target/failure-batch-20260925/families/`. These families overlap the original-failure rerun and must not be added to its fixed-execution count.
 
+## CLI fixture correction
+
+Read-only review of the CLI sort fixture found a comparator that transferred
+its ArrayBuffer on every call while expecting sorting to finish normally.
+Repeated comparison after detachment is valid; the second transfer correctly
+throws TypeError. A direct run with the new compiler reproduced that error.
+The fixture now detaches once and retains its assertions that comparator-result
+coercion runs after detachment and that the view stays detached. The corrected
+fixture executed successfully through Wasm AOT (`boolean(true)`), recorded in
+`target/watched/failure-batch-sort-cli-fixture-corrected.log`. This corrects the
+fixture's dependence on the old premature sort abort, not the product semantics.
+
 ## Evidence and limits
 
 Frozen inputs and rerun receipts are under `target/failure-batch-20260925/`; the run log is `target/watched/failure-batch-original-cases.log`. Each selection ran through the unmodified pinned harness in sloppy/strict mode as declared, with a 60-second case timeout, three workers, and the bounded process settings in the plan. The runner verified every original failing ID completed and reconciled pass/failure counts with process exit status.

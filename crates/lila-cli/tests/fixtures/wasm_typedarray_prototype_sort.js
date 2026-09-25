@@ -121,8 +121,13 @@ assertSequence(new Uint8Array(fixedBuffer), [4, 3], "out of bounds fixed view is
 var detachedBuffer = new ArrayBuffer(4);
 var detached = new Uint8Array(detachedBuffer);
 var detachedCoercion = false;
+var detachedOnce = false;
 detached.sort(function() {
-  detachedBuffer.transfer();
+  // Sort can make more comparisons after the first one detaches the buffer.
+  if (!detachedOnce) {
+    detachedBuffer.transfer();
+    detachedOnce = true;
+  }
   return {
     valueOf: function() {
       detachedCoercion = true;
