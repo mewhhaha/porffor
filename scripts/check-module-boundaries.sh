@@ -2674,14 +2674,19 @@ check_no_inline_legacy_includes "$wasm_standard_builtins"
 # family modules.
 check_raw_line_budget "$wasm_standard_builtins" 30800
 
-# TypedArray.set owns the complete witness/copy algorithm; the dispatcher and
-# constructor can invoke fixed entries but must not grow another implementation.
-# 554 raw lines (+3 over the previous 551 budget): each of its three
-# method-entry witnesses names its ValidateTypedArray access mode, and the
-# receiver entry notes that its `Write` check precedes offset coercion.
+# TypedArray.set owns the witness/copy algorithm; its private offset child owns
+# ToIntegerOrInfinity and the negative-offset check. The immutable-buffer
+# rejection precedes that coercion, while target bounds validation follows it.
+# The parent keeps its 554-line budget; the offset child has 43 lines plus 3
+# lines of local headroom.
 wasm_typed_array_set="crates/lila-aot-wasm/src/builtins/typed_array_set.rs"
+wasm_typed_array_set_offset="crates/lila-aot-wasm/src/builtins/typed_array_set/offset.rs"
 check_raw_line_budget "$wasm_typed_array_set" 554
+check_raw_line_budget "$wasm_typed_array_set_offset" 46
 require_fixed_string_count "$wasm_typed_array_set" '    pub(super) fn ' 2 'fixed TypedArray set and byte-copy entries'
+require_fixed_string_count "$wasm_typed_array_set" 'mod offset;' 1 'private TypedArray set offset owner'
+require_fixed_string_count "$wasm_typed_array_set" 'self.emit_typed_array_set_offset(' 1 'TypedArray set offset call'
+require_fixed_string_count "$wasm_typed_array_set_offset" '    pub(super) fn emit_typed_array_set_offset(' 1 'private TypedArray set offset entry'
 if grep -Eq 'fn (compile_typed_array_prototype_set_builtin|emit_typed_array_copy_bytes_in_order)\(' "$wasm_standard_builtins"; then
   fail "$wasm_standard_builtins must delegate TypedArray set and ordered byte copies"
 fi

@@ -1,4 +1,5 @@
 const SET_SOURCE: &str = include_str!("../src/builtins/typed_array_set.rs");
+const OFFSET_SOURCE: &str = include_str!("../src/builtins/typed_array_set/offset.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
 const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_typedarray_set_buffer_witness.js");
@@ -38,7 +39,7 @@ fn set_checks_immutable_target_before_offset_and_bounds_after_offset() {
     assert_eq!(
         body.matches("emit_throw_current_function_realm_range_error(")
             .count(),
-        5
+        4
     );
     assert!(!body.contains("emit_throw_runtime_error("));
 
@@ -85,15 +86,30 @@ fn set_checks_immutable_target_before_offset_and_bounds_after_offset() {
         "self.emit_throw_if_array_buffer_immutable(",
         "early immutable target check",
     );
-    let offset_argument = unique_position(
+    let offset_emission = unique_position(
         body,
+        "self.emit_typed_array_set_offset(",
+        "offset conversion call",
+    );
+    let offset_argument = unique_position(
+        OFFSET_SOURCE,
         "emit_builtin_arg_to_locals(1, offset_payload_local, offset_tag_local, function)",
         "offset argument acquisition",
     );
     let offset_coercion = unique_position(
-        body,
+        OFFSET_SOURCE,
         "emit_to_integer_or_infinity_number_payload_from_number_payload(",
         "offset coercion",
+    );
+    let negative_range_error = unique_position(
+        OFFSET_SOURCE,
+        "TypedArray.prototype.set offset is out of range",
+        "negative offset RangeError",
+    );
+    let saturated_offset = unique_position(
+        OFFSET_SOURCE,
+        "Instruction::I64TruncSatF64U",
+        "oversized offset saturation",
     );
     let source_argument = unique_position(
         body,
@@ -116,10 +132,14 @@ fn set_checks_immutable_target_before_offset_and_bounds_after_offset() {
     assert_eq!(capacities.len(), 4);
     assert_eq!(buffer_addresses.len(), 2);
     assert!(
+        offset_argument < offset_coercion
+            && offset_coercion < negative_range_error
+            && negative_range_error < saturated_offset
+    );
+    assert!(
         receiver_view < immutable_check
-            && immutable_check < offset_argument
-            && offset_argument < offset_coercion
-            && offset_coercion < witnesses[0]
+            && immutable_check < offset_emission
+            && offset_emission < witnesses[0]
             && witnesses[0] < source_argument
             && source_argument < source_brand
             && source_brand < source_view
