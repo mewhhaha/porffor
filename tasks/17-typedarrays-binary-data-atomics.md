@@ -1562,6 +1562,35 @@ current unrelated created-Realm global-resolution failure prevents a direct
 cross-Realm constructor control, so the executing-function-Realm route is
 owned structurally rather than claimed as runtime evidence here.
 
+Three detach-order corrections follow the current ECMA-262 text (the merged
+align-detached-buffer-semantics-with-web-reality change). Atomics `load`,
+`store`, `compareExchange` and the read-modify-write family now run
+`RevalidateAtomicAccess` after their last argument coercion: a detached or
+out-of-bounds view is a TypeError, a length-tracking view shrunk below the
+element is a RangeError, and the backing pointer is read only then. The element
+accessors take an `AtomicsElementAddress` minted solely in
+`builtins/atomics/access.rs`, so no Atomics access can reuse a pre-coercion
+pointer; `notify` returns `+0` for a non-shared buffer after its count
+coercion. The DataView constructor checks detachment immediately after
+`ToIndex(byteOffset)`, before the offset bound, and its `ToIndex` rejects
+integers above 2^53 - 1. A TypedArray constructor with a non-Object first
+argument converts it with `ToIndex` before reading `NewTarget.prototype`; no
+argument and every Object argument still allocate first. The
+[Atomics buffer-witness contract](../docs/rust-rewrite/contracts/atomics-typed-array-buffer-witness.md)
+records the revalidation design. Verified on the Test262 7ab7faf vendor pin with
+Wasm-AOT: `staging/sm/Atomics` rises from `0/4` to `2/4` (the remaining
+`cross-compartment.js` pair needs a created-Realm SharedArrayBuffer), the
+TypedArray constructor leaf `throw-type-error-before-custom-proto-access.js`
+passes `2/2`, and `staging/sm/extensions` stays `92/118`. Its three detach
+tests fail only on `$262.gc()` (feature `host-gc-required`, deliberately
+unsupported without a collector); gc-free copies of them and of
+`typedarray-set-detach.js` pass. The new structure target passes `6/6`, the
+whole `lila-aot-wasm` test suite passes, and the `atomics::`, `data_view::`,
+`binary_data::` and `typed_array::` CLI areas pass `154/154`. Full
+`built-ins/{Atomics,DataView,ArrayBuffer,TypedArrayConstructors}` sweeps were
+only partially run on a heavily loaded machine (every completed case passed)
+and remain to be rerun.
+
 These migrations still do not cover all constructor validation or other
 binary-data observers. They do not change key
 classification, caller-specific integer-indexed descriptor/result policy,
