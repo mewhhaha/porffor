@@ -299,7 +299,10 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
             "Ok(ReadOrdinaryPropertyReferenceLocals {",
         ],
     );
-    assert_eq!(get.matches("emit_reference_property_key_locals(").count(), 1);
+    assert_eq!(
+        get.matches("emit_reference_property_key_locals(").count(),
+        1
+    );
     assert!(!get.contains("emit_value_to_property_key_locals("));
     assert!(!get.contains("compile_raw_property_key_expression_to_locals("));
 

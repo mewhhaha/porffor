@@ -394,7 +394,10 @@ fn backend_typestate_keeps_boxed_target_receiver_key_and_branch_order() {
             "Ok(ReadOrdinaryPropertyReferenceLocals {",
         ],
     );
-    assert_eq!(get.matches("emit_reference_property_key_locals(").count(), 1);
+    assert_eq!(
+        get.matches("emit_reference_property_key_locals(").count(),
+        1
+    );
     assert!(!get.contains("emit_value_to_property_key_locals("));
 
     let taken = bounded(

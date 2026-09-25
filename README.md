@@ -36,13 +36,24 @@ On 2026-09-25 the same command passed `built-ins/ArrayBuffer` 442/442,
 `ctors` executions below and the dynamic-code `SharedArrayBuffer`
 `proto-from-ctor-realm.js`. The five `language/import/import-bytes` cases, no
 longer masked by the gate, fail because bytes-module imports are unimplemented.
-Upstream now runs the six `copyWithin`
-`coerced-values-*-detached*` executions through every argument factory; they
-time out at 60 s, and with a 600 s bound they exhaust the Wasm heap in
-`copyIntoArrayBuffer`'s element-wise index stores whether or not the split
-dispatcher is used. The two `ctors` failures
-(`throw-type-error-before-custom-proto-access.js`) also fail in the
-2026-09-07 baseline at the previous pin.
+Upstream now runs the six `copyWithin` `coerced-values-*-detached*` executions
+through every argument factory, and `copyIntoArrayBuffer`'s element-wise index
+stores used to exhaust the Wasm heap. A runtime Number key now reaches a
+TypedArray's integer-indexed `[[Get]]`, `[[Set]]` and `[[HasProperty]]` without
+building its String, and CanonicalNumericIndexString no longer allocates.
+Atomics operations revalidate their view after argument coercion, and the
+DataView and TypedArray constructors follow the current detach and `ToIndex`
+order (see [task 17](tasks/17-typedarrays-binary-data-atomics.md)). Rebased onto
+`b2537c088`, the same command on 2026-09-25 passed `TypedArray` 2890/2890, with
+each `copyWithin` execution taking about 30 s on a loaded machine,
+`TypedArrayConstructors` 1446/1446, `ArrayBuffer` 442/442, `DataView` 1122/1122,
+`Atomics` 778/778, `staging/sm/TypedArray` 148/185 (unchanged),
+`staging/sm/Atomics` 2/4 (from 0/4) and `staging/sm/extensions` 92/118
+(unchanged); the Number-key commit alone passed `Array` 6117/6117. The
+`staging/sm/Atomics` pair `cross-compartment.js` needs a SharedArrayBuffer in a
+created Realm. Three `staging/sm/extensions` detach tests and
+`typedarray-set-detach.js` call `$262.gc()`, which Wasm AOT rejects because it
+has no collector; copies without that call pass.
 Published conformance counts are unchanged.
 
 The direct Wasm `Intl.Locale` constructor applies core and Unicode-extension

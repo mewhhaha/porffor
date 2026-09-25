@@ -1562,6 +1562,41 @@ current unrelated created-Realm global-resolution failure prevents a direct
 cross-Realm constructor control, so the executing-function-Realm route is
 owned structurally rather than claimed as runtime evidence here.
 
+Integer-indexed element access no longer allocates per access. Upstream's
+`testTypedArray.js` copies every resizable/grown/shrunk argument through
+`copyIntoArrayBuffer` (`destView[i] = srcView[i]` over 10,000-element views),
+and each such store used to build ToString(i), then a second String inside
+CanonicalNumericIndexString, then an OrdinarySet argument vector — about 450
+bytes per copied element on a heap with no collector, so the six
+`copyWithin/coerced-values-*-detached*` executions trapped in `heap_alloc` at
+the 1 GiB store cap. For a Number `n`, CanonicalNumericIndexString(ToString(n))
+is `n` except that -0 names +0, and ToString of a Number is unobservable, so
+`objects/integer_indexed_number_key.rs` takes a runtime Number key to the
+element directly. Ordinary property References (plain, compound, logical and
+update assignment) canonicalise their key through
+`emit_reference_property_key_locals`, which keeps a Number only when the
+ToObject'd target is a TypedArray; the `ReferencePropertyKeyLocals` it returns
+is the only key `emit_reference_get_value`/`emit_reference_set_result`
+accept. The Set keeps TypedArray [[Set]] order (an immutable buffer answers
+false before the value is touched; otherwise ToNumber/ToBigInt of the value
+precedes IsValidIntegerIndex). Computed reads and `in` defer a Number key's
+String into the dynamic [[Get]]/[[HasProperty]] paths, which answer a
+TypedArray — and an Array read by array index with itself as receiver — from
+the Number. `operations/canonical_numeric_index.rs` computes
+CanonicalNumericIndexString without allocating (short decimal integers read
+directly, impossible first bytes rejected, `"-0"` by its bytes, and a bump-heap
+rewind over the literal round trip's one String), which covers String keys and
+TypedArrays reached through the prototype chain. Own-property scans compare
+keys inline (identity, Symbol, byte length, first and last byte) before the
+byte comparison. The copy loop is about 20x faster with no per-element heap
+growth; `lila-engine/tests/aot_typed_array_number_keys.rs` copies 4,000,000
+elements (which exhausts the baseline heap) and pins the -0, NaN, fractional,
+out-of-range, detached, immutable, BigInt, Proxy and prototype-receiver cases.
+Each `copyWithin` execution now passes in about 30 s on a loaded machine; most of
+that is the harness's 10,000-property array-like object, whose ordinary property
+table is still scanned linearly, and `Array.from` still allocates an iterator
+result object and a key String per element.
+
 Three detach-order corrections follow the current ECMA-262 text (the merged
 align-detached-buffer-semantics-with-web-reality change). Atomics `load`,
 `store`, `compareExchange` and the read-modify-write family now run
@@ -1586,10 +1621,16 @@ tests fail only on `$262.gc()` (feature `host-gc-required`, deliberately
 unsupported without a collector); gc-free copies of them and of
 `typedarray-set-detach.js` pass. The new structure target passes `6/6`, the
 whole `lila-aot-wasm` test suite passes, and the `atomics::`, `data_view::`,
-`binary_data::` and `typed_array::` CLI areas pass `154/154`. Full
-`built-ins/{Atomics,DataView,ArrayBuffer,TypedArrayConstructors}` sweeps were
-only partially run on a heavily loaded machine (every completed case passed)
-and remain to be rerun.
+`binary_data::` and `typed_array::` CLI areas pass `154/154`. Together with the
+Number-key change above and rebased onto `b2537c088`, full sweeps pass
+`built-ins/TypedArray` `2890/2890` (from `2884/2890`),
+`built-ins/TypedArrayConstructors` `1446/1446` (from `1444/1446`),
+`built-ins/ArrayBuffer` `442/442`, `built-ins/DataView` `1122/1122` and
+`built-ins/Atomics` `778/778`, which covers all 158
+`align-detached-buffer-semantics-with-web-reality` tests;
+`staging/sm/TypedArray` stays `148/185` with the baseline's failure set, and
+the Number-key commit alone passes `built-ins/Array` `6117/6117`. The whole CLI
+suite passes (805 tests, one declared ignore).
 
 These migrations still do not cover all constructor validation or other
 binary-data observers. They do not change key
