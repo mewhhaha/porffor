@@ -19,9 +19,13 @@ fallible allocation paths.
 
 ## Locale proof and source inventory
 
-NumberProfiles derives its 1,082-locale inventory from the complete pinned
-CLDR47 sources. Lookup and the permitted prefix-based best-fit policy share
-that inventory. The provider canonicalizer remains upstream. A resolved proof
+NumberProfiles derives its 1,134-locale inventory from the complete pinned
+CLDR47 sources: 1,082 main locales plus the 52 language-region tags that
+[ECMA-402 9.1](https://tc39.es/ecma402/#sec-internal-slots) requires beside
+every language-script-region element. Each such tag shares the data of its
+likely-subtags maximization (zh-TW uses zh-Hant-TW), so a zh-TW request no
+longer truncates to Simplified zh. Lookup and the permitted prefix-based
+best-fit policy share that inventory. The provider canonicalizer remains upstream. A resolved proof
 checks that the formatting locale exists, that its numbering system is
 admitted, that its resolved base is the same selected formatting locale, and
 that the only retained extension is an exactly matching nu value. Unsupported
@@ -79,6 +83,14 @@ Composition prefers an available precomposed sanctioned pair, then a
 denominator perUnitPattern, then the locale's general per pattern. Plural and
 case derivations are consumed from pinned supplemental grammar. Numerator
 patterns retain their original placement and numeral omission.
+
+Unit and currency-name messages wrap the complete signed number: the locale's
+decimal number pattern, including its sign and any compact affix, is
+substituted into the message's {0}. Japanese long kilometer-per-hour is
+therefore `時速 -987 キロメートル`, not a sign prefixed to the whole message;
+the approximately sign stays beside that inner sign. A selected form that
+omits the numeral (for example an Arabic dual) cannot carry the number, so the
+ordinary number pattern still applies the value's sign around that form.
 
 [LDML47 compound units](https://github.com/unicode-org/cldr/blob/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/docs/ldml/tr35-general.md#compound-units)
 does not supply a complete extraction for a denominator with meaningful

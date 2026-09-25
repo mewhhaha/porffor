@@ -397,6 +397,70 @@ class Extractor:
         })
 
 
+def likely_subtags(resolver):
+    likely = {}
+    for node in resolver.xml("common/supplemental/likelySubtags.xml").findall("./likelySubtags/likelySubtag"):
+        source, target = node.attrib["from"], node.attrib["to"]
+        if source in likely:
+            raise ValueError(f"duplicate likely-subtags source: {source}")
+        likely[source] = target
+    return likely
+
+
+def script_elided_locales(resolver, locales):
+    """ECMA-402 9.1: every language-script-region element of [[AvailableLocales]]
+    must be accompanied by the language-region element without its script.
+
+    The script-less tag is a real request (zh-TW) whose meaning is fixed by the
+    pinned UTS35 likely subtags. It receives exactly the data CLDR resolves for
+    the maximized identifier: the first existing locale on the ordinary LDML
+    parent chain of language_Script_region. zh-TW maximizes to zh_Hant_TW, and
+    sr-RS to sr_Cyrl_RS although sr-Latn-RS also exists. az-TR, required by
+    az-Arab-TR, maximizes to az_Latn_TR and therefore inherits az_Latn: the
+    element that prompted the requirement does not choose the data.
+    """
+    likely = likely_subtags(resolver)
+    raw_to_canonical = {raw: canonical for canonical, row in locales.items() for raw in row["sources"]}
+    required = set()
+    for canonical in locales:
+        parts = canonical.split("-")
+        if len(parts) == 3 and len(parts[1]) == 4 and parts[1].isalpha():
+            required.add(f"{parts[0]}-{parts[2]}")
+    derived = {}
+    for elided in sorted(required - locales.keys()):
+        language, region = elided.split("-")
+        target = None
+        # UTS35 Add Likely Subtags for a script-less language-region request:
+        # the language-region row, then the bare language row.
+        for source in (f"{language}_{region}", language):
+            if source in likely:
+                target = likely[source].split("_")
+                break
+        if target is None or len(target) != 3:
+            raise ValueError(f"missing likely script for script-elided locale: {elided}")
+        maximized = f"{language}_{target[1]}_{region}"
+        selected = None
+        for ancestor in chain(resolver, maximized):
+            if ancestor in raw_to_canonical:
+                selected = raw_to_canonical[ancestor]
+                break
+        if selected is None:
+            raise ValueError(f"no pinned locale data for script-elided locale: {elided} ({maximized})")
+        derived[elided] = selected
+    return derived
+
+
+def chain(resolver, locale):
+    """The LDML main parent chain of a possibly absent identifier, ending at root."""
+    seen = set()
+    while locale != "root":
+        if locale in seen:
+            raise ValueError(f"cyclic parent chain: {locale}")
+        seen.add(locale)
+        yield locale
+        locale = resolver.parents.get(locale, locale.rsplit("_", 1)[0] if "_" in locale else "root")
+
+
 def product_content(name, content):
     """The reproducible bytes of a product: gzip streams are compared and hashed
     by their decompressed content, because zlib implementations (zlib, zlib-ng)
@@ -450,6 +514,9 @@ def main():
         resolver.clear_locale_cache()
         if position % 25 == 0 or position + 1 == len(candidates):
             print(f"profiles {position + 1}/{len(candidates)}: {locale}", file=sys.stderr, flush=True)
+    script_elided = script_elided_locales(resolver, locales) if complete else {}
+    for elided, source in script_elided.items():
+        locales[elided] = {"profile": locales[source]["profile"], "sources": [], "script_elided_from": source}
     canonical = {
         "schema": 1, "cldr_commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c",
         "complete": complete, "default_locale": "en-US", "locales": locales,
@@ -465,6 +532,7 @@ def main():
         "plural-samples.json": (json.dumps(extractor.plural_samples, ensure_ascii=False, indent=2) + "\n").encode(),
     }
     summary = {"complete": complete, "canonical_locales": len(locales), "raw_candidates": len(candidates),
+               "script_elided_locales": script_elided,
                "numbering_systems": len(extractor.systems), "sanctioned_units": len(extractor.units),
                "precomposed_pairs": len(extractor.unit_pairs), "currency_codes": len(extractor.currency_codes),
                "table_rows": {name: len(pool.rows) for name, pool in extractor.pools.items()},

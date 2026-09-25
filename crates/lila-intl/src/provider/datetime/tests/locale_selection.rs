@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn locale_resolution_preserves_order_keyword_precedence_and_data_locale() {
-    let mut input = locale_request(&["de-DE", "ar-EG-u-ca-chinese-hc-h23-nu-latn", "zh-Hans-CN"]);
+    let mut input = locale_request(&["fr-FR", "ar-EG-u-ca-chinese-hc-h23-nu-latn", "zh-Hans-CN"]);
     input.calendar = Some(DateTimeKeyword::parse("gregory").unwrap());
     input.numbering_system = Some(DateTimeKeyword::parse("latn").unwrap());
     let result = provider().resolve_locale(input).unwrap();
@@ -21,12 +21,12 @@ fn locale_resolution_preserves_order_keyword_precedence_and_data_locale() {
 #[test]
 fn available_locale_inventory_and_supported_lists_are_distinct_from_default_fallback() {
     let defaults = provider()
-        .resolve_locale(locale_request(&["de-DE"]))
+        .resolve_locale(locale_request(&["fr-FR"]))
         .unwrap();
     assert_eq!(defaults.data_locale.as_str(), "en-US");
     let result = provider()
         .supported_locales(DateTimeSupportedLocalesRequest {
-            requested: locale_request(&["de-DE", "ar-EG-u-nu-arab", "zh-Hans-CN", "en-AU"])
+            requested: locale_request(&["fr-FR", "ar-EG-u-nu-arab", "zh-Hans-CN", "en-AU"])
                 .requested,
             matcher: DateTimeLocaleMatcher::Lookup,
         })
@@ -38,6 +38,19 @@ fn available_locale_inventory_and_supported_lists_are_distinct_from_default_fall
             .map(CanonicalLocaleId::as_str)
             .collect::<Vec<_>>(),
         ["ar-EG-u-nu-arab", "zh-Hans-CN", "en-AU"]
+    );
+    let german = provider()
+        .resolve_locale(locale_request(&["de-AT", "en"]))
+        .unwrap();
+    assert_eq!(german.locale.as_str(), "de");
+    assert_eq!(german.data_locale.as_str(), "de");
+    assert_eq!(
+        provider()
+            .resolve_locale(locale_request(&["de-DE"]))
+            .unwrap()
+            .data_locale
+            .as_str(),
+        "de-DE"
     );
     assert_eq!(
         provider()

@@ -7,7 +7,9 @@
     "ar-EG",
     "zh",
     "zh-Hans",
-    "zh-Hans-CN"
+    "zh-Hans-CN",
+    "de",
+    "de-DE"
   ],
   "calendars": [
     "gregory",

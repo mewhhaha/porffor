@@ -6,7 +6,7 @@ properties. The pinned CLDR tools select ICU 77.1; the pinned ICU Unicode
 version is 16.0. ICU source is evidence for specific selection rules, not a
 runtime dependency or an output oracle.
 
-The profile contains 1,082 canonical formatting locales, all 77 numeric
+The profile contains 1,134 canonical formatting locales, all 77 numeric
 numbering systems, 307 currency labels, standard currency fraction defaults,
 all 45 sanctioned simple units, and general per-unit composition in three
 widths. Equivalent immutable profiles and tables are interned. The inventory
@@ -14,6 +14,15 @@ contains every real main locale other than root. One upstream default-content
 entry, ife_TG, has neither a main file nor an ife parent in the complete pinned
 Git tree; coverage.json records that source inconsistency explicitly. Missing
 required content in a real main locale fails generation.
+
+The 1,082 main locales are joined by 52 script-elided tags required by
+ECMA-402 9.1: every language-script-region element (zh-Hant-TW) is accompanied
+by its language-region form (zh-TW). The pinned likelySubtags.xml fixes what
+that tag means, so it shares the data CLDR resolves for its maximized
+identifier: zh-TW uses zh-Hant-TW, sr-RS uses sr-Cyrl-RS although sr-Latn-RS
+exists, and az-TR (required by az-Arab-TR) maximizes to az_Latn_TR and inherits
+az-Latn. coverage.json lists every derived tag and its data locale; a tag
+without likely-subtags data or a pinned data locale fails generation.
 
 sources.tar.gz retains exact source bytes and licences. source-manifest.json
 records archive and member SHA-256 hashes, URLs and pinned Git blob identities.

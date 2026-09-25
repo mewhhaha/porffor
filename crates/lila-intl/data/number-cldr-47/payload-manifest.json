@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "canonical_sha256": "9cee88aecc9b49b55db0b530d3831b8830e694fd3d3b2792dbb035049b983e69",
-  "payload_sha256": "ea0acde192c8b03e7db3cbf398091ad6198f9eef6eafa7793fb1dca5c6bdf4a4",
-  "payload_bytes": 6083064,
-  "locales": 1082,
+  "canonical_sha256": "80d6ba680f2697ccd80f78ced041ab718ea37b18038fcb928cce0a2861b030d8",
+  "payload_sha256": "d3ec3cc8122ecffe9b5353fe3d27a874eba1134973500f733ebf441d972792b7",
+  "payload_bytes": 6083754,
+  "locales": 1134,
   "numbering_systems": 77
 }

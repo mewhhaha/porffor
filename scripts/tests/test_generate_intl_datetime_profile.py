@@ -26,7 +26,7 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
     def test_pinned_profile_regenerates_all_selected_locales_and_numeric_systems(self):
         expected = SCRIPTS.parent / "crates/lila-intl/src/provider/datetime/generated/profile.json"
         self.assertEqual(expected.read_text(), self.encoded)
-        self.assertEqual([row["locale"] for row in self.profile["locales"]], ["en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN"])
+        self.assertEqual([row["locale"] for row in self.profile["locales"]], ["en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN", "de", "de-DE"])
         digits = {row["identifier"]: row["digits"] for row in self.profile["numbering_systems"]}
         self.assertEqual(len(digits), 77)
         self.assertEqual(digits["arab"], "٠١٢٣٤٥٦٧٨٩")

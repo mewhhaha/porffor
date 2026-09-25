@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 3506,
+      "bytes": 3816,
       "path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
-      "sha256": "289ec8de0100e551b3a1b18fa6cc4bde2488b948b213dfedf2eed819a4ae0b88"
+      "sha256": "e646cc4ad1a4602999f5082e26ef0b6259eb1f316141bfd1d9e550cfab13a3a0"
     },
     {
-      "bytes": 576,
+      "bytes": 599,
       "path": "crates/lila-intl/data/datetime-cldr-47/selector.json",
-      "sha256": "cdbdc37fd59e9e29e60eedbc1aa2c1d42c7c1e996be54e22678c5b79fe6dde8e"
+      "sha256": "588b8a81984220d0a9f1e77fe47069e6c50a8112ded0bb0d1d20157e5d09dcba"
     },
     {
       "bytes": 3280,
@@ -36,9 +36,9 @@
       "sha256": "c044b06b68fdc4189dd379fc31cfa7543f5dbb332b4069d689e33563e6718657"
     },
     {
-      "bytes": 4840947,
+      "bytes": 6150943,
       "path": "crates/lila-intl/src/provider/datetime/generated/profile.json",
-      "sha256": "ec7edea93b764703e9559ca2e919549603d3e5ec392b7d462b08c7a739db9496"
+      "sha256": "8c29dc05725ee960b110687a7fe870cc7b717d34d13738923e770a10bd1eb96b"
     },
     {
       "bytes": 6636,
@@ -381,7 +381,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "fbe87a0c4cd4fbd0c60e464d84811db80aef89cff4f4f3bb4553fcd901b6a1b5",
+  "provider_data_sha256": "83661aa575cfd7a8e46f905d761a02c3c0d895c850ccfe71957b5fbb94e6b53a",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }
