@@ -195,7 +195,7 @@ mod tests {
                     epoch: TemporalSeconds::new(0, false),
                 },
             )
-            .encode(identifier);
+            .encode();
             probe.memory.write(&mut probe.store, 128, &request).unwrap();
             let span = IntlHostReadSpan::new(128, request.len() as u32);
             let written = probe
@@ -219,7 +219,7 @@ mod tests {
                 epoch: TemporalSeconds::new(0, false),
             },
         )
-        .encode("Missing/Zone");
+        .encode();
         probe.memory.write(&mut probe.store, 128, &request).unwrap();
         assert!(probe
             .invoke(

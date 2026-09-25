@@ -164,3 +164,13 @@ verification step. This does not claim new suite totals. Arabic date patterns,
 Chinese calendar fields and broader Intl services remain outside this
 DateTimeFormat batch. Named-zone Temporal operations are covered by the section
 above.
+
+The Temporal IANA lane still reports the pinned
+`intl402/Temporal/ZonedDateTime/links.js` disagreement for Pacific/Johnston
+and Pacific/Honolulu. The shared catalogue retains Johnston as a primary
+identifier under its country-preserving backzone rule; the test expects the
+default tzdb link identity. This is the existing provider source/spec edge
+documented in the [pinned data notes](../../crates/lila-intl/data/iana-tzdb-2026a/README.md),
+owned by the named-zone provider, and is not suppressed. Non-ISO Temporal
+calendar arithmetic (T22), Intl.DurationFormat and non-English localized
+calendar names remain separate implementation gaps.

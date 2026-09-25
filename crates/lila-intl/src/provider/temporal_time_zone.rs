@@ -50,7 +50,7 @@ impl ZoneRules<'_> {
                     .get(&Seconds(seconds))
                     .map_err(|_| InvalidTimeZoneData("pinned transition selection failed"))?;
                 let offset = selected.offset.0;
-                if offset.abs() >= SECONDS_PER_DAY {
+                if offset.unsigned_abs() >= SECONDS_PER_DAY as u64 {
                     return Err(InvalidTimeZoneData("pinned offset is not within one day").into());
                 }
                 Ok(offset)
@@ -313,7 +313,7 @@ pub(super) fn answer(
 }
 
 fn require_query_domain(seconds: i64) -> Result<(), TemporalTimeZoneError> {
-    if seconds.abs() > QUERY_SECONDS_LIMIT {
+    if seconds.unsigned_abs() > QUERY_SECONDS_LIMIT as u64 {
         return Err(TemporalTimeZoneError::InvalidRequest(
             InvalidTemporalTimeZoneRequest("exact time is outside the Temporal domain"),
         ));
@@ -338,13 +338,14 @@ fn possible(
 ) -> Result<Result<Vec<i64>, TemporalTimeZoneAnswer>, TemporalTimeZoneError> {
     // Every candidate is within a day of `local`; beyond that margin none can
     // be a valid exact time, and the rules are not consulted.
-    if local.seconds().abs() > TEMPORAL_EPOCH_SECONDS_LIMIT + 2 * SECONDS_PER_DAY {
+    if local.seconds().unsigned_abs() > (TEMPORAL_EPOCH_SECONDS_LIMIT + 2 * SECONDS_PER_DAY) as u64
+    {
         return Ok(Err(OUT_OF_RANGE));
     }
     if let ZoneRules::Offset(offset) = rules {
         // `CheckISODaysRange` of the balanced date, then the instant range.
         let balanced = local.seconds() - offset;
-        if balanced.div_euclid(SECONDS_PER_DAY).abs() > TEMPORAL_ISO_DAYS_LIMIT {
+        if balanced.div_euclid(SECONDS_PER_DAY).unsigned_abs() > TEMPORAL_ISO_DAYS_LIMIT as u64 {
             return Ok(Err(OUT_OF_RANGE));
         }
     }
@@ -437,7 +438,7 @@ fn epoch_for_offset(
     matching: TemporalOffsetMatch,
     disambiguation: TemporalDisambiguation,
 ) -> Result<TemporalTimeZoneAnswer, TemporalTimeZoneError> {
-    if local.seconds().div_euclid(SECONDS_PER_DAY).abs() > TEMPORAL_ISO_DAYS_LIMIT {
+    if local.seconds().div_euclid(SECONDS_PER_DAY).unsigned_abs() > TEMPORAL_ISO_DAYS_LIMIT as u64 {
         return Ok(OUT_OF_RANGE);
     }
     let candidates = match possible(rules, local)? {

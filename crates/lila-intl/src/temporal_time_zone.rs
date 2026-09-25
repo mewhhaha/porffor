@@ -485,7 +485,16 @@ impl TemporalTimeZoneRequest {
 
     /// The request as the compiled program lays it out. The subsecond word
     /// only records whether a remainder exists.
-    pub fn encode(&self, identifier: &str) -> Vec<u8> {
+    pub fn encode(&self) -> Vec<u8> {
+        let identifier = match &self.zone {
+            TemporalTimeZone::Named(identifier) => identifier.as_str().to_owned(),
+            TemporalTimeZone::Offset(offset) => {
+                let minutes = offset.minutes();
+                let sign = if minutes < 0 { '-' } else { '+' };
+                let magnitude = minutes.unsigned_abs();
+                format!("{sign}{:02}:{:02}", magnitude / 60, magnitude % 60)
+            }
+        };
         let (kind, at, mode, offset_nanoseconds, matching) = match self.query {
             TemporalTimeZoneQuery::OffsetAt { epoch } => {
                 (TemporalTimeZoneQueryKind::OffsetAt, epoch, 0, 0, 0)
@@ -610,7 +619,7 @@ mod tests {
             TemporalTimeZone::parse_stored(identifier).unwrap(),
             query,
         )
-        .encode(identifier)
+        .encode()
     }
 
     #[test]

@@ -168,7 +168,7 @@ separately from the generated full-suite status.
 now honour `relativeTo`: `GetTemporalRelativeToOption` resolves PlainDate,
 PlainDateTime and ZonedDateTime values, property bags and ISO strings, and the
 duration is rounded or totalled as a difference from that point through the
-same ISO calendar and fixed-offset machinery as `until`/`since`, with every
+same ISO calendar and zoned arithmetic as `until`/`since`, with every
 total computed as one exact 128-bit quotient. `Temporal.Instant.prototype`
 `toString` now reads `fractionalSecondDigits`, `roundingMode`, `smallestUnit`
 and `timeZone`, and `toZonedDateTimeISO` exists. On 2026-09-25, against Test262
@@ -178,6 +178,13 @@ and `timeZone`, and `toZonedDateTimeISO` exists. On 2026-09-25, against Test262
 100/100 (was 58), Instant `toString` 110/110 (was 32), `toZonedDateTimeISO`
 38/38 (was 2) and `intl402/Temporal/Duration` 8/42 (was 4). Published
 conformance counts are unchanged.
+
+Temporal now resolves named zones through the same pinned IANA 2026a kernel as
+`Intl.DateTimeFormat`. Zoned conversions, arithmetic, relative duration
+rounding, day boundaries and transition searches use the zone's actual offsets
+and day lengths, including DST gaps and overlaps. See the
+[time-zone contract](docs/rust-rewrite/intl-named-time-zones.md#temporal-time-zones)
+for the compiled/host boundary and the remaining conformance domains.
 
 The [ZonedDateTime baseline follow-up](docs/rust-rewrite/zoned-date-time-baseline-follow-up.md)
 compares the next 182 observed failures with merged main: 136 still fail and

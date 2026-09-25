@@ -381,3 +381,60 @@ fn every_candidate_has_its_own_offset_around_every_transition() {
         }
     }
 }
+
+// The ABI carries arbitrary i64 words. Reject extreme exact times and return
+// the specified RangeError for local times before doing transition arithmetic.
+#[test]
+fn extreme_wire_seconds_never_overflow_the_time_zone_kernel() {
+    for identifier in ["America/New_York", "UTC", "+23:59", "-23:59"] {
+        for seconds in [i64::MIN, i64::MAX] {
+            let at = TemporalSeconds::new(seconds, true);
+            for query in [
+                TemporalTimeZoneQuery::OffsetAt { epoch: at },
+                TemporalTimeZoneQuery::Transition {
+                    epoch: at,
+                    direction: TemporalTransitionDirection::Next,
+                },
+                TemporalTimeZoneQuery::Transition {
+                    epoch: at,
+                    direction: TemporalTransitionDirection::Previous,
+                },
+                TemporalTimeZoneQuery::EpochFor {
+                    local: at,
+                    disambiguation: TemporalDisambiguation::Compatible,
+                },
+                TemporalTimeZoneQuery::EpochForOffset {
+                    local: at,
+                    offset_nanoseconds: 0,
+                    mismatch: TemporalOffsetMismatch::Reject,
+                    matching: TemporalOffsetMatch::Exactly,
+                    disambiguation: TemporalDisambiguation::Compatible,
+                },
+                TemporalTimeZoneQuery::StartOfDay {
+                    local_midnight: seconds,
+                },
+            ] {
+                let request = TemporalTimeZoneRequest::new(
+                    TemporalTimeZone::parse_stored(identifier).unwrap(),
+                    query,
+                );
+                let decoded = TemporalTimeZoneRequest::decode(&request.encode()).unwrap();
+                let actual = answer(zones(), &decoded);
+                match query {
+                    TemporalTimeZoneQuery::OffsetAt { .. }
+                    | TemporalTimeZoneQuery::Transition { .. } => {
+                        assert!(matches!(
+                            actual,
+                            Err(TemporalTimeZoneError::InvalidRequest(_))
+                        ));
+                    }
+                    TemporalTimeZoneQuery::EpochFor { .. }
+                    | TemporalTimeZoneQuery::EpochForOffset { .. }
+                    | TemporalTimeZoneQuery::StartOfDay { .. } => {
+                        assert_eq!(actual.unwrap(), OUT_OF_RANGE);
+                    }
+                }
+            }
+        }
+    }
+}
