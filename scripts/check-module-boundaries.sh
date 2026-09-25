@@ -1076,13 +1076,13 @@ if grep -Eq '#\[derive\([^]]*(Clone|Copy)' "$ir_invocation_effects_lowering" \
 fi
 check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # Measured after TypedArray.fill, Float16Array, Intl.Locale getter and
-# likely-subtag entries, legacy accessor definers and six Instant methods
-# (including toLocaleString): 2,273 raw lines.
-# +8 for the two Error.prototype.stack accessor result rows: 2,281 raw lines.
+# likely-subtag entries, legacy accessor definers and seven Instant methods
+# (including toLocaleString and toZonedDateTimeISO): 2,274 raw lines.
+# +8 for the two Error.prototype.stack accessor result rows: 2,282 raw lines.
 # This exhaustive result table must not acquire unrelated lowering.
 # +15 for the Iterator chunks/windows/includes/join result rows, which this
 # exhaustive table must carry.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2298
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2299
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.

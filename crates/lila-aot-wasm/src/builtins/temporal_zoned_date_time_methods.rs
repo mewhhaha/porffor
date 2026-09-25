@@ -13,7 +13,7 @@
 
 use super::super::*;
 use super::temporal::{TemporalEpochNanosecondsRecord, TemporalZonedDateTimePlainTarget};
-use super::temporal_difference::TemporalDifferenceContext;
+use super::temporal_difference::{TemporalDifferenceContext, TemporalEqualEndpoints};
 use super::temporal_options::TemporalUnit;
 use super::temporal_plain_date_time_methods::{
     TemporalDateTimeDifferenceSettingsPlan, TemporalPlainDifferenceOperation,
@@ -620,6 +620,7 @@ impl<'a> FunctionBuilder<'a> {
             TemporalDifferenceContext::Zoned {
                 offset_seconds_local,
             },
+            TemporalEqualEndpoints::ReturnZero,
             function,
         )?;
 

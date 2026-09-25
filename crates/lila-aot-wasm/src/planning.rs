@@ -3279,6 +3279,17 @@ impl RuntimeBootstrapPlan {
                     self.standard_roots.insert(dependency);
                 }
             }
+            // `toZonedDateTimeISO` installs with the rest of the Instant
+            // prototype but is rooted only when a program references it: its
+            // result is a `Temporal.ZonedDateTime`, whose prototype global only
+            // the ZonedDateTime family bootstraps, and rooting that family for
+            // every Instant program would put the whole ZonedDateTime surface
+            // into modules that never create one. Unreferenced, the member is
+            // the ordinary not-emitted stub.
+            StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso => {
+                self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+            }
             StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimeFrom
             | StandardBuiltinId::TemporalZonedDateTimeCompare
@@ -7633,6 +7644,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalInstantPrototypeUntil
         | StandardBuiltinId::TemporalInstantPrototypeSince
         | StandardBuiltinId::TemporalInstantPrototypeEquals
+        | StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimePrototypeEquals
         | StandardBuiltinId::TemporalPlainDateFrom

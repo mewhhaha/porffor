@@ -149,6 +149,23 @@ All 134 failures are repaired in an audited 346/346 passing pinned replay;
 23 focused Wasmtime regressions also pass. The notes retain this evidence
 separately from the generated full-suite status.
 
+`Temporal.Duration.prototype.round`, `total` and `Temporal.Duration.compare`
+now honour `relativeTo`: `GetTemporalRelativeToOption` resolves PlainDate,
+PlainDateTime and ZonedDateTime values, property bags and ISO strings, and the
+duration is rounded or totalled as a difference from that point through the
+same ISO calendar and fixed-offset machinery as `until`/`since`, with every
+total computed as one exact 128-bit quotient. `Temporal.Instant.prototype`
+`toString` now reads `fractionalSecondDigits`, `roundingMode`, `smallestUnit`
+and `timeZone`, and `toZonedDateTimeISO` exists. Temporal still resolves no
+named time zone other than `UTC`; IANA-zone cases remain RangeErrors even
+though the Intl provider pins IANA 2026a. On 2026-09-25, against Test262
+`7ab7faf` (`LILA_TEST262_FORCE_CASE_RUNNER=1 lila --jobs 1 test262 run <dir>
+--execution-backend wasm-aot --threads 3 --timeout-ms 60000`), Duration
+`round` passes 252/252 (was 132), `total` 154/156 (was 90), `compare`
+100/100 (was 58), Instant `toString` 110/110 (was 32), `toZonedDateTimeISO`
+38/38 (was 2) and `intl402/Temporal/Duration` 8/42 (was 4). Published
+conformance counts are unchanged.
+
 The [ZonedDateTime baseline follow-up](docs/rust-rewrite/zoned-date-time-baseline-follow-up.md)
 compares the next 182 observed failures with merged main: 136 still fail and
 46 already pass. It adds rounding and day operations, PlainDate conversion,

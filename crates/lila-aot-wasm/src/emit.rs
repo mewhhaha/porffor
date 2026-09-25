@@ -1596,13 +1596,21 @@ fn emit_script_with_forced_builtins(
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     // The Temporal calendar helpers are only *called* from the five types that
-    // carry a [[Calendar]] slot; nothing else can reach them.
+    // carry a [[Calendar]] slot, and from the three `Temporal.Duration`
+    // operations whose `relativeTo` property bag or string resolves one;
+    // nothing else can reach them.
     let uses_temporal_calendar = compiled_standard_builtins.iter().any(|builtin| {
         let name = builtin.debug_name();
         name.contains("Temporal.PlainDate")
             || name.contains("Temporal.PlainYearMonth")
             || name.contains("Temporal.PlainMonthDay")
             || name.contains("Temporal.ZonedDateTime")
+            || matches!(
+                builtin,
+                StandardBuiltinId::TemporalDurationCompare
+                    | StandardBuiltinId::TemporalDurationPrototypeRound
+                    | StandardBuiltinId::TemporalDurationPrototypeTotal
+            )
     });
     let runtime_bootstrap_plan = if uses_heap {
         RuntimeBootstrapPlan::from_script(script, &compiled_standard_builtins)

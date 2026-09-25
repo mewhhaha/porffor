@@ -22,7 +22,9 @@ use crate::operations::BigIntNumberPolicy;
 
 mod methods;
 mod round;
+mod to_string;
 pub(super) use methods::{InstantArithmetic, InstantDifference};
+pub(super) use to_string::InstantStringSource;
 
 /// `Temporal.Instant.fromEpochMilliseconds` step 2 rejects a non-integral
 /// Number through `NumberToBigInt`, which is a **RangeError**, not the

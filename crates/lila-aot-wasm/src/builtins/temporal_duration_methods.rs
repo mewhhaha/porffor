@@ -6,10 +6,12 @@
 //! [`super::temporal_options`]; this module only emits them.
 
 use super::super::*;
+use super::temporal::TemporalRelativeToKind;
 use super::temporal_duration::{
     TemporalDurationFields, TemporalDurationNumberProjection, TemporalDurationSubsecondUnit,
     TEMPORAL_DURATION_ALPHABETICAL_FIELDS, TEMPORAL_DURATION_FIELD_NAMES,
 };
+use super::temporal_plain_date_time_methods::ResolvedTemporalDateTimeDifferenceSettings;
 use super::temporal_options::{
     TemporalRoundingMode, TemporalTimeUnit, TemporalUnit, TemporalUnitOptionProperty,
     TemporalUnitSlot, TEMPORAL_UNIT_SECONDS,
@@ -364,38 +366,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
             "smallestUnit must be smaller than largestUnit",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// `GetTemporalRelativeToOption`, as far as this backend can go: an
-    /// absent option is fine, a String or an Object is accepted (and then
-    /// ignored, because resolving one needs calendar arithmetic that only the
-    /// calendar-unit paths would use), and every other type is a TypeError.
-    fn emit_temporal_duration_validate_relative_to(
-        &mut self,
-        relative_tag_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(relative_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::LocalGet(relative_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(relative_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::I64Ne);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.Duration options must be an object or undefined",
             self.result_local,
             self.result_tag_local,
             function,
@@ -1017,15 +987,10 @@ impl<'a> FunctionBuilder<'a> {
         let argument_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
-        let relative_payload_local = self.reserve_temp_local();
-        let relative_tag_local = self.reserve_temp_local();
-        let one_seconds_local = self.reserve_temp_local();
-        let one_subsecond_local = self.reserve_temp_local();
-        let two_seconds_local = self.reserve_temp_local();
-        let two_subsecond_local = self.reserve_temp_local();
         let result_local = self.reserve_temp_local();
         let one_locals = self.reserve_temporal_duration_field_locals();
         let two_locals = self.reserve_temporal_duration_field_locals();
+        let relative = self.reserve_temporal_relative_to();
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_to_temporal_duration(
@@ -1047,15 +1012,12 @@ impl<'a> FunctionBuilder<'a> {
             options_tag_local,
             function,
         )?;
-        self.emit_temporal_duration_option_get(
+        self.emit_temporal_relative_to_option(
             options_payload_local,
             options_tag_local,
-            "relativeTo",
-            relative_payload_local,
-            relative_tag_local,
+            &relative,
             function,
         )?;
-        self.emit_temporal_duration_validate_relative_to(relative_tag_local, function)?;
 
         // Field-for-field equality short-circuits before any range question.
         function.instruction(&Instruction::I64Const(1));
@@ -1086,70 +1048,18 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_duration_reject_calendar_units(&one_locals, function)?;
-        self.emit_temporal_duration_reject_calendar_units(&two_locals, function)?;
-        self.emit_temporal_duration_normalize_seconds(
+        self.emit_temporal_duration_compare_relative(
             &one_locals,
-            TemporalUnit::Day,
-            one_seconds_local,
-            one_subsecond_local,
-            function,
-        );
-        self.emit_temporal_duration_normalize_seconds(
             &two_locals,
-            TemporalUnit::Day,
-            two_seconds_local,
-            two_subsecond_local,
+            &relative,
             function,
-        );
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::LocalGet(one_seconds_local));
-        function.instruction(&Instruction::LocalGet(two_seconds_local));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(one_subsecond_local));
-        function.instruction(&Instruction::LocalGet(two_subsecond_local));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(one_subsecond_local));
-        function.instruction(&Instruction::LocalGet(two_subsecond_local));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(one_seconds_local));
-        function.instruction(&Instruction::LocalGet(two_seconds_local));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
-        function.instruction(&Instruction::I64Const(-1));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalSet(result_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(result_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        )?;
 
+        self.release_temporal_relative_to(relative);
         self.release_temporal_duration_field_locals(two_locals);
         self.release_temporal_duration_field_locals(one_locals);
         for local in [
             result_local,
-            two_subsecond_local,
-            two_seconds_local,
-            one_subsecond_local,
-            one_seconds_local,
-            relative_tag_local,
-            relative_payload_local,
             options_tag_local,
             options_payload_local,
             argument_tag_local,
@@ -1548,8 +1458,6 @@ impl<'a> FunctionBuilder<'a> {
         let argument_tag_local = self.reserve_temp_local();
         let options_payload_local = self.reserve_temp_local();
         let options_tag_local = self.reserve_temp_local();
-        let relative_payload_local = self.reserve_temp_local();
-        let relative_tag_local = self.reserve_temp_local();
         let smallest_local = self.reserve_temp_local();
         let largest_local = self.reserve_temp_local();
         let increment_local = self.reserve_temp_local();
@@ -1560,6 +1468,7 @@ impl<'a> FunctionBuilder<'a> {
         let default_largest_local = self.reserve_temp_local();
         let maximum_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_duration_field_locals();
+        let relative = self.reserve_temporal_relative_to();
 
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
@@ -1585,10 +1494,8 @@ impl<'a> FunctionBuilder<'a> {
             TemporalRoundingMode::HalfExpand.code(),
         ));
         function.instruction(&Instruction::LocalSet(mode_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(relative_payload_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
-        function.instruction(&Instruction::LocalSet(relative_tag_local));
+        function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Undefined.code()));
+        function.instruction(&Instruction::LocalSet(relative.kind_local));
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -1615,15 +1522,12 @@ impl<'a> FunctionBuilder<'a> {
             largest_local,
             function,
         )?;
-        self.emit_temporal_duration_option_get(
+        self.emit_temporal_relative_to_option(
             options_payload_local,
             options_tag_local,
-            "relativeTo",
-            relative_payload_local,
-            relative_tag_local,
+            &relative,
             function,
         )?;
-        self.emit_temporal_duration_validate_relative_to(relative_tag_local, function)?;
         self.emit_temporal_duration_rounding_increment_option(
             options_payload_local,
             options_tag_local,
@@ -1757,6 +1661,36 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        // Step 26: a date-unit increment rounds only a single-unit duration.
+        function.instruction(&Instruction::LocalGet(increment_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64GtS);
+        function.instruction(&Instruction::LocalGet(largest_local));
+        function.instruction(&Instruction::LocalGet(smallest_local));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::LocalGet(smallest_local));
+        function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_throw_current_function_realm_range_error(
+            "Invalid Temporal.Duration rounding increment",
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        function.instruction(&Instruction::End);
+
+        // Steps 27-28: a relativeTo makes the rounding a rounded difference.
+        let settings = ResolvedTemporalDateTimeDifferenceSettings {
+            largest_unit_local: largest_local,
+            smallest_unit_local: smallest_local,
+            increment_local,
+            mode_local,
+        };
+        self.emit_temporal_duration_round_relative(&field_locals, &relative, &settings, function)?;
 
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
         function.instruction(&Instruction::LocalGet(smallest_local));
@@ -1818,6 +1752,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_create_temporal_duration(&field_locals, function)?;
 
+        self.release_temporal_relative_to(relative);
         self.release_temporal_duration_field_locals(field_locals);
         for local in [
             maximum_local,
@@ -1829,8 +1764,6 @@ impl<'a> FunctionBuilder<'a> {
             increment_local,
             largest_local,
             smallest_local,
-            relative_tag_local,
-            relative_payload_local,
             options_tag_local,
             options_payload_local,
             argument_tag_local,
@@ -1910,17 +1843,16 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let argument_payload_local = self.reserve_temp_local();
         let argument_tag_local = self.reserve_temp_local();
-        let relative_payload_local = self.reserve_temp_local();
-        let relative_tag_local = self.reserve_temp_local();
         let unit_local = self.reserve_temp_local();
-        let scale_local = self.reserve_temp_local();
         let seconds_local = self.reserve_temp_local();
         let subsecond_local = self.reserve_temp_local();
-        let quotient_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
+        let total_bits_local = self.reserve_temp_local();
         let field_locals = self.reserve_temporal_duration_field_locals();
+        let relative = self.reserve_temporal_relative_to();
 
         self.emit_temporal_duration_fields_from_receiver(&field_locals, function)?;
+        function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Undefined.code()));
+        function.instruction(&Instruction::LocalSet(relative.kind_local));
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         function.instruction(&Instruction::LocalGet(argument_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -1949,15 +1881,12 @@ impl<'a> FunctionBuilder<'a> {
             argument_tag_local,
             function,
         )?;
-        self.emit_temporal_duration_option_get(
+        self.emit_temporal_relative_to_option(
             argument_payload_local,
             argument_tag_local,
-            "relativeTo",
-            relative_payload_local,
-            relative_tag_local,
+            &relative,
             function,
         )?;
-        self.emit_temporal_duration_validate_relative_to(relative_tag_local, function)?;
         self.emit_temporal_duration_unit_option(
             argument_payload_local,
             argument_tag_local,
@@ -1985,6 +1914,7 @@ impl<'a> FunctionBuilder<'a> {
             "Invalid Temporal.Duration unit option",
             function,
         )?;
+        self.emit_temporal_duration_total_relative(&field_locals, &relative, unit_local, function)?;
         self.emit_temporal_duration_reject_calendar_units(&field_locals, function)?;
         function.instruction(&Instruction::LocalGet(unit_local));
         function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
@@ -2006,109 +1936,22 @@ impl<'a> FunctionBuilder<'a> {
             subsecond_local,
             function,
         );
-        // Split before converting so the quotient keeps full precision even
-        // when the second count is close to 2^53.
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(scale_local));
-        for (unit, scale) in TEMPORAL_UNIT_SECONDS {
-            function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(unit.code()));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(scale));
-            function.instruction(&Instruction::LocalSet(scale_local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(unit_local));
-        function.instruction(&Instruction::I64Const(TemporalUnit::Second.code()));
-        function.instruction(&Instruction::I64LeS);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalGet(scale_local));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalGet(scale_local));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::LocalGet(scale_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1_000_000_000.0)));
-        function.instruction(&Instruction::F64Mul);
-        function.instruction(&Instruction::F64Div);
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::Else);
-        // Subsecond totals need a single rounding of the exact rational.
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(quotient_local));
-        for local in [seconds_local, subsecond_local] {
-            function.instruction(&Instruction::LocalGet(local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::I64LtS);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalGet(local));
-            function.instruction(&Instruction::I64Sub);
-            function.instruction(&Instruction::LocalSet(local));
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(remainder_local));
-        for unit in TemporalDurationSubsecondUnit::ALL {
-            function.instruction(&Instruction::LocalGet(unit_local));
-            function.instruction(&Instruction::I64Const(unit.temporal_unit().code()));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_duration_scaled_time_number(
-                seconds_local,
-                subsecond_local,
-                TemporalDurationNumberProjection::Total(unit),
-                remainder_local,
-                function,
-            );
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::LocalGet(quotient_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::F64)));
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Neg);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
+        self.emit_temporal_total_time_duration(
+            seconds_local,
+            subsecond_local,
+            unit_local,
+            total_bits_local,
+            function,
+        );
+        self.emit_temporal_duration_number_result(total_bits_local, function);
 
+        self.release_temporal_relative_to(relative);
         self.release_temporal_duration_field_locals(field_locals);
         for local in [
-            remainder_local,
-            quotient_local,
+            total_bits_local,
             subsecond_local,
             seconds_local,
-            scale_local,
             unit_local,
-            relative_tag_local,
-            relative_payload_local,
             argument_tag_local,
             argument_payload_local,
         ] {

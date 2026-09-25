@@ -3085,7 +3085,7 @@ standard_builtin_catalog! {
     TemporalDurationCompare {
         function: FunctionOrdinal(418) => BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID,
         debug: "Temporal.Duration.compare",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "compare",
     }
@@ -3211,14 +3211,14 @@ standard_builtin_catalog! {
     TemporalDurationPrototypeRound {
         function: FunctionOrdinal(436) => BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID,
         debug: "Temporal.Duration.prototype.round",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "round",
     }
     TemporalDurationPrototypeTotal {
         function: FunctionOrdinal(437) => BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID,
         debug: "Temporal.Duration.prototype.total",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "total",
     }
@@ -3365,7 +3365,7 @@ standard_builtin_catalog! {
     TemporalInstantPrototypeToString {
         function: FunctionOrdinal(453) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Temporal.Instant.prototype.toString",
-        flags: [],
+        flags: [SYNCHRONOUS_USER_CODE],
         installer: None,
         native: "toString",
     }
@@ -3389,6 +3389,13 @@ standard_builtin_catalog! {
         flags: [],
         installer: None,
         native: "valueOf",
+    }
+    TemporalInstantPrototypeToZonedDateTimeIso {
+        function: FunctionOrdinal(852) => "$builtin.Temporal.Instant.prototype.toZonedDateTimeISO",
+        debug: "Temporal.Instant.prototype.toZonedDateTimeISO",
+        flags: [],
+        installer: None,
+        native: "toZonedDateTimeISO",
     }
     TemporalZonedDateTimeConstructor {
         function: FunctionOrdinal(456) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,

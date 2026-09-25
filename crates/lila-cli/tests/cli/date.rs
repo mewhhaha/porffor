@@ -459,6 +459,59 @@ fn run_wasm_backend_uses_zoned_date_time_hour_difference_default() {
     assert!(stdout.contains("number(262"));
 }
 
+/// `Temporal.Duration.prototype.{round,total}` and `Temporal.Duration.compare`
+/// with a plain, zoned, string and property-bag `relativeTo`. Every value is
+/// copied from a pinned Test262 case; see the fixture header.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_duration_relative_to_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_duration_relative_to.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-duration-relative-to:round|increment|total|sources|compare"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
+/// `Temporal.Instant.prototype.toString` options — precision, rounding and a
+/// resolved time zone — and `Temporal.Instant.prototype.toZonedDateTimeISO`.
+#[test]
+fn run_wasm_backend_succeeds_for_temporal_instant_to_string_options_fixture() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm")
+        .arg(fixture_path("wasm_temporal_instant_to_string_options.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"));
+    assert!(
+        stdout.contains("temporal-instant-to-string:precision|timeZone|toZonedDateTimeISO"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("number(262"));
+}
+
 #[test]
 fn run_wasm_backend_succeeds_for_date_to_json_fixture() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))

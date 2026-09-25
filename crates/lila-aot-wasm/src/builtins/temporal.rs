@@ -7,6 +7,9 @@ use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
 use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 use crate::operations::BigIntNumberPolicy;
 
+mod relative_to;
+pub(super) use relative_to::{TemporalRelativeTo, TemporalRelativeToKind};
+
 /// Both instant-bearing records share the exact BigInt splitter. The closed
 /// selector owns the offsets so callers cannot pair fields from two layouts.
 #[derive(Clone, Copy)]
@@ -57,6 +60,30 @@ impl TemporalZonedDateTimeOptionsContext {
             }
         }
     }
+}
+
+/// Who consumes the fields [`FunctionBuilder::emit_temporal_zoned_date_time_from_property_bag`]
+/// reads. The two readers observe the same property sequence and differ only
+/// in what surrounds it, spelled here rather than as flags:
+///
+/// - `ToTemporalZonedDateTime` requires `timeZone` (a TypeError at the
+///   `timeZone` read), reads its options bag right after `year`, and ends by
+///   allocating the ZonedDateTime.
+/// - `GetTemporalRelativeToOption` accepts a bag without `timeZone`, which then
+///   names a PlainDate, and reads no options at all. It allocates nothing: the
+///   ISO date lands in `date_destination_locals`, and the epoch-nanoseconds
+///   pair is written only when `time_zone_present_local` is set.
+#[derive(Clone, Copy)]
+enum ZonedPropertyBagConsumer {
+    From {
+        options_payload_local: u32,
+        options_tag_local: u32,
+        prototype_payload_local: u32,
+    },
+    RelativeTo {
+        time_zone_present_local: u32,
+        date_destination_locals: [u32; 3],
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -877,8 +904,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_zoned_date_time_from_property_bag(
             argument_payload_local,
             argument_tag_local,
-            options_payload_local,
-            options_tag_local,
+            ZonedPropertyBagConsumer::From {
+                options_payload_local,
+                options_tag_local,
+                prototype_payload_local,
+            },
             offset_option_local,
             overflow_option_local,
             epoch_payload_local,
@@ -887,7 +917,6 @@ impl<'a> FunctionBuilder<'a> {
             time_zone_tag_local,
             calendar_payload_local,
             calendar_tag_local,
-            prototype_payload_local,
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -904,8 +933,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_temporal_zoned_date_time_from_property_bag(
             argument_payload_local,
             argument_tag_local,
-            options_payload_local,
-            options_tag_local,
+            ZonedPropertyBagConsumer::From {
+                options_payload_local,
+                options_tag_local,
+                prototype_payload_local,
+            },
             offset_option_local,
             overflow_option_local,
             epoch_payload_local,
@@ -914,7 +946,6 @@ impl<'a> FunctionBuilder<'a> {
             time_zone_tag_local,
             calendar_payload_local,
             calendar_tag_local,
-            prototype_payload_local,
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -1003,13 +1034,19 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The fields of a ZonedDateTime-shaped property bag, read in the order
+    /// `PrepareCalendarFields` observes: `calendar`, then `day` .. `year`
+    /// alphabetically with `timeZone` converted as it is read.
+    ///
+    /// [`ZonedPropertyBagConsumer`] states who reads the result; see there for
+    /// the differences between `ToTemporalZonedDateTime` and
+    /// `GetTemporalRelativeToOption`.
     #[allow(clippy::too_many_arguments)]
     fn emit_temporal_zoned_date_time_from_property_bag(
         &mut self,
         argument_payload_local: u32,
         argument_tag_local: u32,
-        options_payload_local: u32,
-        options_tag_local: u32,
+        consumer: ZonedPropertyBagConsumer,
         offset_option_local: u32,
         overflow_option_local: u32,
         epoch_payload_local: u32,
@@ -1018,7 +1055,6 @@ impl<'a> FunctionBuilder<'a> {
         time_zone_tag_local: u32,
         calendar_payload_local: u32,
         calendar_tag_local: u32,
-        prototype_payload_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let property_key_local = self.reserve_temp_local();
@@ -1250,19 +1286,42 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_type_error(
-            "Temporal.ZonedDateTime property bag requires timeZone",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
+        match consumer {
+            ZonedPropertyBagConsumer::From { .. } => {
+                self.emit_throw_current_function_realm_type_error(
+                    "Temporal.ZonedDateTime property bag requires timeZone",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+            }
+            // No `timeZone`: the bag names a PlainDate.
+            ZonedPropertyBagConsumer::RelativeTo {
+                time_zone_present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(time_zone_present_local));
+            }
+        }
+        function.instruction(&Instruction::Else);
+        match consumer {
+            ZonedPropertyBagConsumer::From { .. } => {}
+            ZonedPropertyBagConsumer::RelativeTo {
+                time_zone_present_local,
+                ..
+            } => {
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(time_zone_present_local));
+            }
+        }
         self.emit_temporal_zoned_date_time_time_zone(
             time_zone_payload_local,
             time_zone_tag_local,
             function,
         )?;
+        function.instruction(&Instruction::End);
 
         self.emit_temporal_property_bag_integer(
             argument_payload_local,
@@ -1277,14 +1336,31 @@ impl<'a> FunctionBuilder<'a> {
             "Temporal.ZonedDateTime property bag field must be finite",
             function,
         )?;
-        self.emit_temporal_zoned_date_time_options(
-            TemporalZonedDateTimeOptionsContext::From,
-            options_payload_local,
-            options_tag_local,
-            offset_option_local,
-            overflow_option_local,
-            function,
-        )?;
+        match consumer {
+            ZonedPropertyBagConsumer::From {
+                options_payload_local,
+                options_tag_local,
+                ..
+            } => {
+                self.emit_temporal_zoned_date_time_options(
+                    TemporalZonedDateTimeOptionsContext::From,
+                    options_payload_local,
+                    options_tag_local,
+                    offset_option_local,
+                    overflow_option_local,
+                    function,
+                )?;
+            }
+            // `GetTemporalRelativeToOption` reads no options: the fields are
+            // interpreted with `constrain`, and `InterpretISODateTimeOffset`
+            // runs with `compatible` and `reject`.
+            ZonedPropertyBagConsumer::RelativeTo { .. } => {
+                function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
+                function.instruction(&Instruction::LocalSet(offset_option_local));
+                function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
+                function.instruction(&Instruction::LocalSet(overflow_option_local));
+            }
+        }
 
         let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
             era,
@@ -1414,40 +1490,76 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.emit_temporal_fixed_zoned_date_time_epoch(
-            &[
-                year_local,
-                month_local,
-                day_local,
-                hour_local,
-                minute_local,
-                second_local,
-                millisecond_local,
-                microsecond_local,
-                nanosecond_local,
-            ],
-            time_zone_payload_local,
-            offset_nanoseconds_local,
-            offset_present_local,
-            offset_option_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::GlobalGet(
-            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
-        ));
-        function.instruction(&Instruction::LocalSet(prototype_payload_local));
-        self.emit_alloc_temporal_zoned_date_time(
-            epoch_payload_local,
-            epoch_tag_local,
-            time_zone_payload_local,
-            time_zone_tag_local,
-            calendar_payload_local,
-            calendar_tag_local,
-            prototype_payload_local,
-            function,
-        )?;
+        let date_time_fields = [
+            year_local,
+            month_local,
+            day_local,
+            hour_local,
+            minute_local,
+            second_local,
+            millisecond_local,
+            microsecond_local,
+            nanosecond_local,
+        ];
+        match consumer {
+            ZonedPropertyBagConsumer::From {
+                prototype_payload_local,
+                ..
+            } => {
+                self.emit_temporal_fixed_zoned_date_time_epoch(
+                    &date_time_fields,
+                    time_zone_payload_local,
+                    offset_nanoseconds_local,
+                    offset_present_local,
+                    offset_option_local,
+                    epoch_payload_local,
+                    epoch_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::GlobalGet(
+                    TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+                ));
+                function.instruction(&Instruction::LocalSet(prototype_payload_local));
+                self.emit_alloc_temporal_zoned_date_time(
+                    epoch_payload_local,
+                    epoch_tag_local,
+                    time_zone_payload_local,
+                    time_zone_tag_local,
+                    calendar_payload_local,
+                    calendar_tag_local,
+                    prototype_payload_local,
+                    function,
+                )?;
+            }
+            ZonedPropertyBagConsumer::RelativeTo {
+                time_zone_present_local,
+                date_destination_locals,
+            } => {
+                for (source, destination) in [year_local, month_local, day_local]
+                    .into_iter()
+                    .zip(date_destination_locals)
+                {
+                    function.instruction(&Instruction::LocalGet(source));
+                    function.instruction(&Instruction::LocalSet(destination));
+                }
+                // An absent offset is `wall` behaviour; a present one is
+                // `option` with `reject`, matched exactly.
+                function.instruction(&Instruction::LocalGet(time_zone_present_local));
+                function.instruction(&Instruction::I32WrapI64);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_temporal_fixed_zoned_date_time_epoch(
+                    &date_time_fields,
+                    time_zone_payload_local,
+                    offset_nanoseconds_local,
+                    offset_present_local,
+                    offset_option_local,
+                    epoch_payload_local,
+                    epoch_tag_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+        }
 
         for local in [
             year_local,
@@ -6842,11 +6954,33 @@ impl<'a> FunctionBuilder<'a> {
         let (payload_offset, tag_offset) = record.offsets();
         let payload_local = self.reserve_temp_local();
         let tag_local = self.reserve_temp_local();
+        self.load_i64_to_local_from_offset(record_local, payload_offset, payload_local, function);
+        self.load_i64_to_local_from_offset(record_local, tag_offset, tag_local, function);
+        self.emit_temporal_epoch_nanoseconds_value_pair(
+            payload_local,
+            tag_local,
+            seconds_local,
+            subsecond_local,
+            function,
+        );
+        self.release_temp_local(tag_local);
+        self.release_temp_local(payload_local);
+    }
+
+    /// [`Self::emit_temporal_epoch_nanoseconds_pair`] for an epoch value that
+    /// is already in a `(payload, tag)` local pair rather than in a record:
+    /// truncated whole seconds and a same-signed subsecond part.
+    pub(super) fn emit_temporal_epoch_nanoseconds_value_pair(
+        &mut self,
+        payload_local: u32,
+        tag_local: u32,
+        seconds_local: u32,
+        subsecond_local: u32,
+        function: &mut Function,
+    ) {
         let milliseconds_local = self.reserve_temp_local();
         let remainder_local = self.reserve_temp_local();
         let negative_local = self.reserve_temp_local();
-        self.load_i64_to_local_from_offset(record_local, payload_offset, payload_local, function);
-        self.load_i64_to_local_from_offset(record_local, tag_offset, tag_local, function);
         function.instruction(&Instruction::LocalGet(tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -6888,13 +7022,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(subsecond_local));
         function.instruction(&Instruction::End);
-        for local in [
-            negative_local,
-            remainder_local,
-            milliseconds_local,
-            tag_local,
-            payload_local,
-        ] {
+        for local in [negative_local, remainder_local, milliseconds_local] {
             self.release_temp_local(local);
         }
     }
@@ -7116,42 +7244,28 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn emit_temporal_instant_to_string(
+    /// `floor(epochNanoseconds / 10^6)` in `milliseconds_local` and the
+    /// **non-negative** sub-millisecond remainder in `remainder_local`, from an
+    /// epoch-nanoseconds `(payload, tag)` pair in either BigInt representation.
+    ///
+    /// `I64RemS` takes the sign of the dividend, so the inline arm first turns
+    /// its remainder into a magnitude — the convention the heap-BigInt arm
+    /// (`emit_temporal_heap_bigint_millisecond_quotient`, which reduces limbs
+    /// with `I64RemU` and negates only the quotient) already follows — and the
+    /// shared floor correction below is written for that convention. Mixing
+    /// the two conventions once rendered
+    /// `new Temporal.Instant(-13849764_999_999_999n).toJSON()` as
+    /// `1969-07-24T16:50:35.001999999Z` instead of `...35.000000001Z`
+    /// (`Instant/prototype/toJSON/negative-epochnanoseconds.js`).
+    pub(super) fn emit_temporal_epoch_nanoseconds_floor_milliseconds(
         &mut self,
+        nanoseconds_payload_local: u32,
+        nanoseconds_tag_local: u32,
+        milliseconds_local: u32,
+        remainder_local: u32,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let record_local = self.reserve_temp_local();
-        let nanoseconds_payload_local = self.reserve_temp_local();
-        let nanoseconds_tag_local = self.reserve_temp_local();
-        let milliseconds_local = self.reserve_temp_local();
-        let remainder_local = self.reserve_temp_local();
+    ) {
         let negative_local = self.reserve_temp_local();
-        let time_payload_local = self.reserve_temp_local();
-        let year_payload_local = self.reserve_temp_local();
-        let month_payload_local = self.reserve_temp_local();
-        let date_payload_local = self.reserve_temp_local();
-        let hour_payload_local = self.reserve_temp_local();
-        let minute_payload_local = self.reserve_temp_local();
-        let second_payload_local = self.reserve_temp_local();
-        let millisecond_payload_local = self.reserve_temp_local();
-        let fraction_local = self.reserve_temp_local();
-        let output_payload_local = self.reserve_temp_local();
-        let piece_payload_local = self.reserve_temp_local();
-        let absolute_year_payload_local = self.reserve_temp_local();
-
-        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
-            nanoseconds_payload_local,
-            function,
-        );
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
-            nanoseconds_tag_local,
-            function,
-        );
         function.instruction(&Instruction::LocalGet(nanoseconds_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::BigInt.tag() as i64));
         function.instruction(&Instruction::I64Eq);
@@ -7169,25 +7283,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::LocalSet(remainder_local));
-        // CONVENTION, shared with `emit_temporal_heap_bigint_millisecond_quotient`
-        // in the `Else` arm: `remainder_local` is the **non-negative magnitude**
-        // of the sub-millisecond part; the sign lives only in `negative_local`.
-        // The floor correction below is written for that convention.
-        //
-        // `I64RemS` takes the sign of the dividend, so this arm handed the
-        // correction a negative remainder while the heap-bigint arm handed it a
-        // magnitude (it reduces the limbs with `I64RemU` and negates only the
-        // quotient). `NANOSECONDS_PER_MILLISECOND - remainder` then *added*
-        // where it meant to subtract:
-        // `new Temporal.Instant(-13849764_999_999_999n).toJSON()` rendered
-        // `1969-07-24T16:50:35.001999999Z` instead of `...35.000000001Z`,
-        // because 1e6 - -999_999 is 1_999_999 rather than 1.
-        //
-        // This is the only one of the three sites that reads the remainder's
-        // *value*: `emit_temporal_zoned_date_time_epoch_milliseconds` and
-        // `emit_temporal_epoch_nanoseconds_record_to_milliseconds` only test it
-        // with `I64Eqz`, for which the sign is immaterial. Caught by
-        // `built-ins/Temporal/Instant/prototype/toJSON/negative-epochnanoseconds.js`.
         function.instruction(&Instruction::LocalGet(remainder_local));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64LtS);
@@ -7222,225 +7317,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(remainder_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(milliseconds_local));
-        function.instruction(&Instruction::F64ConvertI64S);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(time_payload_local));
-        self.emit_date_components_from_time(
-            time_payload_local,
-            year_payload_local,
-            month_payload_local,
-            date_payload_local,
-            hour_payload_local,
-            minute_payload_local,
-            second_payload_local,
-            millisecond_payload_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(millisecond_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncF64U);
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_MILLISECOND));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(remainder_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(fraction_local));
-
-        function.instruction(&Instruction::I64Const(self.strings.payload("")));
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(0.0)));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Neg);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::LocalSet(absolute_year_payload_local));
-        function.instruction(&Instruction::LocalGet(year_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(9_999.0)));
-        function.instruction(&Instruction::F64Gt);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(self.strings.payload("+")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            6,
-            function,
-        )?;
-        function.instruction(&Instruction::Else);
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            absolute_year_payload_local,
-            4,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("-")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        function.instruction(&Instruction::LocalGet(month_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(month_payload_local));
-        for (component_payload_local, minimum_width, separator) in [
-            (month_payload_local, 2, "-"),
-            (date_payload_local, 2, "T"),
-            (hour_payload_local, 2, ":"),
-            (minute_payload_local, 2, ":"),
-        ] {
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                component_payload_local,
-                minimum_width,
-                function,
-            )?;
-            function.instruction(&Instruction::I64Const(self.strings.payload(separator)));
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_concat_string_payloads_local(
-                output_payload_local,
-                piece_payload_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalSet(output_payload_local));
-        }
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            second_payload_local,
-            2,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::I64Const(self.strings.payload(".")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(output_payload_local));
-        // `FormatFractionalSeconds` with `auto` precision: render the fraction
-        // as nine digits and strip **every** trailing zero, not just whole
-        // groups of three. The 3/6/9 cascade this replaces printed
-        // `new Temporal.Instant(30_123_400_000n)` as `…:30.123400Z`, because
-        // 123,400,000 is divisible by 1,000 but not by 1,000,000 — so it took
-        // the six-digit arm — where the spec asks for `…:30.1234Z`
-        // (`Instant/prototype/toJSON/basic.js` case 4).
-        //
-        // `emit_date_append_padded_decimal` takes a Rust-level width, so the
-        // choice is a cascade over the nine possible widths rather than a
-        // runtime loop: the first `width` whose divisor divides the fraction
-        // exactly is the one with no trailing zero left. `fraction_local` is
-        // known non-zero here (the enclosing `If` handles zero by emitting no
-        // fraction at all), so the `width == 9` fallthrough is reached only by
-        // a fraction with a significant nanosecond digit.
-        const FRACTION_DIGITS: u32 = 9;
-        for width in 1..FRACTION_DIGITS {
-            let divisor = 10_i64.pow(FRACTION_DIGITS - width);
-            function.instruction(&Instruction::LocalGet(fraction_local));
-            function.instruction(&Instruction::I64Const(divisor));
-            function.instruction(&Instruction::I64RemU);
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(fraction_local));
-            function.instruction(&Instruction::I64Const(divisor));
-            function.instruction(&Instruction::I64DivU);
-            function.instruction(&Instruction::F64ConvertI64U);
-            function.instruction(&Instruction::I64ReinterpretF64);
-            function.instruction(&Instruction::LocalSet(piece_payload_local));
-            self.emit_date_append_padded_decimal(
-                output_payload_local,
-                piece_payload_local,
-                width,
-                function,
-            )?;
-            function.instruction(&Instruction::Else);
-        }
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::F64ConvertI64U);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_date_append_padded_decimal(
-            output_payload_local,
-            piece_payload_local,
-            FRACTION_DIGITS,
-            function,
-        )?;
-        for _ in 1..FRACTION_DIGITS {
-            function.instruction(&Instruction::End);
-        }
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Const(self.strings.payload("Z")));
-        function.instruction(&Instruction::LocalSet(piece_payload_local));
-        self.emit_concat_string_payloads_local(
-            output_payload_local,
-            piece_payload_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-
-        for local in [
-            absolute_year_payload_local,
-            piece_payload_local,
-            output_payload_local,
-            fraction_local,
-            millisecond_payload_local,
-            second_payload_local,
-            minute_payload_local,
-            hour_payload_local,
-            date_payload_local,
-            month_payload_local,
-            year_payload_local,
-            time_payload_local,
-            negative_local,
-            remainder_local,
-            milliseconds_local,
-            nanoseconds_tag_local,
-            nanoseconds_payload_local,
-            record_local,
-        ] {
-            self.release_temp_local(local);
-        }
-        Ok(())
+        self.release_temp_local(negative_local);
     }
 
     pub(super) fn emit_temporal_instant_record_from_receiver(

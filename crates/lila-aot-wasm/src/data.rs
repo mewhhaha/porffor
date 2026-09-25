@@ -2345,6 +2345,11 @@ impl StringPool {
                     // Zoned field replacement shares the PlainDate field
                     // reader and resolver, including their diagnostics.
                     | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+                    // So does `GetTemporalRelativeToOption`, which reads a
+                    // property bag or parses a date string.
+                    | StandardBuiltinId::TemporalDurationCompare
+                    | StandardBuiltinId::TemporalDurationPrototypeRound
+                    | StandardBuiltinId::TemporalDurationPrototypeTotal
             ) || builtin
                 .debug_name()
                 .starts_with("Temporal.PlainDate.prototype.")
@@ -2893,10 +2898,18 @@ impl StringPool {
                 pool.intern_string(value);
             }
         }
-        if compiled_standard_builtins.contains(&StandardBuiltinId::TemporalZonedDateTimeFrom)
-            || compiled_standard_builtins
-                .contains(&StandardBuiltinId::TemporalZonedDateTimePrototypeWith)
-        {
+        // `GetTemporalRelativeToOption` reads a ZonedDateTime-shaped property
+        // bag and parses zoned strings with the `ZonedDateTime.from` emitters.
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::TemporalZonedDateTimeFrom
+                    | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+                    | StandardBuiltinId::TemporalDurationCompare
+                    | StandardBuiltinId::TemporalDurationPrototypeRound
+                    | StandardBuiltinId::TemporalDurationPrototypeTotal
+            )
+        }) {
             for value in [
                 "Temporal.ZonedDateTime.from requires a string or Temporal.ZonedDateTime",
                 "Temporal.ZonedDateTime.from options must be an object or undefined",
@@ -3040,6 +3053,23 @@ impl StringPool {
         ] {
             pool.intern_string(value);
         }
+        // Appended last so that a program without `relativeTo` support keeps
+        // its pool offsets.
+        if compiled_standard_builtins.iter().any(|builtin| {
+            matches!(
+                builtin,
+                StandardBuiltinId::TemporalDurationCompare
+                    | StandardBuiltinId::TemporalDurationPrototypeRound
+                    | StandardBuiltinId::TemporalDurationPrototypeTotal
+            )
+        }) {
+            pool.intern_string(
+                "Temporal.Duration relativeTo must be a Temporal object, a property bag or a string",
+            );
+        }
+        // The `Temporal.Instant.prototype` member key; the prototype installs
+        // the whole family, so it is needed whether or not the body is emitted.
+        pool.intern_string("toZonedDateTimeISO");
         pool
     }
 

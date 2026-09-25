@@ -10,7 +10,7 @@ use super::intl_numberformat::NfFormatMode;
 use super::object::SetterIgnoringPrototypeProperties;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
-use super::temporal_instant::{InstantArithmetic, InstantDifference};
+use super::temporal_instant::{InstantArithmetic, InstantDifference, InstantStringSource};
 use super::temporal_options::TemporalTimeUnit;
 use super::temporal_plain_date_time_methods::{
     TemporalPlainArithmeticOperation, TemporalPlainDateTimeComponent,
@@ -21769,21 +21769,26 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalInstantPrototypeEquals => {
                 self.emit_temporal_instant_equals(function)?;
             }
-            // `toJSON` is `TemporalInstantToString(instant, AUTO)` — the same
-            // body, but a distinct function object: `toJSON/prop-desc.js` and
-            // `toJSON/name.js` observe that it is not `toString`. Because the
-            // emitter reads no arguments, `toJSON/basic.js`'s throwing Proxy
-            // options bag ("should not get properties off argument") passes
-            // without any extra guard.
-            StandardBuiltinId::TemporalInstantPrototypeToString
-            | StandardBuiltinId::TemporalInstantPrototypeToJson => {
-                self.emit_temporal_instant_to_string(function)?;
+            // `toJSON` is `TemporalInstantToString(instant, undefined, auto)`
+            // — the same body, but a distinct function object:
+            // `toJSON/prop-desc.js` and `toJSON/name.js` observe that it is not
+            // `toString`. Only `toString` reads its options argument, so
+            // `toJSON/basic.js`'s throwing Proxy options bag ("should not get
+            // properties off argument") passes without any extra guard.
+            StandardBuiltinId::TemporalInstantPrototypeToString => {
+                self.emit_temporal_instant_to_string(InstantStringSource::ToString, function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeToJson => {
+                self.emit_temporal_instant_to_string(InstantStringSource::ToJson, function)?;
             }
             StandardBuiltinId::TemporalInstantPrototypeToLocaleString => {
                 self.emit_temporal_instant_to_locale_string(function)?;
             }
             StandardBuiltinId::TemporalInstantPrototypeValueOf => {
                 self.emit_temporal_instant_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso => {
+                self.emit_temporal_instant_to_zoned_date_time_iso(function)?;
             }
             StandardBuiltinId::TemporalPlainDateConstructor => {
                 self.emit_temporal_plain_date_constructor(function)?;

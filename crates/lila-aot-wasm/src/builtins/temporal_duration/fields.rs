@@ -74,6 +74,27 @@ impl TemporalDurationNumberProjection {
     }
 }
 
+/// The divisor of [`FunctionBuilder::emit_temporal_exact_quotient_bits`].
+///
+/// The long division doubles its running remainder, which stays below twice
+/// the divisor, so every divisor must be below 2^62: the projections below are
+/// at most 10^9, and a runtime divisor is at most one calendar unit of
+/// nanoseconds (a leap year is under 2^55).
+#[derive(Clone, Copy)]
+pub(crate) enum TemporalExactDivisor {
+    Constant(i64),
+    Local(u32),
+}
+
+impl TemporalExactDivisor {
+    fn emit(self, function: &mut Function) {
+        match self {
+            Self::Constant(value) => function.instruction(&Instruction::I64Const(value)),
+            Self::Local(local) => function.instruction(&Instruction::LocalGet(local)),
+        };
+    }
+}
+
 const _: () = {
     let mut index = 0;
     while index < TemporalDurationSubsecondUnit::ALL.len() {
@@ -282,12 +303,6 @@ impl<'a> FunctionBuilder<'a> {
         let (scale, divisor) = projection.factors();
         let low = self.reserve_temp_local();
         let high = self.reserve_temp_local();
-        let bit_index = self.reserve_temp_local();
-        let significand = self.reserve_temp_local();
-        let division_remainder = self.reserve_temp_local();
-        let bit = self.reserve_temp_local();
-        let bit_count = self.reserve_temp_local();
-        let exponent = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(seconds));
         function.instruction(&Instruction::I64Const(0xffff_ffff));
         function.instruction(&Instruction::I64And);
@@ -318,6 +333,36 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(32));
         function.instruction(&Instruction::I64ShrU);
         function.instruction(&Instruction::LocalSet(high));
+        self.emit_temporal_exact_quotient_bits(
+            high,
+            low,
+            TemporalExactDivisor::Constant(divisor),
+            output_bits,
+            function,
+        );
+        self.release_temp_local(high);
+        self.release_temp_local(low);
+    }
+
+    /// The f64 nearest (ties to even) to the unsigned 128-bit `high:low`
+    /// divided by `divisor`: one long division that collects 54 quotient bits
+    /// and a sticky remainder, so the quotient is rounded exactly once — the
+    /// single floating-point division `TotalTimeDuration` and
+    /// `NudgeToCalendarUnit` call for. `high` and `low` are consumed.
+    pub(crate) fn emit_temporal_exact_quotient_bits(
+        &mut self,
+        high: u32,
+        low: u32,
+        divisor: TemporalExactDivisor,
+        output_bits: u32,
+        function: &mut Function,
+    ) {
+        let bit_index = self.reserve_temp_local();
+        let significand = self.reserve_temp_local();
+        let division_remainder = self.reserve_temp_local();
+        let bit = self.reserve_temp_local();
+        let bit_count = self.reserve_temp_local();
+        let exponent = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(high));
         function.instruction(&Instruction::LocalGet(low));
         function.instruction(&Instruction::I64Or);
@@ -356,7 +401,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(division_remainder));
         function.instruction(&Instruction::LocalGet(division_remainder));
-        function.instruction(&Instruction::I64Const(divisor));
+        divisor.emit(function);
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(bit));
@@ -365,7 +410,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::LocalGet(division_remainder));
-        function.instruction(&Instruction::I64Const(divisor));
+        divisor.emit(function);
         function.instruction(&Instruction::I64Sub);
         function.instruction(&Instruction::LocalSet(division_remainder));
         function.instruction(&Instruction::End);
@@ -454,8 +499,6 @@ impl<'a> FunctionBuilder<'a> {
             division_remainder,
             significand,
             bit_index,
-            high,
-            low,
         ] {
             self.release_temp_local(local);
         }

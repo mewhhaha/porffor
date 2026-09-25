@@ -1783,22 +1783,57 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(quantum_local));
 
-        function.instruction(&Instruction::LocalGet(quantum_local));
+        // `ApplyUnsignedRoundingMode(|total|, |r1|, |r2|)`. `other` lies
+        // inside the bracket, so the answer is `r1` or `r2`: `r2` when the
+        // bracket is fully traversed (progress 1), `r1` when it is not entered
+        // at all, and otherwise the rounding mode decides. Half-even breaks a
+        // tie on the parity of `|r1| / increment`, the unit count itself, not
+        // on the position inside the bracket.
+        let magnitude_local = self.reserve_temp_local();
+        let parity_local = self.reserve_temp_local();
+        let take_end_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(numerator_local));
+        function.instruction(&Instruction::LocalGet(sign_local));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalSet(magnitude_local));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_plain_time_round_nanoseconds(
-            numerator_local,
+        function.instruction(&Instruction::LocalSet(parity_local));
+        for (unit, local) in [
+            (TemporalUnit::Year, years_local),
+            (TemporalUnit::Month, months_local),
+            (TemporalUnit::Week, weeks_local),
+        ] {
+            function.instruction(&Instruction::LocalGet(smallest_unit_local));
+            function.instruction(&Instruction::I64Const(unit.code()));
+            function.instruction(&Instruction::I64Eq);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(local));
+            function.instruction(&Instruction::LocalGet(sign_local));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(increment_local));
+            function.instruction(&Instruction::I64DivS);
+            function.instruction(&Instruction::LocalSet(parity_local));
+            function.instruction(&Instruction::End);
+        }
+        function.instruction(&Instruction::LocalGet(magnitude_local));
+        function.instruction(&Instruction::LocalGet(quantum_local));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::Else);
+        self.emit_temporal_duration_round_up_i32(
+            magnitude_local,
             quantum_local,
+            parity_local,
+            sign_local,
             mode_local,
             function,
         );
+        function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::End);
-        // `other` lies inside the bracket, so the rounded value is either zero
-        // (keep `r1`) or the whole bracket (take `r2`).
-        function.instruction(&Instruction::LocalGet(numerator_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::LocalSet(take_end_local));
+        function.instruction(&Instruction::LocalGet(take_end_local));
+        function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
         for (source, destination) in [
             (nudge_years_local, years_local),
@@ -1809,6 +1844,9 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(destination));
         }
         function.instruction(&Instruction::End);
+        self.release_temp_local(take_end_local);
+        self.release_temp_local(parity_local);
+        self.release_temp_local(magnitude_local);
 
         function.instruction(&Instruction::End);
 

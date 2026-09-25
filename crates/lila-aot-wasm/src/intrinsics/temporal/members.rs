@@ -83,6 +83,7 @@ impl TemporalIntrinsicFamily {
                 StandardBuiltinId::TemporalInstantPrototypeEquals,
                 StandardBuiltinId::TemporalInstantPrototypeToJson,
                 StandardBuiltinId::TemporalInstantPrototypeValueOf,
+                StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso,
             ],
             Self::Duration => &[
                 StandardBuiltinId::TemporalDurationPrototypeWith,

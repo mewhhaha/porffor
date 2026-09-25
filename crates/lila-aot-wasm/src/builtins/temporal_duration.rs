@@ -7,8 +7,10 @@ use super::temporal_options::{TemporalUnit, TEMPORAL_UNIT_SECONDS};
 use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 
 mod fields;
+mod relative;
 pub(crate) use fields::{
     TemporalDurationFields, TemporalDurationNumberProjection, TemporalDurationSubsecondUnit,
+    TemporalExactDivisor,
 };
 
 /// `IsValidDuration` step 3: years, months and weeks are each capped below

@@ -1,6 +1,7 @@
 const DURATION: &str = include_str!("../src/builtins/temporal_duration.rs");
 const FIELDS: &str = include_str!("../src/builtins/temporal_duration/fields.rs");
 const METHODS: &str = include_str!("../src/builtins/temporal_duration_methods.rs");
+const RELATIVE: &str = include_str!("../src/builtins/temporal_duration/relative.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -133,7 +134,24 @@ fn wide_arithmetic_crosses_one_exact_number_boundary() {
         "fn emit_temporal_duration_total(",
         "fn emit_temporal_duration_to_string(",
     );
-    assert!(total.contains("emit_temporal_duration_scaled_time_number("));
+    assert!(total.contains("emit_temporal_total_time_duration("));
+    assert!(!total.contains("F64Div"));
+    // `TotalTimeDuration` divides the exact 128-bit nanosecond count once;
+    // the scaled projection shares the same single-rounding quotient.
+    let total_time = bounded(
+        RELATIVE,
+        "fn emit_temporal_total_time_duration(",
+        "fn emit_temporal_wall_fields_from_epoch(",
+    );
+    assert!(total_time.contains("emit_temporal_exact_quotient_bits("));
+    assert!(!total_time.contains("F64Div"));
+    let projection = bounded(
+        FIELDS,
+        "fn emit_temporal_duration_scaled_time_number(",
+        "fn emit_temporal_exact_quotient_bits(",
+    );
+    assert!(projection.contains("self.emit_temporal_exact_quotient_bits("));
+    assert!(!projection.contains("F64Div"));
 }
 
 #[test]

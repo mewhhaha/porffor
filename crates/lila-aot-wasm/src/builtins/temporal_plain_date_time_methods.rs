@@ -14,7 +14,7 @@
 //! (`CalendarDateUntil` for the ISO calendar).
 
 use super::super::*;
-use super::temporal_difference::TemporalDifferenceContext;
+use super::temporal_difference::{TemporalDifferenceContext, TemporalEqualEndpoints};
 use super::temporal_options::{
     ShowCalendarName, TemporalConversionOverflowOptions, TemporalOverflow, TemporalRoundingMode,
     TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
@@ -2312,6 +2312,7 @@ impl<'a> FunctionBuilder<'a> {
             &settings,
             operation,
             TemporalDifferenceContext::Plain,
+            TemporalEqualEndpoints::ReturnZero,
             function,
         )?;
         for local in [

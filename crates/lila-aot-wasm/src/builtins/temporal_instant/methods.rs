@@ -241,4 +241,74 @@ impl<'a> FunctionBuilder<'a> {
         }
         Ok(())
     }
+
+    /// Temporal proposal 8.3.10 `Temporal.Instant.prototype.toZonedDateTimeISO`:
+    /// `ToTemporalTimeZoneIdentifier(timeZone)`, then
+    /// `CreateTemporalZonedDateTime(instant.[[EpochNanoseconds]], timeZone,
+    /// "iso8601")`. The exact time is already valid, so nothing can throw after
+    /// the time zone resolves.
+    pub(in crate::builtins) fn emit_temporal_instant_to_zoned_date_time_iso(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let record_local = self.reserve_temp_local();
+        let time_zone_payload_local = self.reserve_temp_local();
+        let time_zone_tag_local = self.reserve_temp_local();
+        let epoch_payload_local = self.reserve_temp_local();
+        let epoch_tag_local = self.reserve_temp_local();
+        let calendar_payload_local = self.reserve_temp_local();
+        let calendar_tag_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+
+        self.emit_temporal_instant_record_from_receiver(record_local, function)?;
+        self.emit_builtin_arg_to_locals(0, time_zone_payload_local, time_zone_tag_local, function);
+        self.emit_temporal_zoned_date_time_time_zone(
+            time_zone_payload_local,
+            time_zone_tag_local,
+            function,
+        )?;
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+            epoch_payload_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            record_local,
+            HEAP_TEMPORAL_INSTANT_EPOCH_NANOSECONDS_TAG_OFFSET,
+            epoch_tag_local,
+            function,
+        );
+        function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
+        function.instruction(&Instruction::LocalSet(calendar_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(calendar_tag_local));
+        function.instruction(&Instruction::GlobalGet(
+            TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        function.instruction(&Instruction::LocalSet(prototype_payload_local));
+        self.emit_alloc_temporal_zoned_date_time(
+            epoch_payload_local,
+            epoch_tag_local,
+            time_zone_payload_local,
+            time_zone_tag_local,
+            calendar_payload_local,
+            calendar_tag_local,
+            prototype_payload_local,
+            function,
+        )?;
+        for local in [
+            prototype_payload_local,
+            calendar_tag_local,
+            calendar_payload_local,
+            epoch_tag_local,
+            epoch_payload_local,
+            time_zone_tag_local,
+            time_zone_payload_local,
+            record_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        Ok(())
+    }
 }

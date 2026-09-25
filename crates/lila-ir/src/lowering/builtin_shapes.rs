@@ -1010,6 +1010,7 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::TemporalInstantPrototypeUntil,
             StandardBuiltinId::TemporalInstantPrototypeSince,
             StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
+            StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso,
         ] {
             properties.insert(
                 builtin
@@ -6281,6 +6282,12 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_zoned_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
             StandardBuiltinId::IntlGetCanonicalLocales => (
                 ValueKind::Array,

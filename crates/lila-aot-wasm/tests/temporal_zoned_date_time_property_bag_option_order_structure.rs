@@ -38,7 +38,9 @@ fn property_bag_reads_options_after_year_and_before_algorithmic_validation() {
     let resolver = "        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(";
     let requires_year = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires year\",";
     let requires_day = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires day\",";
-    let requires_time_zone = "        self.emit_throw_current_function_realm_type_error(\n            \"Temporal.ZonedDateTime property bag requires timeZone\",";
+    // `timeZone` is required only by `ToTemporalZonedDateTime`; the throw is
+    // the `ZonedPropertyBagConsumer::From` arm, so it sits one match deeper.
+    let requires_time_zone = "                self.emit_throw_current_function_realm_type_error(\n                    \"Temporal.ZonedDateTime property bag requires timeZone\",";
 
     assert_eq!(property_bag.matches(year_conversion).count(), 1);
     assert_eq!(property_bag.matches(options_read).count(), 1);

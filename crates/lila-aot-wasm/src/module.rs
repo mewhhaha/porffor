@@ -1671,6 +1671,7 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalInstantPrototypeToLocaleString
         | StandardBuiltinId::TemporalInstantPrototypeToJson
         | StandardBuiltinId::TemporalInstantPrototypeValueOf
+        | StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso
         | StandardBuiltinId::TemporalZonedDateTimeFrom
         | StandardBuiltinId::TemporalZonedDateTimeCompare
         | StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter
