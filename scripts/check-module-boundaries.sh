@@ -6844,11 +6844,12 @@ do
     'current-function Realm Array prototype install consumer'
 done
 # The seventh consumer is the Iterator chunks/windows family's one
-# `CreateArrayFromList` allocation owner (`emit_chunking_empty_array`).
+# `CreateArrayFromList` allocation owner (`emit_chunking_empty_array`); the
+# eighth is the Intl.Locale information / supportedValuesOf result list.
 require_tree_regex_count \
   crates/lila-aot-wasm/src \
   '\.emit_alloc_array_payload_with_length_in_current_function_realm[[:space:]]*\(' \
-  7 \
+  8 \
   'current-function Realm Array allocator consumers'
 # Intl.Locale information lists and Intl.supportedValuesOf share one reader.
 require_fixed_string_count \
