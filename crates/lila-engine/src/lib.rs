@@ -11366,6 +11366,9 @@ var utc = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[UTC]");
 if (utc.epochNanoseconds !== 0n || utc.timeZoneId !== "UTC") throw "UTC";
 var absentOffset = Temporal.ZonedDateTime.from("1970-01-01T00:00[+01:00]");
 if (absentOffset.epochNanoseconds !== -3600000000000n) throw "absent offset";
+var hourOnlyOffset = Temporal.ZonedDateTime.from("1970-01-01T00:00[+01]");
+if (hourOnlyOffset.epochNanoseconds !== -3600000000000n ||
+    hourOnlyOffset.timeZoneId !== "+01:00") throw "hour-only offset";
 var exactZ = Temporal.ZonedDateTime.from("1970-01-01T00:00Z[+01:00]");
 if (exactZ.epochNanoseconds !== 0n) throw "Z exact";
 var exactNumeric = Temporal.ZonedDateTime.from("1970-01-01T00:00+01:00[+01:00]");
@@ -11428,7 +11431,7 @@ var errors = 0;
 for (var invalid of [
   "1970-01-01T00:00",
   "1970-01-01T00:00[Europe/Atlantis]",
-  "1970-01-01T00:00[+01]",
+  "1970-01-01T00:00[+1]",
   "1970-01-01T00:00[+24:00]",
   "-000000-01-01T00:00Z[UTC]"
 ]) {
