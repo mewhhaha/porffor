@@ -171,9 +171,7 @@ duration is rounded or totalled as a difference from that point through the
 same ISO calendar and fixed-offset machinery as `until`/`since`, with every
 total computed as one exact 128-bit quotient. `Temporal.Instant.prototype`
 `toString` now reads `fractionalSecondDigits`, `roundingMode`, `smallestUnit`
-and `timeZone`, and `toZonedDateTimeISO` exists. Temporal still resolves no
-named time zone other than `UTC`; IANA-zone cases remain RangeErrors even
-though the Intl provider pins IANA 2026a. On 2026-09-25, against Test262
+and `timeZone`, and `toZonedDateTimeISO` exists. On 2026-09-25, against Test262
 `7ab7faf` (`LILA_TEST262_FORCE_CASE_RUNNER=1 lila --jobs 1 test262 run <dir>
 --execution-backend wasm-aot --threads 3 --timeout-ms 60000`), Duration
 `round` passes 252/252 (was 132), `total` 154/156 (was 90), `compare`
