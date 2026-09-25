@@ -179,6 +179,44 @@ function check() {
   ok = ok && read === 3 && has && seen.join(',') === 'set:string:1,string:1,has:string:1';
   return ok;
 }
+
+check();
+"#,
+    );
+}
+
+#[test]
+fn array_number_keys_preserve_prototype_receivers_and_string_boundaries() {
+    assert_wasm_true(
+        r#"
+function read(object, key) { return object[key]; }
+function check() {
+  var array = [];
+  var receiver;
+  var prototype = Object.create(Array.prototype);
+  Object.defineProperty(prototype, '0', {
+    get: function () { receiver = this; return 23; }
+  });
+  Object.setPrototypeOf(array, prototype);
+  var ok = read(array, -0) === 23 && receiver === array;
+
+  var seen = [];
+  var proxy = new Proxy({}, {
+    get: function (target, key, actualReceiver) {
+      seen.push(typeof key + ':' + key);
+      return actualReceiver === array ? 41 : -1;
+    }
+  });
+  Object.setPrototypeOf(array, proxy);
+  ok = ok && read(array, 0) === 41;
+  ok = ok && read(array, 4294967295) === 41;
+  ok = ok && read(array, 1.5) === 41;
+  ok = ok && seen.join(',') === 'string:0,string:4294967295,string:1.5';
+
+  array[4294967295] = 7;
+  array[0] = 9;
+  return ok && read(array, 4294967295) === 7 && array.length === 1 && read(array, -0) === 9;
+}
 check();
 "#,
     );
