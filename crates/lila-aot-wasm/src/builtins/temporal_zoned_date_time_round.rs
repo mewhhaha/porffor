@@ -1,10 +1,16 @@
-//! Zoned date-time rounding in the local clock of UTC and fixed-offset zones.
+//! `Temporal.ZonedDateTime.prototype.round`: day rounding between the
+//! zone's day starts, time rounding on the wall clock re-interpreted with the
+//! receiver's offset preferred.
 
 use super::super::*;
 use super::temporal_options::{
-    TemporalRoundingMode, TemporalUnit, TemporalUnitOptionProperty, TemporalUnitSlot,
+    OffsetOption, StringValuedOption, TemporalRoundingMode, TemporalUnit,
+    TemporalUnitOptionProperty, TemporalUnitSlot,
 };
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
+use super::temporal_time_zone::{
+    TemporalDisambiguationSource, TemporalOffsetBehaviour, TemporalOffsetMatchSource,
+};
 
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn emit_temporal_zoned_date_time_round(
@@ -210,45 +216,82 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_zoned_date_time_start_of_day_seconds(
-            record_local,
-            seconds_local,
-            function,
-        )?;
-        self.emit_temporal_zoned_date_time_day_boundary(
-            seconds_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        // GetStartOfDay validates both endpoints even when rounding selects
-        // today's midnight. Fixed-offset day length is exactly 86,400 seconds.
-        self.emit_temporal_zoned_date_time_day_boundary(
-            subsecond_local,
-            epoch_payload_local,
-            epoch_tag_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_TEMPORAL_DAY));
-        function.instruction(&Instruction::LocalSet(quantum_local));
-        self.emit_temporal_plain_time_round_nanoseconds(
-            within_day_local,
-            quantum_local,
-            mode_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalGet(within_day_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(subsecond_local));
+        {
+            // Step 13: the day runs from `GetStartOfDay` of the local date to
+            // that of the next date, whatever its length, and the exact time
+            // rounds to one of the two.
+            let this_seconds_local = self.reserve_temp_local();
+            let this_subsecond_local = self.reserve_temp_local();
+            let end_seconds_local = self.reserve_temp_local();
+            self.emit_temporal_zoned_date_time_start_of_day_seconds(
+                record_local,
+                0,
+                seconds_local,
+                function,
+            )?;
+            self.emit_temporal_zoned_date_time_start_of_day_seconds(
+                record_local,
+                1,
+                end_seconds_local,
+                function,
+            )?;
+            self.emit_temporal_epoch_value_seconds(
+                epoch_payload_local,
+                epoch_tag_local,
+                this_seconds_local,
+                this_subsecond_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(end_seconds_local));
+            function.instruction(&Instruction::LocalGet(seconds_local));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalSet(quantum_local));
+            function.instruction(&Instruction::LocalGet(this_seconds_local));
+            function.instruction(&Instruction::LocalGet(seconds_local));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(this_subsecond_local));
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(within_day_local));
+            // When the next date's midnight occurs before the end of this
+            // local date (a backward transition across midnight), the pieces
+            // of the two dates interleave and `thisNs` can lie at or past
+            // `endNs`. The printed spec asserts that cannot happen; the
+            // reference implementation and Test262 treat such an instant as
+            // the last nanosecond of its day, so it still rounds to one of
+            // the two starts of day.
+            function.instruction(&Instruction::LocalGet(within_day_local));
+            function.instruction(&Instruction::LocalGet(quantum_local));
+            function.instruction(&Instruction::I64GeS);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            function.instruction(&Instruction::LocalGet(quantum_local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Sub);
+            function.instruction(&Instruction::LocalSet(within_day_local));
+            function.instruction(&Instruction::End);
+            self.emit_temporal_plain_time_round_nanoseconds(
+                within_day_local,
+                quantum_local,
+                mode_local,
+                function,
+            );
+            function.instruction(&Instruction::LocalGet(seconds_local));
+            function.instruction(&Instruction::LocalGet(within_day_local));
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64DivS);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(seconds_local));
+            function.instruction(&Instruction::LocalGet(within_day_local));
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64RemS);
+            function.instruction(&Instruction::LocalSet(subsecond_local));
+            for local in [end_seconds_local, this_subsecond_local, this_seconds_local] {
+                self.release_temp_local(local);
+            }
+        }
         function.instruction(&Instruction::Else);
         self.emit_temporal_plain_time_rounding_quantum(
             unit_local,
@@ -297,38 +340,48 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64RemS);
         function.instruction(&Instruction::LocalSet(within_day_local));
 
-        // InterpretISODateTimeOffset with offset=prefer checks the rounded
-        // original ISO day before applying the receiver's fixed offset.
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::I64Const(-100_000_000));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::I64Const(100_000_000));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.ZonedDateTime rounded ISO date is outside the supported range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(day_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(within_day_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(within_day_local));
-        function.instruction(&Instruction::I64Const(1_000_000_000));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
+        // Step 14: `InterpretISODateTimeOffset(rounded, option,
+        // offsetNanoseconds, timeZone, compatible, prefer, match-exactly)`,
+        // whose `CheckISODaysRange` rejects a rounded date out of range.
+        {
+            let behaviour_local = self.reserve_temp_local();
+            let offset_nanoseconds_local = self.reserve_temp_local();
+            let offset_option_local = self.reserve_temp_local();
+            function.instruction(&Instruction::LocalGet(day_local));
+            function.instruction(&Instruction::I64Const(86_400));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalGet(within_day_local));
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64DivS);
+            function.instruction(&Instruction::I64Add);
+            function.instruction(&Instruction::LocalSet(seconds_local));
+            function.instruction(&Instruction::LocalGet(within_day_local));
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64RemS);
+            function.instruction(&Instruction::LocalSet(subsecond_local));
+            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
+            function.instruction(&Instruction::LocalSet(behaviour_local));
+            function.instruction(&Instruction::LocalGet(offset_seconds_local));
+            function.instruction(&Instruction::I64Const(1_000_000_000));
+            function.instruction(&Instruction::I64Mul);
+            function.instruction(&Instruction::LocalSet(offset_nanoseconds_local));
+            function.instruction(&Instruction::I64Const(OffsetOption::Prefer.code()));
+            function.instruction(&Instruction::LocalSet(offset_option_local));
+            self.emit_temporal_interpret_local_seconds_offset(
+                time_zone_payload_local,
+                behaviour_local,
+                offset_nanoseconds_local,
+                offset_option_local,
+                TemporalDisambiguationSource::Compatible,
+                TemporalOffsetMatchSource::Exactly,
+                seconds_local,
+                subsecond_local,
+                function,
+            )?;
+            for local in [offset_option_local, offset_nanoseconds_local, behaviour_local] {
+                self.release_temp_local(local);
+            }
+        }
         function.instruction(&Instruction::End);
 
         self.emit_temporal_epoch_nanoseconds_bigint(

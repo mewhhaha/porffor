@@ -3071,7 +3071,7 @@ standard_builtin_catalog! {
     TemporalPlainDateTimePrototypeToZonedDateTime {
         function: FunctionOrdinal(415) => BUILTIN_TEMPORAL_PLAIN_DATE_TIME_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID,
         debug: "Temporal.PlainDateTime.prototype.toZonedDateTime",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toZonedDateTime",
     }
@@ -3092,7 +3092,7 @@ standard_builtin_catalog! {
     TemporalDurationCompare {
         function: FunctionOrdinal(418) => BUILTIN_TEMPORAL_DURATION_COMPARE_FUNCTION_ID,
         debug: "Temporal.Duration.compare",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "compare",
     }
@@ -3218,14 +3218,14 @@ standard_builtin_catalog! {
     TemporalDurationPrototypeRound {
         function: FunctionOrdinal(436) => BUILTIN_TEMPORAL_DURATION_PROTOTYPE_ROUND_FUNCTION_ID,
         debug: "Temporal.Duration.prototype.round",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "round",
     }
     TemporalDurationPrototypeTotal {
         function: FunctionOrdinal(437) => BUILTIN_TEMPORAL_DURATION_PROTOTYPE_TOTAL_FUNCTION_ID,
         debug: "Temporal.Duration.prototype.total",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "total",
     }
@@ -3274,9 +3274,30 @@ standard_builtin_catalog! {
     TemporalNowZonedDateTimeIso {
         function: FunctionOrdinal(444) => BUILTIN_TEMPORAL_NOW_ZONED_DATE_TIME_ISO_FUNCTION_ID,
         debug: "Temporal.Now.zonedDateTimeISO",
-        flags: [WALL_CLOCK],
+        flags: [WALL_CLOCK, INTL_HOST],
         installer: None,
         native: "zonedDateTimeISO",
+    }
+    TemporalNowPlainDateIso {
+        function: FunctionOrdinal(864) => "$builtin.Temporal.Now.plainDateISO",
+        debug: "Temporal.Now.plainDateISO",
+        flags: [WALL_CLOCK, INTL_HOST],
+        installer: None,
+        native: "plainDateISO",
+    }
+    TemporalNowPlainDateTimeIso {
+        function: FunctionOrdinal(865) => "$builtin.Temporal.Now.plainDateTimeISO",
+        debug: "Temporal.Now.plainDateTimeISO",
+        flags: [WALL_CLOCK, INTL_HOST],
+        installer: None,
+        native: "plainDateTimeISO",
+    }
+    TemporalNowPlainTimeIso {
+        function: FunctionOrdinal(866) => "$builtin.Temporal.Now.plainTimeISO",
+        debug: "Temporal.Now.plainTimeISO",
+        flags: [WALL_CLOCK, INTL_HOST],
+        installer: None,
+        native: "plainTimeISO",
     }
     TemporalInstantConstructor {
         function: FunctionOrdinal(445) => BUILTIN_TEMPORAL_INSTANT_FUNCTION_ID,
@@ -3372,7 +3393,7 @@ standard_builtin_catalog! {
     TemporalInstantPrototypeToString {
         function: FunctionOrdinal(453) => BUILTIN_TEMPORAL_INSTANT_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Temporal.Instant.prototype.toString",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "toString",
     }
@@ -3400,21 +3421,21 @@ standard_builtin_catalog! {
     TemporalInstantPrototypeToZonedDateTimeIso {
         function: FunctionOrdinal(852) => "$builtin.Temporal.Instant.prototype.toZonedDateTimeISO",
         debug: "Temporal.Instant.prototype.toZonedDateTimeISO",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toZonedDateTimeISO",
     }
     TemporalZonedDateTimeConstructor {
         function: FunctionOrdinal(456) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime",
-        flags: [CONSTRUCTABLE],
+        flags: [CONSTRUCTABLE, INTL_HOST],
         installer: TemporalZonedDateTime,
         native: "ZonedDateTime",
     }
     TemporalZonedDateTimeFrom {
         function: FunctionOrdinal(457) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_FROM_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.from",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "from",
     }
@@ -3435,14 +3456,14 @@ standard_builtin_catalog! {
     TemporalZonedDateTimePrototypeOffsetGetter {
         function: FunctionOrdinal(460) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.offset",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get offset",
     }
     TemporalZonedDateTimePrototypeOffsetNanosecondsGetter {
         function: FunctionOrdinal(461) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_OFFSET_NANOSECONDS_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.offsetNanoseconds",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get offsetNanoseconds",
     }
@@ -3463,91 +3484,91 @@ standard_builtin_catalog! {
     TemporalZonedDateTimePrototypeEraGetter {
         function: FunctionOrdinal(464) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.era",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get era",
     }
     TemporalZonedDateTimePrototypeEraYearGetter {
         function: FunctionOrdinal(465) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.eraYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get eraYear",
     }
     TemporalZonedDateTimePrototypeYearGetter {
         function: FunctionOrdinal(466) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.year",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get year",
     }
     TemporalZonedDateTimePrototypeMonthGetter {
         function: FunctionOrdinal(467) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.month",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get month",
     }
     TemporalZonedDateTimePrototypeMonthCodeGetter {
         function: FunctionOrdinal(468) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.monthCode",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get monthCode",
     }
     TemporalZonedDateTimePrototypeDayGetter {
         function: FunctionOrdinal(469) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.day",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get day",
     }
     TemporalZonedDateTimePrototypeHourGetter {
         function: FunctionOrdinal(470) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOUR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.hour",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get hour",
     }
     TemporalZonedDateTimePrototypeMinuteGetter {
         function: FunctionOrdinal(471) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MINUTE_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.minute",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get minute",
     }
     TemporalZonedDateTimePrototypeSecondGetter {
         function: FunctionOrdinal(472) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SECOND_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.second",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get second",
     }
     TemporalZonedDateTimePrototypeMillisecondGetter {
         function: FunctionOrdinal(473) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MILLISECOND_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.millisecond",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get millisecond",
     }
     TemporalZonedDateTimePrototypeMicrosecondGetter {
         function: FunctionOrdinal(474) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MICROSECOND_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.microsecond",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get microsecond",
     }
     TemporalZonedDateTimePrototypeNanosecondGetter {
         function: FunctionOrdinal(475) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_NANOSECOND_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.nanosecond",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get nanosecond",
     }
     TemporalZonedDateTimePrototypeEquals {
         function: FunctionOrdinal(476) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_EQUALS_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.equals",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "equals",
     }
@@ -3561,14 +3582,14 @@ standard_builtin_catalog! {
     TemporalZonedDateTimePrototypeToPlainDateTime {
         function: FunctionOrdinal(478) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_TIME_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.toPlainDateTime",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toPlainDateTime",
     }
     TemporalZonedDateTimePrototypeWithTimeZone {
         function: FunctionOrdinal(479) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_TIME_ZONE_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.withTimeZone",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "withTimeZone",
     }
@@ -3582,28 +3603,28 @@ standard_builtin_catalog! {
     TemporalZonedDateTimePrototypeAdd {
         function: FunctionOrdinal(481) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ADD_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.add",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "add",
     }
     TemporalZonedDateTimePrototypeSubtract {
         function: FunctionOrdinal(482) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SUBTRACT_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.subtract",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "subtract",
     }
     TemporalZonedDateTimePrototypeUntil {
         function: FunctionOrdinal(483) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_UNTIL_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.until",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "until",
     }
     TemporalZonedDateTimePrototypeSince {
         function: FunctionOrdinal(484) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_SINCE_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.since",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "since",
     }
@@ -6097,112 +6118,112 @@ standard_builtin_catalog! {
     TemporalZonedDateTimeCompare {
         function: FunctionOrdinal(790) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_COMPARE_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.compare",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "compare",
     }
     TemporalZonedDateTimePrototypeDayOfWeekGetter {
         function: FunctionOrdinal(791) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_WEEK_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.dayOfWeek",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get dayOfWeek",
     }
     TemporalZonedDateTimePrototypeDayOfYearGetter {
         function: FunctionOrdinal(792) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.dayOfYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get dayOfYear",
     }
     TemporalZonedDateTimePrototypeWeekOfYearGetter {
         function: FunctionOrdinal(793) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WEEK_OF_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.weekOfYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get weekOfYear",
     }
     TemporalZonedDateTimePrototypeYearOfWeekGetter {
         function: FunctionOrdinal(794) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_YEAR_OF_WEEK_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.yearOfWeek",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get yearOfWeek",
     }
     TemporalZonedDateTimePrototypeDaysInWeekGetter {
         function: FunctionOrdinal(795) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_WEEK_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.daysInWeek",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get daysInWeek",
     }
     TemporalZonedDateTimePrototypeDaysInMonthGetter {
         function: FunctionOrdinal(796) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.daysInMonth",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get daysInMonth",
     }
     TemporalZonedDateTimePrototypeDaysInYearGetter {
         function: FunctionOrdinal(797) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.daysInYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get daysInYear",
     }
     TemporalZonedDateTimePrototypeMonthsInYearGetter {
         function: FunctionOrdinal(798) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.monthsInYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get monthsInYear",
     }
     TemporalZonedDateTimePrototypeInLeapYearGetter {
         function: FunctionOrdinal(799) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.inLeapYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get inLeapYear",
     }
     TemporalZonedDateTimePrototypeToString {
         function: FunctionOrdinal(800) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_STRING_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.toString",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "toString",
     }
     TemporalZonedDateTimePrototypeRound {
         function: FunctionOrdinal(801) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_ROUND_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.round",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "round",
     }
     TemporalZonedDateTimePrototypeGetTimeZoneTransition {
         function: FunctionOrdinal(802) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_GET_TIME_ZONE_TRANSITION_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.getTimeZoneTransition",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "getTimeZoneTransition",
     }
     TemporalZonedDateTimePrototypeHoursInDayGetter {
         function: FunctionOrdinal(803) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_HOURS_IN_DAY_GETTER_FUNCTION_ID,
         debug: "get Temporal.ZonedDateTime.prototype.hoursInDay",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get hoursInDay",
     }
     TemporalZonedDateTimePrototypeStartOfDay {
         function: FunctionOrdinal(804) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_START_OF_DAY_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.startOfDay",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "startOfDay",
     }
     TemporalPlainDatePrototypeToZonedDateTime {
         function: FunctionOrdinal(805) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_TO_ZONED_DATE_TIME_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.toZonedDateTime",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "toZonedDateTime",
     }
@@ -6251,16 +6272,51 @@ standard_builtin_catalog! {
     TemporalZonedDateTimePrototypeWith {
         function: FunctionOrdinal(812) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_WITH_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.with",
-        flags: [SYNCHRONOUS_USER_CODE],
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
         installer: None,
         native: "with",
     }
     TemporalZonedDateTimePrototypeToPlainDate {
         function: FunctionOrdinal(813) => BUILTIN_TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_TO_PLAIN_DATE_FUNCTION_ID,
         debug: "Temporal.ZonedDateTime.prototype.toPlainDate",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "toPlainDate",
+    }
+    TemporalZonedDateTimePrototypeWithPlainTime {
+        function: FunctionOrdinal(862) => "$builtin.Temporal.ZonedDateTime.prototype.withPlainTime",
+        debug: "Temporal.ZonedDateTime.prototype.withPlainTime",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "withPlainTime",
+    }
+    TemporalZonedDateTimePrototypeToPlainTime {
+        function: FunctionOrdinal(863) => "$builtin.Temporal.ZonedDateTime.prototype.toPlainTime",
+        debug: "Temporal.ZonedDateTime.prototype.toPlainTime",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "toPlainTime",
+    }
+    TemporalZonedDateTimePrototypeToJson {
+        function: FunctionOrdinal(867) => "$builtin.Temporal.ZonedDateTime.prototype.toJSON",
+        debug: "Temporal.ZonedDateTime.prototype.toJSON",
+        flags: [INTL_HOST],
+        installer: None,
+        native: "toJSON",
+    }
+    TemporalZonedDateTimePrototypeValueOf {
+        function: FunctionOrdinal(868) => "$builtin.Temporal.ZonedDateTime.prototype.valueOf",
+        debug: "Temporal.ZonedDateTime.prototype.valueOf",
+        flags: [],
+        installer: None,
+        native: "valueOf",
+    }
+    TemporalZonedDateTimePrototypeToLocaleString {
+        function: FunctionOrdinal(869) => "$builtin.Temporal.ZonedDateTime.prototype.toLocaleString",
+        debug: "Temporal.ZonedDateTime.prototype.toLocaleString",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "toLocaleString",
     }
     TypedArrayPrototypeFill {
         function: FunctionOrdinal(814) => BUILTIN_TYPED_ARRAY_PROTOTYPE_FILL_FUNCTION_ID,
@@ -6316,6 +6372,35 @@ mod tests {
                 StandardBuiltinId::TemporalPlainMonthDayPrototypeToLocaleString,
                 StandardBuiltinId::TemporalPlainTimePrototypeToLocaleString,
                 StandardBuiltinId::TemporalPlainDateTimePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDateTimePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalDurationCompare,
+                StandardBuiltinId::TemporalDurationPrototypeRound,
+                StandardBuiltinId::TemporalDurationPrototypeTotal,
+                StandardBuiltinId::TemporalNowZonedDateTimeIso,
+                StandardBuiltinId::TemporalInstantPrototypeToString,
+                StandardBuiltinId::TemporalZonedDateTimeConstructor,
+                StandardBuiltinId::TemporalZonedDateTimeFrom,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeOffsetNanosecondsGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEraYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHourGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMinuteGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMillisecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMicrosecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeNanosecondGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeEquals,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeAdd,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
                 StandardBuiltinId::IntlGetCanonicalLocales,
                 StandardBuiltinId::IntlLocaleConstructor,
                 StandardBuiltinId::IntlDateTimeFormatConstructor,
@@ -6326,6 +6411,24 @@ mod tests {
                 StandardBuiltinId::IntlDateTimeFormatBoundFormat,
                 StandardBuiltinId::BigIntPrototypeToLocaleString,
                 StandardBuiltinId::NumberPrototypeToLocaleString,
+                StandardBuiltinId::TemporalZonedDateTimeCompare,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWeekOfYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeYearOfWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInWeekGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToString,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeRound,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay,
+                StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWith,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate,
                 StandardBuiltinId::IntlLocalePrototypeMaximize,
                 StandardBuiltinId::IntlLocalePrototypeMinimize,
                 StandardBuiltinId::IntlNumberFormatConstructor,
@@ -6335,6 +6438,7 @@ mod tests {
                 StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
                 StandardBuiltinId::IntlNumberFormatBoundFormat,
                 StandardBuiltinId::TemporalInstantPrototypeToLocaleString,
+                StandardBuiltinId::TemporalInstantPrototypeToZonedDateTimeIso,
                 StandardBuiltinId::IntlSupportedValuesOf,
                 StandardBuiltinId::IntlLocalePrototypeGetCalendars,
                 StandardBuiltinId::IntlLocalePrototypeGetCollations,
@@ -6343,6 +6447,13 @@ mod tests {
                 StandardBuiltinId::IntlLocalePrototypeGetTimeZones,
                 StandardBuiltinId::IntlLocalePrototypeGetTextInfo,
                 StandardBuiltinId::IntlLocalePrototypeGetWeekInfo,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime,
+                StandardBuiltinId::TemporalNowPlainDateIso,
+                StandardBuiltinId::TemporalNowPlainDateTimeIso,
+                StandardBuiltinId::TemporalNowPlainTimeIso,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToJson,
+                StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString,
             ]
         );
     }

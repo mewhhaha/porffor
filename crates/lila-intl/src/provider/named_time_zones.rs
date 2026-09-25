@@ -115,6 +115,14 @@ impl NamedTimeZones {
             .ok_or_else(|| UnknownTimeZone::new(identifier.clone()))
     }
 
+    /// The validated transition records of a named zone, found by the same
+    /// ASCII-case-insensitive match as [`Self::lookup`].
+    pub(super) fn rules(&self, identifier: &TimeZoneId) -> Option<&Tzif> {
+        self.zones
+            .get(&identifier.as_str().to_ascii_lowercase())
+            .map(|zone| &zone.transitions)
+    }
+
     pub(super) fn transition(
         &self,
         identity: &NamedTimeZoneIdentity,

@@ -1663,6 +1663,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalNowInstant
         | StandardBuiltinId::TemporalNowTimeZoneId
         | StandardBuiltinId::TemporalNowZonedDateTimeIso
+        | StandardBuiltinId::TemporalNowPlainDateIso
+        | StandardBuiltinId::TemporalNowPlainDateTimeIso
+        | StandardBuiltinId::TemporalNowPlainTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeAdd
@@ -1692,6 +1695,9 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
         | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
         | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
@@ -1720,6 +1726,8 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
         | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
         | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd

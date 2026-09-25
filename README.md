@@ -179,18 +179,23 @@ separately from the generated full-suite status.
 now honour `relativeTo`: `GetTemporalRelativeToOption` resolves PlainDate,
 PlainDateTime and ZonedDateTime values, property bags and ISO strings, and the
 duration is rounded or totalled as a difference from that point through the
-same ISO calendar and fixed-offset machinery as `until`/`since`, with every
+same ISO calendar and zoned arithmetic as `until`/`since`, with every
 total computed as one exact 128-bit quotient. `Temporal.Instant.prototype`
 `toString` now reads `fractionalSecondDigits`, `roundingMode`, `smallestUnit`
-and `timeZone`, and `toZonedDateTimeISO` exists. Temporal still resolves no
-named time zone other than `UTC`; IANA-zone cases remain RangeErrors even
-though the Intl provider pins IANA 2026a. On 2026-09-25, against Test262
+and `timeZone`, and `toZonedDateTimeISO` exists. On 2026-09-25, against Test262
 `7ab7faf` (`LILA_TEST262_FORCE_CASE_RUNNER=1 lila --jobs 1 test262 run <dir>
 --execution-backend wasm-aot --threads 3 --timeout-ms 60000`), Duration
 `round` passes 252/252 (was 132), `total` 154/156 (was 90), `compare`
 100/100 (was 58), Instant `toString` 110/110 (was 32), `toZonedDateTimeISO`
 38/38 (was 2) and `intl402/Temporal/Duration` 8/42 (was 4). Published
 conformance counts are unchanged.
+
+Temporal now resolves named zones through the same pinned IANA 2026a kernel as
+`Intl.DateTimeFormat`. Zoned conversions, arithmetic, relative duration
+rounding, day boundaries and transition searches use the zone's actual offsets
+and day lengths, including DST gaps and overlaps. See the
+[time-zone contract](docs/rust-rewrite/intl-named-time-zones.md#temporal-time-zones)
+for the compiled/host boundary and the remaining conformance domains.
 
 The [ZonedDateTime baseline follow-up](docs/rust-rewrite/zoned-date-time-baseline-follow-up.md)
 compares the next 182 observed failures with merged main: 136 still fail and
@@ -3567,9 +3572,10 @@ Recent focused progress through `2026-09-01`:
   argument conversion. The 21 residual failures group around missing real
   PlainDateTime and Duration support, ISO calendar-string and calendar-object
   conversion, ZonedDateTime string limits, and month-code/offset validation
-  ordering. Named IANA zones remain explicit errors until the compiler has real
-  time-zone transition resolution; they are not guessed through the host
-  `Date` or `TZ` environment.
+  ordering. Named IANA zones now resolve through the pinned IANA 2026a
+  time-zone kernel; see
+  [the named-zone boundary](docs/rust-rewrite/intl-named-time-zones.md). They
+  are never guessed through the host `Date` or `TZ` environment.
   `Temporal.Instant.from` copies that private epoch slot without consulting
   shadowable ZonedDateTime properties, and `Temporal.Instant.prototype.equals`
   compares the exact private BigInt epoch after the same intrinsic conversion.

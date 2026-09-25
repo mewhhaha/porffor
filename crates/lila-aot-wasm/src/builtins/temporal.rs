@@ -1,5 +1,10 @@
 use super::super::*;
+use super::intl_datetimeformat::NamedTimeZoneRejection;
 use super::temporal_options::{Disambiguation, OffsetOption, StringValuedOption, TemporalOverflow};
+use super::temporal_time_zone::{
+    TemporalDisambiguationSource, TemporalOffsetBehaviour, TemporalOffsetMatchSource,
+    TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
+};
 use super::temporal_plain_date::{
     TemporalCalendarCanonicalizationContext, TemporalCalendarId, TemporalEraField,
 };
@@ -42,12 +47,15 @@ pub(super) enum TemporalZonedDateTimePlainTarget {
 pub(super) enum TemporalZonedDateTimeOptionsContext {
     From,
     With,
+    /// `Temporal.PlainDateTime.prototype.toZonedDateTime`: `disambiguation`
+    /// only.
+    ToZonedDateTime,
 }
 
 impl TemporalZonedDateTimeOptionsContext {
     const fn default_offset(self) -> OffsetOption {
         match self {
-            Self::From => OffsetOption::Reject,
+            Self::From | Self::ToZonedDateTime => OffsetOption::Reject,
             Self::With => OffsetOption::Prefer,
         }
     }
@@ -58,8 +66,32 @@ impl TemporalZonedDateTimeOptionsContext {
             Self::With => {
                 "Temporal.ZonedDateTime.prototype.with options must be an object or undefined"
             }
+            Self::ToZonedDateTime => {
+                "Temporal.PlainDateTime.prototype.toZonedDateTime options must be an object or undefined"
+            }
         }
     }
+
+    /// The options this operation reads, in read order.
+    const fn keys(self) -> &'static [ZonedDateTimeOptionKey] {
+        match self {
+            Self::From | Self::With => &ZonedDateTimeOptionKey::ALL,
+            Self::ToZonedDateTime => &[ZonedDateTimeOptionKey::Disambiguation],
+        }
+    }
+}
+
+/// Where [`FunctionBuilder::emit_temporal_zoned_date_time_options`] leaves
+/// each option's code. A context that does not read an option still gets its
+/// default written.
+#[derive(Clone, Copy)]
+pub(super) struct ZonedDateTimeOptionLocals {
+    /// A [`Disambiguation::code`], which is the time-zone kernel's wire value.
+    pub(super) disambiguation: u32,
+    /// An [`OffsetOption::code`].
+    pub(super) offset: u32,
+    /// A [`TemporalOverflow`] code.
+    pub(super) overflow: u32,
 }
 
 /// Who consumes the fields [`FunctionBuilder::emit_temporal_zoned_date_time_from_property_bag`]
@@ -247,15 +279,12 @@ impl ZonedDateTimeOptionKey {
         }
     }
 
-    /// Which caller-supplied local receives the code. `disambiguation` has no
-    /// destination: this backend resolves only `UTC` and fixed offsets, so the
-    /// value is validated and then deliberately dropped. That gap is now named
-    /// rather than expressed as an absent code in a table.
-    fn destination(self, offset_local: u32, overflow_local: u32) -> Option<u32> {
+    /// Which caller-supplied local receives the code.
+    fn destination(self, locals: ZonedDateTimeOptionLocals) -> u32 {
         match self {
-            ZonedDateTimeOptionKey::Disambiguation => None,
-            ZonedDateTimeOptionKey::Offset => Some(offset_local),
-            ZonedDateTimeOptionKey::Overflow => Some(overflow_local),
+            ZonedDateTimeOptionKey::Disambiguation => locals.disambiguation,
+            ZonedDateTimeOptionKey::Offset => locals.offset,
+            ZonedDateTimeOptionKey::Overflow => locals.overflow,
         }
     }
 }
@@ -264,7 +293,6 @@ const TEMPORAL_INSTANT_LIMIT_HIGH_LIMB: i64 = 468;
 const TEMPORAL_INSTANT_LIMIT_LOW_LIMB: i64 = 6_923_773_503_929_843_712;
 const NANOSECONDS_PER_MILLISECOND: i64 = 1_000_000;
 const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
-pub(super) const SECONDS_PER_DAY: i64 = 86_400;
 
 enum ZonedDateTimeCalendarCoercion {
     ToTemporalCalendarIdentifier,
@@ -297,8 +325,13 @@ enum TemporalIsoParseGoal {
         calendar_payload_local: u32,
         calendar_tag_local: u32,
     },
+    /// `ToTemporalZonedDateTime` of a string: the annotation resolves the
+    /// zone, and `InterpretISODateTimeOffset` runs with the string's offset
+    /// kind as offsetBehaviour and match-minutes unless the offset carried
+    /// seconds.
     ZonedDateTime {
         offset_option_local: u32,
+        disambiguation: TemporalDisambiguationSource,
         time_zone_payload_local: u32,
         time_zone_tag_local: u32,
         calendar_payload_local: u32,
@@ -308,8 +341,7 @@ enum TemporalIsoParseGoal {
     /// year/month/day are handed back instead of being collapsed into epoch
     /// nanoseconds, a trailing time and offset are optional, and a bracketed
     /// time zone is accepted without being resolved (a `PlainDate` has no time
-    /// zone, so `[America/New_York]` is legal syntax even though this backend
-    /// cannot resolve that identifier).
+    /// zone, so a bracketed name is accepted without a catalogue lookup).
     PlainDate {
         year_destination_local: u32,
         month_destination_local: u32,
@@ -349,11 +381,9 @@ enum TemporalIsoParseGoal {
 }
 
 impl<'a> FunctionBuilder<'a> {
-    /// Temporal proposal 2.3.1 `Temporal.Now.timeZoneId`.
-    ///
-    /// This backend has no tzdata: `emit_temporal_zoned_date_time_time_zone`
-    /// only resolves `UTC` and fixed `±HH:MM` offsets, so `UTC` is the only
-    /// identifier the rest of the implementation can honour.
+    /// Temporal proposal 2.3.1 `Temporal.Now.timeZoneId`:
+    /// `SystemTimeZoneIdentifier()`. The host exposes no ambient time zone to
+    /// compiled programs, so the system zone is `UTC`.
     pub(crate) fn emit_temporal_now_time_zone_id(
         &mut self,
         function: &mut Function,
@@ -371,7 +401,7 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// The host import is millisecond resolution, which the spec permits: it
     /// only requires the clock not to go backwards within an execution.
-    fn emit_temporal_now_epoch_seconds_and_subseconds(
+    pub(super) fn emit_temporal_now_epoch_seconds_and_subseconds(
         &mut self,
         seconds_local: u32,
         subsecond_local: u32,
@@ -471,24 +501,16 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Temporal proposal 2.3.4 `Temporal.Now.zonedDateTimeISO`.
-    pub(crate) fn emit_temporal_now_zoned_date_time_iso(
+    /// The time zone of a `Temporal.Now` reader: an absent or `undefined`
+    /// argument means `SystemTimeZoneIdentifier()`; anything else goes through
+    /// the same `ToTemporalTimeZoneIdentifier` the ZonedDateTime constructor
+    /// uses.
+    pub(super) fn emit_temporal_now_time_zone_argument(
         &mut self,
+        time_zone_payload_local: u32,
+        time_zone_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_zone_payload_local = self.reserve_temp_local();
-        let time_zone_tag_local = self.reserve_temp_local();
-        let calendar_payload_local = self.reserve_temp_local();
-        let calendar_tag_local = self.reserve_temp_local();
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        let epoch_payload_local = self.reserve_temp_local();
-        let epoch_tag_local = self.reserve_temp_local();
-        let prototype_payload_local = self.reserve_temp_local();
-
-        // An absent or `undefined` argument means SystemTimeZoneIdentifier();
-        // anything else goes through the same resolution the ZonedDateTime
-        // constructor uses, so named zones still reject.
         self.emit_builtin_arg_to_locals(0, time_zone_payload_local, time_zone_tag_local, function);
         function.instruction(&Instruction::LocalGet(time_zone_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -505,6 +527,29 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::End);
+        Ok(())
+    }
+
+    /// Temporal proposal 2.3.4 `Temporal.Now.zonedDateTimeISO`.
+    pub(crate) fn emit_temporal_now_zoned_date_time_iso(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let time_zone_payload_local = self.reserve_temp_local();
+        let time_zone_tag_local = self.reserve_temp_local();
+        let calendar_payload_local = self.reserve_temp_local();
+        let calendar_tag_local = self.reserve_temp_local();
+        let seconds_local = self.reserve_temp_local();
+        let subsecond_local = self.reserve_temp_local();
+        let epoch_payload_local = self.reserve_temp_local();
+        let epoch_tag_local = self.reserve_temp_local();
+        let prototype_payload_local = self.reserve_temp_local();
+
+        self.emit_temporal_now_time_zone_argument(
+            time_zone_payload_local,
+            time_zone_tag_local,
+            function,
+        )?;
 
         function.instruction(&Instruction::I64Const(self.strings.payload("iso8601")));
         function.instruction(&Instruction::LocalSet(calendar_payload_local));
@@ -816,6 +861,7 @@ impl<'a> FunctionBuilder<'a> {
         let options_tag_local = self.reserve_temp_local();
         let offset_option_local = self.reserve_temp_local();
         let overflow_option_local = self.reserve_temp_local();
+        let disambiguation_option_local = self.reserve_temp_local();
         let epoch_payload_local = self.reserve_temp_local();
         let epoch_tag_local = self.reserve_temp_local();
         let time_zone_payload_local = self.reserve_temp_local();
@@ -823,6 +869,11 @@ impl<'a> FunctionBuilder<'a> {
         let calendar_payload_local = self.reserve_temp_local();
         let calendar_tag_local = self.reserve_temp_local();
         let prototype_payload_local = self.reserve_temp_local();
+        let option_locals = ZonedDateTimeOptionLocals {
+            disambiguation: disambiguation_option_local,
+            offset: offset_option_local,
+            overflow: overflow_option_local,
+        };
 
         self.emit_builtin_arg_to_locals(0, argument_payload_local, argument_tag_local, function);
         self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
@@ -853,8 +904,7 @@ impl<'a> FunctionBuilder<'a> {
             TemporalZonedDateTimeOptionsContext::From,
             options_payload_local,
             options_tag_local,
-            offset_option_local,
-            overflow_option_local,
+            option_locals,
             function,
         )?;
         for (offset, local) in [
@@ -909,8 +959,7 @@ impl<'a> FunctionBuilder<'a> {
                 options_tag_local,
                 prototype_payload_local,
             },
-            offset_option_local,
-            overflow_option_local,
+            option_locals,
             epoch_payload_local,
             epoch_tag_local,
             time_zone_payload_local,
@@ -938,8 +987,7 @@ impl<'a> FunctionBuilder<'a> {
                 options_tag_local,
                 prototype_payload_local,
             },
-            offset_option_local,
-            overflow_option_local,
+            option_locals,
             epoch_payload_local,
             epoch_tag_local,
             time_zone_payload_local,
@@ -980,8 +1028,7 @@ impl<'a> FunctionBuilder<'a> {
             TemporalZonedDateTimeOptionsContext::From,
             options_payload_local,
             options_tag_local,
-            offset_option_local,
-            overflow_option_local,
+            option_locals,
             function,
         )?;
         self.emit_temporal_parse_iso_string(
@@ -990,6 +1037,9 @@ impl<'a> FunctionBuilder<'a> {
             epoch_tag_local,
             TemporalIsoParseGoal::ZonedDateTime {
                 offset_option_local,
+                disambiguation: TemporalDisambiguationSource::Option(
+                    disambiguation_option_local,
+                ),
                 time_zone_payload_local,
                 time_zone_tag_local,
                 calendar_payload_local,
@@ -1020,6 +1070,7 @@ impl<'a> FunctionBuilder<'a> {
             time_zone_payload_local,
             epoch_tag_local,
             epoch_payload_local,
+            disambiguation_option_local,
             overflow_option_local,
             offset_option_local,
             options_tag_local,
@@ -1047,8 +1098,7 @@ impl<'a> FunctionBuilder<'a> {
         argument_payload_local: u32,
         argument_tag_local: u32,
         consumer: ZonedPropertyBagConsumer,
-        offset_option_local: u32,
-        overflow_option_local: u32,
+        option_locals: ZonedDateTimeOptionLocals,
         epoch_payload_local: u32,
         epoch_tag_local: u32,
         time_zone_payload_local: u32,
@@ -1346,8 +1396,7 @@ impl<'a> FunctionBuilder<'a> {
                     TemporalZonedDateTimeOptionsContext::From,
                     options_payload_local,
                     options_tag_local,
-                    offset_option_local,
-                    overflow_option_local,
+                    option_locals,
                     function,
                 )?;
             }
@@ -1356,9 +1405,11 @@ impl<'a> FunctionBuilder<'a> {
             // runs with `compatible` and `reject`.
             ZonedPropertyBagConsumer::RelativeTo { .. } => {
                 function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
-                function.instruction(&Instruction::LocalSet(offset_option_local));
+                function.instruction(&Instruction::LocalSet(option_locals.offset));
                 function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
-                function.instruction(&Instruction::LocalSet(overflow_option_local));
+                function.instruction(&Instruction::LocalSet(option_locals.overflow));
+                function.instruction(&Instruction::I64Const(Disambiguation::Compatible.code()));
+                function.instruction(&Instruction::LocalSet(option_locals.disambiguation));
             }
         }
 
@@ -1486,7 +1537,7 @@ impl<'a> FunctionBuilder<'a> {
             millisecond_local,
             microsecond_local,
             nanosecond_local,
-            overflow_option_local,
+            option_locals.overflow,
             function,
         )?;
 
@@ -1506,12 +1557,12 @@ impl<'a> FunctionBuilder<'a> {
                 prototype_payload_local,
                 ..
             } => {
-                self.emit_temporal_fixed_zoned_date_time_epoch(
+                self.emit_temporal_zoned_date_time_epoch_from_fields(
                     &date_time_fields,
                     time_zone_payload_local,
                     offset_nanoseconds_local,
                     offset_present_local,
-                    offset_option_local,
+                    option_locals,
                     epoch_payload_local,
                     epoch_tag_local,
                     function,
@@ -1547,12 +1598,12 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(time_zone_present_local));
                 function.instruction(&Instruction::I32WrapI64);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_temporal_fixed_zoned_date_time_epoch(
+                self.emit_temporal_zoned_date_time_epoch_from_fields(
                     &date_time_fields,
                     time_zone_payload_local,
                     offset_nanoseconds_local,
                     offset_present_local,
-                    offset_option_local,
+                    option_locals,
                     epoch_payload_local,
                     epoch_tag_local,
                     function,
@@ -2046,42 +2097,12 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_temporal_zoned_date_time_offset_date_range(
-        &mut self,
-        days_local: u32,
-        offset_option_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        // Explicit offsets with prefer/reject check the original ISO date.
-        // Use/ignore instead check the date after applying the selected offset.
-        function.instruction(&Instruction::LocalGet(offset_option_local));
-        function.instruction(&Instruction::I64Const(OffsetOption::Prefer.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(offset_option_local));
-        function.instruction(&Instruction::I64Const(OffsetOption::Reject.code()));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(-100_000_000));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(100_000_000));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_instant_range_error(function)?;
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
     pub(super) fn emit_temporal_zoned_date_time_options(
         &mut self,
         context: TemporalZonedDateTimeOptionsContext,
         options_payload_local: u32,
         options_tag_local: u32,
-        offset_option_local: u32,
-        overflow_option_local: u32,
+        locals: ZonedDateTimeOptionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let property_key_local = self.reserve_temp_local();
@@ -2091,10 +2112,8 @@ impl<'a> FunctionBuilder<'a> {
         let recognized_local = self.reserve_temp_local();
 
         for key in ZonedDateTimeOptionKey::ALL {
-            if let Some(destination) = key.destination(offset_option_local, overflow_option_local) {
-                function.instruction(&Instruction::I64Const(key.default_code(context)));
-                function.instruction(&Instruction::LocalSet(destination));
-            }
+            function.instruction(&Instruction::I64Const(key.default_code(context)));
+            function.instruction(&Instruction::LocalSet(key.destination(locals)));
         }
         function.instruction(&Instruction::LocalGet(options_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -2112,8 +2131,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        for key in ZonedDateTimeOptionKey::ALL {
-            let destination = key.destination(offset_option_local, overflow_option_local);
+        for &key in context.keys() {
+            let destination = key.destination(locals);
             function.instruction(&Instruction::I64Const(self.strings.payload(key.property())));
             function.instruction(&Instruction::LocalSet(property_key_local));
             self.emit_object_read(
@@ -2147,10 +2166,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(1));
                 function.instruction(&Instruction::LocalSet(recognized_local));
-                if let Some(destination) = destination {
-                    function.instruction(&Instruction::I64Const(code));
-                    function.instruction(&Instruction::LocalSet(destination));
-                }
+                function.instruction(&Instruction::I64Const(code));
+                function.instruction(&Instruction::LocalSet(destination));
                 function.instruction(&Instruction::End);
             }
             function.instruction(&Instruction::LocalGet(recognized_local));
@@ -2272,19 +2289,22 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `ToTemporalTimeZoneIdentifier(temporalTimeZoneLike)`: leaves the
+    /// normalized identifier — `±HH:MM` or an available named identifier with
+    /// its catalogue spelling — in the payload local with a String tag.
     pub(crate) fn emit_temporal_zoned_date_time_time_zone(
         &mut self,
         time_zone_payload_local: u32,
         time_zone_tag_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_zone_offset_seconds_local = self.reserve_temp_local();
         let object_brand_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
         let string_offset_local = self.reserve_temp_local();
         let string_len_local = self.reserve_temp_local();
         let first_byte_local = self.reserve_temp_local();
-        let direct_identifier_local = self.reserve_temp_local();
+        let direct_offset_local = self.reserve_temp_local();
+        let found_local = self.reserve_temp_local();
         let unused_nanoseconds_payload_local = self.reserve_temp_local();
         let unused_nanoseconds_tag_local = self.reserve_temp_local();
 
@@ -2340,8 +2360,13 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
+        // `ParseTemporalTimeZoneString` step 1, `ParseTimeZoneIdentifier`: a
+        // short `±HH[:MM]` string is an offset identifier; any other string
+        // names an available zone or goes on to step 3. A syntactically valid
+        // IANA name never parses as an ISO string, so trying the catalogue
+        // first cannot change which error an unknown name produces.
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(direct_identifier_local));
+        function.instruction(&Instruction::LocalSet(direct_offset_local));
         self.emit_unpack_string_payload(
             time_zone_payload_local,
             string_offset_local,
@@ -2350,11 +2375,11 @@ impl<'a> FunctionBuilder<'a> {
         );
         function.instruction(&Instruction::LocalGet(string_len_local));
         function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
         self.emit_load_string_byte(
             string_offset_local,
-            direct_identifier_local,
+            direct_offset_local,
             first_byte_local,
             function,
         );
@@ -2370,32 +2395,23 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::LocalSet(direct_identifier_local));
+        function.instruction(&Instruction::LocalSet(direct_offset_local));
         function.instruction(&Instruction::End);
 
-        let expected_utc_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(expected_utc_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            time_zone_payload_local,
-            expected_utc_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(direct_identifier_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32Or);
+        function.instruction(&Instruction::LocalGet(direct_offset_local));
+        function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_fixed_time_zone_offset_seconds(
+        self.emit_temporal_canonicalize_offset_time_zone(time_zone_payload_local, function)?;
+        function.instruction(&Instruction::Else);
+        self.emit_intl_lookup_named_time_zone(
             time_zone_payload_local,
-            time_zone_offset_seconds_local,
+            None,
+            NamedTimeZoneRejection::Report(found_local),
             function,
         )?;
-        function.instruction(&Instruction::Else);
+        function.instruction(&Instruction::LocalGet(found_local));
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_temporal_parse_iso_string(
             time_zone_payload_local,
             unused_nanoseconds_payload_local,
@@ -2408,45 +2424,33 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
 
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_utc_payload_local);
-        self.release_temp_local(unused_nanoseconds_tag_local);
-        self.release_temp_local(unused_nanoseconds_payload_local);
-        self.release_temp_local(direct_identifier_local);
-        self.release_temp_local(first_byte_local);
-        self.release_temp_local(string_len_local);
-        self.release_temp_local(string_offset_local);
-        self.release_temp_local(record_local);
-        self.release_temp_local(object_brand_local);
-        self.release_temp_local(time_zone_offset_seconds_local);
+        for local in [
+            unused_nanoseconds_tag_local,
+            unused_nanoseconds_payload_local,
+            found_local,
+            direct_offset_local,
+            first_byte_local,
+            string_len_local,
+            string_offset_local,
+            record_local,
+            object_brand_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 
-    pub(crate) fn emit_temporal_fixed_time_zone_offset_seconds(
+    /// `ParseTimeZoneIdentifier` of a string starting with a sign, then
+    /// `FormatOffsetTimeZoneIdentifier`: `UTCOffset[~SubMinutePrecision]` with
+    /// an optional `:` and minutes, normalized in place to `±HH:MM`. Anything
+    /// else is a RangeError.
+    pub(super) fn emit_temporal_canonicalize_offset_time_zone(
         &mut self,
         time_zone_payload_local: u32,
-        time_zone_offset_seconds_local: u32,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let expected_payload_local = self.reserve_temp_local();
-        let case_fold_local = self.reserve_temp_local();
-        function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
-        function.instruction(&Instruction::LocalSet(expected_payload_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(case_fold_local));
-        self.emit_string_payload_equality_i32_with_ascii_case_folding(
-            time_zone_payload_local,
-            expected_payload_local,
-            Some(case_fold_local),
-            function,
-        );
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(expected_payload_local));
-        function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(time_zone_offset_seconds_local));
-        function.instruction(&Instruction::Else);
         let string_offset_local = self.reserve_temp_local();
         let string_len_local = self.reserve_temp_local();
         let cursor_local = self.reserve_temp_local();
@@ -2455,7 +2459,7 @@ impl<'a> FunctionBuilder<'a> {
         let sign_local = self.reserve_temp_local();
         let hour_local = self.reserve_temp_local();
         let minute_local = self.reserve_temp_local();
-        let has_minute_local = self.reserve_temp_local();
+        let offset_seconds_local = self.reserve_temp_local();
         self.emit_unpack_string_payload(
             time_zone_payload_local,
             string_offset_local,
@@ -2475,7 +2479,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(minute_local));
         function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
+        function.instruction(&Instruction::LocalSet(hour_local));
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(sign_local));
         function.instruction(&Instruction::LocalGet(valid_local));
@@ -2515,8 +2519,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(string_len_local));
         function.instruction(&Instruction::I64LtU);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(has_minute_local));
         self.emit_load_string_byte(string_offset_local, cursor_local, byte_local, function);
         function.instruction(&Instruction::LocalGet(byte_local));
         function.instruction(&Instruction::I64Const(b':' as i64));
@@ -2559,7 +2561,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_throw_current_function_realm_range_error(
-            "Invalid Temporal.ZonedDateTime time zone",
+            TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
             self.result_local,
             self.result_tag_local,
             function,
@@ -2575,24 +2577,25 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(time_zone_offset_seconds_local));
+        function.instruction(&Instruction::LocalSet(offset_seconds_local));
         self.emit_temporal_format_fixed_time_zone_offset(
-            time_zone_offset_seconds_local,
+            offset_seconds_local,
             time_zone_payload_local,
             function,
         )?;
-        self.release_temp_local(has_minute_local);
-        self.release_temp_local(minute_local);
-        self.release_temp_local(hour_local);
-        self.release_temp_local(sign_local);
-        self.release_temp_local(valid_local);
-        self.release_temp_local(byte_local);
-        self.release_temp_local(cursor_local);
-        self.release_temp_local(string_len_local);
-        self.release_temp_local(string_offset_local);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(case_fold_local);
-        self.release_temp_local(expected_payload_local);
+        for local in [
+            offset_seconds_local,
+            minute_local,
+            hour_local,
+            sign_local,
+            valid_local,
+            byte_local,
+            cursor_local,
+            string_len_local,
+            string_offset_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 
@@ -2797,7 +2800,7 @@ impl<'a> FunctionBuilder<'a> {
             offset_seconds_local,
             function,
         )?;
-        self.emit_temporal_format_fixed_time_zone_offset(
+        self.emit_temporal_format_utc_offset_seconds(
             offset_seconds_local,
             output_payload_local,
             function,
@@ -2812,6 +2815,113 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// `FormatUTCOffsetNanoseconds` of a whole-second offset: `±HH:MM`, or
+    /// `±HH:MM:SS` when the seconds are non-zero (historical local mean times).
+    pub(super) fn emit_temporal_format_utc_offset_seconds(
+        &mut self,
+        offset_seconds_local: u32,
+        output_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let seconds_payload_local = self.reserve_temp_local();
+        let separator_payload_local = self.reserve_temp_local();
+        self.emit_temporal_format_fixed_time_zone_offset(
+            offset_seconds_local,
+            output_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::I64Const(self.strings.payload(":")));
+        function.instruction(&Instruction::LocalSet(separator_payload_local));
+        self.emit_concat_string_payloads_local(
+            output_payload_local,
+            separator_payload_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalSet(output_payload_local));
+        // |offset| mod 60, as the Number the padded-decimal appender takes.
+        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::LocalSet(seconds_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalGet(seconds_payload_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalGet(seconds_payload_local));
+        function.instruction(&Instruction::LocalGet(seconds_payload_local));
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64LtS);
+        function.instruction(&Instruction::Select);
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        function.instruction(&Instruction::LocalSet(seconds_payload_local));
+        self.emit_date_append_padded_decimal(
+            output_payload_local,
+            seconds_payload_local,
+            2,
+            function,
+        )?;
+        function.instruction(&Instruction::End);
+        self.release_temp_local(separator_payload_local);
+        self.release_temp_local(seconds_payload_local);
+        Ok(())
+    }
+
+    /// `FormatDateTimeUTCOffsetRounded` of a whole-second offset: rounded to
+    /// the nearest minute, halves away from zero, then `±HH:MM`.
+    pub(super) fn emit_temporal_format_utc_offset_rounded(
+        &mut self,
+        offset_seconds_local: u32,
+        output_payload_local: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let rounded_local = self.reserve_temp_local();
+        let remainder_local = self.reserve_temp_local();
+        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64RemS);
+        function.instruction(&Instruction::LocalSet(remainder_local));
+        function.instruction(&Instruction::LocalGet(offset_seconds_local));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(rounded_local));
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(30));
+        function.instruction(&Instruction::I64GeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(rounded_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(rounded_local));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::LocalGet(remainder_local));
+        function.instruction(&Instruction::I64Const(-30));
+        function.instruction(&Instruction::I64LeS);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(rounded_local));
+        function.instruction(&Instruction::I64Const(60));
+        function.instruction(&Instruction::I64Sub);
+        function.instruction(&Instruction::LocalSet(rounded_local));
+        function.instruction(&Instruction::End);
+        self.emit_temporal_format_fixed_time_zone_offset(
+            rounded_local,
+            output_payload_local,
+            function,
+        )?;
+        self.release_temp_local(remainder_local);
+        self.release_temp_local(rounded_local);
+        Ok(())
+    }
+
+    /// `±HH:MM` of a whole-minute offset (`FormatOffsetTimeZoneIdentifier`);
+    /// any seconds are dropped, so named-zone offsets go through
+    /// [`Self::emit_temporal_format_utc_offset_seconds`] or
+    /// [`Self::emit_temporal_format_utc_offset_rounded`].
     pub(super) fn emit_temporal_format_fixed_time_zone_offset(
         &mut self,
         offset_seconds_local: u32,
@@ -2913,20 +3023,40 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
         let time_zone_payload_local = self.reserve_temp_local();
+        let epoch_payload_local = self.reserve_temp_local();
+        let epoch_tag_local = self.reserve_temp_local();
         self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.load_i64_to_local_from_offset(
-            record_local,
-            HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
+        for (offset, local) in [
+            (
+                HEAP_TEMPORAL_ZONED_DATE_TIME_TIME_ZONE_PAYLOAD_OFFSET,
+                time_zone_payload_local,
+            ),
+            (
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
+                epoch_payload_local,
+            ),
+            (
+                HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_TAG_OFFSET,
+                epoch_tag_local,
+            ),
+        ] {
+            self.load_i64_to_local_from_offset(record_local, offset, local, function);
+        }
+        self.emit_temporal_time_zone_offset_seconds_for_epoch_value(
             time_zone_payload_local,
-            function,
-        );
-        self.emit_temporal_fixed_time_zone_offset_seconds(
-            time_zone_payload_local,
+            epoch_payload_local,
+            epoch_tag_local,
             offset_seconds_local,
             function,
         )?;
-        self.release_temp_local(time_zone_payload_local);
-        self.release_temp_local(record_local);
+        for local in [
+            epoch_tag_local,
+            epoch_payload_local,
+            time_zone_payload_local,
+            record_local,
+        ] {
+            self.release_temp_local(local);
+        }
         Ok(())
     }
 
@@ -3055,8 +3185,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(remainder_local));
         function.instruction(&Instruction::End);
 
-        self.emit_temporal_fixed_time_zone_offset_seconds(
+        // `GetOffsetNanosecondsFor` at the floored whole second of the exact
+        // time: transitions happen on whole seconds.
+        self.emit_temporal_time_zone_offset_seconds_at_milliseconds(
             time_zone_payload_local,
+            milliseconds_local,
             offset_seconds_local,
             function,
         )?;
@@ -3727,15 +3860,19 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I64ExtendI32U);
         function.instruction(&Instruction::LocalSet(equal_local));
-        self.emit_string_payload_equality_i32(
+        // `TimeZoneEquals`: two named zones compare their primary identifiers.
+        let zones_equal_local = self.reserve_temp_local();
+        self.emit_temporal_time_zone_equals(
             receiver_time_zone_local,
             other_time_zone_local,
+            zones_equal_local,
             function,
-        );
-        function.instruction(&Instruction::I64ExtendI32U);
+        )?;
+        function.instruction(&Instruction::LocalGet(zones_equal_local));
         function.instruction(&Instruction::LocalGet(equal_local));
         function.instruction(&Instruction::I64And);
         function.instruction(&Instruction::LocalSet(equal_local));
+        self.release_temp_local(zones_equal_local);
         self.emit_string_payload_equality_i32(
             receiver_calendar_local,
             other_calendar_local,
@@ -4083,7 +4220,6 @@ impl<'a> FunctionBuilder<'a> {
         let time_zone_offset_seconds_local = self.reserve_temp_local();
         let selected_offset_seconds_local = self.reserve_temp_local();
         let selected_offset_subsecond_local = self.reserve_temp_local();
-        let offset_matches_time_zone_local = self.reserve_temp_local();
         let days_local = self.reserve_temp_local();
         let era_local = self.reserve_temp_local();
         let adjusted_year_local = self.reserve_temp_local();
@@ -4136,7 +4272,6 @@ impl<'a> FunctionBuilder<'a> {
             time_zone_offset_seconds_local,
             selected_offset_seconds_local,
             selected_offset_subsecond_local,
-            offset_matches_time_zone_local,
             days_local,
             era_local,
             adjusted_year_local,
@@ -4160,7 +4295,7 @@ impl<'a> FunctionBuilder<'a> {
             (has_minute_local, 0),
             (has_second_local, 0),
             (has_time_local, 0),
-            (offset_kind_local, 0),
+            (offset_kind_local, TemporalOffsetBehaviour::Wall.code()),
             (fraction_local, 0),
             (fraction_digits_local, 0),
             (offset_sign_local, 0),
@@ -4180,7 +4315,6 @@ impl<'a> FunctionBuilder<'a> {
             (time_zone_offset_seconds_local, 0),
             (selected_offset_seconds_local, 0),
             (selected_offset_subsecond_local, 0),
-            (offset_matches_time_zone_local, 0),
         ] {
             function.instruction(&Instruction::I64Const(value));
             function.instruction(&Instruction::LocalSet(local));
@@ -4467,7 +4601,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
         function.instruction(&Instruction::LocalSet(offset_kind_local));
         self.emit_temporal_advance_cursor(cursor_local, function);
         function.instruction(&Instruction::Else);
@@ -4479,7 +4613,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::I64Const(2));
+        function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Option.code()));
         function.instruction(&Instruction::LocalSet(offset_kind_local));
         function.instruction(&Instruction::LocalGet(byte_local));
         function.instruction(&Instruction::I64Const(b'-' as i64));
@@ -4633,7 +4767,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_return_current_completion(function);
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::I64Const(self.strings.payload("UTC")));
@@ -4682,11 +4816,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             function.instruction(&Instruction::LocalSet(time_zone_payload_local));
-            self.emit_temporal_fixed_time_zone_offset_seconds(
-                time_zone_payload_local,
-                time_zone_offset_seconds_local,
-                function,
-            )?;
+            self.emit_temporal_time_zone_name_or_offset(time_zone_payload_local, function)?;
             function.instruction(&Instruction::End);
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(time_zone_tag_local));
@@ -4707,9 +4837,9 @@ impl<'a> FunctionBuilder<'a> {
         {
             // `09:00:00Z` and `2019-10-01T09:00:00Z` both name an instant, not
             // a wall-clock time, so the UTC designator is a RangeError.
-            // A numeric offset (`offset_kind == 2`) is merely ignored.
+            // A numeric offset (an `Option` offset kind) is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
@@ -4806,9 +4936,9 @@ impl<'a> FunctionBuilder<'a> {
         {
             // `2019-10-01T09:00:00Z` names an instant, not a wall-clock
             // date-time, so the UTC designator is a RangeError. A numeric
-            // offset (`offset_kind == 2`) is merely ignored.
+            // offset (an `Option` offset kind) is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
@@ -4875,10 +5005,10 @@ impl<'a> FunctionBuilder<'a> {
         {
             // A `PlainDate` has no instant, so the UTC designator is not just
             // redundant, it is forbidden: `2019-10-01T09:00:00Z` must throw.
-            // `offset_kind == 1` is the `Z` form; `2` is an explicit numeric
-            // offset, which is merely ignored.
+            // An `Exact` offset kind is the `Z` form; `Option` is an explicit
+            // numeric offset, which is merely ignored.
             function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Const(TemporalOffsetBehaviour::Exact.code()));
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.emit_throw_current_function_realm_range_error(
@@ -4956,11 +5086,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(time_zone_payload_local));
             function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
             function.instruction(&Instruction::LocalSet(time_zone_tag_local));
-            self.emit_temporal_fixed_time_zone_offset_seconds(
-                time_zone_payload_local,
-                time_zone_offset_seconds_local,
-                function,
-            )?;
+            self.emit_temporal_time_zone_name_or_offset(time_zone_payload_local, function)?;
 
             self.emit_temporal_iso_calendar_annotation(
                 string_payload_local,
@@ -4993,6 +5119,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalSet(offset_fraction_local));
+        // `ParseDateTimeUTCOffset` of the string's offset, in nanoseconds.
         function.instruction(&Instruction::LocalGet(offset_sign_local));
         function.instruction(&Instruction::LocalGet(offset_hour_local));
         function.instruction(&Instruction::I64Const(3_600));
@@ -5003,121 +5130,89 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalGet(offset_second_local));
         function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Const(NANOSECONDS_PER_SECOND));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::LocalGet(offset_fraction_local));
+        function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::I64Mul);
         function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-        function.instruction(&Instruction::LocalGet(offset_sign_local));
-        function.instruction(&Instruction::LocalGet(offset_fraction_local));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
-
-        self.emit_temporal_days_from_civil(
-            year_local,
-            month_local,
-            day_local,
-            adjusted_year_local,
-            era_local,
-            month_index_local,
-            days_local,
-            function,
-        );
-        if let TemporalIsoParseGoal::ZonedDateTime {
-            offset_option_local,
-            ..
-        } = parse_goal
-        {
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::Else);
-            function.instruction(&Instruction::LocalGet(offset_kind_local));
-            function.instruction(&Instruction::I64Const(2));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_temporal_zoned_date_time_offset_date_range(
-                days_local,
-                offset_option_local,
-                function,
-            )?;
-            function.instruction(&Instruction::LocalGet(selected_offset_seconds_local));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I64ExtendI32U);
-            function.instruction(&Instruction::LocalSet(offset_matches_time_zone_local));
-
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::LocalGet(offset_matches_time_zone_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            self.emit_throw_current_function_realm_range_error(
-                "Temporal.ZonedDateTime offset does not match its fixed time zone",
-                self.result_local,
-                self.result_tag_local,
-                function,
-            )?;
-            self.emit_return_current_completion(function);
-            function.instruction(&Instruction::End);
-
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Const(3));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(offset_option_local));
-            function.instruction(&Instruction::I64Const(2));
-            function.instruction(&Instruction::I64Eq);
-            function.instruction(&Instruction::LocalGet(offset_matches_time_zone_local));
-            function.instruction(&Instruction::I64Eqz);
-            function.instruction(&Instruction::I32And);
-            function.instruction(&Instruction::I32Or);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::LocalGet(time_zone_offset_seconds_local));
-            function.instruction(&Instruction::LocalSet(selected_offset_seconds_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(SECONDS_PER_DAY));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::LocalGet(hour_local));
-        function.instruction(&Instruction::I64Const(3_600));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(minute_local));
-        function.instruction(&Instruction::I64Const(60));
-        function.instruction(&Instruction::I64Mul);
-        function.instruction(&Instruction::I64Add);
+        // A parsed leap second is clamped: `23:59:60` is `23:59:59`.
         function.instruction(&Instruction::LocalGet(second_local));
         function.instruction(&Instruction::I64Const(59));
         function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));
+        function.instruction(&Instruction::If(BlockType::Empty));
         function.instruction(&Instruction::I64Const(59));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(second_local));
+        function.instruction(&Instruction::LocalSet(second_local));
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalGet(selected_offset_seconds_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::LocalGet(fraction_local));
-        function.instruction(&Instruction::LocalGet(selected_offset_subsecond_local));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-        self.emit_temporal_normalize_seconds_and_subseconds(
-            seconds_local,
-            subsecond_local,
-            function,
-        );
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::LocalSet(selected_offset_subsecond_local));
+        // The nine ISO fields, with the whole fraction as nanoseconds.
+        let fields = [
+            year_local,
+            month_local,
+            day_local,
+            hour_local,
+            minute_local,
+            second_local,
+            selected_offset_subsecond_local,
+            selected_offset_subsecond_local,
+            fraction_local,
+        ];
+        match parse_goal {
+            TemporalIsoParseGoal::ZonedDateTime {
+                offset_option_local,
+                disambiguation,
+                time_zone_payload_local,
+                ..
+            } => {
+                // A date-only string parses its time as `~start-of-day~`, and
+                // `InterpretISODateTimeOffset` answers that with
+                // `GetStartOfDay` rather than disambiguating midnight: the
+                // grammar admits no offset without a time, so the behaviour
+                // is always `wall` here.
+                function.instruction(&Instruction::LocalGet(has_time_local));
+                function.instruction(&Instruction::I64Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_temporal_start_of_day(
+                    time_zone_payload_local,
+                    [year_local, month_local, day_local],
+                    seconds_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(subsecond_local));
+                function.instruction(&Instruction::Else);
+                self.emit_temporal_interpret_iso_date_time_offset(
+                    &fields,
+                    time_zone_payload_local,
+                    offset_kind_local,
+                    selected_offset_seconds_local,
+                    offset_option_local,
+                    disambiguation,
+                    TemporalOffsetMatchSource::MinutesUnlessSeconds(offset_has_second_local),
+                    seconds_local,
+                    subsecond_local,
+                    function,
+                )?;
+                function.instruction(&Instruction::End);
+            }
+            // `ParseTemporalInstantString` requires `Z` or an offset, and an
+            // Instant is that exact time: no zone is consulted.
+            _ => {
+                self.emit_temporal_local_seconds_from_iso_date_time(
+                    &fields,
+                    seconds_local,
+                    subsecond_local,
+                    function,
+                );
+                self.emit_temporal_apply_exact_offset(
+                    seconds_local,
+                    subsecond_local,
+                    selected_offset_seconds_local,
+                    function,
+                )?;
+            }
+        }
         self.emit_temporal_epoch_nanoseconds_bigint(
             seconds_local,
             subsecond_local,

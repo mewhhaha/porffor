@@ -1,6 +1,7 @@
 const PLAIN: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
 const ZONED: &str = include_str!("../src/builtins/temporal_zoned_date_time_methods.rs");
 const DIFFERENCE: &str = include_str!("../src/builtins/temporal_difference.rs");
+const ZONED_DIFFERENCE: &str = include_str!("../src/builtins/temporal_zoned_difference.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -171,10 +172,6 @@ fn entrypoints_read_options_once_and_share_the_typed_arithmetic_boundary() {
                 .count(),
             1
         );
-        assert_eq!(
-            entry.matches("emit_temporal_difference_date_time(").count(),
-            1
-        );
         assert_before(
             entry,
             "emit_temporal_require_same_calendar(",
@@ -182,63 +179,79 @@ fn entrypoints_read_options_once_and_share_the_typed_arithmetic_boundary() {
         );
         assert!(!entry.contains("emit_temporal_duration_unit_option("));
     }
-    assert!(plain.contains("TemporalDifferenceContext::Plain"));
-    assert!(zoned.contains("TemporalDifferenceContext::Zoned"));
+    // The plain wall-clock difference never sees a zone, and the zoned one
+    // never goes through it: every zoned date step is a time-zone query.
+    assert_eq!(
+        plain.matches("emit_temporal_difference_date_time(").count(),
+        1
+    );
+    assert!(!zoned.contains("emit_temporal_difference_date_time("));
+    assert_eq!(
+        zoned
+            .matches("emit_temporal_difference_zoned_date_time(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        zoned
+            .matches("emit_temporal_round_relative_duration_zoned(")
+            .count(),
+        1
+    );
+    // A time largestUnit is `DifferenceInstant` and precedes `TimeZoneEquals`.
     assert_before(
         zoned,
         "emit_temporal_date_time_difference_settings(",
         "TemporalDifferenceGuard::ZonedDateTimeSameTimeZone",
     );
-    let guard = bounded(
+    let time_units = bounded(
         zoned,
         "let settings =",
         "TemporalDifferenceGuard::ZonedDateTimeSameTimeZone",
     );
-    assert!(guard.contains("LocalGet(settings.largest_unit_local)"));
-    assert!(guard.contains("I64Const(TemporalUnit::Day.code())"));
-    assert!(guard.contains("Instruction::I64LeS"));
+    assert!(time_units.contains("LocalGet(settings.largest_unit_local)"));
+    assert!(time_units.contains("I64Const(TemporalUnit::Day.code())"));
+    assert!(time_units.contains("Instruction::I64GtS"));
+    assert!(time_units.contains("emit_temporal_time_zone_equals("));
     assert_before(
         zoned,
         "emit_temporal_epoch_nanoseconds_pair(",
-        "emit_temporal_zoned_date_time_to_plain(",
+        "emit_temporal_iso_date_time_for(",
     );
 }
 
 #[test]
-fn calendar_candidates_have_one_exhaustive_range_authority() {
-    let context = bounded(DIFFERENCE, "enum TemporalDifferenceContext {", "\n}");
-    assert_eq!(
-        context
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>(),
-        ["Plain,", "Zoned { offset_seconds_local: u32 },"]
-    );
-    let validation = bounded(
-        DIFFERENCE,
-        "fn emit_temporal_difference_candidate_range(",
-        "/// NudgeToCalendarUnit",
-    );
-    assert!(validation.contains("match context {"));
-    assert!(!validation.contains("_ =>"));
-    assert!(validation.contains("emit_temporal_instant_validate_range("));
+fn zoned_calendar_candidates_are_resolved_only_by_the_time_zone_kernel() {
+    // The wall-clock machinery carries no zone: no context, no offset.
+    assert!(!DIFFERENCE.contains("TemporalDifferenceContext"));
+    assert!(!DIFFERENCE.contains("offset_seconds_local"));
     let nudge = bounded(
         DIFFERENCE,
         "fn emit_temporal_nudge_difference_calendar(",
         "/// Bubble only",
     );
-    assert_eq!(
-        nudge
-            .matches("emit_temporal_difference_candidate_range(")
-            .count(),
-        2
-    );
-    assert_before(
-        nudge,
-        "emit_temporal_difference_candidate_range(",
-        "emit_temporal_duration_round_up_i32(",
-    );
-    assert!(DIFFERENCE.contains("fn emit_temporal_zoned_time_nudge_range("));
+    assert!(nudge.contains("emit_temporal_duration_round_up_i32("));
     assert!(DIFFERENCE.contains("fn emit_temporal_bubble_difference("));
+    // Each zoned window bound is `GetEpochNanosecondsFor` of a wall-clock
+    // candidate, whose range the kernel checks.
+    let window = bounded(
+        ZONED_DIFFERENCE,
+        "fn emit_temporal_compute_nudge_window_zoned(",
+        "fn emit_temporal_zoned_window_bound(",
+    );
+    assert_eq!(window.matches("emit_temporal_zoned_window_bound(").count(), 2);
+    let bound = bounded(
+        ZONED_DIFFERENCE,
+        "fn emit_temporal_zoned_window_bound(",
+        "/// `NudgeToCalendarUnit` with a time zone.",
+    );
+    assert!(bound.contains("emit_temporal_add_iso_date("));
+    assert!(bound.contains("emit_temporal_zoned_epoch_for_date_at_wall_time("));
+    for function in [
+        "fn emit_temporal_nudge_to_calendar_unit_zoned(",
+        "fn emit_temporal_nudge_to_zoned_time(",
+        "fn emit_temporal_bubble_relative_duration_zoned(",
+    ] {
+        assert_eq!(ZONED_DIFFERENCE.matches(function).count(), 1, "{function}");
+    }
 }

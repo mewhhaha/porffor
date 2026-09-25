@@ -96,6 +96,12 @@ mod temporal_zoned_date_time_format;
 mod temporal_zoned_date_time_methods;
 mod temporal_zoned_date_time_round;
 mod temporal_zoned_date_time_with;
+/// The one time-zone boundary of the Temporal emitters: every zone-dependent
+/// step is a query to the pinned time-zone kernel.
+mod temporal_time_zone;
+pub(crate) use temporal_time_zone::temporal_time_zone_pool_strings;
+mod temporal_zoned_difference;
+mod temporal_zoned_wall_clock;
 mod typed_array_fill;
 mod typed_array_set;
 mod uint8array_base64_decode;

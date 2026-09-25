@@ -1,6 +1,42 @@
 use super::*;
 
 #[test]
+fn zoned_date_time_defaults_name_the_zone_only_for_exact_inputs() {
+    // `~zoned-date-time~` adds a short zone name to the defaulted Instant
+    // format; `~all~` does not, and an explicit `timeZoneName` wins.
+    let zone_name = |defaults, components| {
+        let mut input = request("en", DateTimeStyleSelection::Components(components));
+        input.defaults = defaults;
+        input.time_zone = TimeZoneSelection::Named(TimeZoneId::parse("Europe/Vienna").unwrap());
+        format(input, instant(0, 0))
+            .parts
+            .iter()
+            .find(|part| part.kind == DateTimePartKind::TimeZoneName)
+            .map(|part| part.value.clone())
+    };
+    assert_eq!(
+        zone_name(DateTimeDefaults::ZonedDateTime, DateTimeComponents::default()).as_deref(),
+        Some("GMT+1")
+    );
+    assert_eq!(
+        zone_name(DateTimeDefaults::All, DateTimeComponents::default()),
+        None
+    );
+    let long = DateTimeComponents {
+        time_zone_name: Some(crate::TimeZoneNameStyle::Long),
+        ..Default::default()
+    };
+    assert!(zone_name(DateTimeDefaults::ZonedDateTime, long)
+        .unwrap()
+        .starts_with("Central European Standard Time"));
+    // Explicit date-time fields suppress every default, the zone name too.
+    assert_eq!(
+        zone_name(DateTimeDefaults::ZonedDateTime, time_components()),
+        None
+    );
+}
+
+#[test]
 fn independent_modern_fields_keep_local_order_names_and_related_year_parts() {
     for (locale, expected) in [
         ("en-US", "1/25/2020"),

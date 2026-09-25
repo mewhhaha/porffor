@@ -1085,7 +1085,9 @@ check_no_inline_legacy_includes "$ir_invocation_effects_lowering"
 # This exhaustive result table must not acquire unrelated lowering.
 # +15 for the Iterator chunks/windows/includes/join result rows, which this
 # exhaustive table must carry.
-check_raw_line_budget "$ir_builtin_call_info_lowering" 2308
+# +14 for the Temporal.Now plain*ISO and ZonedDateTime withPlainTime,
+# toPlainTime, toJSON, valueOf and toLocaleString result rows.
+check_raw_line_budget "$ir_builtin_call_info_lowering" 2322
 # Measured after adding the opaque source/host caller-flow aggregate: 192 raw
 # lines. This owner must remain a bounded lifecycle, not become a second
 # call-analysis implementation store.

@@ -39,20 +39,34 @@ fn zoned_date_time_direction_domains_are_private_non_derived_and_exhaustive() {
     let arithmetic = bounded(
         METHODS_SOURCE,
         "enum ZonedDateTimeArithmetic {",
-        "impl ZonedDateTimeArithmetic {",
-    );
-    assert!(arithmetic.starts_with("\n    Add,\n    Subtract,\n}\n\n"));
-    let arithmetic_projection = bounded(
-        METHODS_SOURCE,
-        "impl ZonedDateTimeArithmetic {",
         "/// Which of the two difference members",
     );
-    assert!(!arithmetic_projection.contains("_ =>"));
-    assert_eq!(arithmetic_projection.matches("Self::Add =>").count(), 1);
+    assert!(arithmetic.starts_with("\n    Add,\n    Subtract,\n}\n\n"));
+    // `AddZonedDateTime` runs in the ZonedDateTime emitter itself; the
+    // direction only decides whether the duration is negated first.
+    let arithmetic_emitter = METHODS_SOURCE
+        .split_once("fn emit_temporal_zoned_date_time_add_or_subtract(")
+        .expect("private arithmetic emitter")
+        .1
+        .split_once("\n    }\n")
+        .expect("arithmetic emitter end")
+        .0;
+    assert_eq!(arithmetic_emitter.matches("match arithmetic {").count(), 1);
     assert_eq!(
-        arithmetic_projection.matches("Self::Subtract =>").count(),
+        arithmetic_emitter
+            .matches("ZonedDateTimeArithmetic::Add =>")
+            .count(),
         1
     );
+    assert_eq!(
+        arithmetic_emitter
+            .matches("ZonedDateTimeArithmetic::Subtract =>")
+            .count(),
+        1
+    );
+    assert!(!arithmetic_emitter.contains("matches!(arithmetic"));
+    assert!(!arithmetic_emitter.contains("TemporalPlainDateTimePrototypeAdd"));
+    assert!(!arithmetic_emitter.contains("TemporalPlainDateTimePrototypeSubtract"));
 
     let difference = bounded(
         METHODS_SOURCE,
@@ -64,38 +78,34 @@ fn zoned_date_time_direction_domains_are_private_non_derived_and_exhaustive() {
         .split_once("fn emit_temporal_zoned_date_time_until_or_since(")
         .expect("private difference emitter")
         .1;
-    assert_eq!(difference_emitter.matches("match difference {").count(), 2);
-    for (binding, until, since) in [
-        (
-            "operation",
-            "TemporalPlainDifferenceOperation::Until",
-            "TemporalPlainDifferenceOperation::Since",
-        ),
-        (
-            "plan",
-            "TemporalDateTimeDifferenceSettingsPlan::ZonedUntil",
-            "TemporalDateTimeDifferenceSettingsPlan::ZonedSince",
-        ),
-    ] {
-        let projection = bounded(
-            difference_emitter,
-            &format!("let {binding} = match difference {{"),
-            "\n        };",
-        );
-        let arms = projection
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            arms,
-            [
-                format!("ZonedDateTimeDifference::Until => {until},"),
-                format!("ZonedDateTimeDifference::Since => {since},"),
-            ],
-            "{binding} must preserve both exhaustive direction mappings"
-        );
-    }
+    // The settings plan, and the result sign of the time-unit and date-unit
+    // paths.
+    assert_eq!(difference_emitter.matches("match difference {").count(), 3);
+    assert!(!difference_emitter.contains("matches!(difference"));
+    assert_eq!(
+        difference_emitter
+            .matches("ZonedDateTimeDifference::Until => {}")
+            .count(),
+        2
+    );
+    let projection = bounded(
+        difference_emitter,
+        "let plan = match difference {",
+        "\n        };",
+    );
+    let arms = projection
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        arms,
+        [
+            "ZonedDateTimeDifference::Until => TemporalDateTimeDifferenceSettingsPlan::ZonedUntil,",
+            "ZonedDateTimeDifference::Since => TemporalDateTimeDifferenceSettingsPlan::ZonedSince,",
+        ],
+        "plan must preserve both exhaustive direction mappings"
+    );
 }
 
 #[test]

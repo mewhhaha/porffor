@@ -80,6 +80,59 @@ output even when the daylight name differs. Plain Temporal values bypass
 transition lookup and preserve their wall-clock fields across gaps and overlaps.
 The existing digit renderer localizes the provider's Latin decimal skeleton once.
 
+## Temporal time zones
+
+Temporal resolves every zone through the same catalogue and TZif snapshots.
+`lila-intl::TemporalTimeZone` is closed over `Offset(TemporalOffsetMinutes)`
+and `Named(TimeZoneId)`; there is no third variant and no path that reads a
+named zone as UTC. ABI 7 adds one operation, `QueryTemporalTimeZone` (code 16),
+whose request carries the stored identifier and one closed
+`TemporalTimeZoneQuery`:
+
+- `OffsetAt` is `GetOffsetNanosecondsFor`.
+- `EpochFor` is `GetPossibleEpochNanoseconds` followed by
+  `DisambiguatePossibleEpochNanoseconds`, including the gap rule that moves
+  `compatible`/`later` forward and `earlier` back by the transition's offset
+  change.
+- `EpochForOffset` is `InterpretISODateTimeOffset` for `offset: "prefer"` and
+  `"reject"`, with exact or minute-rounded matching.
+- `StartOfDay` is `GetStartOfDay`, including days whose midnight is skipped.
+- `Transition` is `GetNamedTimeZoneNextTransition` or
+  `GetNamedTimeZonePreviousTransition` within the representable instants.
+
+All pinned transitions and offsets are whole seconds, so queries and answers
+exchange seconds and the compiled caller keeps the sub-second remainder. The
+provider's `ZoneRules` reads named zones through the same `Tzif::get` selector
+as `Intl.DateTimeFormat`, and it defines a transition as an instant where that
+selector's offset changes. A transition search therefore cannot disagree with
+an offset lookup. Range failures
+are returned as a closed `TemporalTimeZoneRangeError`; the compiled code turns
+them into RangeErrors in the current realm. A malformed request is an ABI fault.
+
+On the compiled side, `ToTemporalTimeZoneIdentifier` resolves names with the
+same case-insensitive `LookupNamedTimeZone` as `Intl.DateTimeFormat`. A
+ZonedDateTime stores the normalized identifier, not the primary one, and
+`TimeZoneEquals` compares primary identifiers. The zoned operations all issue
+these queries, including civil accessors, `offset`, `hoursInDay`,
+`startOfDay`, `round`, `with`, `withPlainTime`, `withTimeZone`,
+`getTimeZoneTransition`, `add`/`subtract`, `until`/`since`, `toString`/`toJSON`,
+conversions from PlainDate and PlainDateTime, `Instant` strings with a
+`timeZone`, `Temporal.Now`, and Duration `relativeTo`. ZonedDateTime `until`/`since`
+and Duration `round`/`total`/`compare` with a zoned `relativeTo` share one
+implementation of `DifferenceZonedDateTime`, the nudge and bubble steps of
+`RoundRelativeDuration` and `TotalRelativeDuration`, and `AddZonedDateTime`.
+Their day lengths come from the zone. A date-only zoned string starts at
+`GetStartOfDay`. `ZonedDateTime.prototype.toLocaleString` builds a formatter
+with the receiver's zone as `toLocaleStringTimeZone` and formats an Instant
+with `~zoned-date-time~` defaults.
+
+One behaviour follows the reference implementation and Test262 rather than
+the printed text. When a backward transition crosses midnight, the pieces of
+two dates interleave. `ZonedDateTime.prototype.round` to `day` treats an
+instant at or after the next start of day as that day's last nanosecond. The
+printed algorithm asserts that this case cannot occur. Test262 covers it in
+`round/same-date-starts-twice.js`.
+
 ## Coverage and remaining domains
 
 The native integration target covers identifier aliases and casing, one-time
@@ -108,5 +161,16 @@ cargo test -p lila-aot-wasm --test intl_dtf_time_zone_authority_privacy_structur
 The implementation stage was source-reviewed and formatted; product compilation,
 native controls and the exact Intl Test262 replay remain the integration owner's
 verification step. This does not claim new suite totals. Arabic date patterns,
-Chinese calendar fields, broader Intl services and named-zone Temporal.ZonedDateTime
-operations remain outside this DateTimeFormat batch.
+Chinese calendar fields and broader Intl services remain outside this
+DateTimeFormat batch. Named-zone Temporal operations are covered by the section
+above.
+
+The Temporal IANA lane still reports the pinned
+`intl402/Temporal/ZonedDateTime/links.js` disagreement for Pacific/Johnston
+and Pacific/Honolulu. The shared catalogue retains Johnston as a primary
+identifier under its country-preserving backzone rule; the test expects the
+default tzdb link identity. This is the existing provider source/spec edge
+documented in the [pinned data notes](../../crates/lila-intl/data/iana-tzdb-2026a/README.md),
+owned by the named-zone provider, and is not suppressed. Non-ISO Temporal
+calendar arithmetic (T22), Intl.DurationFormat and non-English localized
+calendar names remain separate implementation gaps.

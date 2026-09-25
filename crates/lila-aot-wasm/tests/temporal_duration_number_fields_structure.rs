@@ -141,7 +141,7 @@ fn wide_arithmetic_crosses_one_exact_number_boundary() {
     let total_time = bounded(
         RELATIVE,
         "fn emit_temporal_total_time_duration(",
-        "fn emit_temporal_wall_fields_from_epoch(",
+        "fn emit_temporal_add_zoned_relative(",
     );
     assert!(total_time.contains("emit_temporal_exact_quotient_bits("));
     assert!(!total_time.contains("F64Div"));

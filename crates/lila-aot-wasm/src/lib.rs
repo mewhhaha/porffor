@@ -4283,7 +4283,9 @@ pick(true);"#,
     #[test]
     fn temporal_now_builtins_emit() {
         let source = parse(
-            "Temporal.Now.timeZoneId(); Temporal.Now.instant(); Temporal.Now.zonedDateTimeISO();",
+            "Temporal.Now.timeZoneId(); Temporal.Now.instant(); Temporal.Now.zonedDateTimeISO();\n\
+             Temporal.Now.plainDateTimeISO('Europe/Vienna'); Temporal.Now.plainDateISO();\n\
+             Temporal.Now.plainTimeISO('+05:30');",
             ParseOptions::script(),
         )
         .expect("script should parse");
@@ -4291,13 +4293,18 @@ pick(true);"#,
         let artifact = emit(&program).expect("Temporal.Now members should emit");
 
         assert!(!artifact.bytes.is_empty());
-        assert!(
-            artifact
-                .debug_dump
-                .contains("import func: lila_host.wall_clock_millis"),
-            "{}",
-            artifact.debug_dump
-        );
+        // The wall-clock readers that project onto a time zone resolve its
+        // offset through the shared Intl time-zone kernel.
+        for import in [
+            "import func: lila_host.wall_clock_millis",
+            "import func: lila_host.intl_call",
+        ] {
+            assert!(
+                artifact.debug_dump.contains(import),
+                "{}",
+                artifact.debug_dump
+            );
+        }
     }
 
     #[test]

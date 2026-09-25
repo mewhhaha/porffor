@@ -1,28 +1,20 @@
 //! `Temporal.Duration.prototype.round`, `total` and `Temporal.Duration.compare`
 //! relative to the record `GetTemporalRelativeToOption` produced.
 //!
-//! A plain relative-to is an ISO date; a zoned one is an exact time in a time
-//! zone with a fixed UTC offset, the only kind this backend resolves. With a
-//! fixed offset, `GetISODateTimeFor` is the exact time plus the offset,
-//! `GetEpochNanosecondsFor` is the wall-clock time minus it, and every
-//! difference of wall-clock times equals the difference of the exact times, so
-//! both kinds run through the same ISO date-time difference machinery; the
-//! zoned kind adds the instant range checks the spec performs on the way.
+//! A plain relative-to is an ISO date and runs through the ISO date-time
+//! difference machinery. A zoned one is an exact time in a time zone: its
+//! `AddZonedDateTime`, `DifferenceZonedDateTime` and rounding run on exact
+//! times through the time-zone kernel (`temporal_zoned_difference.rs`), so a
+//! day or a month follows the zone's offset transitions.
 
 use super::super::temporal::{TemporalRelativeTo, TemporalRelativeToKind};
-use super::super::temporal_difference::{TemporalDifferenceContext, TemporalEqualEndpoints};
 use super::super::temporal_options::{TemporalOverflow, TemporalTimeUnit};
 use super::super::temporal_plain_date_time_methods::{
     ResolvedTemporalDateTimeDifferenceSettings, TemporalPlainDifferenceOperation,
 };
 use super::super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
+use super::super::temporal_zoned_difference::{TemporalExactTime, TemporalInternalDuration};
 use super::*;
-
-/// `nsMaxInstant / 10^9`: the exact-time range is +-10^8 days.
-const EPOCH_SECONDS_LIMIT: i64 = 8_640_000_000_000;
-/// `ISODateTimeWithinLimits` admits wall-clock times up to one day beyond the
-/// exact-time range, exclusive at both ends.
-const ISO_DATE_TIME_SECONDS_LIMIT: i64 = EPOCH_SECONDS_LIMIT + 86_400;
 /// `maxTimeDuration` is `2^53 * 10^9 - 1` nanoseconds: whole seconds must stay
 /// below `2^53`.
 const TIME_DURATION_SECONDS_LIMIT: i64 = 1 << 53;
@@ -204,284 +196,49 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    /// `GetISODateTimeFor` for a fixed offset: the wall-clock fields of the
-    /// exact time `seconds + subsecond` (subsecond in `[0, 10^9)`).
-    fn emit_temporal_wall_fields_from_epoch(
-        &mut self,
-        seconds_local: u32,
-        subsecond_local: u32,
-        offset_seconds_local: u32,
-        fields: &[u32; 9],
-        function: &mut Function,
-    ) {
-        let wall_local = self.reserve_temp_local();
-        let days_local = self.reserve_temp_local();
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::LocalGet(offset_seconds_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(wall_local));
-        function.instruction(&Instruction::LocalGet(wall_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64DivS);
-        function.instruction(&Instruction::LocalSet(days_local));
-        function.instruction(&Instruction::LocalGet(wall_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64RemS);
-        function.instruction(&Instruction::LocalSet(wall_local));
-        function.instruction(&Instruction::LocalGet(wall_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(wall_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(wall_local));
-        function.instruction(&Instruction::LocalGet(days_local));
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Sub);
-        function.instruction(&Instruction::LocalSet(days_local));
-        function.instruction(&Instruction::End);
-        self.emit_temporal_civil_from_days(days_local, fields[0], fields[1], fields[2], function);
-        for (local, source, divisor, modulus) in [
-            (fields[3], wall_local, 3_600, None),
-            (fields[4], wall_local, 60, Some(60)),
-            (fields[5], wall_local, 1, Some(60)),
-            (fields[6], subsecond_local, 1_000_000, None),
-            (fields[7], subsecond_local, 1_000, Some(1_000)),
-            (fields[8], subsecond_local, 1, Some(1_000)),
-        ] {
-            function.instruction(&Instruction::LocalGet(source));
-            function.instruction(&Instruction::I64Const(divisor));
-            function.instruction(&Instruction::I64DivU);
-            if let Some(modulus) = modulus {
-                function.instruction(&Instruction::I64Const(modulus));
-                function.instruction(&Instruction::I64RemU);
-            }
-            function.instruction(&Instruction::LocalSet(local));
-        }
-        self.release_temp_local(days_local);
-        self.release_temp_local(wall_local);
-    }
-
-    /// The exact time of wall-clock `fields` at a fixed offset (none for
-    /// `GetUTCEpochNanoseconds`): whole seconds and a subsecond part in
-    /// `[0, 10^9)`.
-    fn emit_temporal_epoch_from_wall_fields(
-        &mut self,
-        fields: &[u32; 9],
-        offset_seconds_local: Option<u32>,
-        seconds_local: u32,
-        subsecond_local: u32,
-        function: &mut Function,
-    ) {
-        self.emit_temporal_plain_date_epoch_days(
-            fields[0],
-            fields[1],
-            fields[2],
-            seconds_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(86_400));
-        function.instruction(&Instruction::I64Mul);
-        for (field, scale) in [(fields[3], 3_600), (fields[4], 60), (fields[5], 1)] {
-            function.instruction(&Instruction::LocalGet(field));
-            function.instruction(&Instruction::I64Const(scale));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-        }
-        if let Some(offset_seconds_local) = offset_seconds_local {
-            function.instruction(&Instruction::LocalGet(offset_seconds_local));
-            function.instruction(&Instruction::I64Sub);
-        }
-        function.instruction(&Instruction::LocalSet(seconds_local));
-        function.instruction(&Instruction::I64Const(0));
-        for (field, scale) in [(fields[6], 1_000_000), (fields[7], 1_000), (fields[8], 1)] {
-            function.instruction(&Instruction::LocalGet(field));
-            function.instruction(&Instruction::I64Const(scale));
-            function.instruction(&Instruction::I64Mul);
-            function.instruction(&Instruction::I64Add);
-        }
-        function.instruction(&Instruction::LocalSet(subsecond_local));
-    }
-
-    /// `ISODateTimeWithinLimits`, as a RangeError.
-    fn emit_temporal_require_iso_date_time_within_limits(
-        &mut self,
-        fields: &[u32; 9],
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let seconds_local = self.reserve_temp_local();
-        let subsecond_local = self.reserve_temp_local();
-        self.emit_temporal_epoch_from_wall_fields(
-            fields,
-            None,
-            seconds_local,
-            subsecond_local,
-            function,
-        );
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(-ISO_DATE_TIME_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(-ISO_DATE_TIME_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(ISO_DATE_TIME_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64GeS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.PlainDateTime is outside the supported date range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        self.release_temp_local(subsecond_local);
-        self.release_temp_local(seconds_local);
-        Ok(())
-    }
-
-    /// `IsValidEpochNanoseconds` of `seconds + subsecond` (subsecond in
-    /// `[0, 10^9)`), as a RangeError.
-    fn emit_temporal_require_valid_epoch(
-        &mut self,
-        seconds_local: u32,
-        subsecond_local: u32,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(-EPOCH_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64LtS);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(EPOCH_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(seconds_local));
-        function.instruction(&Instruction::I64Const(EPOCH_SECONDS_LIMIT));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(subsecond_local));
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_throw_current_function_realm_range_error(
-            "Temporal.Instant epoch nanoseconds are outside the supported range",
-            self.result_local,
-            self.result_tag_local,
-            function,
-        )?;
-        self.emit_return_current_completion(function);
-        function.instruction(&Instruction::End);
-        Ok(())
-    }
-
     /// `AddZonedDateTime(relativeTo, timeZone, calendar,
-    /// ToInternalDurationRecord(duration), constrain)` for a fixed offset:
-    /// the date part is calendar arithmetic on the wall-clock date
-    /// (`start_wall`, already filled), the time part is exact.
-    fn emit_temporal_add_zoned_date_time(
+    /// ToInternalDurationRecord(duration), constrain)` into `target`.
+    fn emit_temporal_add_zoned_relative(
         &mut self,
         relative: &TemporalRelativeTo,
         duration: &TemporalDurationFields,
-        start_wall: &[u32; 9],
-        target_seconds_local: u32,
-        target_subsecond_local: u32,
+        target: TemporalExactTime,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let time_seconds_local = self.reserve_temp_local();
-        let time_subsecond_local = self.reserve_temp_local();
         let overflow_local = self.reserve_temp_local();
-        let intermediate = self.reserve_temporal_plain_date_time_field_locals();
+        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
+        function.instruction(&Instruction::LocalSet(overflow_local));
         let date = self.reserve_temporal_duration_date_field_locals(duration, function);
+        let internal = TemporalInternalDuration {
+            date,
+            time_seconds: self.reserve_temp_local(),
+            time_subsecond: self.reserve_temp_local(),
+        };
         self.emit_temporal_duration_normalize_seconds(
             duration,
             TemporalUnit::Hour,
-            time_seconds_local,
-            time_subsecond_local,
+            internal.time_seconds,
+            internal.time_subsecond,
             function,
         );
-        function.instruction(&Instruction::LocalGet(date[0]));
-        for local in &date[1..] {
-            function.instruction(&Instruction::LocalGet(*local));
-            function.instruction(&Instruction::I64Or);
-        }
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        // `AddInstant(epochNanoseconds, duration.[[Time]])`.
-        function.instruction(&Instruction::LocalGet(relative.epoch_seconds_local));
-        function.instruction(&Instruction::LocalSet(target_seconds_local));
-        function.instruction(&Instruction::LocalGet(relative.epoch_subsecond_local));
-        function.instruction(&Instruction::LocalSet(target_subsecond_local));
-        function.instruction(&Instruction::Else);
-        for (source, destination) in start_wall.iter().zip(intermediate.iter()) {
-            function.instruction(&Instruction::LocalGet(*source));
-            function.instruction(&Instruction::LocalSet(*destination));
-        }
-        function.instruction(&Instruction::I64Const(TemporalOverflow::Constrain.code()));
-        function.instruction(&Instruction::LocalSet(overflow_local));
-        self.emit_temporal_add_iso_date(
-            intermediate[0],
-            intermediate[1],
-            intermediate[2],
-            date[0],
-            date[1],
-            date[2],
-            date[3],
+        self.emit_temporal_add_zoned_date_time(
+            relative.time_zone_payload_local,
+            Self::temporal_relative_epoch(relative),
+            &internal,
             overflow_local,
+            target,
             function,
         )?;
-        self.emit_temporal_require_iso_date_time_within_limits(&intermediate, function)?;
-        // `GetEpochNanosecondsFor(timeZone, intermediateDateTime, compatible)`:
-        // for a fixed offset, `GetPossibleEpochNanoseconds` rejects an exact
-        // time outside the valid range even when the time part would bring it
-        // back.
-        self.emit_temporal_epoch_from_wall_fields(
-            &intermediate,
-            Some(relative.offset_seconds_local),
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        );
-        self.emit_temporal_require_valid_epoch(
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        )?;
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::LocalGet(target_seconds_local));
-        function.instruction(&Instruction::LocalGet(time_seconds_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_seconds_local));
-        function.instruction(&Instruction::LocalGet(target_subsecond_local));
-        function.instruction(&Instruction::LocalGet(time_subsecond_local));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::LocalSet(target_subsecond_local));
-        self.emit_temporal_normalize_seconds_and_subseconds(
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        );
-        self.emit_temporal_require_valid_epoch(
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        )?;
-        for local in date.into_iter().rev() {
-            self.release_temp_local(local);
-        }
-        self.release_temporal_plain_date_time_field_locals(intermediate);
-        for local in [overflow_local, time_subsecond_local, time_seconds_local] {
-            self.release_temp_local(local);
-        }
+        self.release_temporal_internal_duration(internal);
+        self.release_temp_local(overflow_local);
         Ok(())
+    }
+
+    fn temporal_relative_epoch(relative: &TemporalRelativeTo) -> TemporalExactTime {
+        TemporalExactTime {
+            seconds: relative.epoch_seconds_local,
+            subsecond: relative.epoch_subsecond_local,
+        }
     }
 
     /// The two ends of the difference a plain relative-to reduces `round` and
@@ -615,21 +372,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Zoned.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_wall_fields_from_epoch(
-            relative.epoch_seconds_local,
-            relative.epoch_subsecond_local,
-            relative.offset_seconds_local,
-            &start,
-            function,
-        );
-        self.emit_temporal_add_zoned_date_time(
-            relative,
-            duration,
-            &start,
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        )?;
+        let target_time = TemporalExactTime {
+            seconds: target_seconds_local,
+            subsecond: target_subsecond_local,
+        };
+        self.emit_temporal_add_zoned_relative(relative, duration, target_time, function)?;
         function.instruction(&Instruction::LocalGet(settings.largest_unit_local));
         function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64GtS);
@@ -669,24 +416,50 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_create_temporal_duration(&balanced, function)?;
         self.release_temporal_duration_field_locals(balanced);
         function.instruction(&Instruction::Else);
-        self.emit_temporal_wall_fields_from_epoch(
-            target_seconds_local,
-            target_subsecond_local,
-            relative.offset_seconds_local,
-            &target,
-            function,
-        );
-        self.emit_temporal_difference_date_time(
-            &start,
-            &target,
-            settings,
-            TemporalPlainDifferenceOperation::Until,
-            TemporalDifferenceContext::Zoned {
-                offset_seconds_local: relative.offset_seconds_local,
-            },
-            TemporalEqualEndpoints::Round,
-            function,
-        )?;
+        // `DifferenceZonedDateTimeWithRounding`, then
+        // `TemporalDurationFromInternal(…, hour)`.
+        {
+            let internal = self.reserve_temporal_internal_duration();
+            self.emit_temporal_iso_date_time_for(
+                relative.time_zone_payload_local,
+                relative.epoch_seconds_local,
+                relative.epoch_subsecond_local,
+                &start,
+                function,
+            )?;
+            self.emit_temporal_difference_zoned_date_time(
+                relative.time_zone_payload_local,
+                Self::temporal_relative_epoch(relative),
+                target_time,
+                &start,
+                settings.largest_unit_local,
+                &internal,
+                function,
+            )?;
+            function.instruction(&Instruction::LocalGet(settings.smallest_unit_local));
+            function.instruction(&Instruction::I64Const(TemporalUnit::Nanosecond.code()));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::LocalGet(settings.increment_local));
+            function.instruction(&Instruction::I64Const(1));
+            function.instruction(&Instruction::I64Ne);
+            function.instruction(&Instruction::I32Or);
+            function.instruction(&Instruction::If(BlockType::Empty));
+            self.emit_temporal_round_relative_duration_zoned(
+                relative.time_zone_payload_local,
+                &internal,
+                Self::temporal_relative_epoch(relative),
+                target_time,
+                &start,
+                settings.largest_unit_local,
+                settings.increment_local,
+                settings.smallest_unit_local,
+                settings.mode_local,
+                function,
+            )?;
+            function.instruction(&Instruction::End);
+            self.emit_temporal_duration_from_internal_hours(&internal, function)?;
+            self.release_temporal_internal_duration(internal);
+        }
         function.instruction(&Instruction::End);
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
@@ -710,8 +483,6 @@ impl<'a> FunctionBuilder<'a> {
             &target,
             settings,
             TemporalPlainDifferenceOperation::Until,
-            TemporalDifferenceContext::Plain,
-            TemporalEqualEndpoints::ReturnZero,
             function,
         )?;
         self.emit_return_current_completion(function);
@@ -744,21 +515,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(TemporalRelativeToKind::Zoned.code()));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_wall_fields_from_epoch(
-            relative.epoch_seconds_local,
-            relative.epoch_subsecond_local,
-            relative.offset_seconds_local,
-            &start,
-            function,
-        );
-        self.emit_temporal_add_zoned_date_time(
-            relative,
-            duration,
-            &start,
-            target_seconds_local,
-            target_subsecond_local,
-            function,
-        )?;
+        let target_time = TemporalExactTime {
+            seconds: target_seconds_local,
+            subsecond: target_subsecond_local,
+        };
+        self.emit_temporal_add_zoned_relative(relative, duration, target_time, function)?;
         function.instruction(&Instruction::LocalGet(unit_local));
         function.instruction(&Instruction::I64Const(TemporalUnit::Day.code()));
         function.instruction(&Instruction::I64GtS);
@@ -787,23 +548,37 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::Else);
-        self.emit_temporal_wall_fields_from_epoch(
-            target_seconds_local,
-            target_subsecond_local,
-            relative.offset_seconds_local,
-            &target,
-            function,
-        );
-        self.emit_temporal_difference_total(
-            &start,
-            &target,
-            unit_local,
-            TemporalDifferenceContext::Zoned {
-                offset_seconds_local: relative.offset_seconds_local,
-            },
-            total_bits_local,
-            function,
-        )?;
+        // `DifferenceZonedDateTimeWithTotal` steps 2-4.
+        {
+            let internal = self.reserve_temporal_internal_duration();
+            self.emit_temporal_iso_date_time_for(
+                relative.time_zone_payload_local,
+                relative.epoch_seconds_local,
+                relative.epoch_subsecond_local,
+                &start,
+                function,
+            )?;
+            self.emit_temporal_difference_zoned_date_time(
+                relative.time_zone_payload_local,
+                Self::temporal_relative_epoch(relative),
+                target_time,
+                &start,
+                unit_local,
+                &internal,
+                function,
+            )?;
+            self.emit_temporal_total_relative_duration_zoned(
+                relative.time_zone_payload_local,
+                &internal,
+                Self::temporal_relative_epoch(relative),
+                target_time,
+                &start,
+                unit_local,
+                total_bits_local,
+                function,
+            )?;
+            self.release_temporal_internal_duration(internal);
+        }
         function.instruction(&Instruction::End);
         self.emit_temporal_duration_number_result(total_bits_local, function);
         self.emit_return_current_completion(function);
@@ -826,7 +601,6 @@ impl<'a> FunctionBuilder<'a> {
             &start,
             &target,
             unit_local,
-            TemporalDifferenceContext::Plain,
             total_bits_local,
             function,
         )?;
@@ -860,7 +634,6 @@ impl<'a> FunctionBuilder<'a> {
         let two_seconds_local = self.reserve_temp_local();
         let two_subsecond_local = self.reserve_temp_local();
         let result_local = self.reserve_temp_local();
-        let start = self.reserve_temporal_plain_date_time_field_locals();
         self.emit_temporal_duration_default_largest_unit(one, largest_one_local, function);
         self.emit_temporal_duration_default_largest_unit(two, largest_two_local, function);
 
@@ -878,23 +651,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_wall_fields_from_epoch(
-            relative.epoch_seconds_local,
-            relative.epoch_subsecond_local,
-            relative.offset_seconds_local,
-            &start,
-            function,
-        );
         for (duration, seconds_local, subsecond_local) in [
             (one, one_seconds_local, one_subsecond_local),
             (two, two_seconds_local, two_subsecond_local),
         ] {
-            self.emit_temporal_add_zoned_date_time(
+            self.emit_temporal_add_zoned_relative(
                 relative,
                 duration,
-                &start,
-                seconds_local,
-                subsecond_local,
+                TemporalExactTime {
+                    seconds: seconds_local,
+                    subsecond: subsecond_local,
+                },
                 function,
             )?;
         }
@@ -982,7 +749,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(result_local));
         self.emit_temporal_duration_number_result(result_local, function);
 
-        self.release_temporal_plain_date_time_field_locals(start);
         for local in [
             result_local,
             two_subsecond_local,

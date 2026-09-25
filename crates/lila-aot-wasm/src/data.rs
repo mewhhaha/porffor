@@ -2186,6 +2186,9 @@ impl StringPool {
             pool.intern_string(value);
         }
         pool.intern_string(crate::builtins::INTL_FALLBACK_SYMBOL_DESCRIPTION);
+        for value in crate::builtins::temporal_time_zone_pool_strings() {
+            pool.intern_string(value);
+        }
         for index in 0..=31 {
             pool.intern_string(&index.to_string());
         }

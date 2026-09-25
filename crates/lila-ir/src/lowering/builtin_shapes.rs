@@ -6921,13 +6921,28 @@ impl<'a> ScriptLowerer<'a> {
                 Some(Self::temporal_zoned_date_time_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_zoned_date_time_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate => (
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
+            | StandardBuiltinId::TemporalNowPlainDateIso => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 Some(Self::temporal_plain_date_instance_shape()),
                 Self::value_info_from_shape(Some(Self::temporal_plain_date_instance_shape())),
             ),
-            StandardBuiltinId::TemporalZonedDateTimePrototypeWith
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime
+            | StandardBuiltinId::TemporalNowPlainTimeIso => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalNowPlainDateTimeIso => (
+                ValueKind::Object,
+                KindSet::from_kind(ValueKind::Object),
+                Some(Self::temporal_plain_date_time_instance_shape()),
+                Self::value_info_from_shape(Some(Self::temporal_plain_date_time_instance_shape())),
+            ),
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
             | StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime
@@ -6959,9 +6974,20 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeTimeZoneIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeCalendarIdGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthCodeGetter
-            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString => (
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
+                None,
+                ValueInfo::undefined(),
+            ),
+            // `valueOf` always throws; the normal-completion kind is
+            // unreachable and spelled `Undefined` as for the other Temporal
+            // `valueOf`s.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),

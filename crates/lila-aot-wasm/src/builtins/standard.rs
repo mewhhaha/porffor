@@ -11,6 +11,8 @@ use super::intl_numberformat::NfFormatMode;
 use super::object::SetterIgnoringPrototypeProperties;
 use super::string::StringNormalizationForm;
 use super::temporal::{TemporalZonedDateTimePlainTarget, ZonedDateTimeField};
+use super::temporal_zoned_date_time_format::ZonedDateTimeStringSource;
+use super::temporal_zoned_wall_clock::TemporalNowWallClock;
 use super::temporal_instant::{InstantArithmetic, InstantDifference, InstantStringSource};
 use super::temporal_options::TemporalTimeUnit;
 use super::temporal_plain_date_time_methods::{
@@ -21747,6 +21749,21 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalNowInstant => {
                 self.emit_temporal_now_instant(function)?;
             }
+            StandardBuiltinId::TemporalNowPlainDateIso => {
+                self.emit_temporal_now_wall_clock(TemporalNowWallClock::PlainDate, function)?;
+            }
+            StandardBuiltinId::TemporalNowPlainDateTimeIso => {
+                self.emit_temporal_now_wall_clock(TemporalNowWallClock::PlainDateTime, function)?;
+            }
+            StandardBuiltinId::TemporalNowPlainTimeIso => {
+                self.emit_temporal_now_wall_clock(TemporalNowWallClock::PlainTime, function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime => {
+                self.emit_temporal_zoned_date_time_to_plain_time(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime => {
+                self.emit_temporal_zoned_date_time_with_plain_time(function)?;
+            }
             StandardBuiltinId::TemporalNowZonedDateTimeIso => {
                 self.emit_temporal_now_zoned_date_time_iso(function)?;
             }
@@ -22229,8 +22246,23 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::TemporalPlainDatePrototypeToZonedDateTime => {
                 self.emit_temporal_plain_date_to_zoned_date_time(function)?;
             }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToJson => {
+                self.emit_temporal_zoned_date_time_to_string(
+                    ZonedDateTimeStringSource::ToJson,
+                    function,
+                )?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf => {
+                self.emit_temporal_zoned_date_time_value_of(function)?;
+            }
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => {
+                self.emit_intl_dtf_zoned_date_time_to_locale_string(function)?;
+            }
             StandardBuiltinId::TemporalZonedDateTimePrototypeToString => {
-                self.emit_temporal_zoned_date_time_to_string(function)?;
+                self.emit_temporal_zoned_date_time_to_string(
+                    ZonedDateTimeStringSource::ToString,
+                    function,
+                )?;
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeDayOfWeekGetter => {
                 self.emit_temporal_zoned_date_time_iso_field(

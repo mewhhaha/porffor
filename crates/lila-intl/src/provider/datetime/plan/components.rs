@@ -209,10 +209,18 @@ pub(super) fn defaults(
             required,
             Required::Date | Required::YearMonth | Required::MonthDay
         ) || matches!(required, Required::Any)
-            && matches!(defaults, DateTimeDefaults::All | DateTimeDefaults::Date);
+            && matches!(
+                defaults,
+                DateTimeDefaults::All | DateTimeDefaults::Date | DateTimeDefaults::ZonedDateTime
+            );
         let time = matches!(required, Required::Time)
             || matches!(required, Required::Any)
-                && matches!(defaults, DateTimeDefaults::All | DateTimeDefaults::Time);
+                && matches!(
+                    defaults,
+                    DateTimeDefaults::All
+                        | DateTimeDefaults::Time
+                        | DateTimeDefaults::ZonedDateTime
+                );
         if date {
             if !matches!(required, Required::MonthDay) {
                 fields.year = Some(DateTimeNumericWidth::Numeric);
@@ -226,6 +234,9 @@ pub(super) fn defaults(
             fields.hour = Some(DateTimeNumericWidth::Numeric);
             fields.minute = Some(DateTimeNumericWidth::Numeric);
             fields.second = Some(DateTimeNumericWidth::Numeric);
+        }
+        if matches!(defaults, DateTimeDefaults::ZonedDateTime) && fields.time_zone_name.is_none() {
+            fields.time_zone_name = Some(crate::TimeZoneNameStyle::Short);
         }
     }
     Some(fields)

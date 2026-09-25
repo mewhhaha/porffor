@@ -1,27 +1,29 @@
 # Temporal ZonedDateTime direction dispatch
 
-Status: current Wasm-AOT direction contract as of 2026-09-12. The structural
+Status: current Wasm-AOT direction contract as of 2026-09-25 (named time zones). The structural
 assertion refresh passed the [coordinated verification checkpoint](../../../test262/replays/zoned-date-time-follow-up-20260910.verification.json).
 
 ## Invariant
 
 `ZonedDateTimeArithmetic::{Add, Subtract}` and
 `ZonedDateTimeDifference::{Until, Since}` are private, non-derived domains in
-`builtins/temporal_zoned_date_time_methods.rs`. Arithmetic retains its private
-exhaustive projection to the corresponding PlainDateTime `add` or `subtract`
-builtin. Difference dispatch uses two exhaustive matches inside its private
-shared emitter:
+`builtins/temporal_zoned_date_time_methods.rs`. Arithmetic runs
+`AddZonedDateTime` through the time-zone kernel in the ZonedDateTime emitter
+itself. Its one exhaustive match decides whether the duration is negated first.
+It no longer delegates to the PlainDateTime `add` or `subtract` builtins,
+because that wall-clock path cannot follow a named zone's transitions.
+Difference dispatch uses three exhaustive matches inside its private shared
+emitter:
 
-| Direction | Shared arithmetic operation | Settings plan |
+| Direction | Settings plan | Result |
 | --- | --- | --- |
-| `Until` | `TemporalPlainDifferenceOperation::Until` | `TemporalDateTimeDifferenceSettingsPlan::ZonedUntil` |
-| `Since` | `TemporalPlainDifferenceOperation::Since` | `TemporalDateTimeDifferenceSettingsPlan::ZonedSince` |
+| `Until` | `TemporalDateTimeDifferenceSettingsPlan::ZonedUntil` | as computed |
+| `Since` | `TemporalDateTimeDifferenceSettingsPlan::ZonedSince` | negated |
 
 The settings plan owns the hour fallback and rounding-mode direction. The
-operation carries the final-result direction into shared date-time arithmetic.
-Time-unit differences use exact epoch arithmetic in the ZonedDateTime entry.
-PR47 removed the difference projection to PlainDateTime builtin identities and
-its normalized options transport; the fixed catalog boundary remains intact.
+time-unit path (`DifferenceInstant`) and the date-unit path
+(`DifferenceZonedDateTimeWithRounding`) each negate a `since` result in their
+own exhaustive match.
 
 The shared catalog dispatcher can call only four fixed entries:
 `emit_temporal_zoned_date_time_add_builtin`, `subtract_builtin`,
@@ -32,9 +34,9 @@ re-export the domains.
 The module audit requires the exact private domains, four fixed entries and
 four fixed catalog routes, rejects raw emitter calls and escaping domains, and
 budgets the family owner independently. The structural target pins the exact
-variants, the arithmetic projection, both difference mappings, fixed
-entry-to-variant mapping, fixed catalog routes, private raw emitters and absent
-re-export.
+variants, the arithmetic negation match, the settings-plan mapping, both result
+negations, fixed entry-to-variant mapping, fixed catalog routes, private raw
+emitters and absent re-export.
 
 ## Historical source-equivalence witnesses: 2026-09-01 checkpoint
 

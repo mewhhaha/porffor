@@ -134,6 +134,12 @@ pub enum DateTimeDefaults {
     All,
     Date,
     Time,
+    /// `CreateDateTimeFormat` with a `toLocaleStringTimeZone`, which is what
+    /// `Temporal.ZonedDateTime.prototype.toLocaleString` asks for. The legacy
+    /// `[[DateTimeFormat]]` keeps the `~all~` defaults; only
+    /// `[[TemporalInstantFormat]]` uses `~zoned-date-time~`, which adds a
+    /// short time-zone name to the defaulted date and time.
+    ZonedDateTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

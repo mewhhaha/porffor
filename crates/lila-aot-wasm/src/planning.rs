@@ -2870,6 +2870,18 @@ impl RuntimeBootstrapPlan {
                 self.require_temporal_namespace();
                 self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
             }
+            StandardBuiltinId::TemporalNowPlainDateIso => {
+                self.require_temporal_namespace();
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateConstructor);
+            }
+            StandardBuiltinId::TemporalNowPlainDateTimeIso => {
+                self.require_temporal_namespace();
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainDateTimeConstructor);
+            }
+            StandardBuiltinId::TemporalNowPlainTimeIso => {
+                self.require_temporal_namespace();
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor);
+            }
             // The whole `Temporal.PlainDate` family installs together: the
             // prototype is built once, so rooting one member without the rest
             // would leave the object half-populated.
@@ -3316,6 +3328,17 @@ impl RuntimeBootstrapPlan {
                 self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
                 self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
             }
+            // The same shape for `ZonedDateTime.prototype.toLocaleString`: it
+            // formats through `Intl.DateTimeFormat` and hands it a
+            // `Temporal.Instant`, and rooting the whole Intl namespace for
+            // every ZonedDateTime program would put the formatter into
+            // modules that never format. Unreferenced, the member is the
+            // ordinary not-emitted stub.
+            StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => {
+                self.require_standard_builtin(StandardBuiltinId::TemporalZonedDateTimeConstructor);
+                self.require_standard_builtin(StandardBuiltinId::TemporalInstantConstructor);
+                self.require_intl_namespace();
+            }
             StandardBuiltinId::TemporalZonedDateTimeConstructor
             | StandardBuiltinId::TemporalZonedDateTimeFrom
             | StandardBuiltinId::TemporalZonedDateTimeCompare
@@ -3329,6 +3352,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeMonthsInYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeInLeapYearGetter
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToString
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWith
             | StandardBuiltinId::TemporalZonedDateTimePrototypeRound
             | StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition
@@ -3356,6 +3381,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToInstant
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
             | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime
+            | StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithTimeZone
             | StandardBuiltinId::TemporalZonedDateTimePrototypeWithCalendar
             | StandardBuiltinId::TemporalZonedDateTimePrototypeAdd
@@ -3363,6 +3390,9 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::TemporalZonedDateTimePrototypeUntil
             | StandardBuiltinId::TemporalZonedDateTimePrototypeSince => {
                 self.require_temporal_namespace();
+                // `toPlainTime` and `withPlainTime` hand back or read a
+                // `Temporal.PlainTime`.
+                self.require_standard_builtin(StandardBuiltinId::TemporalPlainTimeConstructor);
                 // `toPlainDateTime` hands back a `Temporal.PlainDateTime`, the
                 // mirror of the `TemporalZonedDateTimeConstructor` requirement
                 // the PlainDateTime arm above carries for `toZonedDateTime`.
@@ -3484,6 +3514,10 @@ impl RuntimeBootstrapPlan {
                     StandardBuiltinId::TemporalZonedDateTimePrototypeSubtract,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeUntil,
                     StandardBuiltinId::TemporalZonedDateTimePrototypeSince,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeToJson,
+                    StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf,
                 ] {
                     self.standard_roots.insert(dependency);
                 }
@@ -7856,6 +7890,9 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalNowInstant
         | StandardBuiltinId::TemporalNowTimeZoneId
         | StandardBuiltinId::TemporalNowZonedDateTimeIso
+        | StandardBuiltinId::TemporalNowPlainDateIso
+        | StandardBuiltinId::TemporalNowPlainDateTimeIso
+        | StandardBuiltinId::TemporalNowPlainTimeIso
         | StandardBuiltinId::TemporalInstantPrototypeEpochMillisecondsGetter
         | StandardBuiltinId::TemporalInstantPrototypeEpochNanosecondsGetter
         | StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter
@@ -7959,7 +7996,12 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::TemporalZonedDateTimePrototypeHoursInDayGetter
         | StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay
         | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDate
-        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime => 0,
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainDateTime
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToJson
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf
+        | StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString => 0,
         StandardBuiltinId::Escape
         | StandardBuiltinId::Unescape
         | StandardBuiltinId::EncodeUri

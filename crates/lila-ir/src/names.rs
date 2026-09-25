@@ -207,9 +207,15 @@ pub const TEMPORAL_NOW_NAMESPACE_MEMBERS: &[(&str, StandardBuiltinId)] = &[
     ("timeZoneId", StandardBuiltinId::TemporalNowTimeZoneId),
     ("instant", StandardBuiltinId::TemporalNowInstant),
     (
+        "plainDateTimeISO",
+        StandardBuiltinId::TemporalNowPlainDateTimeIso,
+    ),
+    (
         "zonedDateTimeISO",
         StandardBuiltinId::TemporalNowZonedDateTimeIso,
     ),
+    ("plainDateISO", StandardBuiltinId::TemporalNowPlainDateIso),
+    ("plainTimeISO", StandardBuiltinId::TemporalNowPlainTimeIso),
 ];
 
 /// The `Temporal.ZonedDateTime.prototype` DATA-PROPERTY METHODS, as ONE table.
@@ -314,6 +320,26 @@ pub const TEMPORAL_ZONED_DATE_TIME_PROTOTYPE_METHODS: &[(&str, StandardBuiltinId
     (
         "startOfDay",
         StandardBuiltinId::TemporalZonedDateTimePrototypeStartOfDay,
+    ),
+    (
+        "withPlainTime",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeWithPlainTime,
+    ),
+    (
+        "toPlainTime",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToPlainTime,
+    ),
+    (
+        "toJSON",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToJson,
+    ),
+    (
+        "valueOf",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeValueOf,
+    ),
+    (
+        "toLocaleString",
+        StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString,
     ),
 ];
 

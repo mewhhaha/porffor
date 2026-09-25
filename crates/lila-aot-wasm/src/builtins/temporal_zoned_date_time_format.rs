@@ -5,6 +5,7 @@ use super::temporal_options::{
     ShowCalendarName, StringValuedOption, TemporalRoundingMode, TemporalUnitOptionProperty,
 };
 use super::temporal_plain_time::NANOSECONDS_PER_TEMPORAL_DAY;
+use super::temporal_plain_time_methods::TEMPORAL_PRECISION_AUTO;
 
 #[derive(Clone, Copy)]
 enum ShowOffset {
@@ -61,9 +62,41 @@ impl StringValuedOption for ShowTimeZone {
     }
 }
 
+/// Which method is formatting: `toJSON` is
+/// `TemporalZonedDateTimeToString(zdt, auto, auto, auto, auto)` and never reads
+/// an options argument, while `toString` reads and validates one first.
+#[derive(Clone, Copy)]
+pub(super) enum ZonedDateTimeStringSource {
+    ToString,
+    ToJson,
+}
+
+/// `Temporal.ZonedDateTime.prototype.valueOf` throws unconditionally, so
+/// relational comparison of two ZonedDateTimes is a TypeError rather than an
+/// `OrdinaryToPrimitive` fallthrough to `toString`.
+pub(super) const TEMPORAL_ZONED_DATE_TIME_VALUE_OF_MESSAGE: &str =
+    "Temporal.ZonedDateTime does not support implicit conversion; use compare() or equals()";
+
 impl<'a> FunctionBuilder<'a> {
+    /// Temporal proposal `Temporal.ZonedDateTime.prototype.valueOf`: step 1 is
+    /// an unconditional TypeError, before any brand check.
+    pub(super) fn emit_temporal_zoned_date_time_value_of(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_throw_current_function_realm_type_error(
+            TEMPORAL_ZONED_DATE_TIME_VALUE_OF_MESSAGE,
+            self.result_local,
+            self.result_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion(function);
+        Ok(())
+    }
+
     pub(super) fn emit_temporal_zoned_date_time_to_string(
         &mut self,
+        source: ZonedDateTimeStringSource,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let record_local = self.reserve_temp_local();
@@ -98,70 +131,95 @@ impl<'a> FunctionBuilder<'a> {
         ];
 
         self.emit_temporal_zoned_date_time_record_from_receiver(record_local, function)?;
-        self.emit_builtin_arg_to_locals(0, options_payload_local, options_tag_local, function);
-        self.emit_temporal_duration_options_object(
-            options_payload_local,
-            options_tag_local,
-            function,
-        )?;
-        self.emit_temporal_string_valued_option::<ShowCalendarName>(
-            options_payload_local,
-            options_tag_local,
-            show_calendar_local,
-            "Temporal.ZonedDateTime options must be an object or undefined",
-            "Invalid Temporal.ZonedDateTime calendarName option",
-            function,
-        )?;
-        self.emit_temporal_plain_time_fractional_digits_option(
-            options_payload_local,
-            options_tag_local,
-            digits_local,
-            function,
-        )?;
-        self.emit_temporal_string_valued_option::<ShowOffset>(
-            options_payload_local,
-            options_tag_local,
-            show_offset_local,
-            "Temporal.ZonedDateTime options must be an object or undefined",
-            "Invalid Temporal.ZonedDateTime offset option",
-            function,
-        )?;
-        self.emit_temporal_duration_rounding_mode_option(
-            options_payload_local,
-            options_tag_local,
-            TemporalRoundingMode::Trunc,
-            mode_local,
-            function,
-        )?;
-        self.emit_temporal_duration_unit_option(
-            options_payload_local,
-            options_tag_local,
-            TemporalUnitOptionProperty::SmallestUnit,
-            unit_local,
-            function,
-        )?;
-        self.emit_temporal_string_valued_option::<ShowTimeZone>(
-            options_payload_local,
-            options_tag_local,
-            show_time_zone_local,
-            "Temporal.ZonedDateTime options must be an object or undefined",
-            "Invalid Temporal.ZonedDateTime timeZoneName option",
-            function,
-        )?;
-        self.emit_temporal_seconds_string_precision(
-            digits_local,
-            unit_local,
-            precision_local,
-            increment_local,
-            "Invalid Temporal.ZonedDateTime unit option",
-            function,
-        )?;
-        self.emit_temporal_plain_time_rounding_quantum(
-            unit_local,
-            increment_local,
-            quantum_local,
-            function,
-        );
+        match source {
+            ZonedDateTimeStringSource::ToJson => {
+                // `TemporalZonedDateTimeToString(zdt, auto, auto, auto, auto)`:
+                // automatic precision, no rounding, and every annotation in
+                // its `auto` form.
+                for (local, value) in [
+                    (precision_local, TEMPORAL_PRECISION_AUTO),
+                    (quantum_local, 1),
+                    (mode_local, TemporalRoundingMode::Trunc.code()),
+                    (show_calendar_local, ShowCalendarName::DEFAULT.code()),
+                    (show_offset_local, ShowOffset::DEFAULT.code()),
+                    (show_time_zone_local, ShowTimeZone::DEFAULT.code()),
+                ] {
+                    function.instruction(&Instruction::I64Const(value));
+                    function.instruction(&Instruction::LocalSet(local));
+                }
+            }
+            ZonedDateTimeStringSource::ToString => {
+                self.emit_builtin_arg_to_locals(
+                    0,
+                    options_payload_local,
+                    options_tag_local,
+                    function,
+                );
+                self.emit_temporal_duration_options_object(
+                    options_payload_local,
+                    options_tag_local,
+                    function,
+                )?;
+                self.emit_temporal_string_valued_option::<ShowCalendarName>(
+                    options_payload_local,
+                    options_tag_local,
+                    show_calendar_local,
+                    "Temporal.ZonedDateTime options must be an object or undefined",
+                    "Invalid Temporal.ZonedDateTime calendarName option",
+                    function,
+                )?;
+                self.emit_temporal_plain_time_fractional_digits_option(
+                    options_payload_local,
+                    options_tag_local,
+                    digits_local,
+                    function,
+                )?;
+                self.emit_temporal_string_valued_option::<ShowOffset>(
+                    options_payload_local,
+                    options_tag_local,
+                    show_offset_local,
+                    "Temporal.ZonedDateTime options must be an object or undefined",
+                    "Invalid Temporal.ZonedDateTime offset option",
+                    function,
+                )?;
+                self.emit_temporal_duration_rounding_mode_option(
+                    options_payload_local,
+                    options_tag_local,
+                    TemporalRoundingMode::Trunc,
+                    mode_local,
+                    function,
+                )?;
+                self.emit_temporal_duration_unit_option(
+                    options_payload_local,
+                    options_tag_local,
+                    TemporalUnitOptionProperty::SmallestUnit,
+                    unit_local,
+                    function,
+                )?;
+                self.emit_temporal_string_valued_option::<ShowTimeZone>(
+                    options_payload_local,
+                    options_tag_local,
+                    show_time_zone_local,
+                    "Temporal.ZonedDateTime options must be an object or undefined",
+                    "Invalid Temporal.ZonedDateTime timeZoneName option",
+                    function,
+                )?;
+                self.emit_temporal_seconds_string_precision(
+                    digits_local,
+                    unit_local,
+                    precision_local,
+                    increment_local,
+                    "Invalid Temporal.ZonedDateTime unit option",
+                    function,
+                )?;
+                self.emit_temporal_plain_time_rounding_quantum(
+                    unit_local,
+                    increment_local,
+                    quantum_local,
+                    function,
+                );
+            }
+        }
         self.emit_temporal_zoned_date_time_local_components(
             record_local,
             nanoseconds_payload_local,
@@ -214,6 +272,8 @@ impl<'a> FunctionBuilder<'a> {
             mode_local,
             function,
         );
+        // `GetOffsetNanosecondsFor` and `GetISODateTimeFor` of the *rounded*
+        // exact time: rounding can cross a transition.
         function.instruction(&Instruction::LocalGet(day_local));
         function.instruction(&Instruction::I64Const(86_400_000));
         function.instruction(&Instruction::I64Mul);
@@ -221,6 +281,14 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(1_000_000));
         function.instruction(&Instruction::I64DivS);
         function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::LocalSet(milliseconds_local));
+        self.emit_temporal_time_zone_offset_seconds_at_milliseconds(
+            time_zone_payload_local,
+            milliseconds_local,
+            offset_seconds_local,
+            function,
+        )?;
+        function.instruction(&Instruction::LocalGet(milliseconds_local));
         function.instruction(&Instruction::LocalGet(offset_seconds_local));
         function.instruction(&Instruction::I64Const(1_000));
         function.instruction(&Instruction::I64Mul);
@@ -298,7 +366,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ShowOffset::Never.code()));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_temporal_format_fixed_time_zone_offset(
+        self.emit_temporal_format_utc_offset_rounded(
             offset_seconds_local,
             piece_payload_local,
             function,
