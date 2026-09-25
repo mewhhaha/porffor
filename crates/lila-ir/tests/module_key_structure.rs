@@ -83,8 +83,8 @@ fn module_key_keeps_opaque_storage_and_one_host_constructor() {
 #[test]
 fn module_key_callers_keep_the_public_identity_domain_without_compatibility_exports() {
     assert_eq!(OWNER_SOURCE.matches("ModuleKey").count(), 2);
-    // The eighth is `ModuleSourceIr::json`'s key parameter.
-    assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 8);
+    // Eight and nine are the `ModuleSourceIr::json` and `::text` key parameters.
+    assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 9);
     assert_eq!(GRAPH_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleKey").count(), 67);
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleKey").count(), 2);
@@ -95,8 +95,9 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
     assert_eq!(LINK_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(LINK_ERROR_SOURCE.matches("ModuleKey").count(), 2);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleKey").count(), 2);
-    // Four more: the loader mints JSON-module keys apart from JavaScript ones.
-    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleKey").count(), 36);
+    // Six more: the loader mints JSON- and text-module keys apart from
+    // JavaScript ones.
+    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleKey").count(), 38);
     assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(
         LOADED_SOURCES_SOURCE

@@ -64,6 +64,13 @@ impl ModuleSourceIr {
         }
     }
 
+    /// Performs `CreateTextModule` on a loaded text module's decoded source.
+    #[must_use]
+    pub fn text(key: ModuleKey, text: &str, meta_url: String) -> Self {
+        let source_text = super::synthetic_module::synthesize_text_module_source(text);
+        Self::new(key, source_text, meta_url)
+    }
+
     /// Performs `ParseJSONModule` on a loaded JSON module's text.
     ///
     /// # Errors
@@ -74,8 +81,8 @@ impl ModuleSourceIr {
         key: ModuleKey,
         json_text: &str,
         meta_url: String,
-    ) -> Result<Self, super::json_module::JsonModuleSyntaxError> {
-        let source_text = super::json_module::synthesize_json_module_source(json_text)?;
+    ) -> Result<Self, super::synthetic_module::JsonModuleSyntaxError> {
+        let source_text = super::synthetic_module::synthesize_json_module_source(json_text)?;
         Ok(Self::new(key, source_text, meta_url))
     }
 

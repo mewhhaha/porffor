@@ -108,6 +108,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
     for method in [
         "new",
         "json",
+        "text",
         "from_parsed",
         "from_parsed_script",
         "key",
@@ -123,8 +124,9 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
             "{method} must have one public owner"
         );
     }
-    // The eleventh is `ModuleSourceIr::json`, the ParseJSONModule constructor.
-    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 11);
+    // `ModuleSourceIr::json` and `ModuleSourceIr::text`, the ParseJSONModule and
+    // CreateTextModule constructors, make eleven and twelve.
+    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 12);
     assert_eq!(OWNER_SOURCE.matches("#[doc(hidden)]").count(), 1);
     assert_eq!(
         OWNER_SOURCE.matches("scan_module_requests(source)").count(),
@@ -214,8 +216,9 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
     assert_eq!(LINK_SOURCE.matches("ModuleSourceIr").count(), 1);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleSourceIr").count(), 2);
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleSourceIr").count(), 1);
-    // Two more: the loader builds JSON modules through `ModuleSourceIr::json`.
-    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleSourceIr").count(), 10);
+    // Four more: the loader builds JSON and text modules through
+    // `ModuleSourceIr::json` and `ModuleSourceIr::text`.
+    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleSourceIr").count(), 12);
 
     assert!(GRAPH_BUILD_SOURCE.contains("pub(crate) fn build_graph("));
     assert!(!GRAPH_SOURCE.contains("pub(crate) fn build_graph("));

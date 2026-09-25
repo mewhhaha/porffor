@@ -727,7 +727,7 @@ print(events.join(','));
 }
 
 #[test]
-fn json_modules_export_one_parsed_default_shared_by_every_import_form() {
+fn json_and_text_modules_export_one_default_shared_by_every_import_form() {
     assert_modules(
         &[
             (
@@ -736,6 +736,8 @@ fn json_modules_export_one_parsed_default_shared_by_every_import_form() {
 import data from './data.json' with { type: 'json' };
 import * as ns from './data.json' with { type: 'json' };
 import defer * as deferred from './data.json' with { type: 'json' };
+import raw from './data.json' with { type: 'text' };
+if (typeof raw !== 'string' || raw === JSON.stringify(data) || JSON.parse(raw).dup !== 2) throw 'text module of the same file';
 if (ns.default !== data || deferred.default !== data) throw 'one module record';
 if (Object.getOwnPropertyNames(ns).join() !== 'default') throw 'default only';
 if (Object.getPrototypeOf(data) !== Object.prototype || !Object.isExtensible(data)) throw 'plain object';

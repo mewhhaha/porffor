@@ -1,4 +1,12 @@
-//! `ParseJSONModule` realized ahead of time.
+//! The default-export Synthetic Module Records the host creates for
+//! non-JavaScript module types, realized ahead of time: `ParseJSONModule`
+//! (`type: "json"`) and `CreateTextModule` (`type: "text"`).
+//!
+//! A text module is `CreateDefaultExportSyntheticModule(source)`: its only
+//! export, `default`, is the module's source text as a String. It is realized
+//! as `export default "<literal>";`, where the literal spells every UTF-16 code
+//! unit of the text with an escape or as itself, so the bound value is exactly
+//! the String the host decoded.
 //!
 //! A JSON module is the Synthetic Module Record `CreateDefaultExportSyntheticModule`
 //! builds around `? Call(%JSON.parse%, undefined, « source »)`: it requests no
@@ -58,6 +66,16 @@ impl core::fmt::Display for JsonModuleSyntaxError {
 }
 
 impl std::error::Error for JsonModuleSyntaxError {}
+
+/// `CreateTextModule`: the Module-goal source text that realizes the
+/// Synthetic Module Record whose `default` export is `text`.
+pub(super) fn synthesize_text_module_source(text: &str) -> String {
+    let mut source = String::with_capacity(text.len() + 20);
+    source.push_str("export default ");
+    super::namespace::push_js_string_literal(&mut source, text);
+    source.push_str(";\n");
+    source
+}
 
 /// Performs `ParseJSONModule`'s grammar check and returns the Module-goal
 /// source text that realizes its Synthetic Module Record.
@@ -301,7 +319,26 @@ impl JsonLiteralEmitter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::synthesize_json_module_source;
+    use super::{synthesize_json_module_source, synthesize_text_module_source};
+
+    #[test]
+    fn text_is_spelled_as_one_string_literal_of_the_same_code_units() {
+        for (text, literal) in [
+            ("", "\"\""),
+            ("a string value\n", "\"a string value\\n\""),
+            (
+                "\"quoted\" \\ export default 1;",
+                "\"\\\"quoted\\\" \\\\ export default 1;\"",
+            ),
+            ("\u{2028}\u{1F600}", "\"\\u2028\\uD83D\\uDE00\""),
+        ] {
+            assert_eq!(
+                synthesize_text_module_source(text),
+                format!("export default {literal};\n"),
+                "{text:?}"
+            );
+        }
+    }
 
     #[test]
     fn values_are_spelled_as_equivalent_literals() {

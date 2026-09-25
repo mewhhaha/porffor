@@ -30,6 +30,10 @@ pub enum LoadedModuleKind {
     /// `ParseJSONModule` ([`ModuleSourceIr::json`]), whose failure is a failed
     /// load of the request that named it.
     Json(String),
+    /// The decoded source of a text module, requested with
+    /// `with { type: "text" }`; `CreateTextModule` ([`ModuleSourceIr::text`])
+    /// makes it the module's `default` export.
+    Text(String),
 }
 
 /// The module type a request selects through its `type` import attribute.
@@ -41,19 +45,23 @@ pub enum LoadedModuleKind {
 enum HostModuleType {
     JavaScript,
     Json,
+    Text,
 }
 
 impl HostModuleType {
     /// The host-owned key namespace of JSON modules.
     const JSON_KEY_PREFIX: &'static str = "json:";
+    /// The host-owned key namespace of text modules.
+    const TEXT_KEY_PREFIX: &'static str = "text:";
 
     /// `AllImportAttributesSupported` plus the module-type selection: `type`
-    /// is the only supported key and `"json"` its only supported value.
+    /// is the only supported key, with the values `"json"` and `"text"`.
     fn of_request(request: &ModuleRequestKeyIr) -> Result<Self, ModuleLoadError> {
         let mut module_type = Self::JavaScript;
         for attribute in request.attributes() {
             match (attribute.key.as_str(), attribute.value.as_str()) {
                 ("type", "json") => module_type = Self::Json,
+                ("type", "text") => module_type = Self::Text,
                 _ => {
                     return Err(ModuleLoadError::UnsupportedAttribute {
                         key: attribute.key.clone(),
@@ -70,14 +78,19 @@ impl HostModuleType {
         match self {
             Self::JavaScript => ModuleKey::from_host(path.into_owned()),
             Self::Json => ModuleKey::from_host(format!("{}{path}", Self::JSON_KEY_PREFIX)),
+            Self::Text => ModuleKey::from_host(format!("{}{path}", Self::TEXT_KEY_PREFIX)),
         }
     }
 
     /// Splits a key this host minted back into its type and path.
     fn of_key(key: &ModuleKey) -> (Self, &str) {
-        match key.as_str().strip_prefix(Self::JSON_KEY_PREFIX) {
-            Some(path) => (Self::Json, path),
-            None => (Self::JavaScript, key.as_str()),
+        let key = key.as_str();
+        if let Some(path) = key.strip_prefix(Self::JSON_KEY_PREFIX) {
+            (Self::Json, path)
+        } else if let Some(path) = key.strip_prefix(Self::TEXT_KEY_PREFIX) {
+            (Self::Text, path)
+        } else {
+            (Self::JavaScript, key)
         }
     }
 }
@@ -411,12 +424,25 @@ impl HostModuleLoader for FilesystemModuleLoader {
         // enduring authority to read a path that now points outside the root.
         let (module_type, path) = HostModuleType::of_key(key);
         let path = self.confine(key.as_str(), Path::new(path))?;
-        let text = std::fs::read_to_string(&path).map_err(|error| ModuleLoadError::Io {
+        let bytes = std::fs::read(&path).map_err(|error| ModuleLoadError::Io {
             key: key.clone(),
             message: error.to_string(),
         })?;
+        let utf8 = |bytes: Vec<u8>| {
+            String::from_utf8(bytes).map_err(|error| ModuleLoadError::Io {
+                key: key.clone(),
+                message: error.to_string(),
+            })
+        };
         let kind = match module_type {
-            HostModuleType::Json => LoadedModuleKind::Json(text),
+            HostModuleType::Json => LoadedModuleKind::Json(utf8(bytes)?),
+            // The WHATWG "UTF-8 decode" a web host applies to a text module's
+            // body: a leading byte order mark is removed and malformed
+            // sequences become U+FFFD rather than failing the load.
+            HostModuleType::Text => {
+                let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+                LoadedModuleKind::Text(String::from_utf8_lossy(body).into_owned())
+            }
             // A `.json` file is JSON, not a module body. Imported without
             // `with { type: "json" }` it fails the module-type check instead of
             // reaching the ECMAScript parser, where `[1, 2]` would parse as a
@@ -432,7 +458,7 @@ impl HostModuleLoader for FilesystemModuleLoader {
                         .to_string(),
                 });
             }
-            HostModuleType::JavaScript => LoadedModuleKind::Source(text),
+            HostModuleType::JavaScript => LoadedModuleKind::Source(utf8(bytes)?),
         };
         Ok(LoadedModule {
             meta_url: format!("file://{}", path.display()),
@@ -471,8 +497,8 @@ pub fn load_module_graph(
                     ModuleSourceIr::new(loaded.key, text, loaded.meta_url)
                 }
                 // An entry is located, not requested: no `type` attribute
-                // selected JSON for it.
-                LoadedModuleKind::Json(_) => {
+                // selected a synthetic module type for it.
+                LoadedModuleKind::Json(_) | LoadedModuleKind::Text(_) => {
                     return Err(ModuleLoadError::Denied {
                         specifier: entry_key.as_str().to_string(),
                         reason: "a module graph entry must be JavaScript".to_string(),
@@ -589,6 +615,9 @@ fn load_module_graph_from_entry(
                         Ok(module) => module,
                         Err(_) => continue,
                     }
+                }
+                LoadedModuleKind::Text(text) => {
+                    ModuleSourceIr::text(loaded.key, &text, loaded.meta_url)
                 }
             };
             // The load may report a key the graph already holds: module map
@@ -1044,6 +1073,44 @@ mod tests {
             "export default ({\"a\":1});\n"
         );
         assert_eq!(sources.resolutions.len(), 1);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_text_module_is_keyed_by_type_and_decoded_without_its_byte_order_mark() {
+        let base = temp_base("text");
+        let root = base.join("root");
+        write_tree(&root, &[("page.js", "export {};")]);
+        fs::write(root.join("notes"), b"\xEF\xBB\xBFline\xFF\n").unwrap();
+        let loader = loader_at(&root);
+        let referrer = ModuleKey::from_host(root.join("page.js").to_string_lossy().into_owned());
+        let text_request = |specifier: &str| {
+            ModuleRequestKeyIr::try_new(
+                specifier,
+                vec![ImportAttributeIr {
+                    key: "type".to_string(),
+                    value: "text".to_string(),
+                }],
+            )
+            .expect("the test attribute key is unique")
+        };
+
+        let key = loader
+            .resolve(Some(&referrer), &text_request("./notes"))
+            .expect("type=text resolves");
+        assert!(matches!(
+            loader.load(&key).map(|loaded| loaded.kind),
+            Ok(LoadedModuleKind::Text(text)) if text == "line\u{FFFD}\n"
+        ));
+        // A JavaScript file imported as text is a distinct module record.
+        let own = loader
+            .resolve(Some(&referrer), &text_request("./page.js"))
+            .expect("type=text resolves");
+        assert_ne!(own, referrer);
+        assert!(matches!(
+            loader.load(&own).map(|loaded| loaded.kind),
+            Ok(LoadedModuleKind::Text(text)) if text == "export {};"
+        ));
         let _ = fs::remove_dir_all(&base);
     }
 
