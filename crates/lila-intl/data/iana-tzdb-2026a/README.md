@@ -80,7 +80,9 @@ inputs. Check mode writes nothing. `manifest.json` records archive/source
 sizes and hashes, generated output hashes, catalogue counts and the complete
 digest recipe. The provider digest covers the IANA/transition/upstream crate
 archives, country metadata, catalogue, generator, selector validation source
-and all vendored selector files. The parent provider combines it with the
+and all vendored selector files. It also binds the Temporal time-zone query
+domain and kernel, so changes to their wire encoding or transition arithmetic
+invalidate compiled-artifact provider identities. The parent provider combines it with the
 locale and zone-name component identities before artifact admission.
 
 Sources: [IANA2026a](https://data.iana.org/time-zones/releases/tzdata2026a.tar.gz),

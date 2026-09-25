@@ -146,3 +146,27 @@ and remains owned by that provider; it is not suppressed or special-cased.
 
 The directory runs are not green, no failures are silently skipped, and this
 work does not establish full ECMAScript or Test262 conformance.
+
+## Generated identity follow-up
+
+The integration check found stale generated named-zone and DateTimeFormat
+identities after the Temporal changes. Recovery regenerated both from the
+checked-in sources. The named-zone identity recipe now also includes
+`src/temporal_time_zone.rs` and `src/provider/temporal_time_zone.rs`; otherwise
+changes to the new query contract or kernel could leave the artifact admission
+digest unchanged. A mutation test proves that modifying either source changes
+the generated provider identity while preserving the zone catalogue.
+
+Fresh checks after regeneration all passed:
+
+```sh
+python3 scripts/generate-intl-named-time-zones.py --check
+python3 scripts/generate-intl-time-zone-names.py --check
+python3 scripts/generate-intl-datetime-identity.py --check
+python3 -m unittest discover -s scripts/tests -p 'test_generate_intl_*time_zone*.py' -v
+```
+
+The Python suite now has 18 passing tests (the prior 17 plus the identity
+mutation regression). No pinned source archive, zone catalogue or transition
+data changed. This follow-up updates generated Rust identity constants and
+receipts; final compilation remains the integration owner's checkpoint.

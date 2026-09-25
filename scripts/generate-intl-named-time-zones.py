@@ -256,7 +256,11 @@ def outputs(root):
                         for name, primary in primaries.items()).encode()
     # The selector recipe includes the actual patched source and validation code.
     recipe_paths = [Path("scripts/generate-intl-named-time-zones.py"),
-                    Path("crates/lila-intl/src/provider/named_time_zones.rs")]
+                    Path("crates/lila-intl/src/provider/named_time_zones.rs"),
+                    # Temporal queries share this provider identity: changes to
+                    # their wire domain or transition arithmetic invalidate caches.
+                    Path("crates/lila-intl/src/temporal_time_zone.rs"),
+                    Path("crates/lila-intl/src/provider/temporal_time_zone.rs")]
     recipe_paths += sorted(path.relative_to(root) for path in (root / PROVIDER).glob("*.rs")
                            if path.name not in {"identity.rs", "tests.rs", "transition_tests.rs"})
     vendor_paths = sorted(path.relative_to(root) for path in

@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "generate-intl-named-time-zones.py"
 SPEC = importlib.util.spec_from_file_location("intl_named_time_zones", SCRIPT)
@@ -16,6 +17,24 @@ class NamedTimeZoneGenerationTests(unittest.TestCase):
         self.assertEqual(outputs, MODULE.outputs(ROOT))
         for path, content in outputs.items():
             self.assertEqual((ROOT / path).read_bytes(), content, str(path))
+
+    def test_temporal_wire_and_kernel_changes_invalidate_provider_identity(self):
+        baseline = MODULE.outputs(ROOT)
+        identity = MODULE.PROVIDER / "identity.rs"
+        catalogue = MODULE.DATA / "catalogue.tsv"
+        read_bytes = Path.read_bytes
+        for relative in ["crates/lila-intl/src/temporal_time_zone.rs",
+                         "crates/lila-intl/src/provider/temporal_time_zone.rs"]:
+            changed = ROOT / relative
+
+            def altered_bytes(path):
+                contents = read_bytes(path)
+                return contents + b"\n// identity regression probe\n" if path == changed else contents
+
+            with self.subTest(path=relative), patch.object(Path, "read_bytes", altered_bytes):
+                generated = MODULE.outputs(ROOT)
+            self.assertNotEqual(generated[identity], baseline[identity])
+            self.assertEqual(generated[catalogue], baseline[catalogue])
 
     def test_country_names_are_explicit_and_not_inferred_from_alias_groups(self):
         source = (ROOT / MODULE.DATA / "icu-77-1-zoneinfo64.icu").read_text()
