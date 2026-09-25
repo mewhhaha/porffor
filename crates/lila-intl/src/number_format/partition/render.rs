@@ -392,7 +392,10 @@ impl FormatContext<'_> {
                     &Pieces::new(),
                 )?;
                 let nested = |(message, outer): (Pieces, Option<usize>)| {
-                    (message, outer.zip(inner).map(|(outer, inner)| outer + inner))
+                    (
+                        message,
+                        outer.zip(inner).map(|(outer, inner)| outer + inner),
+                    )
                 };
                 if let Some(per) = set.simple[denominator].per_unit {
                     return self.message(per, &numerator, &Pieces::new()).map(nested);

@@ -836,11 +836,21 @@ fn script_elided_region_locales_share_their_likely_script_data() {
         }
     }
     assert_eq!(
-        scalar("zh-TW", "-987", unit("kilometer-per-hour", UnitDisplay::Long)).to_text(),
+        scalar(
+            "zh-TW",
+            "-987",
+            unit("kilometer-per-hour", UnitDisplay::Long)
+        )
+        .to_text(),
         "每小時 -987 公里"
     );
     assert_eq!(
-        scalar("zh-TW", "-987", unit("kilometer-per-hour", UnitDisplay::Short)).to_text(),
+        scalar(
+            "zh-TW",
+            "-987",
+            unit("kilometer-per-hour", UnitDisplay::Short)
+        )
+        .to_text(),
         "-987 公里/小時"
     );
 }
