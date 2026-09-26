@@ -87,12 +87,15 @@ fn calendars_are_filtered_to_date_time_format_calendars() {
     assert_eq!(calendars("en-US-u-rg-cnzzzz"), ["gregory", "chinese"]);
     assert_eq!(calendars("en"), ["gregory"]);
     assert_eq!(calendars("th"), ["buddhist", "gregory"]);
-    assert_eq!(calendars("fa"), ["persian", "gregory"]);
+    assert_eq!(calendars("fa"), ["persian", "gregory", "islamic-civil"]);
     assert_eq!(calendars("hi"), ["gregory", "indian"]);
-    // Japanese remains outside DateTimeFormat's calendar inventory; the
-    // tabular civil Hijri calendar is available.
+    // Japanese remains outside DateTimeFormat's calendar inventory. CLDR's SA
+    // preference omits Islamic Civil, while EG includes it after unsupported
+    // Islamic variants. KR explicitly prefers Dangi after Gregorian.
     assert_eq!(calendars("ja"), ["gregory"]);
-    assert_eq!(calendars("ar-SA"), ["gregory", "islamic-civil"]);
+    assert_eq!(calendars("ar-SA"), ["gregory"]);
+    assert_eq!(calendars("ar-EG"), ["gregory", "islamic-civil"]);
+    assert_eq!(calendars("ko-KR"), ["gregory", "dangi"]);
     assert_eq!(calendars("th-u-ca-japanese"), ["japanese"]);
 }
 
