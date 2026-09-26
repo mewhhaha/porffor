@@ -43,6 +43,15 @@ pub(crate) struct WasmFunctionMeta {
     pub(crate) this_before_super: bool,
     pub(crate) captures_private_environment: bool,
     pub(crate) needs_active_function_identity: bool,
+    pub(crate) origin: FunctionMetaOrigin,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FunctionMetaOrigin {
+    Source,
+    PreparedScript,
+    StandardBuiltin,
+    HostBuiltin,
 }
 
 impl WasmFunctionMeta {
@@ -7055,6 +7064,7 @@ pub(crate) fn build_function_metas<'a>(
                 captures_private_environment: function.captures_private_environment,
                 needs_active_function_identity: function.protocol.flavor()
                     == FunctionFlavor::Ordinary,
+                origin: FunctionMetaOrigin::Source,
             },
         );
         callable_index += 1;
@@ -7085,6 +7095,7 @@ pub(crate) fn build_function_metas<'a>(
                 this_before_super: false,
                 captures_private_environment: false,
                 needs_active_function_identity: false,
+                origin: FunctionMetaOrigin::PreparedScript,
             },
         );
         callable_index += 1;
@@ -7132,6 +7143,7 @@ pub(crate) fn build_function_metas<'a>(
             this_before_super: false,
             captures_private_environment: false,
             needs_active_function_identity: false,
+            origin: FunctionMetaOrigin::StandardBuiltin,
         };
     let host_builtin_meta = |builtin: HostBuiltinId, callable_index: u32| WasmFunctionMeta {
         name: builtin.as_str().to_string(),
@@ -7162,6 +7174,7 @@ pub(crate) fn build_function_metas<'a>(
         this_before_super: false,
         captures_private_environment: false,
         needs_active_function_identity: false,
+        origin: FunctionMetaOrigin::HostBuiltin,
     };
 
     let mut shared_typed_array_constructor_callable_index = None;

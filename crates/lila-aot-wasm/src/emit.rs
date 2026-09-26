@@ -4,6 +4,7 @@ use lila_ir::DerivedConstructorActivationIr;
 
 use crate::functions::{
     emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
+    LegacyActivationLocals, LegacyActivationMode,
 };
 use crate::modules::module_execution_record_count;
 use crate::objects::{
@@ -703,6 +704,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) current_env_local: u32,
     pub(crate) class_function_context_local: u32,
     pub(crate) captured_direct_eval_execution_context_local: Option<u32>,
+    pub(crate) legacy_activation_locals: Option<LegacyActivationLocals>,
     pub(crate) active_private_environment_locals: Vec<u32>,
     pub(crate) named_function_context_local: u32,
     pub(crate) result_local: u32,
@@ -3716,6 +3718,59 @@ impl<'a> FunctionBuilder<'a> {
             .iter()
             .any(|binding| binding.name == lila_ir::DIRECT_EVAL_EXECUTION_CONTEXT_NAME)
             .then_some(scratch_local + 1);
+        let legacy_activation_base =
+            scratch_local + 1 + u32::from(captured_direct_eval_execution_context_local.is_some());
+        let legacy_activation_mode = function_id
+            .as_ref()
+            .and_then(|id| functions.get(id))
+            // Runtime-free modules have only the main body and do not emit the
+            // appended heap globals. Keep that invariant local to the body
+            // planner, so its exit funnel cannot access an absent global.
+            .filter(|_| uses_heap)
+            .and_then(|meta| match meta.origin {
+                FunctionMetaOrigin::Source => Some(match meta.protocol {
+                    FunctionProtocolIr::OrdinaryCallAndConstruct if !meta.strict => {
+                        LegacyActivationMode::Exposable
+                    }
+                    FunctionProtocolIr::OrdinaryCallOnly
+                    | FunctionProtocolIr::OrdinaryCallAndConstruct
+                    | FunctionProtocolIr::Arrow
+                    | FunctionProtocolIr::Generator
+                    | FunctionProtocolIr::Async
+                    | FunctionProtocolIr::AsyncArrow
+                    | FunctionProtocolIr::AsyncGenerator
+                    | FunctionProtocolIr::ModuleActivation
+                    | FunctionProtocolIr::AsyncModuleActivation
+                    | FunctionProtocolIr::ObjectMethod(_)
+                    | FunctionProtocolIr::ObjectGetter
+                    | FunctionProtocolIr::ObjectSetter
+                    | FunctionProtocolIr::ClassConstructor
+                    | FunctionProtocolIr::ClassMethod(_)
+                    | FunctionProtocolIr::ClassGetter
+                    | FunctionProtocolIr::ClassSetter => LegacyActivationMode::Barrier,
+                }),
+                FunctionMetaOrigin::PreparedScript => match &module_state {
+                    FunctionModuleState::PreparedScript(unit) => match &unit.kind {
+                        PreparedScriptKind::DirectEval(_) => None,
+                        PreparedScriptKind::RealmScript | PreparedScriptKind::IndirectEval => {
+                            Some(LegacyActivationMode::Barrier)
+                        }
+                    },
+                    FunctionModuleState::Main(..) | FunctionModuleState::Internal => {
+                        unreachable!("prepared script meta requires prepared script state")
+                    }
+                },
+                FunctionMetaOrigin::StandardBuiltin => {
+                    if meta.standard_builtin == Some(StandardBuiltinId::BoundFunctionInvoker) {
+                        None
+                    } else {
+                        Some(LegacyActivationMode::Barrier)
+                    }
+                }
+                FunctionMetaOrigin::HostBuiltin => Some(LegacyActivationMode::Barrier),
+            });
+        let legacy_activation_locals = legacy_activation_mode
+            .map(|mode| LegacyActivationLocals::at(legacy_activation_base, mode));
         let object_read_error_realm_source =
             ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
         let object_mutation_error_realm_source =
@@ -3753,6 +3808,7 @@ impl<'a> FunctionBuilder<'a> {
             current_env_local,
             class_function_context_local,
             captured_direct_eval_execution_context_local,
+            legacy_activation_locals,
             active_private_environment_locals: Vec::new(),
             named_function_context_local,
             result_local: current_env_local + 1,
@@ -3760,9 +3816,12 @@ impl<'a> FunctionBuilder<'a> {
             completion_local: current_env_local + 3,
             completion_aux_local: current_env_local + 4,
             scratch_local,
-            temp_local_base: scratch_local
-                + 1
-                + u32::from(captured_direct_eval_execution_context_local.is_some()),
+            temp_local_base: legacy_activation_base
+                + if legacy_activation_locals.is_some() {
+                    LegacyActivationLocals::COUNT
+                } else {
+                    0
+                },
             temp_stack_depth: 0,
             max_temp_stack_depth: 0,
             environment_depth: 0,
@@ -4244,6 +4303,7 @@ impl<'a> FunctionBuilder<'a> {
         if self.uses_heap {
             self.init_current_realm(&mut function)?;
             self.init_current_env(&mut function)?;
+            self.emit_begin_legacy_activation(&mut function);
             self.initialize_direct_eval_execution_context(&mut function)?;
             if let FunctionModuleState::PreparedScript(unit) = self.module_state {
                 self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
@@ -4523,6 +4583,7 @@ impl<'a> FunctionBuilder<'a> {
             self.next_binding_local
         );
         self.pop_scope();
+        self.emit_end_legacy_activation(&mut function);
         self.verify_and_clear_runtime_gc_anchor_root(&mut function);
 
         match self.return_abi() {
@@ -4763,6 +4824,7 @@ impl<'a> FunctionBuilder<'a> {
             Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
         self.push_scope();
         self.init_current_env(&mut function)?;
+        self.emit_begin_legacy_activation(&mut function);
         self.initialize_direct_eval_execution_context(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
@@ -4863,6 +4925,7 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         self.pop_scope();
+        self.emit_end_legacy_activation(&mut function);
         function.instruction(&Instruction::LocalGet(self.result_local));
         function.instruction(&Instruction::LocalGet(self.result_tag_local));
         function.instruction(&Instruction::LocalGet(self.completion_local));

@@ -4,17 +4,59 @@ use lila_engine::{
 };
 
 #[test]
-fn legacy_caller_is_null_only_on_ordinary_sloppy_functions() {
+fn legacy_caller_and_arguments_track_ordinary_sloppy_activations() {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
     let source = r#"
 function inner() { return inner.caller; }
 function outer() { return inner(); }
 function strictOuter() { "use strict"; return outer(); }
+function strictImmediate() { "use strict"; return inner(); }
 var descriptor = Object.getOwnPropertyDescriptor(inner, 'caller');
-print(descriptor.value === null && !descriptor.writable && !descriptor.enumerable && !descriptor.configurable);
-print(inner.caller === null && outer() === null && strictOuter() === null);
-print(outer.call(null) === null && outer.apply(null) === null && outer.bind(null)() === null);
+var argumentsDescriptor = Object.getOwnPropertyDescriptor(inner, 'arguments');
+print(descriptor.value === null && !descriptor.writable && !descriptor.enumerable && !descriptor.configurable
+  && argumentsDescriptor.value === null && !argumentsDescriptor.writable
+  && !argumentsDescriptor.enumerable && !argumentsDescriptor.configurable);
+print(inner.caller === null && outer() === outer && strictOuter() === outer && strictImmediate() === null);
+print(outer.call(null) === outer && outer.apply(null) === outer && outer.bind(null)() === outer);
 print(Function().caller === null);
+function argumentsProbe(value) {
+  return argumentsProbe.arguments === arguments && argumentsProbe.arguments[0] === value
+    && Object.getOwnPropertyDescriptor(argumentsProbe, 'arguments').value === arguments;
+}
+print(argumentsProbe(5) && argumentsProbe.arguments === null);
+function recursive(depth) {
+  if (depth === 2) return recursive.arguments[0] === 2 && recursive.caller === recursive;
+  var outerArguments = recursive.arguments;
+  return recursive(2) && recursive.arguments === outerArguments && recursive.caller === null;
+}
+print(recursive(1) && recursive.arguments === null);
+function throwing() { throw 1; }
+function catchThrow() {
+  try { throwing(); } catch (error) {
+    return error === 1 && throwing.arguments === null && throwing.caller === null
+      && catchThrow.arguments !== null;
+  }
+  return false;
+}
+print(catchThrow() && catchThrow.arguments === null);
+function parameterCaller() { return parameterCaller.caller; }
+function parameterOwner(value = parameterCaller()) {
+  return value === parameterOwner && parameterOwner.arguments[0] === undefined;
+}
+print(parameterOwner() && parameterOwner.arguments === null);
+function descriptorInner() { return Object.getOwnPropertyDescriptor(descriptorInner, 'caller').value; }
+function descriptorOuter() { return descriptorInner() === descriptorOuter; }
+print(descriptorOuter() && Object.getOwnPropertyDescriptor(descriptorInner, 'caller').value === null);
+function callback() { return callback.caller; }
+function nativeOuter() { return [0].map(callback)[0] === null && Reflect.apply(callback, null, []) === null; }
+print(nativeOuter());
+var boundCallback = callback.bind(null);
+function boundOuter() { return boundCallback() === boundOuter; }
+print(boundOuter());
+function generatorChild() { return generatorChild.caller; }
+function* generatorBody() { yield generatorChild(); }
+function generatorOuter() { return generatorBody().next().value === null && generatorOuter.caller === null; }
+print(generatorOuter());
 function strictFunction() { "use strict"; }
 var object = { method() {}, get accessor() {} };
 var restricted = [
@@ -55,6 +97,6 @@ void 0;
     );
     assert_eq!(
         outcome.output_events,
-        vec![HostOutputEvent::PrintLine("true".to_string()); 8]
+        vec![HostOutputEvent::PrintLine("true".to_string()); 16]
     );
 }

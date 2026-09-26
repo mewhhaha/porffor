@@ -574,6 +574,7 @@ impl<'a> FunctionBuilder<'a> {
         let tag_local = self.reserve_temp_local();
         self.emit_arguments_object_payload(&protocol, function)?;
         function.instruction(&Instruction::LocalSet(payload_local));
+        self.emit_publish_legacy_arguments(payload_local, function);
         function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         self.write_binding_from_locals(storage, payload_local, tag_local, function);

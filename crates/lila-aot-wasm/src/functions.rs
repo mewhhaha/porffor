@@ -22,6 +22,8 @@ mod generator_instance_prototype;
 pub(crate) use function_name::FunctionNamePrefix;
 use generator_instance_prototype::GeneratorInstanceFamily;
 mod indirect_call;
+mod legacy_activation;
+pub(crate) use legacy_activation::{LegacyActivationLocals, LegacyActivationMode};
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
 mod required_resolved_realm_ordinary_prototype;
@@ -3387,26 +3389,28 @@ impl<'a> FunctionBuilder<'a> {
             );
         }
 
-        // The permitted legacy caller extension never exposes an activation.
-        // Builtin metadata is strict; only ordinary sloppy ECMAScript functions
-        // receive this immutable null property (ECMA-262, Forbidden Extensions).
+        // Only ordinary sloppy ECMAScript functions receive the permitted
+        // legacy reflection properties. Their descriptor flags never change;
+        // activation updates the stored values and restores them on exit.
         if !meta.strict && meta.protocol == FunctionProtocolIr::OrdinaryCallAndConstruct {
-            function.instruction(&Instruction::I64Const(self.strings.payload("caller")));
-            function.instruction(&Instruction::LocalSet(key_local));
-            function.instruction(&Instruction::I64Const(0));
-            function.instruction(&Instruction::LocalSet(proto_value_local));
-            function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
-            function.instruction(&Instruction::LocalSet(proto_tag_local));
-            self.emit_object_append_data_property_with_flags(
-                object_local,
-                key_local,
-                proto_value_local,
-                proto_tag_local,
-                false,
-                false,
-                false,
-                function,
-            )?;
+            for name in ["caller", "arguments"] {
+                function.instruction(&Instruction::I64Const(self.strings.payload(name)));
+                function.instruction(&Instruction::LocalSet(key_local));
+                function.instruction(&Instruction::I64Const(0));
+                function.instruction(&Instruction::LocalSet(proto_value_local));
+                function.instruction(&Instruction::I64Const(ValueKind::Null.tag() as i64));
+                function.instruction(&Instruction::LocalSet(proto_tag_local));
+                self.emit_object_append_data_property_with_flags(
+                    object_local,
+                    key_local,
+                    proto_value_local,
+                    proto_tag_local,
+                    false,
+                    false,
+                    false,
+                    function,
+                )?;
+            }
         }
 
         if !meta.length_name_configurable {

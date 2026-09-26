@@ -95,17 +95,32 @@ prototype identities are preserved. This seam changes which metadata states
 can be built; it does not broaden supported dynamic Function construction,
 proxy behavior, async/generator execution or class semantics.
 
-## Legacy caller property
+## Legacy caller and arguments properties
 
-Ordinary sloppy ECMAScript functions have an own `caller` data property whose
-value is always `null`, with `writable`, `enumerable`, and `configurable` all
-false. This implementation-defined extension does not expose the call stack.
+Ordinary sloppy ECMAScript functions have own `caller` and `arguments` data
+properties with `writable`, `enumerable`, and `configurable` all false. Their
+values are `null` while inactive. During an invocation, `arguments` holds the
+same object as the function's arguments binding, and `caller` holds the
+immediately enclosing sloppy ordinary function object when that caller is
+exposable. Recursive invocations save and restore both values. Reads through
+ordinary property access and `Object.getOwnPropertyDescriptor` agree.
+
+The compiler records source-function activation at body entry and restores it
+on normal return, throw completion, and generator suspension. Strict functions,
+arrows, methods, classes, generators, async functions, and native builtins
+censor the enclosing caller. Bound-function invocation is transparent to this
+stack; direct eval Script execution is transparent too. Indirect eval and Realm
+Scripts are barriers. Cross-Realm reflection remains an implementation-defined
+extension-policy limit and is not inferred from a shared function identity.
+
 Strict functions, arrows, methods, classes, generators, async functions, bound
-functions, and builtins do not receive this property and retain the inherited
-`%ThrowTypeError%` accessors on `Function.prototype`.
-
-This follows the [Forbidden Extensions restrictions](https://tc39.es/ecma262/multipage/error-handling-and-language-extensions.html#sec-forbidden-extensions):
-only ordinary sloppy functions may receive the legacy property, and its value
-must never expose a strict function. The protocol and strictness select this
-policy at function allocation, including source-free ordinary Function
-construction.
+functions, and builtins do not receive these properties and retain the inherited
+`%ThrowTypeError%` accessors on `Function.prototype`. This is an
+implementation-defined legacy reflection policy constrained by the
+[Forbidden Extensions restrictions](https://tc39.es/ecma262/multipage/error-handling-and-language-extensions.html#sec-forbidden-extensions):
+only ordinary sloppy functions may receive these properties, and reflection
+must never expose a strict function. The protocol and strictness select the
+allocation policy, including source-free ordinary Function construction. The
+pinned Mozilla staging tests exercise the caller-frame policy described in the
+[legacy-reflection proposal](https://github.com/claudepache/es-legacy-function-reflection/blob/master/spec.md),
+which is not a normative ECMA-262 algorithm.

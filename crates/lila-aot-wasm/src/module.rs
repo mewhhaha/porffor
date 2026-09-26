@@ -221,6 +221,9 @@ pub(crate) const INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 146;
 // The entry Realm's `%Intl%.[[FallbackSymbol]]`, appended after the previous
 // maximum. Created Realms keep theirs only in the Realm intrinsic record.
 pub(crate) const INTL_FALLBACK_SYMBOL_GLOBAL_INDEX: u32 = 147;
+/// The currently executing sloppy legacy source function, or zero across
+/// strict/newer source frames. Prepared eval Scripts leave this unchanged.
+pub(crate) const LEGACY_ACTIVE_CALLER_GLOBAL_INDEX: u32 = 148;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -865,6 +868,10 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
     GlobalIndexSlot {
         name: "%Intl%.[[FallbackSymbol]]",
         index: INTL_FALLBACK_SYMBOL_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[LegacyActiveCaller]]",
+        index: LEGACY_ACTIVE_CALLER_GLOBAL_INDEX,
     },
 ];
 
