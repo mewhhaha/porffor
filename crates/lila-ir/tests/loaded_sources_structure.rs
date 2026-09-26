@@ -210,8 +210,8 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
         ENGINE_LOADER_SOURCE.matches("ModuleGraphSources").count(),
         6
     );
-    // Includes `computed_import_gap`, the host's computed-specifier boundary.
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 9);
+    // Includes the computed-specifier boundary and both graph-cache regressions.
+    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 10);
 
     assert_eq!(OWNER_SOURCE.matches("ModuleSourceIr").count(), 4);
     assert_eq!(GRAPH_SOURCE.matches("ModuleSourceIr").count(), 1);
