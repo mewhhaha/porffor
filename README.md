@@ -30,7 +30,10 @@ failures, 12 require dynamic source generation and 23 remain required work.
 The affected-family replay passes **598/610**, including DateTimeFormat
 **478/490**, and confirms eight more required calendar failures. Across the
 checked inventories, 43 failures remain: 12 dynamic-source exclusions and 31
-required fixes. Focused checks pass; final broad verification is pending.
+required fixes. Final broad verification passes 4,522 core, 395 selected engine
+integration, 778 engine library and 806 CLI tests; one existing CLI stress test
+remains ignored. Exact revisions and commands are in the
+[worktree recovery checkpoint](docs/rust-rewrite/worktree-recovery-20260926.md).
 Only dynamic source generation through `eval`/`Function` is intentionally
 unsupported; other missing language, Intl, module and GC capabilities remain
 implementation requirements.
@@ -38,8 +41,7 @@ implementation requirements.
 The [Claude worktree audit](docs/rust-rewrite/worktree-recovery-20260926.md)
 recovered a hoisted lexical-capture type-inference fix and removed 36 inactive
 worktrees after preserving their heads and dirty files in local Git recovery refs.
-Its focused regression passes; broad verification after an environment reset
-is in progress.
+Its focused regression and the integrated broad checks above pass.
 
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,
@@ -120,7 +122,8 @@ Chinese, Buddhist, Indian, Persian, ROC, Dangi and Islamic Civil calendars and a
 numbering systems. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
 The Instant locale method now uses that intrinsic boundary with exact
-nanoseconds and called-method Realm semantics; its verification is pending.
+nanoseconds and called-method Realm semantics; its runtime checks pass in the
+2026-09-26 integrated checkpoint.
 Named zones use pinned IANA transitions and localized CLDR display names.
 See the [provider contract](docs/rust-rewrite/intl-datetime-provider.md) and
 [pinned profile details](docs/rust-rewrite/intl-datetime-locale-kernel.md).

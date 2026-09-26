@@ -52,7 +52,12 @@ and the corrected CLI locale fixture. Earlier Intl checks passed 251 tests;
 profile generation passed 28 Python tests and both generated data and identity
 checks. The first broad core run passed 4,510 tests and found 12 failures. Its
 size regressions, structural inventories and wildcard-panic issue are corrected;
-the final broad checkpoint is still pending.
+the final pre-reset core checkpoint passed all 4,522 tests. An environment
+reset interrupted engine verification and removed ignored `target/` artifacts.
+The [worktree recovery checkpoint](worktree-recovery-20260926.md) records the
+subsequent integrated verification after the recovered capture fix: 4,522 core,
+395 selected engine integration, 778 engine library and 806 main CLI tests pass;
+one existing CLI allocation stress test remains ignored.
 
 Review also repaired stale module-cache resolution identity, duplicated legacy
 activation cleanup in every abrupt guard, and activation restoration before
@@ -81,12 +86,15 @@ targeted inventory, not a full Test262 failure count.
 The [machine-readable record](failure-discovery-20260926.json) records execution
 IDs, diagnostics, binary identities and replay summaries. Complete affected-family
 execution sets are in the per-family receipts. Candidate provenance, replay
-drivers and receipts live under
-`target/failure-discovery-20260926/`; watched logs are
+drivers and receipts originally lived under
+`target/failure-discovery-20260926/`; these ignored artifacts were lost in the
+environment reset. Their recorded results remain in this committed JSON. The
+original watched log paths were
 `target/watched/failure-discovery-engine.log` and
-`target/watched/failure-discovery-candidates.log`. The replay command is
+`target/watched/failure-discovery-candidates.log`. The original replay driver was
 `python3 target/failure-discovery-20260926/replay_candidates.py` in the capped
-scope. A full publication requires the separate `test262 publish-status
+scope; it must be reconstructed from the committed case inventory after the
+environment reset. A full publication requires the separate `test262 publish-status
 --execution-backend wasm-aot` workflow.
 
 ## Required work beyond this repair batch
@@ -113,5 +121,7 @@ These remain implementation requirements, not intentional unsupported cases:
   removes one prerequisite; it does not collect the current integer-addressed
   JavaScript heap or implement weak reachability and finalization by itself.
 
-The read-only audits and exact missing-calendar lists are retained in
-`target/failure-discovery-20260926/remaining-implementation-audits.json`.
+The read-only audits originally lived in
+`target/failure-discovery-20260926/remaining-implementation-audits.json`; that
+ignored file was lost in the environment reset. The required-work summary
+above and per-failure owners in the committed JSON remain available.
