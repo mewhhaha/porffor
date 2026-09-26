@@ -66,10 +66,11 @@ for (const { label, args } of testCases) {
     toLocaleString: function (...receivedArgs) {
       let captured = "case:" + label;
       if (captured.length < 6) return "bad";
-      return String(receivedArgs.length);
+      return String(receivedArgs.length === 2
+        && receivedArgs[0] === args[0] && receivedArgs[1] === args[1]);
     }
   };
-  if ([spy].toLocaleString(...args) !== "0") failures |= 512;
+  if ([spy].toLocaleString(...args) !== "true") failures |= 512;
 }
 
 let rab = new ArrayBuffer(4, { maxByteLength: 8 });
