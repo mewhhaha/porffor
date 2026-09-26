@@ -64,6 +64,7 @@ impl ArrayInheritedIndexSetState {
 struct ValidatedToLocaleStringInvocationLocals {
     method: TaggedLocals,
     receiver: TaggedLocals,
+    arguments: [TaggedLocals; 2],
 }
 
 enum ArrayCallbackReceiverKind {
@@ -17295,6 +17296,7 @@ impl<'a> FunctionBuilder<'a> {
         receiver_kind: &ToLocaleStringReceiverKind,
         method: TaggedLocals,
         receiver: TaggedLocals,
+        arguments: [TaggedLocals; 2],
         function: &mut Function,
     ) -> Result<ValidatedToLocaleStringInvocationLocals, EmitError> {
         self.emit_is_callable_i32(method.tag, method.payload, function)?;
@@ -17317,7 +17319,11 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
 
-        Ok(ValidatedToLocaleStringInvocationLocals { method, receiver })
+        Ok(ValidatedToLocaleStringInvocationLocals {
+            method,
+            receiver,
+            arguments,
+        })
     }
 
     fn emit_call_validated_to_locale_string_invocation(
@@ -17326,14 +17332,21 @@ impl<'a> FunctionBuilder<'a> {
         result: TaggedLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let ValidatedToLocaleStringInvocationLocals { method, receiver } = invocation;
+        let ValidatedToLocaleStringInvocationLocals {
+            method,
+            receiver,
+            arguments: [locales, options],
+        } = invocation;
 
         self.emit_function_or_proxy_call_leave_throw_completion(
             method.payload,
             method.tag,
             receiver.payload,
             receiver.tag,
-            &[],
+            &[
+                (locales.payload, locales.tag),
+                (options.payload, options.tag),
+            ],
             result.payload,
             result.tag,
             function,
@@ -17359,6 +17372,12 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing {method_name} receiver tag"
             ))
         })?;
+        let locales_payload_local = self.reserve_temp_local();
+        let locales_tag_local = self.reserve_temp_local();
+        let options_payload_local = self.reserve_temp_local();
+        let options_tag_local = self.reserve_temp_local();
+        self.emit_builtin_arg_to_locals(0, locales_payload_local, locales_tag_local, function);
+        self.emit_builtin_arg_to_locals(1, options_payload_local, options_tag_local, function);
         let len_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
@@ -17530,6 +17549,10 @@ impl<'a> FunctionBuilder<'a> {
             &receiver_kind,
             TaggedLocals::new(method_payload_local, method_tag_local),
             TaggedLocals::new(original_element_payload_local, original_element_tag_local),
+            [
+                TaggedLocals::new(locales_payload_local, locales_tag_local),
+                TaggedLocals::new(options_payload_local, options_tag_local),
+            ],
             function,
         )?;
         self.emit_call_validated_to_locale_string_invocation(
@@ -17574,6 +17597,10 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(key_local);
         self.release_temp_local(index_local);
         self.release_temp_local(len_local);
+        self.release_temp_local(options_tag_local);
+        self.release_temp_local(options_payload_local);
+        self.release_temp_local(locales_tag_local);
+        self.release_temp_local(locales_payload_local);
         Ok(())
     }
 

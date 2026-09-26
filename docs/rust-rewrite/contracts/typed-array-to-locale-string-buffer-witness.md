@@ -111,7 +111,7 @@ value before any temporary object conversion, perform the `GetV`-equivalent
 lookup, and pass the method and original receiver through the private,
 non-`Copy` `ValidatedToLocaleStringInvocationLocals` token. The token's sole
 consumer remains Proxy-aware, passes the original element as `this` with an
-empty argument list, propagates abrupt completion, converts the returned value
+two-argument locale/options list, propagates abrupt completion, converts the returned value
 to a string and only then appends it. The buffer witness must precede every such
 lookup, validation and call. The separate
 [`array-to-locale-string-invocation.md`](array-to-locale-string-invocation.md)
@@ -152,7 +152,7 @@ The regression must pin all of the following:
   policy inversion between the wrappers and witness branch;
 - the existing validated element-invocation token remains downstream of the
   witness and its sole Proxy-aware consumer still receives the original
-  element and an empty argument list; and
+  element and an two-argument locale/options list; and
 - every temporary local reserved by the shared compiler is unique, final result
   publication precedes the first release, and the derived release sequence is
   the exact reverse of the reservation sequence.

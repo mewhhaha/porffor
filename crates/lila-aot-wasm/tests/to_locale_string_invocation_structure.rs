@@ -83,7 +83,14 @@ fn invocation_token_has_one_validator_and_one_proxy_aware_consumer() {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    assert_eq!(fields, ["method: TaggedLocals,", "receiver: TaggedLocals,"]);
+    assert_eq!(
+        fields,
+        [
+            "method: TaggedLocals,",
+            "receiver: TaggedLocals,",
+            "arguments: [TaggedLocals; 2],"
+        ]
+    );
     assert_eq!(
         ARRAY_SOURCE
             .matches("ValidatedToLocaleStringInvocationLocals {")
@@ -137,7 +144,10 @@ fn invocation_token_has_one_validator_and_one_proxy_aware_consumer() {
     assert!(consumer.contains("method.tag,"));
     assert!(consumer.contains("receiver.payload,"));
     assert!(consumer.contains("receiver.tag,"));
-    assert!(consumer.contains("&[],"));
+    assert!(consumer.contains("arguments: [locales, options]"));
+    assert!(consumer.contains("(locales.payload, locales.tag),"));
+    assert!(consumer.contains("(options.payload, options.tag),"));
+    assert!(!consumer.contains("&[],"));
     assert!(!consumer.contains("emit_is_callable_i32("));
     assert!(!consumer.contains("emit_function_handle_call"));
 }

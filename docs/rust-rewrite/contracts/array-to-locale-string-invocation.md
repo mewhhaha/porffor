@@ -2,12 +2,15 @@
 
 ## Semantic boundary
 
-ECMA-262 specifies
+ECMA-402 extends the ECMA-262 algorithms for
 [`Array.prototype.toLocaleString`](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-array.prototype.tolocalestring)
 by applying
 [`Invoke(element, "toLocaleString")`](https://tc39.es/ecma262/multipage/abstract-operations.html#sec-invoke)
 to every non-nullish element. `Invoke` first performs `GetV` and then calls the
-result with the exact original element as `this` and an empty argument list.
+result with the exact original element as `this`. The
+[ECMA-402 supplement](https://tc39.es/ecma402/#sup-array.prototype.tolocalestring)
+requires exactly two arguments, `locales` and `options`, including explicit
+`undefined` values when omitted. Neither argument is coerced by the collection.
 The distinct
 [`%TypedArray%.prototype.toLocaleString`](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-%typedarray%.prototype.tolocalestring)
 method validates its receiver and obtains its length differently, then uses the
@@ -33,11 +36,12 @@ supply their method names and their element-method-not-callable messages.
 After `GetV`, the general `IsCallable` gate is emitted by one validator. The
 validator's success value is a private, non-`Copy`
 `ValidatedToLocaleStringInvocationLocals` token containing both the exact
-tagged method and the exact original element receiver. Its failure path always
+tagged method, the exact original element receiver, and a fixed two-element
+array containing the locale and options values. Its failure path always
 uses the current-function-realm TypeError helper.
 
 The token's only consumer takes ownership and emits the Proxy-aware call with
-the token's receiver and an empty argument list. Raw method and receiver locals
+the token's receiver and its two locale arguments. Raw method and receiver locals
 cannot be passed to that boundary independently, so a later refactor cannot
 silently validate one value and call another or substitute the temporary boxed
 lookup target for the original receiver.
@@ -47,7 +51,7 @@ lookup target for the original receiver.
 The focused CLI fixture exercises main- and foreign-realm Array methods with a
 non-callable element method, and the foreign TypedArray method through its
 realm-local Number prototype. It also fixes the successful boundary with a
-callable Proxy, exact receiver identity and zero arguments, and proves that a
+callable Proxy, exact receiver identity and two undefined locale arguments, and proves that a
 revoked Proxy retains a callable `typeof` shape before the invocation throws.
 Together with the structural assertion that the validator uses the general
 `IsCallable` helper, that case proves the throw comes from revoked Proxy
@@ -56,7 +60,7 @@ Together with the structural assertion that the validator uses the general
 A bounded Rust source-structure test keeps the receiver domain closed, the
 token private and non-`Copy`, and the validator and consuming call boundary
 unique. It rejects the entry-realm error helper in the validator, raw call or
-callability operations in the shared loop, a non-empty argument list, and a
+callability operations in the shared loop, a dropped locale argument list, and a
 call that precedes validation.
 
 ## Baseline disclosure and nonclaims
@@ -69,6 +73,10 @@ statically preserves the original primitive through GetV and Proxy-aware Call;
 the focused structure and CLI fixture pass on the current working tree. Pinned
 Test262 execution remains deferred, so this carries no current-SHA
 baseline-delta or full-subtree-green claim.
+
+The 2026-09-26 forwarding repair adds runtime witnesses for argument identity,
+omitted and extra arguments, Number and BigInt TypedArrays, and Thai digits with
+fraction options. Verification is recorded in the discovery batch checkpoint.
 
 This change does not complete compiler-wide `GetV`, ECMA-402 locale formatting,
 Array exotic descriptors, species or constructor realms.

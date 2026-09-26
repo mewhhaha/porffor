@@ -2340,6 +2340,17 @@ impl RuntimeBootstrapPlan {
         }
         if matches!(
             builtin,
+            StandardBuiltinId::ArrayPrototypeToLocaleString
+                | StandardBuiltinId::TypedArrayPrototypeToLocaleString
+        ) {
+            // Element methods are reached by ordinary property lookup inside
+            // the collection builtin, without a source-level numeric call.
+            // Retain both primitive families and their Intl dependencies.
+            self.require_standard_builtin(StandardBuiltinId::NumberPrototypeToLocaleString);
+            self.require_standard_builtin(StandardBuiltinId::BigIntPrototypeToLocaleString);
+        }
+        if matches!(
+            builtin,
             StandardBuiltinId::NumberPrototypeToLocaleString
                 | StandardBuiltinId::BigIntPrototypeToLocaleString
         ) {

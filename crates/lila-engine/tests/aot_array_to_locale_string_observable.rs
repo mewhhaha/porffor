@@ -489,3 +489,85 @@ correct === 3;
         HostSurfacePolicy::Test262,
     );
 }
+
+#[test]
+fn element_locale_calls_forward_exactly_two_uncoerced_arguments() {
+    assert_wasm_aot_boolean(
+        "element_locale_calls_forward_exactly_two_uncoerced_arguments",
+        r#"
+var locales = { toString() { throw "locales must not be coerced by the collection"; } };
+var options = { get minimumFractionDigits() { throw "options must not be read by the collection"; } };
+var calls = 0;
+var element;
+var method = new Proxy(function () { throw "proxy target"; }, {
+  apply(target, receiver, args) {
+    if (receiver !== element || args.length !== 2) throw "invocation shape";
+    if (calls === 0) {
+      if (args[0] !== locales || args[1] !== options) throw "argument identity";
+    } else if (args[0] !== undefined || args[1] !== undefined) {
+      throw "missing arguments";
+    }
+    calls++;
+    return "ok";
+  }
+});
+element = { toLocaleString: method };
+if ([element].toLocaleString(locales, options, "ignored") !== "ok") throw "explicit";
+if ([element].toLocaleString() !== "ok") throw "omitted";
+Number.prototype.toLocaleString = function (actualLocales, actualOptions) {
+  "use strict";
+  if (arguments.length !== 2 || actualLocales !== locales || actualOptions !== options) {
+    throw "typed argument identity";
+  }
+  if (typeof this !== "number") throw "unboxed number";
+  return "number";
+};
+BigInt.prototype.toLocaleString = function (actualLocales, actualOptions) {
+  "use strict";
+  if (arguments.length !== 2 || actualLocales !== locales || actualOptions !== options) {
+    throw "bigint argument identity";
+  }
+  if (typeof this !== "bigint") throw "unboxed bigint";
+  return "bigint";
+};
+calls === 2 &&
+  new Uint8Array([1, 2]).toLocaleString(locales, options, "ignored") === "number,number" &&
+  new BigInt64Array([1n]).toLocaleString(locales, options) === "bigint";
+"#,
+    );
+}
+
+#[test]
+fn collection_locale_formatting_matches_number_with_locale_and_fraction_options() {
+    assert_wasm_aot_boolean(
+        "collection_locale_formatting_matches_number_with_locale_and_fraction_options",
+        r#"
+var locales = "th-u-nu-thai";
+var options = { minimumFractionDigits: 3 };
+var expected = (0).toLocaleString(locales, options);
+expected === "๐.๐๐๐" &&
+  [0].toLocaleString(locales, options) === expected &&
+  new Float64Array([0]).toLocaleString(locales, options) === expected;
+"#,
+    );
+}
+
+#[test]
+fn collection_locale_entrypoints_retain_their_number_formatting_dependencies() {
+    for (name, source) in [
+        (
+            "array_locale_dependencies",
+            r#"[0].toLocaleString("th-u-nu-thai", { minimumFractionDigits: 3 }) === "๐.๐๐๐";"#,
+        ),
+        (
+            "typed_array_locale_dependencies",
+            r#"new Float64Array([0]).toLocaleString("th-u-nu-thai", { minimumFractionDigits: 3 }) === "๐.๐๐๐";"#,
+        ),
+        (
+            "bigint_typed_array_locale_dependencies",
+            r#"new BigInt64Array([0n]).toLocaleString("th-u-nu-thai", { minimumFractionDigits: 3 }) === "๐.๐๐๐";"#,
+        ),
+    ] {
+        assert_wasm_aot_boolean(name, source);
+    }
+}
