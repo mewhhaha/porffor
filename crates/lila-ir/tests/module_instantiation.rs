@@ -66,19 +66,116 @@ fn bytes_module_initialization_uses_trusted_intrinsics_in_private_activation() {
         resolutions: vec![(0, request, 1)],
     });
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-    let script = format!("{:?}", program.script.expect("linked Script"));
-    for (intrinsic, count) in [
-        (StandardBuiltinId::Uint8ArrayConstructor, 2),
-        (StandardBuiltinId::ReflectApply, 2),
-        (StandardBuiltinId::TypedArrayPrototypeBufferGetter, 1),
+    let script = program.script.expect("linked Script");
+    let bytes_activation = activation_graph(&script)
+        .expect("private module graph")
+        .activations()
+        .iter()
+        .find(|activation| activation.module() == 1)
+        .expect("bytes module has an activation");
+    let private_owner = script
+        .functions
+        .iter()
+        .find(|function| &function.id == bytes_activation.function())
+        .expect("bytes activation owns a function");
+    let callees = private_owner
+        .body
+        .statements
+        .iter()
+        .filter_map(|statement| {
+            let StatementIr::Lexical { init, .. } = statement else {
+                return None;
+            };
+            let ExprIr::CallIndirect { callee, .. } = &init.expr else {
+                return None;
+            };
+            let ExprIr::FunctionValue(id) = &callee.expr else {
+                return None;
+            };
+            Some(id)
+        })
+        .collect::<Vec<_>>();
+    let [iife_id] = callees.as_slice() else {
+        panic!("bytes activation calls one generated initializer IIFE")
+    };
+    let iife = script
+        .functions
+        .iter()
+        .find(|function| &function.id == *iife_id)
+        .expect("the invoked initializer is emitted");
+
+    let lexical = |name: &str| {
+        iife.body.statements.iter().find_map(|statement| {
+            let StatementIr::Lexical {
+                name: binding,
+                init,
+                ..
+            } = statement
+            else {
+                return None;
+            };
+            (binding == name).then_some(init)
+        })
+    };
+    let ExprIr::Construct {
+        callee: view_constructor,
+        args: view_args,
+        ..
+    } = &lexical("view").expect("view initializer").expr
+    else {
+        panic!("initial view uses Construct")
+    };
+    assert_eq!(
+        view_constructor.expr,
+        ExprIr::FunctionValue(StandardBuiltinId::Uint8ArrayConstructor.function_id())
+    );
+    assert_eq!(view_args.len(), 1);
+    assert_eq!(view_args[0].expr, ExprIr::Number(3.0_f64.to_bits()));
+
+    for (binding, intrinsic) in [
+        ("buffer", StandardBuiltinId::TypedArrayPrototypeBufferGetter),
         (
+            "immutable",
             StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
-            1,
         ),
     ] {
-        let marker = format!("FunctionValue({:?})", intrinsic.function_id());
-        assert_eq!(script.matches(&marker).count(), count, "{marker}: {script}");
+        let ExprIr::CallIndirect { callee, args, .. } =
+            &lexical(binding).expect("intrinsic call binding").expr
+        else {
+            panic!("{binding} uses a call")
+        };
+        assert_eq!(
+            callee.expr,
+            ExprIr::FunctionValue(StandardBuiltinId::ReflectApply.function_id()),
+            "{binding} calls the private apply intrinsic"
+        );
+        assert_eq!(
+            args.len(),
+            3,
+            "{binding} supplies target, receiver, arguments"
+        );
+        assert_eq!(
+            args[0].expr,
+            ExprIr::FunctionValue(intrinsic.function_id()),
+            "{binding} uses its private getter or transfer method"
+        );
     }
+
+    let returned = iife.body.statements.iter().find_map(|statement| {
+        let StatementIr::Return(value) = statement else {
+            return None;
+        };
+        Some(value)
+    });
+    let ExprIr::Construct { callee, args, .. } = &returned.expect("final view return").expr else {
+        panic!("final immutable-buffer view uses Construct")
+    };
+    assert_eq!(
+        callee.expr,
+        ExprIr::FunctionValue(StandardBuiltinId::Uint8ArrayConstructor.function_id())
+    );
+    assert_eq!(args.len(), 1);
+    assert_eq!(args[0].expr, ExprIr::Identifier("immutable".into()));
 }
 
 #[test]
