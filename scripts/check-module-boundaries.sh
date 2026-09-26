@@ -2911,9 +2911,9 @@ require_fixed_string_count \
   'fn run_wasm_backend_succeeds_for_heap_rooted_bound_function_fixture()' \
   1 \
   'bound-function heap-rooting regression'
-# Measured after closing eight fixed entries: 508 raw lines. The narrow margin
-# is for maintenance of this family, not adjacent builtin implementations.
-check_raw_line_budget "$wasm_function_builtins" 525
+# Measured after call/apply activation-tail handling: 526 raw lines. The narrow
+# margin is for maintenance of this family, not adjacent builtin implementations.
+check_raw_line_budget "$wasm_function_builtins" 530
 
 wasm_date_builtins="crates/lila-aot-wasm/src/builtins/date.rs"
 wasm_date_local_string="crates/lila-aot-wasm/src/builtins/date/local_string.rs"
