@@ -1208,7 +1208,10 @@ fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(
-        stdout.contains("const-capture-return-kind:object:1:object:2:3:function:7:true:11:undefined"),
+        stdout.contains(concat!(
+            "const-capture-return-kind:object:1:object:2:3:",
+            "function:7:true:11:undefined"
+        )),
         "{stdout}"
     );
 }
