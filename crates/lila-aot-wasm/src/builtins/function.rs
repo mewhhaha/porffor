@@ -192,6 +192,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_rest_array_payload(1, function)?;
                 function.instruction(&Instruction::LocalSet(argv_local));
 
+                self.emit_prepare_legacy_tail_call(function);
                 self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
                     receiver.payload_local(),
                     receiver.tag_local(),
@@ -269,6 +270,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 );
 
+                self.emit_prepare_legacy_tail_call(function);
                 self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
                     receiver.payload_local(),
                     receiver.tag_local(),

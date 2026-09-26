@@ -570,6 +570,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.load_i64_to_local_from_offset(argv_local, HEAP_LEN_OFFSET, argc_local, function);
+        self.emit_prepare_legacy_tail_call(function);
         self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
             target_payload_local,
             target_tag_local,

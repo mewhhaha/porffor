@@ -266,6 +266,19 @@ impl FunctionBuilder<'_> {
         );
     }
 
+    /// `Function.prototype.call`, `Function.prototype.apply`, and
+    /// `Reflect.apply` perform PrepareForTailCall after validating and
+    /// collecting arguments. Their native context censors callbacks during
+    /// that work, but is no longer the target's parent when Call begins.
+    pub(crate) fn emit_prepare_legacy_tail_call(&self, function: &mut Function) {
+        let Some(locals) = self.legacy_activation_locals else {
+            return;
+        };
+        debug_assert!(matches!(locals.mode, LegacyActivationMode::Barrier));
+        function.instruction(&Instruction::LocalGet(locals.previous));
+        function.instruction(&Instruction::GlobalSet(LEGACY_ACTIVE_CALLER_GLOBAL_INDEX));
+    }
+
     pub(crate) fn emit_end_legacy_activation(&self, function: &mut Function) {
         let Some(locals) = self.legacy_activation_locals else {
             return;

@@ -70,8 +70,50 @@ function descriptorInner() { return Object.getOwnPropertyDescriptor(descriptorIn
 function descriptorOuter() { return descriptorInner() === descriptorOuter; }
 print(descriptorOuter() && Object.getOwnPropertyDescriptor(descriptorInner, 'caller').value === null);
 function callback() { return callback.caller; }
-function nativeOuter() { return [0].map(callback)[0] === null && Reflect.apply(callback, null, []) === null; }
+function nativeOuter() { return [0].map(callback)[0] === null && Reflect.apply(callback, null, []) === nativeOuter; }
 print(nativeOuter());
+var extractedCall = Function.prototype.call;
+var extractedApply = Function.prototype.apply;
+var extractedReflectApply = Reflect.apply;
+function tailTarget() { return tailTarget.caller; }
+function tailOuter() {
+  return tailTarget['call'](null) === tailOuter
+    && tailTarget['apply'](null, []) === tailOuter
+    && extractedCall.call(tailTarget, null) === tailOuter
+    && extractedApply.call(tailTarget, null, []) === tailOuter
+    && extractedReflectApply(tailTarget, null, []) === tailOuter;
+}
+print(tailOuter());
+var observedGetterCaller = undefined;
+var arrayLike = {};
+Object.defineProperty(arrayLike, 'length', {
+  get: function lengthGetter() {
+    observedGetterCaller = lengthGetter.caller;
+    return 0;
+  }
+});
+function applyGetterOuter() {
+  if (extractedApply.call(tailTarget, null, arrayLike) !== applyGetterOuter
+      || observedGetterCaller !== null) return false;
+  observedGetterCaller = undefined;
+  return extractedReflectApply(tailTarget, null, arrayLike) === applyGetterOuter
+    && observedGetterCaller === null;
+}
+print(applyGetterOuter());
+function throwTail() { throw 7; }
+function abruptTailOuter() {
+  var invocations = [
+    () => extractedCall.call(throwTail, null),
+    () => extractedApply.call(throwTail, null, []),
+    () => extractedReflectApply(throwTail, null, [])
+  ];
+  for (var invocation of invocations) {
+    try { invocation(); return false; }
+    catch (error) { if (error !== 7 || tailTarget() !== abruptTailOuter) return false; }
+  }
+  return true;
+}
+print(abruptTailOuter());
 var boundCallback = callback.bind(null);
 function boundOuter() { return boundCallback() === boundOuter; }
 print(boundOuter());
@@ -119,6 +161,6 @@ void 0;
     );
     assert_eq!(
         outcome.output_events,
-        vec![HostOutputEvent::PrintLine("true".to_string()); 17]
+        vec![HostOutputEvent::PrintLine("true".to_string()); 20]
     );
 }
