@@ -20,6 +20,15 @@ integration, and 774 engine library tests passed; the main CLI suite passed
 806 tests with one existing ignored stress test. Exact revisions and refresh
 commands are in the checkpoint.
 
+The [2026-09-26 discovery checkpoint](docs/rust-rewrite/failure-discovery-20260926.md)
+confirms 19 additional failing executions outside that inventory and 74 passing
+engine integration tests. The repair batch adds collection locale-argument
+forwarding, active sloppy-function reflection, bytes modules, and DateTimeFormat
+Japanese, Dangi and Islamic Civil data. Integrated runtime verification is pending.
+Only dynamic source generation through `eval`/`Function` is intentionally
+unsupported; other missing language, Intl, module and GC capabilities remain
+implementation requirements.
+
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,
 two-failure run. It completes 26 groups with 196 passes and one incorrect
@@ -50,8 +59,10 @@ On 2026-09-25 the same command passed `built-ins/ArrayBuffer` 442/442,
 1122/1122, `Atomics` 778/778, `SharedArrayBuffer` 206/208 and `Uint8Array`
 140/140. The remaining failures are the six `copyWithin` executions and two
 `ctors` executions below and the dynamic-code `SharedArrayBuffer`
-`proto-from-ctor-realm.js`. The five `language/import/import-bytes` cases, no
-longer masked by the gate, fail because bytes-module imports are unimplemented.
+`proto-from-ctor-realm.js`. The five `language/import/import-bytes` cases failed
+at that checkpoint. The 2026-09-26 batch implements
+[bytes-module loading and intrinsic initialization](docs/rust-rewrite/contracts/import-bytes.md);
+its integrated verification is pending.
 Upstream now runs the six `copyWithin` `coerced-values-*-detached*` executions
 through every argument factory, and `copyIntoArrayBuffer`'s element-wise index
 stores used to exhaust the Wasm heap. A runtime Number key now reaches a
@@ -92,8 +103,8 @@ Published conformance counts are unchanged.
 
 The direct Wasm `Intl.DateTimeFormat` path now uses a pure host provider for
 pinned CLDR 47 patterns, calendar fields and parts. Its locale profiles cover
-`en`/`en-US`, `ar`/`ar-EG`, Simplified Chinese and `de`/`de-DE`, with Gregorian, ISO8601,
-Chinese, Buddhist, Indian, Persian and ROC calendars and all 77 positional
+`en`/`en-US`, `ar`/`ar-EG`, Simplified Chinese, `de`/`de-DE` and `ja`, with Gregorian, ISO8601,
+Chinese, Buddhist, Indian, Persian, ROC, Dangi and Islamic Civil calendars and all 77 positional
 numbering systems. Date and Plain
 Temporal locale methods share the same constructor and formatting boundary.
 The Instant locale method now uses that intrinsic boundary with exact

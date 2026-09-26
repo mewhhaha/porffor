@@ -49,6 +49,13 @@ cannot silently fall back to the null collector. DRC cannot collect cycles;
 T05's cyclic-graph acceptance criterion therefore requires a cycle-capable
 lower-bound update, not a hand-written parallel collector.
 
+The 2026-09-26 runtime review found that newer Wasmtime releases supply a
+copying collector with cycle collection; see the
+[upstream announcement](https://bytecodealliance.org/articles/wasmtime-gc).
+Runtime upgrade and Lila's semantic object migration remain required work.
+The pinned DRC limitation is not a permanent exclusion from the conformance
+goal.
+
 The same product policy records weak reachability separately as
 `WasmWeakReachabilityCapability::Unavailable`. Wasm GC and DRC do not expose
 the weak-reference or ephemeron operations T21 needs, and typed engine-setup

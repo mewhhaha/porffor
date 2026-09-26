@@ -1,0 +1,437 @@
+{
+  "baseline_revision": "3979f0116a67207a9afa90dcddec55df110094b6",
+  "test262_tree": "91b2052adad1f066ae031e2ff3a1e9bd6d732886",
+  "previous_remaining": 34,
+  "additional_failing_executions": 19,
+  "known_unresolved_at_discovery": 53,
+  "intentional_unsupported_category": "eval/Function dynamic source generation only; every other failure remains required work",
+  "additional_engine_verification": {
+    "revision": "3979f0116a67207a9afa90dcddec55df110094b6",
+    "targets": [
+      "aot_async_disposable_stack_realm",
+      "aot_created_realm_async_disposable_stack",
+      "aot_created_realm_disposable_stack",
+      "aot_created_realm_dynamic_functions",
+      "aot_async_if",
+      "aot_async_property_assignment",
+      "aot_module_async_lifecycle",
+      "aot_prepared_dynamic_function",
+      "aot_dynamic_source_capability"
+    ],
+    "completed_targets": 9,
+    "passed": 74,
+    "failed": 0,
+    "ignored": 0,
+    "log": "target/watched/failure-discovery-engine.log"
+  },
+  "candidate_replay": [
+    {
+      "path": "intl402/DateTimeFormat/canonicalize-calendar.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+          "test_path": "intl402/DateTimeFormat/canonicalize-calendar.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1624592: calendar ID is canonicalized (option) Expected SameValue(\u00ab\"gregory\"\u00bb, \u00ab\"islamic-civil\"\u00bb) to be true)",
+          "detail_hash": 1416322910064825068,
+          "duration_ms": 2504
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+          "test_path": "intl402/DateTimeFormat/canonicalize-calendar.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1623584: calendar ID is canonicalized (option) Expected SameValue(\u00ab\"gregory\"\u00bb, \u00ab\"islamic-civil\"\u00bb) to be true)",
+          "detail_hash": 1416322910064825068,
+          "duration_ms": 2505
+        }
+      ],
+      "seconds": 3,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+        "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+        "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js"
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1837232: plain datetimes Expected SameValue(\u00ab\"8/4/2021, 12:30:45 AM\u2009\u2013\u200911:30:45 PM\"\u00bb, \u00ab\"8/4/2021, 12:30:45\u202fAM\u2009\u2013\u200911:30:45\u202fPM\"\u00bb) to be true)",
+          "detail_hash": 858667115626938604,
+          "duration_ms": 4565
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1836224: plain datetimes Expected SameValue(\u00ab\"8/4/2021, 12:30:45 AM\u2009\u2013\u200911:30:45 PM\"\u00bb, \u00ab\"8/4/2021, 12:30:45\u202fAM\u2009\u2013\u200911:30:45\u202fPM\"\u00bb) to be true)",
+          "detail_hash": 858667115626938604,
+          "duration_ms": 4585
+        }
+      ],
+      "seconds": 5,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js"
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1871944: relatedYear component of 2000-01-01T00:00Z formatted in dangi is missing Expected SameValue(\u00abundefined\u00bb, \u00abundefined\u00bb) to be false)",
+          "detail_hash": 4223080520659359396,
+          "duration_ms": 4455
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1870928: relatedYear component of 2000-01-01T00:00Z formatted in dangi is missing Expected SameValue(\u00abundefined\u00bb, \u00abundefined\u00bb) to be false)",
+          "detail_hash": 4223080520659359396,
+          "duration_ms": 4455
+        }
+      ],
+      "seconds": 5,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js"
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39219504: Invalid Temporal.PlainDate calendar)",
+          "detail_hash": 2791049318722056472,
+          "duration_ms": 8288
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39218488: Invalid Temporal.PlainDate calendar)",
+          "detail_hash": 2791049318722056472,
+          "duration_ms": 8247
+        }
+      ],
+      "seconds": 8,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js"
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+          "test_path": "intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1705472: Expected SameValue(\u00ab\"h12\"\u00bb, \u00ab\"h11\"\u00bb) to be true)",
+          "detail_hash": 15850417412191400426,
+          "duration_ms": 2483
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+          "test_path": "intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1704464: Expected SameValue(\u00ab\"h12\"\u00bb, \u00ab\"h11\"\u00bb) to be true)",
+          "detail_hash": 15850417412191400426,
+          "duration_ms": 2494
+        }
+      ],
+      "seconds": 3,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+        "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+        "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js"
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/this-value-ignored.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+          "test_path": "intl402/DateTimeFormat/this-value-ignored.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3879976: target is not a constructor (Testing with Collator.))",
+          "detail_hash": 11781732306752878816,
+          "duration_ms": 5954
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/this-value-ignored.js",
+          "test_path": "intl402/DateTimeFormat/this-value-ignored.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3878960: target is not a constructor (Testing with Collator.))",
+          "detail_hash": 11781732306752878816,
+          "duration_ms": 5963
+        }
+      ],
+      "seconds": 6,
+      "original_failing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+        "strict-script:intl402/DateTimeFormat/this-value-ignored.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+        "strict-script:intl402/DateTimeFormat/this-value-ignored.js"
+      ]
+    },
+    {
+      "path": "intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "sloppy-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+          "test_path": "intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1737768: Expected SameValue(\u00ab\"0\"\u00bb, \u00ab\"\u0e50.\u0e50\u0e50\u0e50\"\u00bb) to be true (Testing with Float64Array and makePassthrough.))",
+          "detail_hash": 693060970424062606,
+          "duration_ms": 3761
+        },
+        {
+          "test_id": "strict-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+          "test_path": "intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1736760: Expected SameValue(\u00ab\"0\"\u00bb, \u00ab\"\u0e50.\u0e50\u0e50\u0e50\"\u00bb) to be true (Testing with Float64Array and makePassthrough.))",
+          "detail_hash": 693060970424062606,
+          "duration_ms": 3722
+        }
+      ],
+      "seconds": 4,
+      "original_failing_ids": [
+        "sloppy-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+        "strict-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js"
+      ],
+      "completed_ids": [
+        "sloppy-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+        "strict-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js"
+      ]
+    },
+    {
+      "path": "language/import/import-bytes/bytes-from-empty.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "module:language/import/import-bytes/bytes-from-empty.js",
+          "test_path": "language/import/import-bytes/bytes-from-empty.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] unresolved module request: ./bytes-from-empty_FIXTURE.bin",
+          "detail_hash": 16243946774243629681,
+          "duration_ms": 201
+        }
+      ],
+      "seconds": 0,
+      "original_failing_ids": [
+        "module:language/import/import-bytes/bytes-from-empty.js"
+      ],
+      "completed_ids": [
+        "module:language/import/import-bytes/bytes-from-empty.js"
+      ]
+    },
+    {
+      "path": "language/import/import-bytes/bytes-from-js.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "module:language/import/import-bytes/bytes-from-js.js",
+          "test_path": "language/import/import-bytes/bytes-from-js.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] unresolved module request: ./bytes-from-js_FIXTURE.js",
+          "detail_hash": 1798650575465769216,
+          "duration_ms": 181
+        }
+      ],
+      "seconds": 0,
+      "original_failing_ids": [
+        "module:language/import/import-bytes/bytes-from-js.js"
+      ],
+      "completed_ids": [
+        "module:language/import/import-bytes/bytes-from-js.js"
+      ]
+    },
+    {
+      "path": "language/import/import-bytes/bytes-from-json.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "module:language/import/import-bytes/bytes-from-json.js",
+          "test_path": "language/import/import-bytes/bytes-from-json.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] unresolved module request: ./bytes-from-json_FIXTURE.json",
+          "detail_hash": 8741051477548135829,
+          "duration_ms": 191
+        }
+      ],
+      "seconds": 0,
+      "original_failing_ids": [
+        "module:language/import/import-bytes/bytes-from-json.js"
+      ],
+      "completed_ids": [
+        "module:language/import/import-bytes/bytes-from-json.js"
+      ]
+    },
+    {
+      "path": "language/import/import-bytes/bytes-from-png.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "module:language/import/import-bytes/bytes-from-png.js",
+          "test_path": "language/import/import-bytes/bytes-from-png.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] unresolved module request: ./bytes-from-png_FIXTURE.png",
+          "detail_hash": 2905237366220619832,
+          "duration_ms": 181
+        }
+      ],
+      "seconds": 0,
+      "original_failing_ids": [
+        "module:language/import/import-bytes/bytes-from-png.js"
+      ],
+      "completed_ids": [
+        "module:language/import/import-bytes/bytes-from-png.js"
+      ]
+    },
+    {
+      "path": "language/import/import-bytes/bytes-from-txt.js",
+      "binary_sha256": "c422744ea6aab2bf6c5ea422fa7bc460618b01e7c0d88cd4c7ae28b609b19d44",
+      "returncode": 1,
+      "complete": true,
+      "total": 1,
+      "passed": 0,
+      "failures": [
+        {
+          "test_id": "module:language/import/import-bytes/bytes-from-txt.js",
+          "test_path": "language/import/import-bytes/bytes-from-txt.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] unresolved module request: ./bytes-from-txt_FIXTURE.txt",
+          "detail_hash": 14735997207915535413,
+          "duration_ms": 181
+        }
+      ],
+      "seconds": 0,
+      "original_failing_ids": [
+        "module:language/import/import-bytes/bytes-from-txt.js"
+      ],
+      "completed_ids": [
+        "module:language/import/import-bytes/bytes-from-txt.js"
+      ]
+    }
+  ]
+}

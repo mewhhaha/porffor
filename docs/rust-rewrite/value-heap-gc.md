@@ -24,6 +24,14 @@ remain until the Store is dropped. Therefore the current lower bound cannot
 meet T05's cyclic-graph acceptance criterion even though Lila emits the GC
 capability anchor.
 
+Rechecked on 2026-09-26: this cycle limitation belongs to the pinned runtime,
+not to current Wasmtime releases. Wasmtime 47 introduced the copying collector
+as the default, and current releases describe collection of cyclic garbage.
+The [upstream announcement](https://bytecodealliance.org/articles/wasmtime-gc)
+provides an upgrade path to investigate. Upgrading and selecting that collector
+is a prerequisite; it does not migrate Lila's integer-addressed semantic values
+or establish weak-reference behavior by itself.
+
 The product runtime policy independently records
 `WasmWeakReachabilityCapability::Unavailable`. This is separate from DRC's
 cycle limitation: Wasm GC exposes strong references but no weak-reference or
@@ -31,11 +39,12 @@ ephemeron operations. Both capability facts flow through runtime-policy
 reporting and typed engine-setup error context. The unavailable variant is a
 boundary truth, not a weak implementation for the current linear records.
 
-This is an explicit runtime-capability blocker, not a reason to add a tracing
-collector over Lila's current linear-memory object graph. Before T05 can close,
-the lower bound must expose a cycle-capable Wasm-GC collector and the engine
-must select and require it. Until then, GC emission is architectural work, not
-an executable-GC completion claim.
+These are explicit missing runtime integration capabilities, not reasons to
+add a tracing collector over Lila's current linear-memory object graph. Before
+T05 can close, the engine must upgrade to, select and require a cycle-capable
+Wasm-GC collector, and semantic objects must move to the GC representation.
+The current GC emission remains architectural work, not an executable-GC
+completion claim.
 
 Primary references for the pinned facts are Wasmtime 38.0.4's `Collector`
 documentation and DRC implementation, plus the WebAssembly GC proposal:
