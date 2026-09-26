@@ -433,5 +433,809 @@
         "module:language/import/import-bytes/bytes-from-txt.js"
       ]
     }
-  ]
+  ],
+  "combined_replay": {
+    "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+    "total": 122,
+    "passed": 87,
+    "failed": 35,
+    "original_inventory": {
+      "total": 103,
+      "passed": 72,
+      "failed": 31
+    },
+    "additional_candidates": {
+      "total": 19,
+      "passed": 15,
+      "failed": 4
+    },
+    "newly_fixed_ids": [
+      "module:language/import/import-bytes/bytes-from-empty.js",
+      "module:language/import/import-bytes/bytes-from-js.js",
+      "module:language/import/import-bytes/bytes-from-json.js",
+      "module:language/import/import-bytes/bytes-from-png.js",
+      "module:language/import/import-bytes/bytes-from-txt.js",
+      "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+      "sloppy-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+      "sloppy-script:staging/sm/extensions/arguments-property-access-in-function.js",
+      "sloppy-script:staging/sm/extensions/function-caller-skips-eval-frames.js",
+      "sloppy-script:staging/sm/extensions/function-properties.js",
+      "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+      "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+      "strict-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js"
+    ],
+    "prior_passes_retained": 69,
+    "passed_ids": [
+      "module:language/import/import-bytes/bytes-from-empty.js",
+      "module:language/import/import-bytes/bytes-from-js.js",
+      "module:language/import/import-bytes/bytes-from-json.js",
+      "module:language/import/import-bytes/bytes-from-png.js",
+      "module:language/import/import-bytes/bytes-from-txt.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/toString/options-read-before-algorithmic-validation.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/toString/round-cross-unit-boundary.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/toString/throws-when-rounded-duration-is-invalid.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/toString/total-of-duration-time-units-out-of-range.js",
+      "sloppy-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "sloppy-script:built-ins/Temporal/Instant/from/argument-string.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/compare/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/compare/argument-zoneddatetime-slots.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/from/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/from/argument-zoneddatetime-slots.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/equals/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/equals/argument-zoneddatetime-slots.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/since/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/since/argument-zoneddatetime-slots.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/until/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/until/argument-zoneddatetime-slots.js",
+      "sloppy-script:built-ins/Temporal/PlainDate/prototype/with/order-of-operations.js",
+      "sloppy-script:built-ins/Temporal/PlainTime/from/argument-plaindatetime.js",
+      "sloppy-script:built-ins/Temporal/ZonedDateTime/timezone-iso-string.js",
+      "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+      "sloppy-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+      "sloppy-script:staging/sm/Atomics/cross-compartment.js",
+      "sloppy-script:staging/sm/TypedArray/constructor-buffer-sequence.js",
+      "sloppy-script:staging/sm/TypedArray/from_basics.js",
+      "sloppy-script:staging/sm/TypedArray/from_realms.js",
+      "sloppy-script:staging/sm/TypedArray/from_string.js",
+      "sloppy-script:staging/sm/TypedArray/from_this.js",
+      "sloppy-script:staging/sm/TypedArray/iterator-next-with-detached.js",
+      "sloppy-script:staging/sm/TypedArray/of.js",
+      "sloppy-script:staging/sm/TypedArray/set-detached.js",
+      "sloppy-script:staging/sm/TypedArray/set-wrapped.js",
+      "sloppy-script:staging/sm/TypedArray/slice-bitwise-same.js",
+      "sloppy-script:staging/sm/TypedArray/slice-detached.js",
+      "sloppy-script:staging/sm/TypedArray/sort-negative-nan.js",
+      "sloppy-script:staging/sm/TypedArray/sort_modifications.js",
+      "sloppy-script:staging/sm/TypedArray/sort_small.js",
+      "sloppy-script:staging/sm/TypedArray/sort_sorted.js",
+      "sloppy-script:staging/sm/extensions/arguments-property-access-in-function.js",
+      "sloppy-script:staging/sm/extensions/function-caller-skips-eval-frames.js",
+      "sloppy-script:staging/sm/extensions/function-properties.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/toString/options-read-before-algorithmic-validation.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/toString/round-cross-unit-boundary.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/toString/throws-when-rounded-duration-is-invalid.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/toString/total-of-duration-time-units-out-of-range.js",
+      "strict-script:built-ins/Temporal/Duration/prototype/total/precision-exact-mathematical-values-6.js",
+      "strict-script:built-ins/Temporal/Instant/from/argument-string.js",
+      "strict-script:built-ins/Temporal/PlainDate/compare/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/PlainDate/compare/argument-zoneddatetime-slots.js",
+      "strict-script:built-ins/Temporal/PlainDate/from/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/PlainDate/from/argument-zoneddatetime-slots.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/equals/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/equals/argument-zoneddatetime-slots.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/since/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/since/argument-zoneddatetime-slots.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/until/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/until/argument-zoneddatetime-slots.js",
+      "strict-script:built-ins/Temporal/PlainDate/prototype/with/order-of-operations.js",
+      "strict-script:built-ins/Temporal/PlainTime/from/argument-plaindatetime.js",
+      "strict-script:built-ins/Temporal/ZonedDateTime/timezone-iso-string.js",
+      "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+      "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+      "strict-script:intl402/TypedArray/prototype/toLocaleString/calls-toLocaleString-number-elements.js",
+      "strict-script:staging/sm/Atomics/cross-compartment.js",
+      "strict-script:staging/sm/TypedArray/constructor-buffer-sequence.js",
+      "strict-script:staging/sm/TypedArray/from_basics.js",
+      "strict-script:staging/sm/TypedArray/from_realms.js",
+      "strict-script:staging/sm/TypedArray/from_string.js",
+      "strict-script:staging/sm/TypedArray/iterator-next-with-detached.js",
+      "strict-script:staging/sm/TypedArray/of.js",
+      "strict-script:staging/sm/TypedArray/set-detached.js",
+      "strict-script:staging/sm/TypedArray/set-wrapped.js",
+      "strict-script:staging/sm/TypedArray/slice-bitwise-same.js",
+      "strict-script:staging/sm/TypedArray/slice-detached.js",
+      "strict-script:staging/sm/TypedArray/sort-negative-nan.js",
+      "strict-script:staging/sm/TypedArray/sort_modifications.js",
+      "strict-script:staging/sm/TypedArray/sort_small.js",
+      "strict-script:staging/sm/TypedArray/sort_sorted.js"
+    ],
+    "failed_ids": [
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+      "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+      "sloppy-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+      "sloppy-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+      "sloppy-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+      "sloppy-script:staging/sm/TypedArray/sort_large_countingsort.js",
+      "sloppy-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+      "sloppy-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+      "sloppy-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+      "sloppy-script:staging/sm/extensions/dataview.js",
+      "sloppy-script:staging/sm/extensions/destructure-accessor.js",
+      "sloppy-script:staging/sm/extensions/expression-closure-syntax.js",
+      "sloppy-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+      "sloppy-script:staging/sm/extensions/quote-string-for-nul-character.js",
+      "sloppy-script:staging/sm/extensions/recursion.js",
+      "sloppy-script:staging/sm/extensions/regress-650753.js",
+      "sloppy-script:staging/sm/extensions/typedarray-set-detach.js",
+      "sloppy-script:staging/sm/extensions/weakmap.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+      "strict-script:intl402/DateTimeFormat/this-value-ignored.js",
+      "strict-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+      "strict-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+      "strict-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+      "strict-script:staging/sm/TypedArray/sort_large_countingsort.js",
+      "strict-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+      "strict-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+      "strict-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+      "strict-script:staging/sm/extensions/dataview.js",
+      "strict-script:staging/sm/extensions/destructure-accessor.js",
+      "strict-script:staging/sm/extensions/expression-closure-syntax.js",
+      "strict-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+      "strict-script:staging/sm/extensions/quote-string-for-nul-character.js",
+      "strict-script:staging/sm/extensions/regress-650753.js",
+      "strict-script:staging/sm/extensions/typedarray-set-detach.js",
+      "strict-script:staging/sm/extensions/weakmap.js"
+    ],
+    "execution_evidence": "target/failure-discovery-20260926/combined-results.json",
+    "binary_build": {
+      "revision": "02a93376a152f6a6fffb04937f38bbb276810c8f",
+      "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+      "build_evidence": "focused-cli-locale-core.json",
+      "note": "The corrected IR structural test is a conservative compiler-fingerprint input; cargo test rebuilt the CLI with that fingerprint after the earlier release build."
+    }
+  },
+  "remaining_after_combined_replay": [
+    {
+      "path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+      "failed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js"
+      ],
+      "owner": "T22 / T23",
+      "intentional_exclusion": false,
+      "reason": "Missing Temporal calendar arithmetic and DateTimeFormat calendar data; required implementation work.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39226680: Invalid Temporal.PlainDate calendar)",
+          "full_detail_sha256": "b2a676430e13b9fcd84c653175038c97ec847598e758b6c7fe64102b8a5cb605"
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39218496: Invalid Temporal.PlainDate calendar)",
+          "full_detail_sha256": "cfbef0d51f8b08008a766830b3033e9819eb2d5cfc7df7dedbd4e766e591aaa7"
+        }
+      ]
+    },
+    {
+      "path": "intl402/DateTimeFormat/this-value-ignored.js",
+      "failed_ids": [
+        "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+        "strict-script:intl402/DateTimeFormat/this-value-ignored.js"
+      ],
+      "owner": "T23",
+      "intentional_exclusion": false,
+      "reason": "Intl.Collator is absent; this test reaches its constructor before DateTimeFormat receiver checks.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3900968: target is not a constructor (Testing with Collator.))",
+          "full_detail_sha256": "5563d001d5bdfdb57efc0a1d70a8dd264ce8dc69f989d69d895d3d26e089ed3e"
+        },
+        {
+          "test_id": "strict-script:intl402/DateTimeFormat/this-value-ignored.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3878960: target is not a constructor (Testing with Collator.))",
+          "full_detail_sha256": "3dd33dc10af35ea2359b11e5ff6ee6b63a7d67e484b649b58940c52027cba9c1"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+        "strict-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        },
+        {
+          "test_id": "strict-script:staging/sm/TypedArray/Tconstructor-fromTypedArray-byteLength.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+        "strict-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        },
+        {
+          "test_id": "strict-script:staging/sm/TypedArray/constructor-ArrayBuffer-species-wrap.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+        "strict-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "Execution reaches heap_alloc via array_alloc and exhausts the current linear bump heap; raising its limit is not a collector.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+          "outcome": "Crash",
+          "detail_excerpt": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x8ed31c - lila!helper::heap_alloc\n    1: 0x15d249 - lila!builtin::Object.prototype.toString\n    2: 0x11ec6f - lila!builtin::Function.prototype.call\n    3: 0x102636 - lila!js::f22\n    4: 0x1e624c - lila!builtin::Array.prototype.forEach\n    5:  0x3d237 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+          "full_detail_sha256": "53f501a831b63961d9e9054d4840e519a41b60b99ed18d2ee55d460c533afb90"
+        },
+        {
+          "test_id": "strict-script:staging/sm/TypedArray/element-setting-converts-using-ToNumber.js",
+          "outcome": "Crash",
+          "detail_excerpt": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x8ea559 - lila!helper::heap_alloc\n    1: 0x8ea839 - lila!helper::function_object_alloc\n    2:  0xee282 - lila!js::setToObject#f23\n    3:  0xf4212 - lila!js::f22\n    4: 0x1e3489 - lila!builtin::Array.prototype.forEach\n    5:  0x3d40b - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+          "full_detail_sha256": "38b09695cf144c68e3e1cc6e48ecf5a035c83b5459230de7ca99e5223d4a5f00"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/TypedArray/sort_large_countingsort.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/TypedArray/sort_large_countingsort.js",
+        "strict-script:staging/sm/TypedArray/sort_large_countingsort.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "Execution reaches heap_alloc via array_alloc and exhausts the current linear bump heap; raising its limit is not a collector.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/TypedArray/sort_large_countingsort.js",
+          "outcome": "Crash",
+          "detail_excerpt": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x8dcc3a - lila!helper::heap_alloc\n    1: 0x8dd1fa - lila!helper::array_alloc\n    2:  0x41928 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+          "full_detail_sha256": "57a5e0f779c36599378e4e8a127af25015b1b98eff911946c77eabb7dd0529f5"
+        },
+        {
+          "test_id": "strict-script:staging/sm/TypedArray/sort_large_countingsort.js",
+          "outcome": "Crash",
+          "detail_excerpt": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x8dae98 - lila!helper::heap_alloc\n    1:  0x95126 - lila!js::f8\n    2:  0x98157 - lila!js::f9\n    3:  0x41c5c - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+          "full_detail_sha256": "157da8a6a78878bcb1a0550cbab95e9e8c913547b013efe15fb0af24df22376e"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1671032: start weirdness should have thrown Thrown value was not an object!)",
+          "full_detail_sha256": "f3cbae23db48e7c35ec413eac68852dc2ebb4794795e9f948d5a58553abd1b73"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/ArrayBuffer-slice-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1654152: start weirdness should have thrown Thrown value was not an object!)",
+          "full_detail_sha256": "7294d33d08bcb02ea5ef7644f24b29f5eaaa54c4e52063cec30f34231b84ac03"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/DataView-construct-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/DataView-construct-arguments-detaching.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1688976: byteOffset weirdness should have thrown Thrown value was not an object!)",
+          "full_detail_sha256": "2b452686dda6ee06e89d4308a01beae588ece70504814ae96b609e53fa216d44"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/DataView-construct-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1672088: byteOffset weirdness should have thrown Thrown value was not an object!)",
+          "full_detail_sha256": "5f199647042de41d362d9ae26e6092fb820310e04be8176a8e020531ecd3ccd0"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/DataView-set-arguments-detaching.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+        "strict-script:staging/sm/extensions/DataView-set-arguments-detaching.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The test calls host gc, which requires a real collector. In the detachment cases this occurs during argument coercion before the expected TypeError.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1689352: Thrown value was not an object!)",
+          "full_detail_sha256": "d8d5369fd0242ea358abaac22b66056a76f20d4531990c7b430d913dafa9ce23"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/DataView-set-arguments-detaching.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1672472: Thrown value was not an object!)",
+          "full_detail_sha256": "e4262d6df85029f333cdf3514fd3ae600c85469be50bc314396051e53730159a"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/dataview.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/dataview.js",
+        "strict-script:staging/sm/extensions/dataview.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/dataview.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/dataview.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/destructure-accessor.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/destructure-accessor.js",
+        "strict-script:staging/sm/extensions/destructure-accessor.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/destructure-accessor.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/destructure-accessor.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/expression-closure-syntax.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/expression-closure-syntax.js",
+        "strict-script:staging/sm/extensions/expression-closure-syntax.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/expression-closure-syntax.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/expression-closure-syntax.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "e07a979cdea498a052709c5a23a93d82f710ee20bea0d400f3700f8882a36308"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/keyword-unescaped-requirement.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+        "strict-script:staging/sm/extensions/keyword-unescaped-requirement.js"
+      ],
+      "owner": "T13",
+      "intentional_exclusion": true,
+      "reason": "Dynamic eval/Function has no compiled source/environment specialization; explicitly unsupported by the Wasm-AOT contract.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "fdeb4fe97e3b3116cb0ab9fd5a971b93adb325df3a268a2da600fd1fe497da0b"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/keyword-unescaped-requirement.js",
+          "outcome": "NotImplemented",
+          "detail_excerpt": "[origin:unknown] unsupported dynamic-source operation `Function` selected during Wasm execution without a compiled source/environment specialization",
+          "full_detail_sha256": "fdeb4fe97e3b3116cb0ab9fd5a971b93adb325df3a268a2da600fd1fe497da0b"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/quote-string-for-nul-character.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/quote-string-for-nul-character.js",
+        "strict-script:staging/sm/extensions/quote-string-for-nul-character.js"
+      ],
+      "owner": "T23",
+      "intentional_exclusion": false,
+      "reason": "Intl.Collator is absent, so supportedLocalesOf yields TypeError before invalid-option validation. Later assertions also require other Intl capabilities.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/quote-string-for-nul-character.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1954408: cookie Expected a RangeError but got a TypeError)",
+          "full_detail_sha256": "c4db10e0f14e4e43b8a09623a77e20c6ec1c8224bf8c894bbabdfdbf2e1952f4"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/quote-string-for-nul-character.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1946736: cookie Expected a RangeError but got a TypeError)",
+          "full_detail_sha256": "60242004ad4cc1bb637d134f47f47777bf4298d0a4d885db8bd14ad66cf2d346"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/recursion.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/recursion.js"
+      ],
+      "owner": "T09 / T05",
+      "intentional_exclusion": false,
+      "reason": "Recursive calls trap at the Wasm stack limit before a catchable JS error; the test also subsequently requires host gc.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/recursion.js",
+          "outcome": "Crash",
+          "detail_excerpt": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: lila!helper::object_read\n    1: 0x91bfdd - lila!helper::object_read_proxy\n    2: 0x1231b8 - lila!js::eval#f9\n    3: 0x12354e - lila!js::eval#f9\n    4: 0x12354e - lila!js::eval#f9\n    5: 0x12354e - lila!js::eval#f9\n    6: 0x12354e - lila!js::eval#f9\n    7: 0x12354e - lila!js::eval#f9\n    8: 0x12354e - lila!js::eval#f9\n    9: 0x12354e - lila!js::eval#f9\n   10: 0x12354e - lila!js::eval#f9\n   11: 0x12354e - lila!js::eval#f9\n   12: 0x12354e - lila!js::eval#f9\n   13: 0x12354e - lila!js::eval#f9\n   14: 0x12354e - lila!js::eval#f9\n   15: 0x12354e - lila!js::eval#f9\n   16: 0x12354e - lila!js::eval#f9\n   17: 0x12354e - lila!js::eval#f9\n   18: 0x12354e - lila!js::eval#f9\n   19: 0x12354e - lila!js::eval#f9\n   20: 0x12354e - lila!js::eval#f9\n   21: 0x12354e - lila!js::eval#f9\n   22: 0x12354e - lila!js::eval#f9\n   23: 0x12354e - lila!js::eval#f9\n   24: 0x12354e - lila!js::eval#f9\n   25: 0x12354e - lila!js::eval#f9\n   26: 0x12354e - lila!js::eval#f9\n   27: 0x12354e - lila!js::eval#f9\n   28: 0x12354e - lila!js::eval#f9\n   29: 0x12354e - lila!js::eval#f9\n   30: 0x12354e - lila!js::eval#f9\n   31: 0x12354e - lila!js::eval#f9\n   32: 0x12354e - lila!js::eval#f9\n   33: 0x12354e - lila!js::eval#f9\n   34: 0x12354e - lila!js::eval#f9\n   35: 0x12354e - lila!js::eval#f9\n   36: 0x12354e - lila!js::eval#f9\n   37: 0x12354e - lila!js::eval#f9\n   38: 0x12354e - lila!js::eval#f9\n   39: 0x12354e - lila!js::eval#f9\n   40: 0x12354e - lila!js::eval#f9\n   41: 0x12354e - lila!js::eval#f9\n   42: 0x12354e - lila!js::eval#f",
+          "full_detail_sha256": "fd29b954c6183bfbfbbc927913a3f86d0a673fff5267ab64e4f2f95a04761350"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/regress-650753.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/regress-650753.js",
+        "strict-script:staging/sm/extensions/regress-650753.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The WeakMap test calls host gc, which requires a real collector and remains unimplemented in the current Wasm-AOT heap.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/regress-650753.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/regress-650753.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/typedarray-set-detach.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/typedarray-set-detach.js",
+        "strict-script:staging/sm/extensions/typedarray-set-detach.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The test calls host gc during indexed source-property access after detachment; this requires a real collector.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/typedarray-set-detach.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/typedarray-set-detach.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        }
+      ]
+    },
+    {
+      "path": "staging/sm/extensions/weakmap.js",
+      "failed_ids": [
+        "sloppy-script:staging/sm/extensions/weakmap.js",
+        "strict-script:staging/sm/extensions/weakmap.js"
+      ],
+      "owner": "T05",
+      "intentional_exclusion": false,
+      "reason": "The WeakMap test calls host gc, which requires a real collector and remains unimplemented in the current Wasm-AOT heap.",
+      "diagnostics": [
+        {
+          "test_id": "sloppy-script:staging/sm/extensions/weakmap.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        },
+        {
+          "test_id": "strict-script:staging/sm/extensions/weakmap.js",
+          "outcome": "Bug",
+          "detail_excerpt": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+          "full_detail_sha256": "b739481889415db62a8eae5f6c17fa4d3262b4025552cdceb8d37c65f6b86d76"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "status": "focused checks and combined replay complete; affected families and final broad verification running/pending",
+    "focused": [
+      {
+        "head": "399c1595fbee232d7212253fbae58362a66ed859",
+        "stage": "aot-lib",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-aot-wasm",
+          "--lib",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 150,
+        "targets": 1,
+        "passed": 452,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-aot-lib.log"
+      },
+      {
+        "head": "399c1595fbee232d7212253fbae58362a66ed859",
+        "stage": "activation-structure",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-aot-wasm",
+          "--test",
+          "completion_exit_structure",
+          "--test",
+          "function_module_state_structure",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 105,
+        "targets": 2,
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-activation-structure.log"
+      },
+      {
+        "head": "02a93376a152f6a6fffb04937f38bbb276810c8f",
+        "stage": "ir-structure",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-ir",
+          "--test",
+          "graph_build_structure",
+          "--test",
+          "graph_tests_structure",
+          "--test",
+          "link_error_structure",
+          "--test",
+          "module_evaluation_mode_structure",
+          "--test",
+          "module_key_structure",
+          "--test",
+          "resolved_binding_structure",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 15,
+        "targets": 6,
+        "passed": 19,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-ir-structure.log"
+      },
+      {
+        "head": "02a93376a152f6a6fffb04937f38bbb276810c8f",
+        "stage": "engine-cache",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-engine",
+          "--lib",
+          "module_graph_cache_digest_",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 30,
+        "targets": 1,
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-engine-cache.log"
+      },
+      {
+        "head": "02a93376a152f6a6fffb04937f38bbb276810c8f",
+        "stage": "engine",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-engine",
+          "--test",
+          "aot_array_to_locale_string_observable",
+          "--test",
+          "aot_array_to_locale_string_length",
+          "--test",
+          "aot_function_caller",
+          "--test",
+          "aot_import_bytes",
+          "--test",
+          "aot_intl_datetime_provider",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 225,
+        "targets": 5,
+        "passed": 77,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-engine.log"
+      },
+      {
+        "head": "02a93376a152f6a6fffb04937f38bbb276810c8f",
+        "stage": "cli-locale-core",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "--locked",
+          "-j3",
+          "--no-fail-fast",
+          "-p",
+          "lila-cli",
+          "--test",
+          "cli",
+          "array::run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture",
+          "--",
+          "--test-threads=3"
+        ],
+        "returncode": 0,
+        "seconds": 30,
+        "targets": 1,
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-focused-cli-locale-core.log"
+      }
+    ],
+    "first_broad_core": {
+      "head": "4014fc99cf983bb4da3177796ddcbf3963a85706",
+      "stage": "core",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--locked",
+        "-j3",
+        "--no-fail-fast",
+        "-p",
+        "lila-front",
+        "-p",
+        "lila-ir",
+        "-p",
+        "lila-intl",
+        "-p",
+        "lila-aot-wasm",
+        "-p",
+        "lila-test262",
+        "--tests",
+        "--",
+        "--test-threads=3"
+      ],
+      "returncode": 101,
+      "seconds": 645,
+      "targets": 529,
+      "passed": 4510,
+      "failed": 12,
+      "ignored": 0,
+      "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-broad-core.log"
+    }
+  }
 }

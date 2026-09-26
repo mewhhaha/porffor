@@ -39,9 +39,26 @@ No missing capability is counted as a pass or silently skipped.
 Implement coherent changes before compilation, then run focused regressions,
 original cases and affected families before the combined integration checkpoint.
 All runtime commands use the existing watched 10 GiB systemd scope, no swap,
-three Cargo jobs and at most three test threads. Production edits in this batch
-have passed 28 Python profile-generation tests and generated profile, range and
-kernel-identity checks. Rust compilation and runtime verification are pending.
+three Cargo jobs and at most three test threads. On 2026-09-26, the combined
+122-execution replay passed **87**, retained all **69** earlier passes, and
+confirmed **18 additional fixes**: three original function-reflection failures
+and 15 of the 19 additional candidates. The original inventory is now **72/103**;
+the additional candidates are **15/19**. The remaining **35** include **12**
+intentional dynamic-source exclusions and **23** required implementation gaps.
+
+Focused verification passes 452 AOT unit tests, nine activation-structure tests,
+19 module-structure tests, three graph-cache tests, 77 engine integration tests
+and the corrected CLI locale fixture. Earlier Intl checks passed 251 tests;
+profile generation passed 28 Python tests and both generated data and identity
+checks. The first broad core run passed 4,510 tests and found 12 failures. Its
+size regressions, structural inventories and wildcard-panic issue are corrected;
+the final broad checkpoint and affected-family replay are still pending.
+
+Review also repaired stale module-cache resolution identity, duplicated legacy
+activation cleanup in every abrupt guard, and activation restoration before
+proper tail calls. These have focused runtime/structure regressions. The compiler
+used for the combined replay is `02a93376a`; exact binary identity is in the JSON
+record. No full-suite publication is claimed.
 
 Exact execution IDs, diagnostics, binary identities and completed-test sets are
 in the [machine-readable record](failure-discovery-20260926.json). Candidate
@@ -52,3 +69,30 @@ provenance, replay drivers and receipts live under
 `python3 target/failure-discovery-20260926/replay_candidates.py` in the capped
 scope. A full publication requires the separate `test262 publish-status
 --execution-backend wasm-aot` workflow.
+
+## Required work beyond this repair batch
+
+These remain implementation requirements, not intentional unsupported cases:
+
+- Calendar support needs a shared, typed calendar arithmetic boundary used by
+  Temporal and DateTimeFormat. The two `compare-to-temporal` tests need 13
+  calendars absent from Temporal; seven are also absent from DateTimeFormat:
+  Coptic, Ethiopian, Amete Alem, Islamic Tabular, Umm al-Qura, Japanese and Hebrew.
+  Supporting them requires real conversion, era/month-code rules, property-bag
+  handling and arithmetic. Generated names must admit calendar-specific month
+  counts and era inventories instead of assuming 12 months and two eras.
+- Missing Collator, PluralRules and RelativeTimeFormat require their actual
+  operations and data. Validation-only constructor stubs would hide the first
+  failure without implementing the service.
+- Catchable recursion exhaustion needs a compiler-owned resource guard with
+  justified frame costs and error/unwind headroom. Translating a Wasmtime trap
+  after the stack unwinds cannot make an inner JavaScript catch execute. The
+  pinned recursion case then calls `$262.gc()`, so fixing catchability alone
+  cannot pass that case.
+- GC and heap reclamation require the Wasm-GC object-model migration described
+  in [the heap contract](value-heap-gc.md). A copying-collector runtime upgrade
+  removes one prerequisite; it does not collect the current integer-addressed
+  JavaScript heap or implement weak reachability and finalization by itself.
+
+The read-only audits and exact missing-calendar lists are retained in
+`target/failure-discovery-20260926/remaining-implementation-audits.json`.

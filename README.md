@@ -24,7 +24,10 @@ The [2026-09-26 discovery checkpoint](docs/rust-rewrite/failure-discovery-202609
 confirms 19 additional failing executions outside that inventory and 74 passing
 engine integration tests. The repair batch adds collection locale-argument
 forwarding, active sloppy-function reflection, bytes modules, and DateTimeFormat
-Japanese, Dangi and Islamic Civil data. Integrated runtime verification is pending.
+Japanese, Dangi and Islamic Civil data. The combined replay passes **87/122**,
+including **18 additional fixes** and all 69 previous passes. Of its 35 remaining
+failures, 12 require dynamic source generation and 23 remain required work.
+Focused checks pass; affected-family and final broad verification are pending.
 Only dynamic source generation through `eval`/`Function` is intentionally
 unsupported; other missing language, Intl, module and GC capabilities remain
 implementation requirements.

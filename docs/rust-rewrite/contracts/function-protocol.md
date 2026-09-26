@@ -100,7 +100,10 @@ proxy behavior, async/generator execution or class semantics.
 Ordinary sloppy ECMAScript functions have own `caller` and `arguments` data
 properties with `writable`, `enumerable`, and `configurable` all false. Their
 values are `null` while inactive. During an invocation, `arguments` holds the
-same object as the function's arguments binding, and `caller` holds the
+invocation's arguments object even when a parameter or declaration shadows the
+`arguments` name; reassigning that binding does not replace the reflected
+object. An unshadowed arguments binding initially refers to the same object.
+The `caller` property holds the
 immediately enclosing sloppy ordinary function object when that caller is
 exposable. Recursive invocations save and restore both values. Reads through
 ordinary property access and `Object.getOwnPropertyDescriptor` agree.
@@ -112,6 +115,14 @@ censor the enclosing caller. Bound-function invocation is transparent to this
 stack; direct eval Script execution is transparent too. Indirect eval and Realm
 Scripts are barriers. Cross-Realm reflection remains an implementation-defined
 extension-policy limit and is not inferred from a shared function identity.
+
+Sloppy source returns and escaping throws branch to one typed completion exit.
+The shared epilogue restores reflection state and releases owned runtime roots,
+so per-operation throw guards do not duplicate property scans. Explicit returns
+skip fallthrough normalization; handlers and finally blocks retain their normal
+completion routing. Dynamic proper tail calls restore the current activation
+and release its owned runtime root after evaluating the callee and arguments,
+before transferring to either the function or proxy call dispatcher.
 
 Strict functions, arrows, methods, classes, generators, async functions, bound
 functions, and builtins do not receive these properties and retain the inherited
