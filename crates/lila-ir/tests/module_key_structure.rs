@@ -87,7 +87,7 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
     assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 10);
     assert!(LOADED_SOURCES_SOURCE.contains("pub fn bytes(key: ModuleKey, bytes: Vec<u8>"));
     assert_eq!(GRAPH_SOURCE.matches("ModuleKey").count(), 1);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleKey").count(), 67);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleKey").count(), 68);
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleKey").count(), 2);
     assert_eq!(GRAPH_RESOLUTION_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(RECORD_SOURCE.matches("ModuleKey").count(), 9);
@@ -96,10 +96,12 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
     assert_eq!(LINK_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(LINK_ERROR_SOURCE.matches("ModuleKey").count(), 2);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleKey").count(), 2);
-    // Six more: the loader mints JSON- and text-module keys apart from
-    // JavaScript ones.
-    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleKey").count(), 38);
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleKey").count(), 1);
+    // The loader mints JSON, text, and bytes keys apart from JavaScript ones.
+    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleKey").count(), 39);
+    // One import plus six explicit keys in the cache identity regressions.
+    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleKey").count(), 7);
+    assert!(ENGINE_LIB_SOURCE
+        .contains("fn module_graph_cache_digest_tracks_resolved_target_and_request()"));
     assert_eq!(
         LOADED_SOURCES_SOURCE
             .matches("ANONYMOUS_MODULE_KEY")
