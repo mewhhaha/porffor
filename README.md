@@ -27,7 +27,10 @@ forwarding, active sloppy-function reflection, bytes modules, and DateTimeFormat
 Japanese, Dangi and Islamic Civil data. The combined replay passes **87/122**,
 including **18 additional fixes** and all 69 previous passes. Of its 35 remaining
 failures, 12 require dynamic source generation and 23 remain required work.
-Focused checks pass; affected-family and final broad verification are pending.
+The affected-family replay passes **598/610**, including DateTimeFormat
+**478/490**, and confirms eight more required calendar failures. Across the
+checked inventories, 43 failures remain: 12 dynamic-source exclusions and 31
+required fixes. Focused checks pass; final broad verification is pending.
 Only dynamic source generation through `eval`/`Function` is intentionally
 unsupported; other missing language, Intl, module and GC capabilities remain
 implementation requirements.
@@ -65,7 +68,7 @@ On 2026-09-25 the same command passed `built-ins/ArrayBuffer` 442/442,
 `proto-from-ctor-realm.js`. The five `language/import/import-bytes` cases failed
 at that checkpoint. The 2026-09-26 batch implements
 [bytes-module loading and intrinsic initialization](docs/rust-rewrite/contracts/import-bytes.md);
-its integrated verification is pending.
+all five pinned bytes-import cases and six focused engine regressions pass.
 Upstream now runs the six `copyWithin` `coerced-values-*-detached*` executions
 through every argument factory, and `copyIntoArrayBuffer`'s element-wise index
 stores used to exhaust the Wasm heap. A runtime Number key now reaches a

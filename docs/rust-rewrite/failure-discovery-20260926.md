@@ -52,13 +52,31 @@ and the corrected CLI locale fixture. Earlier Intl checks passed 251 tests;
 profile generation passed 28 Python tests and both generated data and identity
 checks. The first broad core run passed 4,510 tests and found 12 failures. Its
 size regressions, structural inventories and wildcard-panic issue are corrected;
-the final broad checkpoint and affected-family replay are still pending.
+the final broad checkpoint is still pending.
 
 Review also repaired stale module-cache resolution identity, duplicated legacy
 activation cleanup in every abrupt guard, and activation restoration before
 proper tail calls. These have focused runtime/structure regressions. The compiler
 used for the combined replay is `02a93376a`; exact binary identity is in the JSON
 record. No full-suite publication is claimed.
+
+The affected-family replay completes **598/610**, including DateTimeFormat
+**478/490**, Intl Array/TypedArray locale calls **6/6**, core Array locale calls
+**22/22**, core TypedArray locale calls **78/78**, bytes imports **5/5**, and nine
+neighboring function-reflection regressions **9/9**. The DateTimeFormat result
+retains all 466 passes from a historical 490-ID snapshot and reduces its
+failures from 24 to 12. That historical snapshot records the same Test262 tree
+and execution IDs, but no compiler revision or binary hash; it is comparison
+evidence, not an exact `3979f0116` baseline.
+
+Eight remaining calendar executions from that broader replay are outside the
+122-ID inventory. Across both runs, **713 distinct executions** were checked;
+**43 fail**, of which **12** are intentional dynamic-source exclusions and
+**31** are required implementation work. The eight additional failures cover
+`formatToParts/compare-to-temporal-lunisolar.js`,
+`formatToParts/dangi-calendar-dates.js`, `formatToParts/era.js`, and
+`resolvedOptions/calendar.js`, each in strict and sloppy mode. This remains a
+targeted inventory, not a full Test262 failure count.
 
 Exact execution IDs, diagnostics, binary identities and completed-test sets are
 in the [machine-readable record](failure-discovery-20260926.json). Candidate

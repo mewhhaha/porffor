@@ -1032,7 +1032,7 @@
     }
   ],
   "verification": {
-    "status": "focused checks and combined replay complete; affected families and final broad verification running/pending",
+    "status": "focused checks, combined replay and affected families complete; final broad verification running",
     "focused": [
       {
         "head": "399c1595fbee232d7212253fbae58362a66ed859",
@@ -1237,5 +1237,371 @@
       "ignored": 0,
       "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-broad-core.log"
     }
-  }
+  },
+  "affected_families": {
+    "families": 15,
+    "total": 610,
+    "passed": 598,
+    "failed": 12,
+    "additional_failure_ids": [
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+      "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+      "strict-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+      "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js"
+    ],
+    "unique_checked_executions": 713,
+    "unique_failed_executions": 43,
+    "intentional_dynamic_source_executions": 12,
+    "required_remaining": 31,
+    "failures": [
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1808048: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 4398,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1799864: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 5280,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39226680: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 9217,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@39218496: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 9672,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1832544: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 4397,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: RangeError: wasm-aot completion: object(handle@1824360: Invalid Temporal.PlainDate calendar)",
+        "detail_hash": 2791049318722056472,
+        "duration_ms": 4891,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/era.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@2017664: islamic-tbla eras (Anno Domini,Anno Domini) should be unique Expected SameValue(\u00ab1\u00bb, \u00ab2\u00bb) to be true)",
+        "detail_hash": 1232413278089942409,
+        "duration_ms": 5434,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+        "test_path": "intl402/DateTimeFormat/prototype/formatToParts/era.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@2009480: islamic-tbla eras (Anno Domini,Anno Domini) should be unique Expected SameValue(\u00ab1\u00bb, \u00ab2\u00bb) to be true)",
+        "detail_hash": 1232413278089942409,
+        "duration_ms": 5444,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+        "test_path": "intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1653608: Resolved calendar Expected SameValue(\u00ab\"gregory\"\u00bb, \u00ab\"coptic\"\u00bb) to be true)",
+        "detail_hash": 3654192887240248303,
+        "duration_ms": 2539,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+        "test_path": "intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object(handle@1645944: Resolved calendar Expected SameValue(\u00ab\"gregory\"\u00bb, \u00ab\"coptic\"\u00bb) to be true)",
+        "detail_hash": 3654192887240248303,
+        "duration_ms": 2524,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "sloppy-script:intl402/DateTimeFormat/this-value-ignored.js",
+        "test_path": "intl402/DateTimeFormat/this-value-ignored.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3900968: target is not a constructor (Testing with Collator.))",
+        "detail_hash": 11781732306752878816,
+        "duration_ms": 6153,
+        "path": "intl402/DateTimeFormat"
+      },
+      {
+        "test_id": "strict-script:intl402/DateTimeFormat/this-value-ignored.js",
+        "test_path": "intl402/DateTimeFormat/this-value-ignored.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@3878960: target is not a constructor (Testing with Collator.))",
+        "detail_hash": 11781732306752878816,
+        "duration_ms": 7295,
+        "path": "intl402/DateTimeFormat"
+      }
+    ],
+    "family_summaries": [
+      {
+        "path": "intl402/DateTimeFormat",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 1,
+        "complete": true,
+        "total": 490,
+        "passed": 478,
+        "seconds": 710
+      },
+      {
+        "path": "intl402/Array/prototype/toLocaleString",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 4,
+        "passed": 4,
+        "seconds": 5
+      },
+      {
+        "path": "intl402/TypedArray/prototype/toLocaleString",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 2,
+        "passed": 2,
+        "seconds": 5
+      },
+      {
+        "path": "built-ins/Array/prototype/toLocaleString",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 22,
+        "passed": 22,
+        "seconds": 26
+      },
+      {
+        "path": "built-ins/TypedArray/prototype/toLocaleString",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 78,
+        "passed": 78,
+        "seconds": 100
+      },
+      {
+        "path": "language/import/import-bytes",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 5,
+        "passed": 5,
+        "seconds": 8
+      },
+      {
+        "path": "staging/sm/Function/function-caller-restrictions.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/extensions/censor-strict-caller.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 4
+      },
+      {
+        "path": "staging/sm/regress/regress-586482-1.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/regress/regress-586482-2.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/regress/regress-586482-3.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/regress/regress-586482-4.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/regress/regress-586482-5.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      },
+      {
+        "path": "staging/sm/regress/regress-577648-1.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 4
+      },
+      {
+        "path": "staging/sm/regress/regress-577648-2.js",
+        "binary_sha256": "ecccbd40656b8c8e8426a77fa44f2a51e1ac0ed1ef25bdd077045e64ec0e8b8e",
+        "returncode": 0,
+        "complete": true,
+        "total": 1,
+        "passed": 1,
+        "seconds": 3
+      }
+    ],
+    "historical_datetime_comparison": {
+      "total": 490,
+      "historical_passed": 466,
+      "current_passed": 478,
+      "historical_pass_ids_retained": 466,
+      "newly_passing_ids": [
+        "sloppy-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatRangeToParts/temporal-objects-resolved-time-zone.js",
+        "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/lunisolar-leap-months.js",
+        "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js",
+        "strict-script:intl402/DateTimeFormat/canonicalize-calendar.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRange/temporal-objects-resolved-time-zone.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/dangi-calendar-dates.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatRangeToParts/temporal-objects-resolved-time-zone.js",
+        "strict-script:intl402/DateTimeFormat/prototype/formatToParts/lunisolar-leap-months.js",
+        "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/hourCycle-default.js"
+      ],
+      "newly_failing_ids": [],
+      "limitation": "Historical snapshot has no compiler identity."
+    },
+    "historical_datetime_provenance": {
+      "source": "/tmp/claude-1000/-home-mewhhaha-src-porffor/8e1032a6-2542-412b-9d45-28a78003b16f/scratchpad/snap-a4-dtf/x-10516745908827578212.json",
+      "snapshot": "historical-datetime-family.json",
+      "test262_tree": "91b2052adad1f066ae031e2ff3a1e9bd6d732886",
+      "total": 490,
+      "passed": 466,
+      "failed": 24,
+      "compiler_revision": null,
+      "binary_sha256": null,
+      "limitation": "No compiler identity recorded; this is historical comparison evidence, not a pinned 3979f0116 regression baseline."
+    }
+  },
+  "additional_required_calendar_failures": [
+    {
+      "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "sloppy-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal-lunisolar.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/dangi-calendar-dates.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "strict-script:intl402/DateTimeFormat/prototype/formatToParts/era.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    },
+    {
+      "test_id": "strict-script:intl402/DateTimeFormat/prototype/resolvedOptions/calendar.js",
+      "owner": "T22 / T23",
+      "reason": "Required Temporal calendar arithmetic or DateTimeFormat calendar/era data is absent."
+    }
+  ]
 }
