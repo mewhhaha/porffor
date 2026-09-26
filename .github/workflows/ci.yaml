@@ -89,7 +89,7 @@ jobs:
       - name: Test Intl date/time provider, locale methods and RegExp compilation
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_profile.py scripts/tests/test_intl_cldr_profile.py
-          python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --check
+          python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --range-output crates/lila-intl/src/provider/datetime/generated/range-patterns.json --check
           python3 scripts/generate-intl-datetime-identity.py --check
           cargo test --release --locked -p lila-engine --lib intl_datetime_host::tests -- --test-threads=2
           cargo test --release --locked -p lila-engine --test aot_intl_datetime_provider --test aot_intl_datetime_numbering --test aot_date_locale --test aot_regexp_recompile -- --test-threads=2
