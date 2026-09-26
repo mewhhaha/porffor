@@ -1,21 +1,15 @@
-//! Intrinsic sites of host-created bytes modules in the retained source driver.
+//! Intrinsic owner of a host-created bytes module in the retained source driver.
 //!
-//! The canonical private activation path carries a typed module unit into its
-//! AST owner. Source-phase graphs retain the older merged Script driver, so
-//! their bytes sites are identified by trusted spans of the generated module
-//! body, never by a filename or a user-spellable identifier.
+//! The canonical private activation path carries a typed module unit directly
+//! into its AST owner. The source-phase driver merges text first, so it keeps
+//! the generated IIFE arrow's parser-owned UTF-16 span across that merge.
+//! Source identifiers and filenames cannot grant this privilege.
 
 use super::evaluation_mode::ModuleMaterializationModeIr;
 use crate::*;
 
 #[derive(Debug, Default)]
-pub(super) struct BytesDefinitions(BTreeMap<(usize, usize), BytesSite>);
-
-#[derive(Debug, Clone, Copy)]
-enum BytesSite {
-    Constructor,
-    Apply(StandardBuiltinId),
-}
+pub(super) struct BytesDefinitions(BTreeMap<(usize, usize), usize>);
 
 impl BytesDefinitions {
     pub(super) fn record_body(
@@ -23,71 +17,30 @@ impl BytesDefinitions {
         body: &str,
         preceding_source: &str,
         mode: ModuleMaterializationModeIr,
+        bytes_len: usize,
     ) -> Result<(), String> {
         let parsed = lila_front::parse(body, lila_front::ParseOptions::script())
             .map_err(|error| format!("rewritten bytes module did not parse: {error}"))?;
         let ParsedSource::Script(parsed) = parsed else {
             unreachable!("Script parse options produce Script syntax")
         };
-        let offset = preceding_source.encode_utf16().count();
-        struct Sites<'a> {
-            offset: usize,
-            sites: &'a mut BTreeMap<(usize, usize), BytesSite>,
-            constructors: usize,
-            calls: usize,
-        }
-        impl<'a> Visitor<'a> for Sites<'_> {
+        struct Owners(Vec<boa_ast::LinearSpan>);
+        impl<'a> Visitor<'a> for Owners {
             type BreakTy = ();
             fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
-                let site = match expression {
-                    Expression::New(_) => {
-                        self.constructors += 1;
-                        Some(BytesSite::Constructor)
+                if let Expression::Call(call) = expression {
+                    if let Expression::ArrowFunction(owner) = call.function().flatten() {
+                        self.0.push(owner.linear_span());
                     }
-                    Expression::Call(call)
-                        if matches!(call.function().flatten(), Expression::ArrowFunction(_)) =>
-                    {
-                        None
-                    }
-                    Expression::Call(_) => {
-                        let getter = match self.calls {
-                            0 => StandardBuiltinId::TypedArrayPrototypeBufferGetter,
-                            1 => StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
-                            _ => panic!("bytes module has exactly two intrinsic calls"),
-                        };
-                        self.calls += 1;
-                        Some(BytesSite::Apply(getter))
-                    }
-                    _ => None,
-                };
-                if let Some(site) = site {
-                    let span = expression.span();
-                    assert!(
-                        self.sites
-                            .insert(
-                                (
-                                    span.start().pos() + self.offset,
-                                    span.end().pos() + self.offset
-                                ),
-                                site,
-                            )
-                            .is_none(),
-                        "bytes intrinsic spans are distinct"
-                    );
                 }
                 expression.visit_with(self)
             }
         }
-        parsed.with_compiler_session(|script, _| {
-            let mut sites = Sites {
-                offset,
-                sites: &mut self.0,
-                constructors: 0,
-                calls: 0,
-            };
+        let owner = parsed.with_compiler_session(|script, _| {
+            let mut owners = Owners(Vec::new());
             match mode {
                 ModuleMaterializationModeIr::Eager => {
-                    let _ = script.visit_with(&mut sites);
+                    let _ = script.visit_with(&mut owners);
                 }
                 ModuleMaterializationModeIr::Deferred => {
                     let execute = script
@@ -105,12 +58,24 @@ impl BytesDefinitions {
                         })
                         .nth(1)
                         .expect("deferred bytes module has an execute function");
-                    let _ = execute.body().visit_with(&mut sites);
+                    let _ = execute.body().visit_with(&mut owners);
                 }
             }
-            assert_eq!(sites.constructors, 2, "bytes module has two constructors");
-            assert_eq!(sites.calls, 2, "bytes module has two intrinsic calls");
+            let [owner] = owners.0.as_slice() else {
+                panic!("bytes module has exactly one generated IIFE arrow")
+            };
+            *owner
         });
+        let offset = preceding_source.encode_utf16().count();
+        assert!(
+            self.0
+                .insert(
+                    (owner.start().pos() + offset, owner.end().pos() + offset),
+                    bytes_len,
+                )
+                .is_none(),
+            "bytes module owners have distinct spans"
+        );
         Ok(())
     }
 
@@ -119,7 +84,7 @@ impl BytesDefinitions {
         self.0 = self
             .0
             .iter()
-            .map(|(&(start, end), &site)| ((start + offset, end + offset), site))
+            .map(|(&(start, end), &bytes_len)| ((start + offset, end + offset), bytes_len))
             .collect();
     }
 
@@ -127,51 +92,35 @@ impl BytesDefinitions {
         if self.0.is_empty() {
             return;
         }
-        struct Sites<'a, 'b> {
-            remaining: BTreeMap<(usize, usize), BytesSite>,
+        struct Owners<'a, 'b> {
+            remaining: BTreeMap<(usize, usize), usize>,
             analysis: &'b mut Analysis<'a>,
         }
-        impl<'a> Visitor<'a> for Sites<'a, '_> {
+        impl<'a> Visitor<'a> for Owners<'a, '_> {
             type BreakTy = ();
-            fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
-                let span = expression.span();
-                if let Some(site) = self
+            fn visit_arrow_function(&mut self, owner: &'a ArrowFunction) -> ControlFlow<()> {
+                let span = owner.linear_span();
+                if let Some(bytes_len) = self
                     .remaining
                     .remove(&(span.start().pos(), span.end().pos()))
                 {
-                    match (site, expression) {
-                        (BytesSite::Constructor, Expression::New(new)) => {
-                            self.analysis.module_execution.intrinsics.insert(
-                                std::ptr::from_ref(new.constructor().flatten()) as usize,
-                                StandardBuiltinId::Uint8ArrayConstructor,
-                            );
-                        }
-                        (BytesSite::Apply(getter), Expression::Call(call)) => {
-                            self.analysis.module_execution.intrinsics.insert(
-                                std::ptr::from_ref(call.function().flatten()) as usize,
-                                StandardBuiltinId::ReflectApply,
-                            );
-                            self.analysis.module_execution.intrinsics.insert(
-                                std::ptr::from_ref(
-                                    call.args().first().expect("getter argument").flatten(),
-                                ) as usize,
-                                getter,
-                            );
-                        }
-                        _ => panic!("trusted bytes expression shape changed after Script merge"),
-                    }
+                    super::synchronous_definition::mark_bytes_intrinsics(
+                        owner.body(),
+                        bytes_len,
+                        self.analysis,
+                    );
                 }
-                expression.visit_with(self)
+                owner.visit_with(self)
             }
         }
-        let mut sites = Sites {
+        let mut owners = Owners {
             remaining: self.0.clone(),
             analysis,
         };
-        let _ = script.visit_with(&mut sites);
+        let _ = script.visit_with(&mut owners);
         assert!(
-            sites.remaining.is_empty(),
-            "trusted bytes spans survive Script merge"
+            owners.remaining.is_empty(),
+            "trusted bytes IIFE spans survive Script merge"
         );
     }
 }

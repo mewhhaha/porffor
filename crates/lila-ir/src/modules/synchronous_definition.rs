@@ -263,7 +263,7 @@ impl ModuleExecutionDefinitions {
                 interner,
             );
             if let Some(bytes_len) = unit.bytes_len {
-                mark_bytes_intrinsics(owner, bytes_len, analysis);
+                mark_bytes_intrinsics(owner.body(), bytes_len, analysis);
             }
             assert_eq!(
                 analysis.function_plans[function].protocol,
@@ -376,10 +376,10 @@ impl ModuleExecutionDefinitions {
 /// `Reflect.apply` calls; every other expression is a literal, local read, or
 /// canonical integer-indexed store. The parser owns the pointers, so source
 /// identifiers and filenames do not participate in the privilege decision.
-fn mark_bytes_intrinsics(
-    owner: &AsyncArrowFunction,
+pub(super) fn mark_bytes_intrinsics<'a>(
+    body: &'a FunctionBody,
     bytes_len: usize,
-    analysis: &mut Analysis<'_>,
+    analysis: &mut Analysis<'a>,
 ) {
     struct Sites<'a, 'b> {
         analysis: &'b mut Analysis<'a>,
@@ -436,7 +436,7 @@ fn mark_bytes_intrinsics(
         calls: 0,
         stores: 0,
     };
-    let _ = owner.body().visit_with(&mut sites);
+    let _ = body.visit_with(&mut sites);
     assert_eq!(
         sites.constructors, 2,
         "bytes module has two view constructors"

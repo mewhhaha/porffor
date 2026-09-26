@@ -86,11 +86,13 @@ fn bytes_modules_preserve_non_utf8_and_empty_files_in_a_source_phase_graph() {
     fixture.write("deferred.bin", [4, 5]);
     fixture.write("empty.bin", b"");
     fixture.write("data.json", b"{\"answer\":42}");
+    fixture.write("prefix.js", "export const marker = '😀';");
     fixture.write("script.js", b"export default 7;");
     fixture.write("source.js", b"throw 'source phase must not evaluate';");
     fixture.run(
         r#"
 import source unused from './source.js';
+import { marker } from './prefix.js';
 import raw from './raw.bin' with { type: 'bytes' };
 import defer * as later from './deferred.bin' with { type: 'bytes' };
 import empty from './empty.bin' with { type: 'bytes' };
@@ -102,10 +104,11 @@ print(empty.length === 0 && empty.buffer.immutable && empty.buffer.byteLength ==
 print(json.length === 13 && json[0] === 123 && json[12] === 125 && json.buffer.immutable);
 print(script[0] === 101 && script.buffer.immutable && number === 7);
 print(later.default.length === 2 && later.default[0] === 4 && later.default[1] === 5 && later.default.buffer.immutable);
+print(marker === '😀');
 try { raw.buffer.transfer(); } catch (error) { print(error instanceof TypeError); }
 void unused;
 "#,
-        &["true", "true", "true", "true", "true", "true"],
+        &["true", "true", "true", "true", "true", "true", "true"],
     );
 }
 

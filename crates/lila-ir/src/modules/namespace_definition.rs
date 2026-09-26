@@ -39,8 +39,10 @@ impl LinkedScriptDefinitions {
         body: &str,
         preceding_source: &str,
         mode: ModuleMaterializationModeIr,
+        bytes_len: usize,
     ) -> Result<(), String> {
-        self.bytes.record_body(body, preceding_source, mode)
+        self.bytes
+            .record_body(body, preceding_source, mode, bytes_len)
     }
 
     pub(super) fn record_namespaces(&mut self, prelude: &str, graph: &ModuleGraphIr) {
