@@ -70,7 +70,7 @@ pub use graph::*;
 pub use import_phase::ImportPhaseIr;
 pub use link::*;
 pub use link_error::ModuleLinkErrorIr;
-pub use loaded_sources::{ModuleGraphSources, ModuleSourceIr};
+pub use loaded_sources::{ModuleGraphSources, ModuleSourceIr, ModuleSourceProvenance};
 pub use module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};
 pub use module_unit::ModuleUnitIr;
 pub use namespace::*;

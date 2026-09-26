@@ -32,6 +32,17 @@ pub(crate) enum ModuleSourceKind {
     Bytes(Vec<u8>),
 }
 
+/// The host-created module type and its identity-bearing payload. This is
+/// separate from parseable source text because distinct types can synthesize
+/// the same JavaScript spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleSourceProvenance<'a> {
+    JavaScript,
+    Json,
+    Text,
+    Bytes(&'a [u8]),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ModuleParse {
     Module(ParsedModule),
@@ -157,6 +168,16 @@ impl ModuleSourceIr {
         match &self.kind {
             ModuleSourceKind::Bytes(bytes) => Some(bytes),
             _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn provenance(&self) -> ModuleSourceProvenance<'_> {
+        match &self.kind {
+            ModuleSourceKind::JavaScript => ModuleSourceProvenance::JavaScript,
+            ModuleSourceKind::Json => ModuleSourceProvenance::Json,
+            ModuleSourceKind::Text => ModuleSourceProvenance::Text,
+            ModuleSourceKind::Bytes(bytes) => ModuleSourceProvenance::Bytes(bytes.as_slice()),
         }
     }
 

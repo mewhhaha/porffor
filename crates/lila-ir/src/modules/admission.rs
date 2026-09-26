@@ -268,11 +268,8 @@ fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
     let mut loaded = BTreeMap::new();
     for source in &sources.modules {
         if loaded
-            .insert(
-                (source.goal() == ParseGoal::Script, source.key()),
-                source.source_text(),
-            )
-            .is_some_and(|previous| previous != source.source_text())
+            .insert((source.goal() == ParseGoal::Script, source.key()), source)
+            .is_some_and(|previous| !previous.same_loaded_source(source))
         {
             return false;
         }
@@ -300,4 +297,37 @@ fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_host_key_cannot_change_type_behind_equal_synthesized_source() {
+        let key = ModuleKey::from_host("/root/data.bin");
+        let bytes = ModuleSourceIr::bytes(
+            key.clone(),
+            vec![0, 0x80, 0xff],
+            "file:///root/data.bin".to_string(),
+        );
+        let javascript = ModuleSourceIr::new(
+            key,
+            bytes.source_text().to_string(),
+            bytes.meta_url().to_string(),
+        );
+        let sources = ModuleGraphSources {
+            modules: vec![bytes.clone(), javascript],
+            entry: 0,
+            resolutions: vec![],
+        };
+        assert!(!host_identity_is_consistent(&sources));
+
+        let consistent = ModuleGraphSources {
+            modules: vec![bytes.clone(), bytes],
+            entry: 0,
+            resolutions: vec![],
+        };
+        assert!(host_identity_is_consistent(&consistent));
+    }
 }

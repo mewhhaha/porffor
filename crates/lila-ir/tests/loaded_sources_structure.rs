@@ -41,7 +41,7 @@ fn loaded_sources_have_one_private_owner_and_narrow_public_facade() {
     assert_eq!(MODULES_SOURCE.matches("\nmod loaded_sources;\n").count(), 1);
     assert_eq!(
         MODULES_SOURCE
-            .matches("pub use loaded_sources::{ModuleGraphSources, ModuleSourceIr};")
+            .matches("pub use loaded_sources::{ModuleGraphSources, ModuleSourceIr, ModuleSourceProvenance};")
             .count(),
         1
     );
@@ -76,11 +76,11 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
     let fields = bounded(
         OWNER_SOURCE,
         "pub struct ModuleSourceIr {",
-        "#[derive(Debug, Clone, PartialEq, Eq)]\npub(super) enum ModuleParse",
+        "#[derive(Debug, Clone, PartialEq, Eq)]\npub(crate) enum ModuleSourceKind",
     );
     assert_eq!(
         code_without_whitespace(fields),
-        "key:ModuleKey,meta_url:String,pub(super)parse:ModuleParse,}"
+        "key:ModuleKey,meta_url:String,pub(super)parse:ModuleParse,kind:ModuleSourceKind,}"
     );
 
     let parse = bounded(
@@ -109,10 +109,14 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
         "new",
         "json",
         "text",
+        "bytes",
         "from_parsed",
         "from_parsed_script",
         "key",
         "source_text",
+        "bytes_value",
+        "provenance",
+        "same_loaded_source",
         "meta_url",
         "module_requests",
         "computed_import_phases",
@@ -124,9 +128,8 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
             "{method} must have one public owner"
         );
     }
-    // `ModuleSourceIr::json` and `ModuleSourceIr::text`, the ParseJSONModule and
-    // CreateTextModule constructors, make eleven and twelve.
-    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 12);
+    // The typed constructors and identity views are part of this one owner.
+    assert_eq!(OWNER_SOURCE.matches("pub fn ").count(), 16);
     assert_eq!(OWNER_SOURCE.matches("#[doc(hidden)]").count(), 1);
     assert_eq!(
         OWNER_SOURCE.matches("scan_module_requests(source)").count(),
@@ -173,12 +176,12 @@ fn graph_sources_keep_the_exact_public_closure_record_and_single_constructor() {
 fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner() {
     assert_eq!(OWNER_SOURCE.matches("ModuleGraphSources").count(), 4);
     assert_eq!(GRAPH_SOURCE.matches("ModuleGraphSources").count(), 2);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleGraphSources").count(), 35);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleGraphSources").count(), 36);
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleGraphSources").count(), 2);
     assert_eq!(LINK_SOURCE.matches("ModuleGraphSources").count(), 4);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleGraphSources").count(), 2);
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleGraphSources").count(), 3);
-    assert_eq!(ADMISSION_SOURCE.matches("ModuleGraphSources").count(), 3);
+    assert_eq!(ADMISSION_SOURCE.matches("ModuleGraphSources").count(), 5);
     assert_eq!(
         ADMISSION_CLOSURE_SOURCE
             .matches("ModuleGraphSources")
@@ -208,22 +211,25 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
         6
     );
     // Includes `computed_import_gap`, the host's computed-specifier boundary.
-    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 8);
+    assert_eq!(ENGINE_LIB_SOURCE.matches("ModuleGraphSources").count(), 9);
 
     assert_eq!(OWNER_SOURCE.matches("ModuleSourceIr").count(), 4);
     assert_eq!(GRAPH_SOURCE.matches("ModuleSourceIr").count(), 1);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleSourceIr").count(), 67);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleSourceIr").count(), 69);
     assert_eq!(LINK_SOURCE.matches("ModuleSourceIr").count(), 1);
     assert_eq!(NAMESPACE_SOURCE.matches("ModuleSourceIr").count(), 2);
     assert_eq!(DYNAMIC_SOURCE.matches("ModuleSourceIr").count(), 1);
-    // Four more: the loader builds JSON and text modules through
-    // `ModuleSourceIr::json` and `ModuleSourceIr::text`.
-    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleSourceIr").count(), 12);
+    // The loader constructs JavaScript, JSON, text and bytes source kinds.
+    assert_eq!(ENGINE_LOADER_SOURCE.matches("ModuleSourceIr").count(), 13);
 
     assert!(GRAPH_BUILD_SOURCE.contains("pub(crate) fn build_graph("));
     assert!(!GRAPH_SOURCE.contains("pub(crate) fn build_graph("));
+    let admission_runtime_source = ADMISSION_SOURCE
+        .split_once("#[cfg(test)]")
+        .expect("admission's host identity regression")
+        .0;
     for source in [
-        ADMISSION_SOURCE,
+        admission_runtime_source,
         ADMISSION_CLOSURE_SOURCE,
         SYNCHRONOUS_SOURCE,
     ] {

@@ -12,7 +12,7 @@ use lila_ir::{
     lower_module_graph_with_host_surface_policy, lower_module_graph_with_prelude,
     lower_script_graph_with_host_surface_policy, lower_with_host_surface_policy,
     script_writes_import_call, source_writes_dynamic_import, CompletionKindIr,
-    DynamicSourceRuntimeOperation, IrDiagnostic, ProgramIr, ValueKind,
+    DynamicSourceRuntimeOperation, IrDiagnostic, ModuleSourceProvenance, ProgramIr, ValueKind,
 };
 use lila_runtime::AgentHostOperation;
 use sha2::{Digest, Sha256};
@@ -466,9 +466,22 @@ fn module_graph_digest(sources: &lila_ir::ModuleGraphSources) -> [u8; 32] {
         if index == sources.entry as usize {
             continue;
         }
+        hash.update(module.key().as_str().len().to_le_bytes());
         hash.update(module.key().as_str().as_bytes());
+        hash.update(module.meta_url().len().to_le_bytes());
+        hash.update(module.meta_url().as_bytes());
         hash.update(module.source_text().len().to_le_bytes());
         hash.update(module.source_text().as_bytes());
+        match module.provenance() {
+            ModuleSourceProvenance::JavaScript => hash.update([0]),
+            ModuleSourceProvenance::Json => hash.update([1]),
+            ModuleSourceProvenance::Text => hash.update([2]),
+            ModuleSourceProvenance::Bytes(bytes) => {
+                hash.update([3]);
+                hash.update(bytes.len().to_le_bytes());
+                hash.update(bytes);
+            }
+        }
     }
     hash.finalize().into()
 }
@@ -4843,6 +4856,52 @@ report;
         assert_ne!(
             first_key,
             program_wasm_cache_key("export {};", ParseGoal::Module, &second)
+        );
+    }
+
+    #[test]
+    fn module_graph_cache_digest_keeps_host_created_source_identity() {
+        let key = ModuleKey::from_host("/root/data.bin");
+        let bytes = lila_ir::ModuleSourceIr::bytes(
+            key.clone(),
+            vec![0, 0x80, 0xff],
+            "file:///root/data.bin".to_string(),
+        );
+        let javascript = lila_ir::ModuleSourceIr::new(
+            key,
+            bytes.source_text().to_string(),
+            bytes.meta_url().to_string(),
+        );
+        let entry = || {
+            lila_ir::ModuleSourceIr::new(
+                ModuleKey::from_host("/root/entry.js"),
+                "import './data.bin';".to_string(),
+                "file:///root/entry.js".to_string(),
+            )
+        };
+        let graph = |dependency| lila_ir::ModuleGraphSources {
+            modules: vec![entry(), dependency],
+            entry: 0,
+            resolutions: vec![],
+        };
+        assert_ne!(
+            module_graph_digest(&graph(bytes.clone())),
+            module_graph_digest(&graph(javascript)),
+            "equal synthesized text must not hide a change in module type"
+        );
+        assert_eq!(
+            module_graph_digest(&graph(bytes.clone())),
+            module_graph_digest(&graph(bytes.clone()))
+        );
+        let changed_url = lila_ir::ModuleSourceIr::bytes(
+            bytes.key().clone(),
+            vec![0, 0x80, 0xff],
+            "https://example.invalid/data.bin".to_string(),
+        );
+        assert_ne!(
+            module_graph_digest(&graph(bytes)),
+            module_graph_digest(&graph(changed_url)),
+            "import.meta.url is observable and part of the cache identity"
         );
     }
 

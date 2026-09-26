@@ -151,8 +151,9 @@ pub use modules::{
     ModuleBindingKindIr, ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr,
     ModuleGraphIr, ModuleGraphSources, ModuleKey, ModuleLinkErrorIr, ModuleNamespaceExportIr,
     ModuleNamespaceIr, ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr,
-    ModuleSourceIr, ModuleUnitId, ModuleUnitIr, OuterScriptModuleDependency, ResolvedBindingIr,
-    SourceTextModuleRecordIr, StarExportEntryIr, ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
+    ModuleSourceIr, ModuleSourceProvenance, ModuleUnitId, ModuleUnitIr,
+    OuterScriptModuleDependency, ResolvedBindingIr, SourceTextModuleRecordIr, StarExportEntryIr,
+    ANONYMOUS_MODULE_KEY, MODULE_SOURCE_TO_STRING_TAG,
 };
 pub use modules::{
     DeferredModuleEvaluationIr, ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr,
