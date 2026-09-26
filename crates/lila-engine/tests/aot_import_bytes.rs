@@ -187,3 +187,25 @@ print(bytes.length === 2 && bytes[0] === 128 && bytes[1] === 3 && bytes.buffer.i
         &["true"],
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn repointed_bytes_alias_uses_current_resolution_after_a_cached_run() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new();
+    fixture.write("a.bin", [1]);
+    fixture.write("b.bin", [2]);
+    let alias = fixture.0.join("alias.bin");
+    symlink("a.bin", &alias).expect("link first bytes target");
+    let source = r#"
+import a from './a.bin' with { type: 'bytes' };
+import b from './b.bin' with { type: 'bytes' };
+import alias from './alias.bin' with { type: 'bytes' };
+print(a[0] * 100 + b[0] * 10 + alias[0]);
+"#;
+    fixture.run(source, &["121"]);
+    std::fs::remove_file(&alias).expect("remove first bytes alias");
+    symlink("b.bin", &alias).expect("link second bytes target");
+    fixture.run(source, &["122"]);
+}

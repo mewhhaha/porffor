@@ -377,7 +377,7 @@ fn compiler_fingerprint() -> &'static [u8; 32] {
     })
 }
 
-const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v4";
+const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v5";
 
 fn hash_program_cache_field(hash: &mut Sha256, bytes: &[u8]) {
     let length = u64::try_from(bytes.len()).expect("cache-key field length must fit in u64");
@@ -456,32 +456,67 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
     hash.finalize().into()
 }
 
-/// Digest of every module in a graph *other than* the entry, in graph order.
+/// Digest of the loaded modules and host resolution edges of one graph.
 ///
 /// Without this a stale artifact survives an edit to an imported file: the
-/// entry's own text is unchanged, so the key would be unchanged too.
+/// entry's own text is unchanged, so the key would be unchanged too. Likewise,
+/// a request can resolve to a different unit already present in the graph
+/// without changing any source text (for example after a symlink is repointed).
+/// The entry's parse goal is hashed by the enclosing program key. Its URL and
+/// canonical key still belong here: an unchanged filename can be a symlink
+/// whose destination changes between compilations.
 fn module_graph_digest(sources: &lila_ir::ModuleGraphSources) -> [u8; 32] {
     let mut hash = Sha256::new();
+    hash.update(b"lila-module-graph-v2");
+    hash.update(
+        u64::try_from(sources.modules.len())
+            .expect("module count must fit in u64")
+            .to_le_bytes(),
+    );
+    hash.update(sources.entry.to_le_bytes());
     for (index, module) in sources.modules.iter().enumerate() {
-        if index == sources.entry as usize {
-            continue;
-        }
-        hash.update(module.key().as_str().len().to_le_bytes());
-        hash.update(module.key().as_str().as_bytes());
-        hash.update(module.meta_url().len().to_le_bytes());
-        hash.update(module.meta_url().as_bytes());
-        hash.update(module.source_text().len().to_le_bytes());
-        hash.update(module.source_text().as_bytes());
+        hash.update(
+            u64::try_from(index)
+                .expect("module index must fit in u64")
+                .to_le_bytes(),
+        );
+        hash_program_cache_field(&mut hash, module.key().as_str().as_bytes());
+        hash_program_cache_field(&mut hash, module.meta_url().as_bytes());
+        hash_program_cache_field(&mut hash, module.source_text().as_bytes());
         match module.provenance() {
             ModuleSourceProvenance::JavaScript => hash.update([0]),
             ModuleSourceProvenance::Json => hash.update([1]),
             ModuleSourceProvenance::Text => hash.update([2]),
             ModuleSourceProvenance::Bytes(bytes) => {
                 hash.update([3]);
-                hash.update(bytes.len().to_le_bytes());
-                hash.update(bytes);
+                hash_program_cache_field(&mut hash, bytes);
             }
         }
+    }
+    // ModuleRequestsEqual deliberately excludes phase. Each occurrence's
+    // phase is already in its referrer's source text; the host resolution is
+    // keyed by the canonical specifier and attributes only. Sort edges so a
+    // loader's discovery order cannot change the digest of the same graph.
+    let mut resolutions = sources.resolutions.iter().collect::<Vec<_>>();
+    resolutions.sort_unstable();
+    hash.update(
+        u64::try_from(resolutions.len())
+            .expect("resolution count must fit in u64")
+            .to_le_bytes(),
+    );
+    for (referrer, request, target) in resolutions {
+        hash.update(referrer.to_le_bytes());
+        hash_program_cache_field(&mut hash, request.specifier().as_bytes());
+        hash.update(
+            u64::try_from(request.attributes().len())
+                .expect("attribute count must fit in u64")
+                .to_le_bytes(),
+        );
+        for attribute in request.attributes() {
+            hash_program_cache_field(&mut hash, attribute.key.as_bytes());
+            hash_program_cache_field(&mut hash, attribute.value.as_bytes());
+        }
+        hash.update(target.to_le_bytes());
     }
     hash.finalize().into()
 }
@@ -4903,6 +4938,128 @@ report;
             module_graph_digest(&graph(changed_url)),
             "import.meta.url is observable and part of the cache identity"
         );
+    }
+
+    #[test]
+    fn module_graph_cache_digest_tracks_resolved_target_and_request() {
+        let entry = lila_ir::ModuleSourceIr::new(
+            ModuleKey::from_host("/root/entry.js"),
+            "import './a.bin' with { type: 'bytes' }; import './b.bin' with { type: 'bytes' }; import './alias.bin' with { type: 'bytes' };".into(),
+            "file:///root/entry.js".into(),
+        );
+        let request = |specifier| {
+            ModuleRequestKeyIr::try_new(
+                specifier,
+                [lila_ir::ImportAttributeIr {
+                    key: "type".into(),
+                    value: "bytes".into(),
+                }],
+            )
+            .expect("one canonical attribute")
+        };
+        let modules = vec![
+            entry,
+            lila_ir::ModuleSourceIr::bytes(
+                ModuleKey::from_host("bytes:/root/a.bin"),
+                vec![1],
+                "file:///root/a.bin".into(),
+            ),
+            lila_ir::ModuleSourceIr::bytes(
+                ModuleKey::from_host("bytes:/root/b.bin"),
+                vec![2],
+                "file:///root/b.bin".into(),
+            ),
+        ];
+        let graph = |alias_target| lila_ir::ModuleGraphSources {
+            modules: modules.clone(),
+            entry: 0,
+            resolutions: vec![
+                (0, request("./a.bin"), 1),
+                (0, request("./b.bin"), 2),
+                (0, request("./alias.bin"), alias_target),
+            ],
+        };
+        let first = graph(1);
+        let second = graph(2);
+        assert_eq!(first.modules, second.modules);
+        assert_ne!(
+            module_graph_digest(&first),
+            module_graph_digest(&second),
+            "an alias can change target without changing any loaded unit"
+        );
+
+        let mut reordered = graph(1);
+        reordered.resolutions.reverse();
+        assert_eq!(module_graph_digest(&first), module_graph_digest(&reordered));
+
+        let mut other_request = graph(1);
+        other_request.resolutions[2].1 = request("./another-alias.bin");
+        assert_ne!(
+            module_graph_digest(&first),
+            module_graph_digest(&other_request)
+        );
+        let mut other_attribute = graph(1);
+        other_attribute.resolutions[2].1 = ModuleRequestKeyIr::plain("./alias.bin");
+        assert_ne!(
+            module_graph_digest(&first),
+            module_graph_digest(&other_attribute)
+        );
+
+        let mut changed_entry_url = graph(1);
+        changed_entry_url.modules[0] = lila_ir::ModuleSourceIr::new(
+            ModuleKey::from_host("/root/entry.js"),
+            first.modules[0].source_text().into(),
+            "file:///other/entry.js".into(),
+        );
+        assert_ne!(
+            module_graph_digest(&first),
+            module_graph_digest(&changed_entry_url),
+            "entry import.meta.url is observable even when its source is unchanged"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn module_graph_cache_digest_tracks_filesystem_symlink_retargeting() {
+        use std::os::unix::fs::symlink;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        struct Fixture(std::path::PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "lila-module-resolution-cache-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        std::fs::create_dir(&fixture.0).expect("create isolated module root");
+        let source = "import './a.bin' with { type: 'bytes' }; import './b.bin' with { type: 'bytes' }; import './alias.bin' with { type: 'bytes' };";
+        let entry_path = fixture.0.join("entry.js");
+        let alias_path = fixture.0.join("alias.bin");
+        std::fs::write(&entry_path, source).expect("write entry");
+        std::fs::write(fixture.0.join("a.bin"), [1]).expect("write first target");
+        std::fs::write(fixture.0.join("b.bin"), [2]).expect("write second target");
+        symlink("a.bin", &alias_path).expect("link first target");
+        let loader = FilesystemModuleLoader::new(
+            Some(fixture.0.to_str().expect("UTF-8 fixture path")),
+            Some(entry_path.to_str().expect("UTF-8 entry path")),
+        )
+        .expect("filesystem loader");
+        let entry = ModuleEntry::HostLoad {
+            locator: entry_path.to_str().expect("UTF-8 entry path").into(),
+        };
+        let first = load_module_graph(&entry, &loader).expect("load first graph");
+        std::fs::remove_file(&alias_path).expect("remove old symlink");
+        symlink("b.bin", &alias_path).expect("link second target");
+        let second = load_module_graph(&entry, &loader).expect("load second graph");
+
+        assert_eq!(first.modules, second.modules);
+        assert_ne!(first.resolutions, second.resolutions);
+        assert_ne!(module_graph_digest(&first), module_graph_digest(&second));
     }
 
     #[test]
