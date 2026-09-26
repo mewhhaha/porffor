@@ -24,6 +24,28 @@ function argumentsProbe(value) {
     && Object.getOwnPropertyDescriptor(argumentsProbe, 'arguments').value === arguments;
 }
 print(argumentsProbe(5) && argumentsProbe.arguments === null);
+function namedParameter(arguments) {
+  return arguments === 7 && namedParameter.arguments[0] === 7
+    && namedParameter.arguments !== arguments;
+}
+function defaultParameter(arguments = 5) {
+  return arguments === 5 && defaultParameter.arguments.length === 0;
+}
+function restParameter(...arguments) {
+  return arguments[0] === 9 && restParameter.arguments[0] === 9
+    && restParameter.arguments !== arguments;
+}
+function reassignedArguments(value) {
+  var original = reassignedArguments.arguments;
+  arguments = "changed";
+  return reassignedArguments.arguments === original && original[0] === value;
+}
+function localFunctionShadow() {
+  function arguments() {}
+  return typeof arguments === "function" && localFunctionShadow.arguments.length === 0;
+}
+print(namedParameter(7) && defaultParameter() && restParameter(9)
+  && reassignedArguments(11) && localFunctionShadow());
 function recursive(depth) {
   if (depth === 2) return recursive.arguments[0] === 2 && recursive.caller === recursive;
   var outerArguments = recursive.arguments;
@@ -97,6 +119,6 @@ void 0;
     );
     assert_eq!(
         outcome.output_events,
-        vec![HostOutputEvent::PrintLine("true".to_string()); 16]
+        vec![HostOutputEvent::PrintLine("true".to_string()); 17]
     );
 }
