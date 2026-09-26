@@ -1131,18 +1131,16 @@ mod tests {
     fn bytes_modules_keep_raw_contents_and_share_one_typed_module_key() {
         let base = temp_base("bytes");
         let root = base.join("root");
-        write_tree(
-            &root,
-            &[
-                (
-                    "entry.js",
-                    "import first from './raw.bin' with { type: 'bytes' };\n\
+        let entry_source = "import first from './raw.bin' with { type: 'bytes' };\n\
             import second from './raw.bin' with { type: 'bytes' };\n\
             import empty from './empty.bin' with { type: 'bytes' };\n\
             import source from './other.js';\n\
             import binary from './other.js' with { type: 'bytes' };\n\
-            export default [first, second, empty, source, binary];",
-                ),
+            export default [first, second, empty, source, binary];";
+        write_tree(
+            &root,
+            &[
+                ("entry.js", entry_source),
                 ("other.js", "export default 1;"),
             ],
         );
@@ -1162,13 +1160,56 @@ mod tests {
             .unwrap();
         assert_ne!(raw, empty);
         assert_eq!(sources.modules.len(), 5);
+        let raw_request = ModuleRequestKeyIr::try_new(
+            "./raw.bin",
+            [ImportAttributeIr {
+                key: "type".to_string(),
+                value: "bytes".to_string(),
+            }],
+        )
+        .unwrap();
+        let lila_front::ParsedSource::Module(parsed) =
+            lila_front::parse(entry_source, lila_front::ParseOptions::module()).unwrap()
+        else {
+            panic!("entry source has Module grammar");
+        };
+        let record = lila_ir::parse_module_record(&parsed, 0, sources.modules[0].key().clone())
+            .expect("entry record should build");
+        // Each import keeps its binding entry, while ModuleRequestsEqual
+        // coalesces identical specifier-and-attribute requests for resolution.
+        assert_eq!(
+            record
+                .import_entries
+                .iter()
+                .filter(|entry| entry.request.key() == &raw_request)
+                .count(),
+            2
+        );
+        assert_eq!(
+            record
+                .requested_modules
+                .iter()
+                .filter(|request| request.key() == &raw_request)
+                .count(),
+            1
+        );
+        assert_eq!(
+            record
+                .module_resolution_requests
+                .iter()
+                .filter(|request| *request == &raw_request)
+                .count(),
+            1
+        );
         assert_eq!(
             sources
                 .resolutions
                 .iter()
-                .filter(|(_, _, target)| *target as usize == raw)
+                .filter(|(referrer, request, target)| {
+                    *referrer == 0 && request == &raw_request && *target as usize == raw
+                })
                 .count(),
-            2
+            1
         );
         assert!(sources
             .modules
