@@ -2149,9 +2149,14 @@ mod tests {
         );
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            INTL_FALLBACK_SYMBOL_GLOBAL_INDEX as usize + 1,
+            LEGACY_ACTIVE_CALLER_GLOBAL_INDEX as usize + 1,
             "the fixed scalar registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
+        );
+        assert_eq!(
+            GLOBAL_INDEX_REGISTRY.last().map(|slot| slot.name),
+            Some("[[LegacyActiveCaller]]"),
+            "the active legacy caller is the appended scalar global"
         );
         assert!(
             REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX

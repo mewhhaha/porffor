@@ -98,16 +98,16 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionModuleState"),
-        39
+        42
     );
-    assert_eq!(SOURCE.matches("FunctionModuleState::Main").count(), 9);
+    assert_eq!(SOURCE.matches("FunctionModuleState::Main").count(), 10);
     assert_eq!(
         SOURCE
             .matches("FunctionModuleState::PreparedScript")
             .count(),
-        14
+        15
     );
-    assert_eq!(SOURCE.matches("FunctionModuleState::Internal").count(), 12);
+    assert_eq!(SOURCE.matches("FunctionModuleState::Internal").count(), 13);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn exactly_six_constructors_choose_their_named_module_states() {
 
 #[test]
 fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
-    assert_eq!(SOURCE.matches("match &module_state {").count(), 1);
+    assert_eq!(SOURCE.matches("match &module_state {").count(), 2);
     assert_eq!(SOURCE.matches("match &self.module_state {").count(), 2);
     assert!(!SOURCE.contains("let FunctionModuleState::Main("));
 
@@ -227,6 +227,23 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
             ".map(|binding|binding.name.clone()).collect()}",
             "FunctionModuleState::Internal|FunctionModuleState::PreparedScript(_)=>{",
             "collect_hoisted_vars_block_root(body)}};"
+        )
+    );
+
+    let prepared_script_activation_policy = bounded(
+        shared_constructor,
+        "                FunctionMetaOrigin::PreparedScript => match &module_state {",
+        "                FunctionMetaOrigin::StandardBuiltin => {",
+    );
+    assert_eq!(
+        normalized_code(prepared_script_activation_policy),
+        concat!(
+            "FunctionModuleState::PreparedScript(unit)=>match&unit.kind{",
+            "PreparedScriptKind::DirectEval(_)=>None,",
+            "PreparedScriptKind::RealmScript|PreparedScriptKind::IndirectEval=>{",
+            "Some(LegacyActivationMode::Barrier)}},",
+            "FunctionModuleState::Main(..)|FunctionModuleState::Internal=>{",
+            "unreachable!(\"prepared script meta requires prepared script state\")}},"
         )
     );
 

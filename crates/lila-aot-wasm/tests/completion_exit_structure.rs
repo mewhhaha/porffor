@@ -538,7 +538,8 @@ fn main_checkpoint_wraps_source_and_routes_abrupt_completion_before_return() {
             "self.completion_exit.main_job_checkpoint_target(){",
             "self.emit_branch_to_target(target,function);return;}",
             "for_in0..self.environment_depth{self.load_i64_to_local_from_offset(",
-            "self.current_env_local,ENV_PARENT_OFFSET,self.current_env_local,function,);}"
+            "self.current_env_local,ENV_PARENT_OFFSET,self.current_env_local,function,);}",
+            "self.emit_end_legacy_activation(function);"
         )
     );
 
