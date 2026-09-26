@@ -1032,7 +1032,7 @@
     }
   ],
   "verification": {
-    "status": "focused checks, combined replay and affected families complete; final broad verification running",
+    "status": "core complete; environment reset interrupted engine integration and removed ignored target artifacts; engine and CLI verification will restart",
     "focused": [
       {
         "head": "399c1595fbee232d7212253fbae58362a66ed859",
@@ -1235,7 +1235,49 @@
       "passed": 4510,
       "failed": 12,
       "ignored": 0,
-      "log": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/watched/failure-discovery-broad-core.log"
+      "log": "target/failure-discovery-20260926/first-broad-core.log"
+    },
+    "second_broad_core": {
+      "head": "1dab8e8f7e47178aa096fe32bf5ac6ad9022d9b8",
+      "stage": "core",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--locked",
+        "-j3",
+        "--no-fail-fast",
+        "-p",
+        "lila-front",
+        "-p",
+        "lila-ir",
+        "-p",
+        "lila-intl",
+        "-p",
+        "lila-aot-wasm",
+        "-p",
+        "lila-test262",
+        "--tests",
+        "--",
+        "--test-threads=3"
+      ],
+      "returncode": 101,
+      "seconds": 690,
+      "targets": 529,
+      "passed": 4521,
+      "failed": 1,
+      "ignored": 0,
+      "log": "target/failure-discovery-20260926/second-broad-core.log",
+      "resolution": "The sole failure was the loaded-source structural inventory: the additional graph-cache regression adds a tenth ModuleGraphSources reference. Corrected in a2d720530; all four focused loaded_sources_structure tests pass."
+    },
+    "core_completed_before_environment_reset": {
+      "head": "a2d7205301e9c960700947f4dc3190632a21bd8f",
+      "targets": 529,
+      "passed": 4522,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 210,
+      "evidence": "Completed watched command output captured in this session before environment reset; ignored target logs are no longer present."
     }
   },
   "affected_families": {

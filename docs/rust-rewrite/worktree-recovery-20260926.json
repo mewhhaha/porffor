@@ -1,0 +1,505 @@
+{
+  "date": "2026-09-26",
+  "integration_branch": "feat/test262-upstream-20260924",
+  "audit_baseline": "a2d7205301e9c960700947f4dc3190632a21bd8f",
+  "preservation": "Local refs/archive/worktrees-20260926/<name> retain original heads. The -dirty refs retain stash commits including untracked content in parent 3. No branches deleted.",
+  "worktrees": [
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/activation-structure-tests",
+      "HEAD": "a9c6ca4db1118c331a522571410ffc70beca778a",
+      "detached": true,
+      "name": "activation-structure-tests",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/activation-structure-tests",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a05be1d497d19e890",
+      "HEAD": "2bc760cd05a35314f263ecceceada74b79b80800",
+      "branch": "refs/heads/agent/immutable-arraybuffer",
+      "name": "agent-a05be1d497d19e890",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a05be1d497d19e890",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a0cfc93e9522d2702",
+      "HEAD": "fb04cc814543cc1404f597c386d83a4f2cd865ac",
+      "branch": "refs/heads/agent/language-7ab7faf",
+      "name": "agent-a0cfc93e9522d2702",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a0cfc93e9522d2702",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a0ecd983a177d7d50",
+      "HEAD": "085157f21a3627df3a979f9adef4c7188f8ab0bb",
+      "branch": "refs/heads/worktree-agent-a0ecd983a177d7d50",
+      "name": "agent-a0ecd983a177d7d50",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a0ecd983a177d7d50",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a1bce76b88ce7b105",
+      "HEAD": "261b56547c36576320a4b38a84a58bd01f8d6917",
+      "branch": "refs/heads/worktree-agent-a1bce76b88ce7b105",
+      "name": "agent-a1bce76b88ce7b105",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a1bce76b88ce7b105",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a34fa2d34e696aead",
+      "HEAD": "c88c3ea40d0287c8e7274c2f2d376d0bb207920b",
+      "branch": "refs/heads/agent/intl-7ab7faf-nfdata",
+      "name": "agent-a34fa2d34e696aead",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a34fa2d34e696aead",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a38f1c9de50a34d0d",
+      "HEAD": "d878b839d211c0153001ae27649a61197c1db848",
+      "branch": "refs/heads/agent/intl-7ab7faf-fallback",
+      "name": "agent-a38f1c9de50a34d0d",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a38f1c9de50a34d0d",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a45eef2f7aae94966",
+      "HEAD": "46464c466a211400ea215dbf538e2b923ab3d1b9",
+      "branch": "refs/heads/agent/intl-7ab7faf-calendars",
+      "name": "agent-a45eef2f7aae94966",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a45eef2f7aae94966",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a4dc3c51ecc81d849",
+      "HEAD": "2982d66ac891151ae8ff05d8ba3bda404daa9db6",
+      "branch": "refs/heads/agent/t262-runner-harness",
+      "name": "agent-a4dc3c51ecc81d849",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a4dc3c51ecc81d849",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a539a64e6a3621025",
+      "HEAD": "4b75a6dbe2b0f58f6453af42f3687f8b01a6233d",
+      "branch": "refs/heads/worktree-agent-a539a64e6a3621025",
+      "name": "agent-a539a64e6a3621025",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a539a64e6a3621025",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a55f3221d2c362d6e",
+      "HEAD": "d9c587c29010b538b3d8164bdc0464568b214d37",
+      "branch": "refs/heads/agent/detach-semantics",
+      "locked": "claude agent agent-a55f3221d2c362d6e (pid 2937193 start 17356162)",
+      "name": "agent-a55f3221d2c362d6e",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a55f3221d2c362d6e",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a6b4a3a61ce3b7d25",
+      "HEAD": "c9c08894ea80336f048c031f0b1cc798b0a926ea",
+      "branch": "refs/heads/agent/temporal-7ab7faf",
+      "name": "agent-a6b4a3a61ce3b7d25",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a6b4a3a61ce3b7d25",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-a7f8df6a034aa1a03",
+      "HEAD": "d5e410cef2097d76ff751031a0b6c672e3030640",
+      "branch": "refs/heads/agent/typedarray-perf-detach",
+      "name": "agent-a7f8df6a034aa1a03",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-a7f8df6a034aa1a03",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-abc5bd923f6253cc5",
+      "HEAD": "d249ba083135c8d737a463616bb5af90312f476d",
+      "branch": "refs/heads/agent/intl-7ab7faf",
+      "name": "agent-abc5bd923f6253cc5",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-abc5bd923f6253cc5",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-adf9401764f32d058",
+      "HEAD": "290ab78ef9d820d692230e53d2dcd16cee768287",
+      "branch": "refs/heads/agent/error-stack-accessor",
+      "name": "agent-adf9401764f32d058",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-adf9401764f32d058",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-ae21a10df4f3e4818",
+      "HEAD": "3e1b38e96d3396e8a1b518b2f6737d10d8b4a1c9",
+      "branch": "refs/heads/agent/temporal-iana",
+      "name": "agent-ae21a10df4f3e4818",
+      "status": [
+        "?? scripts/__pycache__/generate-intl-named-time-zones.cpython-314.pyc",
+        "?? scripts/__pycache__/generate-intl-time-zone-names.cpython-314.pyc",
+        "?? scripts/tests/__pycache__/test_generate_intl_named_time_zones.cpython-314.pyc",
+        "?? scripts/tests/__pycache__/test_generate_intl_time_zone_names.cpython-314.pyc"
+      ],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-ae21a10df4f3e4818",
+      "dirty_recovery_ref": "refs/archive/worktrees-20260926/agent-ae21a10df4f3e4818-dirty",
+      "dirty_recovery_commit": "e8e760040aedde1010f4725cf79c8e4f82ef0e52",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/agent-ae428e078856ce482",
+      "HEAD": "f34ec0f853ed4b5af16c36855f246627c88a9c04",
+      "branch": "refs/heads/agent/iterator-chunking-includes-join",
+      "name": "agent-ae428e078856ce482",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/agent-ae428e078856ce482",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/aot-artifact-size-20260926",
+      "HEAD": "c6e505aa43c6433b62b353a3e7341e876e83a071",
+      "branch": "refs/heads/fix/aot-artifact-size-20260926",
+      "name": "aot-artifact-size-20260926",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/aot-artifact-size-20260926",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/array-buffer-structure",
+      "HEAD": "64ed9e05cada2946fc9199058c82d800b6098698",
+      "branch": "refs/heads/fix/array-buffer-structure-20260925",
+      "name": "array-buffer-structure",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/array-buffer-structure",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/dtf-range-spacing",
+      "HEAD": "d04bee45fafa4236b28249f112c4f2fd6a4a0e2b",
+      "detached": true,
+      "name": "dtf-range-spacing",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/dtf-range-spacing",
+      "removed": true,
+      "decision": "Reject obsolete scalar/interval whitespace policies; calendar work already integrated in canonical range overlay implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/frontend-test262-snapshot",
+      "HEAD": "d04dbc808960427f19cdae57ba765f95d9e54641",
+      "branch": "refs/heads/fix/frontend-test262-snapshot-20260925",
+      "name": "frontend-test262-snapshot",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/frontend-test262-snapshot",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/generator-nested-yields",
+      "HEAD": "c3dfb2708cc21cdcaceabad4ee91ba741ea3adba",
+      "branch": "refs/heads/fix/generator-nested-yields-20260925",
+      "name": "generator-nested-yields",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/generator-nested-yields",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/import-bytes-20260926",
+      "HEAD": "f3b2ffa050e91587b549de7a6283768cd0557674",
+      "branch": "refs/heads/fix/import-bytes-20260926",
+      "name": "import-bytes-20260926",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/import-bytes-20260926",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/intl-cldr-expansion",
+      "HEAD": "311a46c7396c2f799ed02aabacddc7c3b8cff591",
+      "detached": true,
+      "name": "intl-cldr-expansion",
+      "status": [
+        " M crates/lila-intl/data/datetime-cldr-47/manifest.json",
+        " M crates/lila-intl/data/datetime-cldr-47/selector.json",
+        " M crates/lila-intl/src/datetime.rs",
+        " M crates/lila-intl/src/datetime_protocol.rs",
+        " M crates/lila-intl/src/provider/datetime/calendar.rs",
+        " M crates/lila-intl/src/provider/datetime/generated/profile.json",
+        " M crates/lila-intl/src/provider/datetime/names.rs",
+        " M crates/lila-intl/src/provider/datetime/profile.rs",
+        " M crates/lila-intl/src/provider/datetime/raw.rs",
+        " M scripts/generate-intl-datetime-profile.py",
+        "?? crates/lila-intl/data/datetime-cldr-47/common/main/ja.xml",
+        "?? scripts/__pycache__/generate-intl-time-zone-names.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_cldr_profile.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_datetime_names.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_datetime_patterns.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_datetime_zones.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_ldml_schema.cpython-314.pyc",
+        "?? scripts/__pycache__/intl_rbnf_fields.cpython-314.pyc"
+      ],
+      "recovery_ref": "refs/archive/worktrees-20260926/intl-cldr-expansion",
+      "dirty_recovery_ref": "refs/archive/worktrees-20260926/intl-cldr-expansion-dirty",
+      "dirty_recovery_commit": "1e0f19949f6eeefd75fb0d9189660e1c3139505d",
+      "removed": true,
+      "decision": "Reject obsolete scalar/interval whitespace policies; calendar work already integrated in canonical range overlay implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/intl-cldr-expansion-v2",
+      "HEAD": "168c96b5cd8a6815daf91f1de456b0b96df93904",
+      "detached": true,
+      "name": "intl-cldr-expansion-v2",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/intl-cldr-expansion-v2",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/legacy-function-activation",
+      "HEAD": "414b489fc9a3789e76bdde9064d1d4f1f4b38eb2",
+      "branch": "refs/heads/fix/legacy-function-activation-20260926",
+      "name": "legacy-function-activation",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/legacy-function-activation",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/legacy-tail-call-builtins-20260926",
+      "HEAD": "1fe0ee7e6b4e7a1d4763221e0ff2eb3c0136c664",
+      "branch": "refs/heads/fix/legacy-tail-call-builtins-20260926",
+      "name": "legacy-tail-call-builtins-20260926",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/legacy-tail-call-builtins-20260926",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/module-resolution-cache-20260926",
+      "HEAD": "5080c16826f6e70f5f3046a8f5b641849f7e14f1",
+      "branch": "refs/heads/fix/module-resolution-cache-20260926",
+      "name": "module-resolution-cache-20260926",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/module-resolution-cache-20260926",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/realm-structural-20260925",
+      "HEAD": "146fd77fa1e11de95d96f455d9f99a8051ffb11c",
+      "branch": "refs/heads/fix/realm-structural-20260925",
+      "name": "realm-structural-20260925",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/realm-structural-20260925",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream",
+      "HEAD": "a2d7205301e9c960700947f4dc3190632a21bd8f",
+      "branch": "refs/heads/feat/test262-upstream-20260924",
+      "name": "t262-upstream",
+      "status": [
+        " M README.md",
+        " M docs/rust-rewrite/failure-discovery-20260926.json",
+        " M docs/rust-rewrite/failure-discovery-20260926.md",
+        " M docs/rust-rewrite/intl-datetime-provider.md"
+      ],
+      "cherry": [],
+      "decision": "Retain active integration checkout"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/temporal-date-field-reads-cli-20260925",
+      "HEAD": "50adfadab74a2f9024d654ca534a7c0ee437c98d",
+      "branch": "refs/heads/fix/temporal-date-field-reads-cli-20260925",
+      "name": "temporal-date-field-reads-cli-20260925",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/temporal-date-field-reads-cli-20260925",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/temporal-hour-offset-engine-test-20260925",
+      "HEAD": "46d8be65feb7bcf661a98f637f99213fd855978d",
+      "branch": "refs/heads/fix/temporal-hour-offset-engine-test-20260925",
+      "name": "temporal-hour-offset-engine-test-20260925",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/temporal-hour-offset-engine-test-20260925",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/test262-conformance",
+      "HEAD": "bb8bde933da210af05e549205dd5e8e4219b0210",
+      "branch": "refs/heads/worktree-test262-conformance",
+      "name": "test262-conformance",
+      "status": [
+        " M crates/porffor-aot-wasm/src/builtins/bootstrap.rs",
+        " M crates/porffor-aot-wasm/src/builtins/mod.rs",
+        " M crates/porffor-aot-wasm/src/data.rs",
+        " M crates/porffor-aot-wasm/src/module.rs",
+        " M crates/porffor-aot-wasm/src/operations.rs",
+        " M crates/porffor-aot-wasm/src/planning.rs",
+        " M crates/porffor-ir/src/builtins.rs",
+        " M crates/porffor-ir/src/lowering.rs",
+        " M crates/porffor-ir/src/names.rs",
+        " M test262/snapshots/latest-16041405925602287238.json",
+        "?? .cargo/config.toml",
+        "?? test262/snapshots/latest-13019885416207208493.json",
+        "?? test262/snapshots/latest-13928773398193659754.json",
+        "?? test262/snapshots/latest-16283742060789153922.json",
+        "?? test262/snapshots/latest-16470682856842891837.json",
+        "?? test262/snapshots/latest-18201458051002259496.json",
+        "?? test262/snapshots/latest-7010545139629022487.json"
+      ],
+      "recovery_ref": "refs/archive/worktrees-20260926/test262-conformance",
+      "dirty_recovery_ref": "refs/archive/worktrees-20260926/test262-conformance-dirty",
+      "dirty_recovery_commit": "8e6e7f9c5b0c46de8579e948f2b8399fb483d80f",
+      "removed": true,
+      "decision": "Legacy Date wiring and string equality fix already integrated; historical snapshots/config retained in dirty recovery commit"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/typedarray-set-capacity",
+      "HEAD": "5c7db981ba0e91b1812e9925eec724cd0ffd9504",
+      "branch": "refs/heads/refactor/typedarray-set-capacity-20260925",
+      "name": "typedarray-set-capacity",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/typedarray-set-capacity",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/typedarray-set-detached",
+      "HEAD": "247d1e7b902e1e125fc4e07cf8f84b68b08a7d3d",
+      "branch": "refs/heads/fix/typedarray-set-detached-20260925",
+      "name": "typedarray-set-detached",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/typedarray-set-detached",
+      "removed": true,
+      "decision": "Already integrated by ancestry, equivalent patch, or adapted implementation"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/wasmtime-gc-upgrade-20260926",
+      "HEAD": "78817ab8487375176d531c668b678bf34db88440",
+      "branch": "refs/heads/audit/wasmtime-gc-upgrade-20260926",
+      "name": "wasmtime-gc-upgrade-20260926",
+      "status": [],
+      "recovery_ref": "refs/archive/worktrees-20260926/wasmtime-gc-upgrade-20260926",
+      "removed": true,
+      "decision": "No unique changes; required GC implementation remains open"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/.claude/worktrees/wonderful-wiles-50df3d",
+      "HEAD": "e04bdc061ed0dbe796a7b8b61655f856ed4b3179",
+      "branch": "refs/heads/claude/wonderful-wiles-50df3d",
+      "name": "wonderful-wiles-50df3d",
+      "status": [
+        " M crates/porffor-cli/tests/cli/language.rs",
+        " M crates/porffor-ir/src/ir.rs",
+        " M crates/porffor-ir/src/lowering.rs",
+        "?? crates/porffor-cli/tests/fixtures/wasm_const_capture_return_kind.js"
+      ],
+      "recovery_ref": "refs/archive/worktrees-20260926/wonderful-wiles-50df3d",
+      "dirty_recovery_ref": "refs/archive/worktrees-20260926/wonderful-wiles-50df3d-dirty",
+      "dirty_recovery_commit": "4070397e5a0cef4f96ec985d4f56b616d97044ce",
+      "decision": "Ported unknown captured-value metadata fix as 8ddf54ef5 and ba604d2a1; focused regression passes",
+      "removed": true
+    }
+  ],
+  "stale_registrations_pruned": [
+    {
+      "worktree": "/home/mewhhaha/src/porffor/target/failure-review/origin-main-pr",
+      "HEAD": "9d435d996c8b9f72947007d81467794f8396b3ab",
+      "detached": true,
+      "prunable": "gitdir file points to non-existent location",
+      "recovery_ref": "refs/archive/worktrees-20260926/stale-origin-main-pr"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/target/failure-review/pre-pr52-tree",
+      "HEAD": "63b33c7050edc4bd9826722fe533efc9e7411147",
+      "detached": true,
+      "prunable": "gitdir file points to non-existent location",
+      "recovery_ref": "refs/archive/worktrees-20260926/stale-pre-pr52-tree"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/target/failure-review/sweep-e8bf29b3b",
+      "HEAD": "e8bf29b3bd7a054c35c741dab58ec95a6fee4ebf",
+      "detached": true,
+      "prunable": "gitdir file points to non-existent location",
+      "recovery_ref": "refs/archive/worktrees-20260926/stale-sweep-e8bf29b3b"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/target/golden/next-batch-base",
+      "HEAD": "212c1a1e82816198fc450c5b262f96af9db121a6",
+      "detached": true,
+      "prunable": "gitdir file points to non-existent location",
+      "recovery_ref": "refs/archive/worktrees-20260926/stale-next-batch-base"
+    },
+    {
+      "worktree": "/home/mewhhaha/src/porffor/target/golden/pre-current-batch-worktree",
+      "HEAD": "f1c1b71b69b5a8384d8803f2585c93d3219e4bfc",
+      "detached": true,
+      "prunable": "gitdir file points to non-existent location",
+      "recovery_ref": "refs/archive/worktrees-20260926/stale-pre-current-batch-worktree"
+    }
+  ],
+  "removed_worktrees": 36,
+  "verification": {
+    "capture": {
+      "head": "ba604d2a1770407236a2311359e83a7dc3075907",
+      "stage": "capture",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "--locked",
+        "-j3",
+        "--no-fail-fast",
+        "-p",
+        "lila-cli",
+        "--test",
+        "cli",
+        "--",
+        "--test-threads=3",
+        "--exact",
+        "language::run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer"
+      ],
+      "returncode": 0,
+      "seconds": 210,
+      "targets": 1,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "target/watched/worktree-recovery-capture.log"
+    }
+  }
+}

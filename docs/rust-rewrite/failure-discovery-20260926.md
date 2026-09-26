@@ -78,9 +78,10 @@ Eight remaining calendar executions from that broader replay are outside the
 `resolvedOptions/calendar.js`, each in strict and sloppy mode. This remains a
 targeted inventory, not a full Test262 failure count.
 
-Exact execution IDs, diagnostics, binary identities and completed-test sets are
-in the [machine-readable record](failure-discovery-20260926.json). Candidate
-provenance, replay drivers and receipts live under
+The [machine-readable record](failure-discovery-20260926.json) records execution
+IDs, diagnostics, binary identities and replay summaries. Complete affected-family
+execution sets are in the per-family receipts. Candidate provenance, replay
+drivers and receipts live under
 `target/failure-discovery-20260926/`; watched logs are
 `target/watched/failure-discovery-engine.log` and
 `target/watched/failure-discovery-candidates.log`. The replay command is

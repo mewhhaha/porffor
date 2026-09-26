@@ -34,9 +34,9 @@ compatibility before sending those fields. Chinese conversion uses the
 [documented canonical calendar domain](intl-calendar-domain.md), including its
 retained astronomical interval and distant integer approximation.
 
-The profile supplies English, Arabic, simplified Chinese and German data, the
-Gregorian, ISO, Chinese, Buddhist, Indian, Persian and ROC calendars, and all 77
-CLDR 47 positional digit mappings. Named
+The profile supplies English, Arabic, simplified Chinese, German and Japanese
+data, the Gregorian, ISO, Chinese, Buddhist, Indian, Persian, ROC, Dangi and
+Islamic Civil calendars, and all 77 CLDR 47 positional digit mappings. Named
 zones use the same pinned IANA transition authority as other Intl operations.
 Only complete locale/calendar profile entries participate in negotiation;
 unsupported valid keywords follow ECMA-402 resolution. This profile is bounded
@@ -56,20 +56,26 @@ closure.
 Calendar fields come from the vendored ICU4X 2.0.6 arithmetic. ICU4X documents
 its `era_index` as unrelated to CLDR, so conversion maps the era code instead:
 Gregorian `bce`/`ce` → CLDR eras 0/1, Buddhist `be` → 0, Indian `shaka` → 0,
-Persian `ap` → 0 and ROC `broc`/`roc` → 0/1, each with ICU4X's era year (which
-may be zero or negative for the single-era calendars, rendered with the locale's
-minus sign). Names, patterns, intervals and the era append item come from the
-pinned CLDR 47 inheritance, including root's `generic` aliases. Locale default
+Persian `ap` → 0, ROC `broc`/`roc` → 0/1, and Islamic Civil `ah`/`bh` → 0/1,
+each with ICU4X's era year (which may be zero or negative for the single-era
+calendars, rendered with the locale's
+minus sign). Islamic Civil uses tabular Type II arithmetic with the Friday
+epoch and canonicalizes the `islamicc` alias. Its before-Hijra era uses the
+documented generic fallback when CLDR supplies no calendar-specific label.
+Dangi shares the Chinese cyclic-year formatting path. Names, patterns, intervals
+and the era append item come from pinned CLDR 47 inheritance, including root's
+`generic` aliases. Locale default
 calendars still come from `calendarPreference`; for the pinned `en`, `ar` and
 `zh` locales the first admitted preference remains `gregory`.
 
 Other CLDR calendars stay unadmitted until each is exact: Coptic and Ethiopic
 need a thirteenth month and a CLDR era split that ICU4X's single `am` era does
 not express directly; Hebrew needs leap-year month naming; the Hijri variants
-need ICU4X's `bh` era mapped onto CLDR's single AH era and the observational
-`islamic`/`islamic-rgsa` rules have no pinned arithmetic; Japanese needs the
-full CLDR era table, which ICU4X's modern-era calendar does not provide; and
-Dangi is not yet wired through the cyclic path.
+other than Islamic Civil need their own arithmetic and era data, and the
+observational `islamic`/`islamic-rgsa` rules have no pinned arithmetic; Japanese
+needs the full CLDR era table, which ICU4X's modern-era calendar does not provide.
+These are required implementation gaps. DateTimeFormat calendar support does
+not extend the narrower Temporal constructor domain described above.
 
 The obsolete English pattern renderer, extension-key tables and range-local
 carriers in the AOT backend are removed. Their seven source-spelling/privacy
@@ -79,8 +85,10 @@ Observable regressions cover conversion order, inherited option access, primitiv
 option boxing, exact Temporal inputs, localized fields, parts/range agreement,
 calendar errors, Realm ownership and intrinsic locale-method entry points.
 
-Focused verification commands (results are recorded in the completed-baseline
-checkpoint notes, not inferred from the existence of these tests):
+On 2026-09-26, 18 focused provider tests pass and the pinned DateTimeFormat
+family passes 478/490 executions. Exact remaining failures and compiler identity
+are recorded in the [discovery checkpoint](failure-discovery-20260926.md).
+Focused verification commands:
 
 ```sh
 cargo test --release --locked -p lila-intl

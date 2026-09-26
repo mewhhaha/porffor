@@ -35,6 +35,12 @@ Only dynamic source generation through `eval`/`Function` is intentionally
 unsupported; other missing language, Intl, module and GC capabilities remain
 implementation requirements.
 
+The [Claude worktree audit](docs/rust-rewrite/worktree-recovery-20260926.md)
+recovered a hoisted lexical-capture type-inference fix and removed 36 inactive
+worktrees after preserving their heads and dirty files in local Git recovery refs.
+Its focused regression passes; broad verification after an environment reset
+is in progress.
+
 The 2026-09-22 baseline repairs are preserved in PR #52. That batch's focused
 checkpoint passes both original failures from the preceding 3,446-pass,
 two-failure run. It completes 26 groups with 196 passes and one incorrect
@@ -122,8 +128,9 @@ The vendored Chinese/Dangi calendar uses a documented integer approximation
 for distant dates, joined continuously to retained modern calculations. Its
 [calendar-domain contract](docs/rust-rewrite/intl-calendar-domain.md) records
 the conversion model and verification limits. Product verification of this
-provider integration passes 16 focused runtime tests; its current pinned replay
-is pending and published conformance counts are unchanged.
+provider integration passes 18 focused runtime tests. The 2026-09-26 pinned
+DateTimeFormat replay passes 478/490 executions; remaining calendar and Intl
+service failures are required work. Published conformance counts are unchanged.
 
 The `Intl.NumberFormat` implementation covers construction, scalar and range
 formatting, parts, resolved and supported locales, and Number/BigInt locale
@@ -308,11 +315,13 @@ including `throw undefined`. Scripts and Modules both admit `Ignore`; a Module
 entry still pending after supported host work drains returns the typed host
 failure `IncompleteModuleEvaluation`. Canonical graphs use the [async module lifecycle](docs/rust-rewrite/contracts/module-async-lifecycle.md),
 with runtime cycle roots, counted async parents and intrinsic deferred-import joins.
-DateTimeFormat selects supplied CLDR ASCII pattern alternates and preserves
-calendar year fields when selecting range patterns; its
+DateTimeFormat uses supplied CLDR ASCII alternates for scalar patterns and a
+canonical overlay for noncollapsed ranges; collapsed ranges retain scalar
+patterns. It preserves calendar year fields when selecting range patterns; its
 [locale kernel](docs/rust-rewrite/intl-datetime-locale-kernel.md) also completes
 era requests and applies context-free day-period selection. Regression
-verification passes all 16 focused provider tests; the pinned replay is pending.
+verification passes all 18 focused provider tests; the 2026-09-26 pinned
+DateTimeFormat replay passes 478/490 executions.
 [Property descriptor Realm ownership](docs/rust-rewrite/property-descriptor-realm.md)
 keeps Proxy trap descriptor objects and definition errors in the executing
 method or class Realm, including foreign public-field definitions.
