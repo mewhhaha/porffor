@@ -6526,10 +6526,17 @@ impl<'a> ScriptLowerer<'a> {
             let info = match variable.binding() {
                 Binding::Identifier(identifier) => {
                     names.push(self.interner.resolve_expect(identifier.sym()).to_string());
-                    variable
-                        .init()
-                        .and_then(|expression| self.static_initializer_value_info(expression))
-                        .unwrap_or_else(ValueInfo::undefined)
+                    match variable.init() {
+                        // A declaration without an initializer becomes
+                        // undefined when executed. An initializer we cannot
+                        // model can produce any runtime value; publishing
+                        // Undefined here would poison a hoisted closure's
+                        // captured binding before the declaration is lowered.
+                        None => ValueInfo::undefined(),
+                        Some(expression) => self
+                            .static_initializer_value_info(expression)
+                            .unwrap_or_else(unknown_runtime_value_info),
+                    }
                 }
                 Binding::Pattern(pattern) => {
                     collect_binding_names(
@@ -6537,7 +6544,9 @@ impl<'a> ScriptLowerer<'a> {
                         &Binding::Pattern(pattern.clone()),
                         &mut names,
                     );
-                    ValueInfo::undefined()
+                    // The pattern's bindings come from the evaluated source,
+                    // not from the hoist-time TDZ placeholder.
+                    unknown_runtime_value_info()
                 }
             };
             for name in names {

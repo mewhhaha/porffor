@@ -5,19 +5,57 @@
 // `undefined`, which then constant-folds `typeof fb()` to the literal string
 // "undefined" without ever calling `fb`.
 //
-// Both values below are plain observable JavaScript, so a regression shows up
-// as a changed string rather than as a crash.
+// Initializers outside the static inferencer and destructured bindings must
+// likewise retain their runtime kinds when captured by hoisted functions.
+// The unknown initializer can return a callable, and hoist-time metadata must
+// not turn a later const's TDZ into an initialized value.
 //
-// NOTE: `fb() + 1`, `fb() | 0`, `"q" in fb()` and `var { q } = fb()` are all
-// still wrong for a const-captured object (they read the heap handle as a
-// Number, throw, or bind the wrong value). That is a separate, older defect in
-// how a precisely-typed Object return kind selects operators; it reproduces
-// without any hoisting, e.g. `const B = {}; const fb = function () { return B; };`.
-// It is deliberately not asserted here so this test keeps its narrow subject.
+// Object coercion, `in`, and destructuring exercise separate lowering paths;
+// this regression checks the capture's kind, callable target, and TDZ lifecycle.
 const B = { q: 1 };
 
 function fb() {
   return B;
 }
 
-print("const-capture-return-kind:" + typeof fb() + ":" + fb().q);
+function makeObject() {
+  return { r: 2 };
+}
+const C = makeObject();
+function fc() {
+  return C;
+}
+
+const { d } = { d: 3 };
+function fd() {
+  return d;
+}
+
+function makeCallable() {
+  return function () { return 7; };
+}
+const F = makeCallable();
+function ff() {
+  return F;
+}
+
+let tdzCaught = false;
+try {
+  ft();
+} catch (error) {
+  tdzCaught = error instanceof ReferenceError;
+}
+const T = 11;
+function ft() {
+  return T;
+}
+
+let E;
+function fe() {
+  return E;
+}
+
+print("const-capture-return-kind:" + typeof fb() + ":" + fb().q + ":" +
+      typeof fc() + ":" + fc().r + ":" + fd() + ":" +
+      typeof ff() + ":" + ff()() + ":" + tdzCaught + ":" + ft() +
+      ":" + typeof fe());

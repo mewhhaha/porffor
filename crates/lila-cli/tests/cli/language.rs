@@ -1187,10 +1187,9 @@ fn run_wasm_backend_succeeds_for_supported_null_heritage_fixture() {
 /// the capture's proven value propagates into `signature.return_kind`, and then
 /// `typeof fb()` constant-folds to `"undefined"` without ever calling `fb`.
 ///
-/// Both fields are plain observable JavaScript, so this stays a black-box
-/// check rather than an assertion about inferred kinds. The fixture documents
-/// the wider const-capture operator-selection defect that this test
-/// deliberately does not cover.
+/// This stays a black-box check of observable values and a TDZ throw rather
+/// than an assertion about inferred kinds. Object operator conversions have
+/// separate lowering paths and are outside this fixture's scope.
 #[test]
 fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -1209,7 +1208,7 @@ fn run_wasm_backend_types_a_hoisted_functions_const_capture_from_its_initializer
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(
-        stdout.contains("const-capture-return-kind:object:1"),
+        stdout.contains("const-capture-return-kind:object:1:object:2:3:function:7:true:11:undefined"),
         "{stdout}"
     );
 }
