@@ -856,6 +856,10 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         }
+        if let Some(exit) = self.legacy_completion_exit {
+            function.branch_to_label(exit);
+            return;
+        }
         self.emit_end_legacy_activation(function);
         self.verify_and_clear_runtime_gc_anchor_root(function);
         match self.return_abi() {

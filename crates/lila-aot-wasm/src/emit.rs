@@ -705,6 +705,9 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) class_function_context_local: u32,
     pub(crate) captured_direct_eval_execution_context_local: Option<u32>,
     pub(crate) legacy_activation_locals: Option<LegacyActivationLocals>,
+    /// Sloppy source functions share one cleanup/return epilogue. Abrupt
+    /// guards branch here instead of copying legacy property scans per site.
+    pub(crate) legacy_completion_exit: Option<LabelDepth>,
     pub(crate) active_private_environment_locals: Vec<u32>,
     pub(crate) named_function_context_local: u32,
     pub(crate) result_local: u32,
@@ -3809,6 +3812,7 @@ impl<'a> FunctionBuilder<'a> {
             class_function_context_local,
             captured_direct_eval_execution_context_local,
             legacy_activation_locals,
+            legacy_completion_exit: None,
             active_private_environment_locals: Vec::new(),
             named_function_context_local,
             result_local: current_env_local + 1,
@@ -4304,6 +4308,13 @@ impl<'a> FunctionBuilder<'a> {
             self.init_current_realm(&mut function)?;
             self.init_current_env(&mut function)?;
             self.emit_begin_legacy_activation(&mut function);
+            if self
+                .legacy_activation_locals
+                .is_some_and(|locals| matches!(locals.mode, LegacyActivationMode::Exposable))
+            {
+                function.instruction(&Instruction::Block(BlockType::Empty));
+                self.legacy_completion_exit = Some(function.label_depth());
+            }
             self.initialize_direct_eval_execution_context(&mut function)?;
             if let FunctionModuleState::PreparedScript(unit) = self.module_state {
                 self.emit_instantiate_prepared_script_declarations(unit, &mut function)?;
@@ -4582,6 +4593,9 @@ impl<'a> FunctionBuilder<'a> {
             self.current_env_local,
             self.next_binding_local
         );
+        if self.legacy_completion_exit.take().is_some() {
+            function.instruction(&Instruction::End);
+        }
         self.pop_scope();
         self.emit_end_legacy_activation(&mut function);
         self.verify_and_clear_runtime_gc_anchor_root(&mut function);

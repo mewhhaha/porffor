@@ -539,7 +539,24 @@ fn main_checkpoint_wraps_source_and_routes_abrupt_completion_before_return() {
             "self.emit_branch_to_target(target,function);return;}",
             "for_in0..self.environment_depth{self.load_i64_to_local_from_offset(",
             "self.current_env_local,ENV_PARENT_OFFSET,self.current_env_local,function,);}",
+            "ifletSome(exit)=self.legacy_completion_exit{",
+            "function.branch_to_label(exit);return;}",
             "self.emit_end_legacy_activation(function);"
+        )
+    );
+
+    let shared_exit = bounded(
+        EMIT_SOURCE,
+        "        if self.legacy_completion_exit.take().is_some() {",
+        "        match self.return_abi() {",
+    );
+    assert_eq!(
+        normalized_code(shared_exit),
+        concat!(
+            "function.instruction(&Instruction::End);}",
+            "self.pop_scope();",
+            "self.emit_end_legacy_activation(&mutfunction);",
+            "self.verify_and_clear_runtime_gc_anchor_root(&mutfunction);"
         )
     );
 
