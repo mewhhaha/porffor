@@ -116,7 +116,9 @@ fn module_link_error_keeps_exhaustive_code_message_and_diagnostic_projections() 
 fn graph_build_early_and_lowering_keep_their_existing_error_roles() {
     assert_eq!(OWNER_SOURCE.matches("ModuleLinkErrorIr").count(), 2);
     assert_eq!(GRAPH_SOURCE.matches("ModuleLinkErrorIr").count(), 9);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 6);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleLinkErrorIr").count(), 7);
+    assert!(GRAPH_TESTS_SOURCE
+        .contains("fn identical_source_text_cannot_replace_bytes_module_provenance()"));
     assert_eq!(
         GRAPH_CLASSIFICATION_SOURCE
             .matches("ModuleLinkErrorIr")

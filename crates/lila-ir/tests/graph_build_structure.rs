@@ -74,7 +74,9 @@ fn graph_build_keeps_duplicate_identity_and_inconsistent_resolution_without_a_wi
 fn build_graph_callers_keep_the_existing_crate_boundary() {
     assert_eq!(OWNER_SOURCE.matches("build_graph").count(), 1);
     assert_eq!(GRAPH_SOURCE.matches("build_graph(").count(), 0);
-    assert_eq!(GRAPH_TESTS_SOURCE.matches("build_graph(").count(), 33);
+    assert_eq!(GRAPH_TESTS_SOURCE.matches("build_graph(").count(), 34);
+    assert!(GRAPH_TESTS_SOURCE
+        .contains("fn identical_source_text_cannot_replace_bytes_module_provenance()"));
     assert_eq!(LOWERING_SOURCE.matches("modules::build_graph(").count(), 0);
     assert_eq!(
         LOWERING_SOURCE

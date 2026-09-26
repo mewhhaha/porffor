@@ -404,11 +404,13 @@ pub(super) fn mark_bytes_intrinsics<'a>(
                     if matches!(call.function().flatten(), Expression::ArrowFunction(_)) {
                         return expression.visit_with(self);
                     }
-                    let getter = match self.calls {
-                        0 => StandardBuiltinId::TypedArrayPrototypeBufferGetter,
-                        1 => StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
-                        _ => panic!("bytes module has exactly two intrinsic calls"),
-                    };
+                    let getter = [
+                        StandardBuiltinId::TypedArrayPrototypeBufferGetter,
+                        StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
+                    ]
+                    .get(self.calls)
+                    .copied()
+                    .expect("bytes module has exactly two intrinsic calls");
                     let argument = call
                         .args()
                         .first()

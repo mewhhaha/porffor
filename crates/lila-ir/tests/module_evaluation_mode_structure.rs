@@ -9,6 +9,7 @@ const MATERIALIZATION_SOURCE: &str = include_str!("../src/modules/graph_material
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
 const NAMESPACE_DEFINITION_SOURCE: &str = include_str!("../src/modules/namespace_definition.rs");
+const BYTES_DEFINITION_SOURCE: &str = include_str!("../src/modules/bytes_definition.rs");
 const DEFAULT_EXPORT_DEFINITION_SOURCE: &str =
     include_str!("../src/modules/default_export_definition.rs");
 const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
@@ -170,6 +171,12 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
             .count(),
         1
     );
+    assert_eq!(
+        BYTES_DEFINITION_SOURCE
+            .matches("use super::evaluation_mode::ModuleMaterializationModeIr;")
+            .count(),
+        1
+    );
     for source in [
         GRAPH_SOURCE,
         MATERIALIZATION_SOURCE,
@@ -177,6 +184,7 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         NAMESPACE_SOURCE,
         NAMESPACE_DEFINITION_SOURCE,
         DEFAULT_EXPORT_DEFINITION_SOURCE,
+        BYTES_DEFINITION_SOURCE,
     ] {
         assert!(!source.contains("use super::graph::ModuleMaterializationModeIr;"));
     }
@@ -204,7 +212,13 @@ fn module_materialization_callers_import_the_private_type_from_its_real_owner() 
         NAMESPACE_DEFINITION_SOURCE
             .matches("ModuleMaterializationModeIr")
             .count(),
-        2
+        3
+    );
+    assert_eq!(
+        BYTES_DEFINITION_SOURCE
+            .matches("ModuleMaterializationModeIr")
+            .count(),
+        4
     );
     assert_eq!(
         DEFAULT_EXPORT_DEFINITION_SOURCE

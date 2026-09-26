@@ -24,8 +24,12 @@ fn graph_tests_keep_the_inherited_graph_namespace_and_exact_test_census() {
             .count(),
         1
     );
-    // The 61st covers ResolveExport through a re-exported source-phase binding.
-    assert_eq!(OWNER_SOURCE.matches("#[test]").count(), 61);
+    // The added bytes test rejects equal JavaScript spelling with different
+    // host provenance while the source-phase re-export coverage remains here.
+    assert_eq!(OWNER_SOURCE.matches("#[test]").count(), 62);
+    assert!(
+        OWNER_SOURCE.contains("fn identical_source_text_cannot_replace_bytes_module_provenance()")
+    );
     assert_eq!(OWNER_SOURCE.matches("fn sources_of(").count(), 1);
     assert_eq!(OWNER_SOURCE.matches("fn linked(").count(), 1);
     assert_eq!(OWNER_SOURCE.matches("fn unit_of(").count(), 1);

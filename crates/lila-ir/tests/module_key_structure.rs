@@ -83,8 +83,9 @@ fn module_key_keeps_opaque_storage_and_one_host_constructor() {
 #[test]
 fn module_key_callers_keep_the_public_identity_domain_without_compatibility_exports() {
     assert_eq!(OWNER_SOURCE.matches("ModuleKey").count(), 2);
-    // Eight and nine are the `ModuleSourceIr::json` and `::text` key parameters.
-    assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 9);
+    // The JSON, text, and bytes constructors each accept a typed host key.
+    assert_eq!(LOADED_SOURCES_SOURCE.matches("ModuleKey").count(), 10);
+    assert!(LOADED_SOURCES_SOURCE.contains("pub fn bytes(key: ModuleKey, bytes: Vec<u8>"));
     assert_eq!(GRAPH_SOURCE.matches("ModuleKey").count(), 1);
     assert_eq!(GRAPH_TESTS_SOURCE.matches("ModuleKey").count(), 67);
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleKey").count(), 2);
