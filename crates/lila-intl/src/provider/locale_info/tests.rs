@@ -89,9 +89,10 @@ fn calendars_are_filtered_to_date_time_format_calendars() {
     assert_eq!(calendars("th"), ["buddhist", "gregory"]);
     assert_eq!(calendars("fa"), ["persian", "gregory"]);
     assert_eq!(calendars("hi"), ["gregory", "indian"]);
-    // Japanese and the Hijri calendars are not DateTimeFormat calendars.
+    // Japanese remains outside DateTimeFormat's calendar inventory; the
+    // tabular civil Hijri calendar is available.
     assert_eq!(calendars("ja"), ["gregory"]);
-    assert_eq!(calendars("ar-SA"), ["gregory"]);
+    assert_eq!(calendars("ar-SA"), ["gregory", "islamic-civil"]);
     assert_eq!(calendars("th-u-ca-japanese"), ["japanese"]);
 }
 
@@ -207,7 +208,17 @@ fn supported_values_are_sorted_canonical_lists() {
     };
     assert_eq!(
         values(SupportedValuesKey::Calendar),
-        ["buddhist", "chinese", "gregory", "indian", "iso8601", "persian", "roc"]
+        [
+            "buddhist",
+            "chinese",
+            "dangi",
+            "gregory",
+            "indian",
+            "islamic-civil",
+            "iso8601",
+            "persian",
+            "roc"
+        ]
     );
     let collations = values(SupportedValuesKey::Collation);
     assert!(!collations.contains(&"standard".to_string()));

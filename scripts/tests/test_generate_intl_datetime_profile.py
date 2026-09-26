@@ -26,7 +26,7 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
     def test_pinned_profile_regenerates_all_selected_locales_and_numeric_systems(self):
         expected = SCRIPTS.parent / "crates/lila-intl/src/provider/datetime/generated/profile.json"
         self.assertEqual(expected.read_text(), self.encoded)
-        self.assertEqual([row["locale"] for row in self.profile["locales"]], ["en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN", "de", "de-DE"])
+        self.assertEqual([row["locale"] for row in self.profile["locales"]], ["en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN", "de", "de-DE", "ja"])
         digits = {row["identifier"]: row["digits"] for row in self.profile["numbering_systems"]}
         self.assertEqual(len(digits), 77)
         self.assertEqual(digits["arab"], "٠١٢٣٤٥٦٧٨٩")
@@ -42,7 +42,7 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
                     formats = {row["skeleton"]: row for row in calendar["available"]}
                     self.assertEqual(formats["hms"]["source"], "h:mm:ss a")
                     self.assertTrue(any("\u202f" in row["source"] for row in calendar["intervals"]))
-                if calendar["calendar"] != "chinese":
+                if calendar["calendar"] not in ("chinese", "dangi"):
                     self.assertIsNotNone(calendar["append_era"])
                     self.assertEqual(sorted(token["placeholder"] for token in calendar["append_era"]["tokens"] if "placeholder" in token), [0, 1])
                 else:
@@ -61,15 +61,16 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
             {"field": "U", "width": 1}, {"literal": ")"},
         ])
         for locale in self.profile["locales"]:
-            calendar = locale["calendars"]["chinese"]
-            self.assertFalse(any("U" in row["skeleton"] for row in calendar["available"]))
-            self.assertTrue(any("U" in row["skeleton"] for row in calendar["excluded_non_ecma_formats"]))
-            self.assertTrue(any(token.get("field") == "U" for row in calendar["available"] for token in row["tokens"]))
+            for calendar_name in ("chinese", "dangi"):
+                calendar = locale["calendars"][calendar_name]
+                self.assertFalse(any("U" in row["skeleton"] for row in calendar["available"]))
+                self.assertTrue(any("U" in row["skeleton"] for row in calendar["excluded_non_ecma_formats"]))
+                self.assertTrue(any(token.get("field") == "U" for row in calendar["available"] for token in row["tokens"]))
 
     def test_selected_era_calendars_resolve_their_own_cldr_names(self):
         self.assertEqual(self.profile["selector"]["calendars"],
-                         ["gregory", "iso8601", "chinese", "buddhist", "indian", "persian", "roc"])
-        eras = {"buddhist": {0}, "indian": {0}, "persian": {0}, "roc": {0, 1}}
+                         ["gregory", "iso8601", "chinese", "buddhist", "indian", "persian", "roc", "dangi", "islamic-civil"])
+        eras = {"buddhist": {0}, "indian": {0}, "persian": {0}, "roc": {0, 1}, "islamic-civil": {0, 1}}
         for locale in self.profile["locales"]:
             for calendar, expected in eras.items():
                 names = locale["calendars"][calendar]["names"]
@@ -82,6 +83,14 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
         self.assertEqual(wide_era("roc", 1), "Minguo")
         self.assertEqual(wide_era("persian", 0), "AP")
         self.assertEqual(wide_era("indian", 0), "Saka")
+        for locale in self.profile["locales"]:
+            names = locale["calendars"]["islamic-civil"]["names"]
+            self.assertEqual({(row["width"], row["value"], row.get("source")) for row in names
+                              if row["kind"] == "era" and row["index"] == 1},
+                             {(width, "BH", "icu_calendar:era:bh") for width in ("wide", "abbreviated", "narrow")})
+        japanese, = [row for row in self.profile["locales"] if row["locale"] == "ja"]
+        self.assertEqual((japanese["preferred_hour"], japanese["allowed_hours"]),
+                         ("H", ["H", "K", "h"]))
 
     def test_calendar_preferences_use_pinned_bcp_aliases(self):
         for locale in self.profile["locales"]:

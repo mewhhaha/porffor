@@ -220,3 +220,30 @@ fn intervals_preserve_related_years_and_cyclic_names_for_both_endpoint_orders() 
         }
     }
 }
+
+#[test]
+fn dangi_ranges_use_korean_lunar_dates_and_related_iso_years() {
+    let result = range(
+        request(
+            "en-US-u-ca-dangi",
+            DateTimeStyleSelection::Components(date_components()),
+        ),
+        date(2000, 1, 1),
+        date(1900, 1, 1),
+    );
+    for (source, related_year, month, day) in [
+        (DateTimeRangeSource::StartRange, "1999", "11", "25"),
+        (DateTimeRangeSource::EndRange, "1899", "12", "1"),
+    ] {
+        for (kind, value) in [
+            (DateTimePartKind::RelatedYear, related_year),
+            (DateTimePartKind::Month, month),
+            (DateTimePartKind::Day, day),
+        ] {
+            assert!(result
+                .parts
+                .iter()
+                .any(|part| part.kind == kind && part.value == value && part.source == source));
+        }
+    }
+}

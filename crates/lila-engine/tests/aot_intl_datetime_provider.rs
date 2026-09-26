@@ -338,6 +338,7 @@ for(var row of rows){
  if(parts.some(p=>p.type==='year'||p.type==='yearName'))throw 'numeric request';
  if(parts.map(p=>p.value).join('')!==f.format(row[0]))throw 'scalar join';
 }
+
 for(var locale of ['en-US-u-ca-chinese','zh-u-ca-chinese']){
  for(var style of [undefined,'full']){
   var formatter=new Intl.DateTimeFormat(locale,{timeZone:'UTC',dateStyle:style});
@@ -353,6 +354,27 @@ for(var locale of ['en-US-u-ca-chinese','zh-u-ca-chinese']){
   }
  }
 }
+print(true);
+"#,
+    );
+}
+
+#[test]
+fn japanese_hour_cycle_and_new_calendar_eras_reach_wasm_consumers() {
+    assert_date_time_script(
+        r#"
+var japanese=new Intl.DateTimeFormat('ja',{hour:'numeric',hour12:true,timeZone:'UTC'});
+if(japanese.resolvedOptions().hourCycle!=='h11')throw 'Japanese h11 preference';
+var islamic=new Intl.DateTimeFormat('en-u-ca-islamicc',{era:'long',year:'numeric',timeZone:'UTC'});
+if(islamic.resolvedOptions().calendar!=='islamic-civil')throw 'canonical calendar';
+var before=islamic.formatToParts(new Date(Date.UTC(600,5,15)));
+var after=islamic.formatToParts(new Date(Date.UTC(2025,5,15)));
+if(!before.some(p=>p.type==='era'&&p.value==='BH'))throw 'BH era';
+if(!after.some(p=>p.type==='era'&&p.value==='AH'))throw 'AH era';
+var dangi=new Intl.DateTimeFormat('en-u-ca-dangi',{year:'numeric',month:'numeric',day:'numeric',timeZone:'UTC'});
+var parts=dangi.formatToParts(Date.UTC(2000,0,1));
+if(!parts.some(p=>p.type==='relatedYear'&&p.value==='1999'))throw 'Dangi related year';
+if(!parts.some(p=>p.type==='month'&&p.value==='11'))throw 'Dangi lunar month';
 print(true);
 "#,
     );

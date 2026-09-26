@@ -90,6 +90,8 @@ pub(super) struct Name {
     pub(super) index: Option<u8>,
     pub(super) period: Option<String>,
     pub(super) value: String,
+    #[serde(default)]
+    pub(super) source: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

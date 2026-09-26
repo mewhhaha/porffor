@@ -42,6 +42,8 @@ pub(super) enum CalendarData {
     Indian,
     Persian,
     Roc,
+    Dangi,
+    IslamicCivil,
 }
 
 /// How a calendar's year field is represented and named.
@@ -54,13 +56,15 @@ pub(super) enum YearKind {
 }
 
 impl CalendarData {
-    pub(super) const ALL: [Self; 6] = [
+    pub(super) const ALL: [Self; 8] = [
         Self::Gregorian,
         Self::Chinese,
         Self::Buddhist,
         Self::Indian,
         Self::Persian,
         Self::Roc,
+        Self::Dangi,
+        Self::IslamicCivil,
     ];
 
     /// The LDML calendar type selected by `selector.json`.
@@ -72,6 +76,8 @@ impl CalendarData {
             Self::Indian => "indian",
             Self::Persian => "persian",
             Self::Roc => "roc",
+            Self::Dangi => "dangi",
+            Self::IslamicCivil => "islamic-civil",
         }
     }
 
@@ -83,6 +89,8 @@ impl CalendarData {
             Self::Indian => 3,
             Self::Persian => 4,
             Self::Roc => 5,
+            Self::Dangi => 6,
+            Self::IslamicCivil => 7,
         }
     }
 
@@ -90,9 +98,9 @@ impl CalendarData {
     /// `calendar::convert` for the era-code mapping.
     pub(super) const fn years(self) -> YearKind {
         match self {
-            Self::Gregorian | Self::Roc => YearKind::Eras(&[0, 1]),
+            Self::Gregorian | Self::Roc | Self::IslamicCivil => YearKind::Eras(&[0, 1]),
             Self::Buddhist | Self::Indian | Self::Persian => YearKind::Eras(&[0]),
-            Self::Chinese => YearKind::Cyclic,
+            Self::Chinese | Self::Dangi => YearKind::Cyclic,
         }
     }
 }
@@ -114,6 +122,8 @@ impl DateTimeCalendar {
             Self::Indian => CalendarData::Indian,
             Self::Persian => CalendarData::Persian,
             Self::Roc => CalendarData::Roc,
+            Self::Dangi => CalendarData::Dangi,
+            Self::IslamicCivil => CalendarData::IslamicCivil,
         }
     }
 }

@@ -21,6 +21,8 @@ pub enum DateTimeCalendar {
     Indian,
     Persian,
     Roc,
+    Dangi,
+    IslamicCivil,
 }
 
 impl DateTimeCalendar {
@@ -33,6 +35,8 @@ impl DateTimeCalendar {
             Self::Indian => "indian",
             Self::Persian => "persian",
             Self::Roc => "roc",
+            Self::Dangi => "dangi",
+            Self::IslamicCivil => "islamic-civil",
         }
     }
     pub(crate) fn parse(value: &str) -> Option<Self> {
@@ -44,6 +48,8 @@ impl DateTimeCalendar {
             "indian" => Some(Self::Indian),
             "persian" => Some(Self::Persian),
             "roc" => Some(Self::Roc),
+            "dangi" => Some(Self::Dangi),
+            "islamic-civil" | "islamicc" => Some(Self::IslamicCivil),
             _ => None,
         }
     }

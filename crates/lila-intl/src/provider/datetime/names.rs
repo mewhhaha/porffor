@@ -21,6 +21,17 @@ impl FieldNames {
     pub(super) fn from_raw(records: Vec<raw::Name>) -> Result<Self, DateTimeFormatError> {
         let mut names = BTreeMap::new();
         for record in records {
+            if let Some(source) = record.source.as_deref() {
+                let code = source
+                    .strip_prefix("icu_calendar:era:")
+                    .filter(|code| {
+                        !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_lowercase())
+                    })
+                    .ok_or_else(invalid)?;
+                if record.kind != "era" || record.value != code.to_ascii_uppercase() {
+                    return Err(invalid());
+                }
+            }
             let width = record
                 .width
                 .as_deref()

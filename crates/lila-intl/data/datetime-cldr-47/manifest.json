@@ -54,6 +54,11 @@
       "sha256": "e3c97332d035ce5424269b7226b7d85e6cf36333b5caf329c82b9a9c607e13d0"
     },
     {
+      "path": "common/main/ja.xml",
+      "bytes": 512646,
+      "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
+    },
+    {
       "path": "common/main/root.xml",
       "bytes": 268212,
       "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
@@ -115,9 +120,9 @@
     },
     {
       "path": "selector.json",
-      "bytes": 751,
-      "sha256": "8bace7b173066110bfd104a6a256110cfe5f8f0c188055067d366171c8ab4a0e"
+      "bytes": 855,
+      "sha256": "d229f1ea8b3cc48e01b66a51d3d12d9961af6922dee572dfce412e7c04c2d0ad"
     }
   ],
-  "total_bytes": 4908971
+  "total_bytes": 5421721
 }

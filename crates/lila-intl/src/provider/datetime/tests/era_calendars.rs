@@ -107,10 +107,37 @@ fn resolved_calendars_keep_their_canonical_identifier() {
         "zh-Hans-CN",
         "de",
         "de-DE",
+        "ja",
     ] {
         let result = provider()
             .resolve_locale(locale_request(&[locale]))
             .unwrap();
         assert_eq!(result.calendar, DateTimeCalendar::Gregorian, "{locale}");
     }
+    let mut request = locale_request(&["en"]);
+    request.calendar = Some(DateTimeKeyword::parse("islamicc").unwrap());
+    assert_eq!(
+        provider().resolve_locale(request).unwrap().calendar,
+        DateTimeCalendar::IslamicCivil
+    );
+}
+
+#[test]
+fn islamic_civil_uses_icu_eras_and_retains_localized_ah_names() {
+    let selection = DateTimeStyleSelection::Components(DateTimeComponents {
+        era: Some(DateTimeTextWidth::Long),
+        year: Some(DateTimeNumericWidth::Numeric),
+        ..Default::default()
+    });
+    let era = |locale, year| {
+        format(request(locale, selection.clone()), date(year, 6, 15))
+            .parts
+            .into_iter()
+            .find(|part| part.kind == DateTimePartKind::Era)
+            .expect("requested Islamic era")
+            .value
+    };
+    assert_eq!(era("en-u-ca-islamic-civil", 600), "BH");
+    assert_eq!(era("en-u-ca-islamic-civil", 2025), "AH");
+    assert_eq!(era("ar-u-ca-islamic-civil", 2025), "هـ");
 }

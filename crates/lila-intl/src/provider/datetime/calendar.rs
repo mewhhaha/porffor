@@ -1,5 +1,8 @@
 use icu_calendar::{
-    cal::{Buddhist, Chinese, Gregorian, Indian, Iso, Persian, Roc},
+    cal::{
+        Buddhist, Chinese, Dangi, Gregorian, HijriTabular, HijriTabularEpoch,
+        HijriTabularLeapYears, Indian, Iso, Persian, Roc,
+    },
     types::{EraYear, RataDie},
     Date,
 };
@@ -53,70 +56,99 @@ pub(super) fn convert(
     let iso = Date::try_new_iso(fields.year, fields.month, fields.day)
         .map_err(|_| DateTimeFormatError::InvalidRequest("invalid local ISO date"))?;
     let weekday = iso.day_of_week() as u8 % 7;
-    let (year, month, leap_month, day) = match calendar {
-        DateTimeCalendar::Gregorian | DateTimeCalendar::Iso8601 => {
-            let date = iso.to_calendar(Gregorian);
-            (
-                era_year(date.era_year(), &[("bce", 0), ("ce", 1)])?,
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Buddhist => {
-            let date = iso.to_calendar(Buddhist);
-            (
-                era_year(date.era_year(), &[("be", 0)])?,
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Indian => {
-            let date = iso.to_calendar(Indian);
-            (
-                era_year(date.era_year(), &[("shaka", 0)])?,
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Persian => {
-            let date = iso.to_calendar(Persian);
-            (
-                era_year(date.era_year(), &[("ap", 0)])?,
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Roc => {
-            let date = iso.to_calendar(Roc);
-            (
-                era_year(date.era_year(), &[("broc", 0), ("roc", 1)])?,
-                date.month().month_number(),
-                false,
-                date.day_of_month().0,
-            )
-        }
-        DateTimeCalendar::Chinese => {
-            let date = iso.to_calendar(Chinese::new());
-            let year = date.cyclic_year();
-            let (month, leap) =
-                date.month().formatting_code.parsed().ok_or_else(|| {
+    let (year, month, leap_month, day) =
+        match calendar {
+            DateTimeCalendar::Gregorian | DateTimeCalendar::Iso8601 => {
+                let date = iso.to_calendar(Gregorian);
+                (
+                    era_year(date.era_year(), &[("bce", 0), ("ce", 1)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Buddhist => {
+                let date = iso.to_calendar(Buddhist);
+                (
+                    era_year(date.era_year(), &[("be", 0)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Indian => {
+                let date = iso.to_calendar(Indian);
+                (
+                    era_year(date.era_year(), &[("shaka", 0)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Persian => {
+                let date = iso.to_calendar(Persian);
+                (
+                    era_year(date.era_year(), &[("ap", 0)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Roc => {
+                let date = iso.to_calendar(Roc);
+                (
+                    era_year(date.era_year(), &[("broc", 0), ("roc", 1)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Chinese => {
+                let date = iso.to_calendar(Chinese::new());
+                let year = date.cyclic_year();
+                let (month, leap) = date.month().formatting_code.parsed().ok_or_else(|| {
                     super::profile::invalid("invalid converted Chinese month code")
                 })?;
-            (
-                Year::Cyclic {
-                    year: year.year,
-                    related: year.related_iso,
-                },
-                month,
-                leap,
-                date.day_of_month().0,
-            )
-        }
-    };
+                (
+                    Year::Cyclic {
+                        year: year.year,
+                        related: year.related_iso,
+                    },
+                    month,
+                    leap,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Dangi => {
+                let date = iso.to_calendar(Dangi::new());
+                let year = date.cyclic_year();
+                let (month, leap) =
+                    date.month().formatting_code.parsed().ok_or_else(|| {
+                        super::profile::invalid("invalid converted Dangi month code")
+                    })?;
+                (
+                    Year::Cyclic {
+                        year: year.year,
+                        related: year.related_iso,
+                    },
+                    month,
+                    leap,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::IslamicCivil => {
+                let date = iso.to_calendar(HijriTabular::new(
+                    HijriTabularLeapYears::TypeII,
+                    HijriTabularEpoch::Friday,
+                ));
+                (
+                    era_year(date.era_year(), &[("ah", 0), ("bh", 1)])?,
+                    date.month().month_number(),
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+        };
     Ok(Fields {
         year,
         month,

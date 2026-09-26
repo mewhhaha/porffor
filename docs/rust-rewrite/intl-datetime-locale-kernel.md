@@ -10,16 +10,27 @@ sources. There is no host-side JavaScript evaluator or opaque mutable host objec
 ## Pinned profiles
 
 The admitted locale inventory is en, en-US, ar, ar-EG, zh, zh-Hans, zh-Hans-CN,
-de and de-DE. The German sources `common/main/de.xml` and `de_DE.xml` are the
+de, de-DE and ja. The German sources `common/main/de.xml` and `de_DE.xml` are the
 unchanged pinned CLDR 47 bytes (Git blobs `4c2d15d6548786041bde37fcdd3d8adedf50c058`
 and `8493f5b316f2abdcaeed25acf4ebba77ff8f493b`, the same members recorded in the
-NumberFormat source archive's CLDR input manifest).
+NumberFormat source archive's CLDR input manifest). The Japanese source
+`common/main/ja.xml` is from the same pinned CLDR release and its exact bytes
+are checked by the DateTimeFormat manifest.
 Unsupported requests use the specified locale lookup and default en-US selection;
 supportedLocalesOf returns only requested tags that match the same inventory.
-Gregorian, ISO8601 and Chinese calendars use the selected locale's inherited
+Gregorian, ISO8601, Chinese, Dangi and Islamic Civil calendars use the selected locale's inherited
 patterns and names. Arabic ar defaults to latn; ar-EG defaults to arab according
 to the pinned data. Calendar, numbering-system and hour-cycle Unicode extensions
 and explicit options follow ResolveLocale precedence.
+
+Calendar fields come from the pinned ICU4X conversions. Dangi preserves its
+Korean lunar month and related ISO year, including leap months. Islamic Civil
+uses the tabular Type II leap-year scheme with the Friday epoch. ICU4X supplies
+the actual `ah` and `bh` era codes; CLDR supplies localized AH names. Where CLDR
+has no BH name, the checked profile records an `icu_calendar:era:bh` provenance
+and renders the returned era code as `BH`, rather than substituting another era
+or calendar. This generic code-label fallback also covers any missing width of
+an era returned by the pinned conversion.
 
 The CLDR input is release 47.0.0, commit
 `2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`. The vendored manifest checks every input's

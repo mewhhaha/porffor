@@ -19,6 +19,15 @@ fn locale_resolution_preserves_order_keyword_precedence_and_data_locale() {
 }
 
 #[test]
+fn japanese_hour12_uses_its_pinned_h11_preference() {
+    let mut input = locale_request(&["ja"]);
+    input.hour_cycle = DateTimeHourCyclePreference::TwelveHour;
+    let result = provider().resolve_locale(input).unwrap();
+    assert_eq!(result.data_locale.as_str(), "ja");
+    assert_eq!(result.hour_cycle, DateTimeHourCycle::H11);
+}
+
+#[test]
 fn available_locale_inventory_and_supported_lists_are_distinct_from_default_fallback() {
     let defaults = provider()
         .resolve_locale(locale_request(&["fr-FR"]))

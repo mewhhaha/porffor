@@ -19,6 +19,29 @@ SOURCE_PATH = "crates/lila-intl/data/datetime-cldr-47"
 STYLES = ("full", "long", "medium", "short")
 NAME_BRANCHES = ("months", "monthPatterns", "days", "dayPeriods", "eras",
                  "cyclicNameSets/cyclicNameSet[@type='years']")
+# Era codes returned by the pinned ICU4X calendar conversion. CLDR often has
+# localized names for all of them, but its Islamic data names only `ah`.
+ICU_ERA_CODES = {
+    "gregorian": {0: "bce", 1: "ce"},
+    "buddhist": {0: "be"},
+    "indian": {0: "shaka"},
+    "persian": {0: "ap"},
+    "roc": {0: "broc", 1: "roc"},
+    "islamic-civil": {0: "ah", 1: "bh"},
+}
+
+
+def complete_era_names(calendar, names):
+    """Use an actual ICU era code when CLDR lacks a localized name for it."""
+    for width in ("abbreviated", "wide", "narrow"):
+        present = {row["index"] for row in names
+                   if row["kind"] == "era" and row["width"] == width}
+        for index, code in ICU_ERA_CODES.get(calendar, {}).items():
+            if index not in present:
+                names.append(dict(kind="era", context=None, width=width,
+                                  index=index, period=None, value=code.upper(),
+                                  source=f"icu_calendar:era:{code}"))
+    return names
 
 
 def calendar_preferences(profile, locale, territory):
@@ -132,7 +155,7 @@ def calendar_profile(profile, locale, calendar):
     if fallback is None or not available or not intervals:
         raise ValueError(f"incomplete calendar pattern closure: {locale}/{calendar}")
     append_zone = pattern_leaf(profile.resolve(locale, base + "/dateTimeFormats/appendItems/appendItem[@request='Timezone']"), placeholders=(0, 1))
-    names = field_names(sorted(names))
+    names = complete_era_names(calendar, field_names(sorted(names)))
     append_era = None
     if any(name["kind"] == "era" for name in names):
         append_era = pattern_leaf(profile.resolve(locale, base + "/dateTimeFormats/appendItems/appendItem[@request='Era']"), placeholders=(0, 1))

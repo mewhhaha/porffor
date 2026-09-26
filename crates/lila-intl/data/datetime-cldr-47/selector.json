@@ -9,7 +9,8 @@
     "zh-Hans",
     "zh-Hans-CN",
     "de",
-    "de-DE"
+    "de-DE",
+    "ja"
   ],
   "calendars": [
     "gregory",
@@ -18,7 +19,9 @@
     "buddhist",
     "indian",
     "persian",
-    "roc"
+    "roc",
+    "dangi",
+    "islamic-civil"
   ],
   "default_locale": "en-US",
   "minimum_draft": "contributed",
@@ -30,7 +33,9 @@
     "buddhist": "buddhist",
     "indian": "indian",
     "persian": "persian",
-    "roc": "roc"
+    "roc": "roc",
+    "dangi": "dangi",
+    "islamic-civil": "islamic-civil"
   },
   "release": "47.0.0",
   "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
