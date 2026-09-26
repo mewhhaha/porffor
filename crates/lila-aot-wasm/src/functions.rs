@@ -9069,6 +9069,12 @@ impl<'a> FunctionBuilder<'a> {
         let proxy_helper = self
             .proxy_call_helper_function_index()
             .expect("tail-call proxy helper is rooted");
+        // The target and argument list are already evaluated. PrepareForTailCall
+        // removes any current source activation before either [[Call]] dispatcher runs;
+        // a strict source barrier must not censor the target's caller, and the
+        // exiting frame must release any runtime capability root it owns.
+        self.emit_end_legacy_activation(function);
+        self.verify_and_clear_runtime_gc_anchor_root(function);
         function.instruction(&Instruction::LocalGet(callee_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
         function.instruction(&Instruction::I64Eq);

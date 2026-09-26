@@ -114,6 +114,64 @@ function abruptTailOuter() {
   return true;
 }
 print(abruptTailOuter());
+function strictDynamicTail(target) { "use strict"; return target(); }
+function dynamicTailProbe() { return dynamicTailProbe.caller; }
+function dynamicTailOuter() {
+  return strictDynamicTail(dynamicTailProbe) === dynamicTailOuter
+    && dynamicTailProbe() === dynamicTailOuter;
+}
+print(dynamicTailOuter() && dynamicTailProbe.caller === null);
+var thrownTailCaller;
+function dynamicTailThrow() {
+  thrownTailCaller = dynamicTailThrow.caller;
+  throw 19;
+}
+function dynamicTailCatch() {
+  try { strictDynamicTail(dynamicTailThrow); }
+  catch (error) {
+    return error === 19 && thrownTailCaller === dynamicTailCatch
+      && dynamicTailProbe() === dynamicTailCatch;
+  }
+  return false;
+}
+print(dynamicTailCatch() && dynamicTailThrow.caller === null);
+var dynamicTailProxy = new Proxy(dynamicTailProbe, {
+  apply: function dynamicTailTrap() { return dynamicTailTrap.caller; }
+});
+function dynamicProxyOuter() {
+  return strictDynamicTail(dynamicTailProxy) === dynamicProxyOuter
+    && dynamicTailProbe() === dynamicProxyOuter;
+}
+print(dynamicProxyOuter() && dynamicTailProxy.caller === null);
+function ordinaryExitValue(value) { return value; }
+function ordinaryExitFallthrough(value) { value; }
+function ordinaryExitOwner() {
+  return ordinaryExitValue(31) === 31 && ordinaryExitFallthrough(32) === undefined
+    && ordinaryExitValue.caller === null && ordinaryExitValue.arguments === null
+    && ordinaryExitFallthrough.caller === null && ordinaryExitFallthrough.arguments === null
+    && dynamicTailProbe() === ordinaryExitOwner;
+}
+print(ordinaryExitOwner());
+function finallyReturnLegacy(value) {
+  { let captured = value; try { return 0; } finally { return captured; } }
+}
+function finallyReturnOwner() {
+  return finallyReturnLegacy(37) === 37 && finallyReturnLegacy.caller === null
+    && finallyReturnLegacy.arguments === null && dynamicTailProbe() === finallyReturnOwner;
+}
+print(finallyReturnOwner());
+function finallyThrowLegacy(value) {
+  { let captured = value; try { return 0; } finally { throw captured; } }
+}
+function finallyThrowOwner() {
+  try { finallyThrowLegacy(41); }
+  catch (error) {
+    return error === 41 && finallyThrowLegacy.caller === null
+      && finallyThrowLegacy.arguments === null && dynamicTailProbe() === finallyThrowOwner;
+  }
+  return false;
+}
+print(finallyThrowOwner());
 var boundCallback = callback.bind(null);
 function boundOuter() { return boundCallback() === boundOuter; }
 print(boundOuter());
@@ -161,6 +219,6 @@ void 0;
     );
     assert_eq!(
         outcome.output_events,
-        vec![HostOutputEvent::PrintLine("true".to_string()); 20]
+        vec![HostOutputEvent::PrintLine("true".to_string()); 26]
     );
 }
