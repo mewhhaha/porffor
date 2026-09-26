@@ -8,6 +8,12 @@ use lila_engine::{
 
 struct Fixture(PathBuf);
 
+#[derive(Clone, Copy)]
+enum EntryGoal {
+    Module,
+    Script,
+}
+
 impl Fixture {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -25,24 +31,33 @@ impl Fixture {
     }
 
     fn run(&self, source: &str, expected: &[&str]) {
+        self.run_goal(EntryGoal::Module, source, expected);
+    }
+
+    fn run_script(&self, source: &str, expected: &[&str]) {
+        self.run_goal(EntryGoal::Script, source, expected);
+    }
+
+    fn run_goal(&self, goal: EntryGoal, source: &str, expected: &[&str]) {
         self.write("entry.js", source);
         lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-        let observed = Engine::new(RealmBuilder::new().build())
-            .observe_module(
-                source,
-                CompileOptions {
-                    filename: Some(self.0.join("entry.js").to_str().unwrap().into()),
-                    module_root: Some(self.0.to_str().unwrap().into()),
-                    host_surface_policy: HostSurfacePolicy::Test262,
-                    ..CompileOptions::default()
-                },
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    timeout_ms: Some(30_000),
-                    ..RunOptions::default()
-                },
-            )
-            .expect("bytes module graph compiles and executes through Wasm");
+        let options = CompileOptions {
+            filename: Some(self.0.join("entry.js").to_str().unwrap().into()),
+            module_root: Some(self.0.to_str().unwrap().into()),
+            host_surface_policy: HostSurfacePolicy::Test262,
+            ..CompileOptions::default()
+        };
+        let run = RunOptions {
+            backend: ExecutionBackend::WasmAot,
+            timeout_ms: Some(30_000),
+            ..RunOptions::default()
+        };
+        let engine = Engine::new(RealmBuilder::new().build());
+        let observed = match goal {
+            EntryGoal::Module => engine.observe_module(source, options, run),
+            EntryGoal::Script => engine.observe_script(source, options, run),
+        }
+        .expect("bytes module graph compiles and executes through Wasm");
         assert!(
             matches!(observed.completion, ObservedCompletion::Normal(_)),
             "{:?}",
@@ -134,6 +149,38 @@ fn ordinary_javascript_copy_of_bytes_source_cannot_use_private_intrinsics() {
     fixture.write("ordinary.js", synthetic.source_text());
     fixture.run(
         "import('./ordinary.js').then(() => print(false), error => print(error instanceof TypeError));",
+        &["true"],
+    );
+}
+
+#[test]
+fn script_entry_dynamic_bytes_import_reuses_the_same_namespace_and_view() {
+    let fixture = Fixture::new();
+    fixture.write("raw.bin", [9, 0xff]);
+    fixture.run_script(
+        r#"
+if (this !== globalThis) throw 'Script entry must retain its own goal';
+import('./raw.bin', { with: { type: 'bytes' } }).then(first => {
+  import('./raw.bin', { with: { type: 'bytes' } }).then(second => {
+    print(first === second && first.default === second.default);
+    print(first.default[0] === 9 && first.default[1] === 255 && first.default.buffer.immutable);
+  });
+});
+"#,
+        &["true", "true"],
+    );
+}
+
+#[test]
+fn top_level_await_entry_imports_bytes_before_resuming() {
+    let fixture = Fixture::new();
+    fixture.write("raw.bin", [0x80, 3]);
+    fixture.run(
+        r#"
+import bytes from './raw.bin' with { type: 'bytes' };
+await Promise.resolve();
+print(bytes.length === 2 && bytes[0] === 128 && bytes[1] === 3 && bytes.buffer.immutable);
+"#,
         &["true"],
     );
 }
