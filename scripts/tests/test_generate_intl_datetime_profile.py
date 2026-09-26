@@ -50,6 +50,30 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
         consumed = json.loads(self.report)["consumed_leaves"]
         self.assertTrue(any("alt='ascii'" in row["path"] for row in consumed.values()))
 
+    def test_range_context_uses_checked_canonical_patterns_with_identical_fields(self):
+        encoded, _ = GENERATOR.generate(SOURCES, range_context=True)
+        overlay = GENERATOR.range_pattern_overrides(self.encoded, encoded)
+        expected = SCRIPTS.parent / "crates/lila-intl/src/provider/datetime/generated/range-patterns.json"
+        self.assertEqual(expected.read_text(), overlay)
+        GENERATOR.assert_matching_range_structure(self.encoded, encoded)
+        ranged = json.loads(encoded)
+        sparse = json.loads(overlay)
+        self.assertEqual(self.profile["pattern_context"], "scalar_ascii")
+        self.assertEqual(sparse["pattern_context"], "range_default")
+        self.assertEqual({row["locale"] for row in sparse["overrides"]}, {"en", "en-US"})
+        for scalar_locale, range_locale in zip(self.profile["locales"], ranged["locales"]):
+            for key, scalar_calendar in scalar_locale["calendars"].items():
+                range_calendar = range_locale["calendars"][key]
+                self.assertEqual(scalar_calendar["intervals"], range_calendar["intervals"])
+                self.assertEqual(scalar_calendar["interval_fallback"], range_calendar["interval_fallback"])
+                if scalar_locale["locale"] in ("de-DE", "ja"):
+                    self.assertEqual(scalar_calendar["available"], range_calendar["available"])
+        scalar_en = self.profile["locales"][1]["calendars"]["gregorian"]
+        range_en = ranged["locales"][1]["calendars"]["gregorian"]
+        self.assertEqual(next(row["source"] for row in scalar_en["available"] if row["skeleton"] == "hms"), "h:mm:ss a")
+        self.assertEqual(next(row["source"] for row in range_en["available"] if row["skeleton"] == "hms"), "h:mm:ss\u202fa")
+        self.assertFalse(any(row["skeleton"] == "hms" for row in range_en["intervals"]))
+
     def test_numeric_year_requests_retain_cyclic_output_without_admitting_name_only_skeletons(self):
         from intl_datetime_patterns import compile_pattern, skeleton_in_profile
         for skeleton in ["U", "UM", "UMd", "UMMMd"]:

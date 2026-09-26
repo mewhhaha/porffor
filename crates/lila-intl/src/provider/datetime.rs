@@ -31,7 +31,8 @@ pub(super) struct DateTimeProvider {
 impl DateTimeProvider {
     pub(super) fn from_pinned_data() -> Result<Self, DateTimeFormatError> {
         Ok(Self {
-            profile: Profile::from_json(include_str!("datetime/generated/profile.json"))?,
+            profile: Profile::from_json(include_str!("datetime/generated/profile.json"))?
+                .with_range_patterns(include_str!("datetime/generated/range-patterns.json"))?,
         })
     }
 
@@ -89,9 +90,11 @@ impl DateTimeProvider {
         }
         let recipe = self.decode_plan(&request.plan)?;
         let selected = plan::select(&self.profile, &recipe)?;
+        let range_selected = plan::select_range(&self.profile, &recipe)?;
         ranges::format(
             &self.profile,
             &selected,
+            &range_selected,
             request.start,
             request.end,
             named_time_zones,

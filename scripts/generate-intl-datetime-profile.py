@@ -237,8 +237,12 @@ def day_period_rules(profile, locale):
     raise ValueError(f"missing day period rules: {locale}")
 
 
-def generate(source_directory):
-    profile = CldrProfile(source_directory, pattern_alternate=PatternAlternate.ASCII)
+def generate(source_directory, *, range_context=False):
+    # ECMA-402 has a scalar pattern and separate range-pattern records. Use the
+    # supplied ASCII alternate for scalar formatting and CLDR's canonical
+    # pattern leaves for noncollapsed range formatting.
+    alternate = PatternAlternate.DEFAULT if range_context else PatternAlternate.ASCII
+    profile = CldrProfile(source_directory, pattern_alternate=alternate)
     if profile.selector["alt_selection"] != "ascii date/time patterns when supplied; default names; short territory for generic location names":
         raise ValueError("unreviewed date/time alternate selection policy")
     numberings = positional_numbering_systems(profile)
@@ -283,7 +287,9 @@ def generate(source_directory):
             "calendars": calendars,
             "zone_names": localized_zone_names(names, countries, zone_geography),
         })
-    rows = {"schema_version": 1, "selector": profile.selector, "numbering_systems": numberings,
+    rows = {"schema_version": 1,
+            "pattern_context": "range_default" if range_context else "scalar_ascii",
+            "selector": profile.selector, "numbering_systems": numberings,
             "algorithmic_fields": algorithmic_field_tables(profile, locales),
             "zone_geography": zone_geography, "locales": locales}
     encoded = json.dumps(rows, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
@@ -298,15 +304,73 @@ def generate(source_directory):
     return encoded, json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 
 
+def assert_matching_range_structure(scalar, ranged):
+    """Range defaults may change literals, never selected fields or widths."""
+    def structure(row):
+        row = json.loads(json.dumps(row))
+        row.pop("pattern_context")
+        for locale in row["locales"]:
+            for calendar in locale["calendars"].values():
+                patterns = [*calendar["available"]]
+                for style in calendar["styles"].values():
+                    patterns.extend(style.values())
+                for pattern in patterns:
+                    pattern["source"] = ""
+                    for token in pattern["tokens"]:
+                        if "literal" in token:
+                            token["literal"] = ""
+        return row
+    if structure(json.loads(scalar)) != structure(json.loads(ranged)):
+        raise ValueError("scalar and range profile fields or non-pattern data differ")
+
+
+def range_pattern_overrides(scalar, ranged):
+    """Publish only canonical leaves that differ from the scalar alternate."""
+    assert_matching_range_structure(scalar, ranged)
+    scalar = json.loads(scalar)
+    ranged = json.loads(ranged)
+    overrides = []
+    for scalar_locale, range_locale in zip(scalar["locales"], ranged["locales"]):
+        for calendar_key, scalar_calendar in scalar_locale["calendars"].items():
+            range_calendar = range_locale["calendars"][calendar_key]
+            styles = []
+            for style, scalar_style in scalar_calendar["styles"].items():
+                range_style = range_calendar["styles"][style]
+                for field in ("standard", "atTime"):
+                    if scalar_style[field] != range_style[field]:
+                        raise ValueError("range connector differs from scalar connector")
+                for field in ("date", "time"):
+                    if scalar_style[field] != range_style[field]:
+                        styles.append({"style": style, "field": field,
+                                       "pattern": range_style[field]})
+            available = []
+            for index, (scalar_pattern, range_pattern) in enumerate(zip(scalar_calendar["available"], range_calendar["available"])):
+                if scalar_pattern != range_pattern:
+                    available.append({"index": index, "skeleton": scalar_pattern["skeleton"],
+                                      "pattern": {key: range_pattern[key] for key in
+                                                  ("source", "tokens", "numbering_overrides")}})
+            if styles or available:
+                overrides.append({"locale": scalar_locale["locale"], "calendar": calendar_key,
+                                  "styles": styles, "available": available})
+    if not overrides:
+        raise ValueError("range context has no checked canonical differences")
+    rows = {"schema_version": 1, "pattern_context": "range_default", "overrides": overrides}
+    return json.dumps(rows, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=REPOSITORY / SOURCE_PATH)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--range-output", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--check", action="store_true")
     options = parser.parse_args()
     outputs = generate(options.source_dir)
     files = [(options.output, outputs[0])]
+    range_outputs = generate(options.source_dir, range_context=True)
+    range_patterns = range_pattern_overrides(outputs[0], range_outputs[0])
+    files.append((options.range_output, range_patterns))
     if options.report is not None:
         files.append((options.report, outputs[1]))
     for path, contents in files:
@@ -316,7 +380,9 @@ def main():
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
-    print(json.dumps({"profile_bytes": len(outputs[0].encode()), "report_bytes": len(outputs[1].encode())}))
+    print(json.dumps({"profile_bytes": len(outputs[0].encode()),
+                      "range_pattern_bytes": len(range_patterns.encode()),
+                      "report_bytes": len(outputs[1].encode())}))
 
 
 if __name__ == "__main__":

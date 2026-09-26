@@ -2,6 +2,30 @@ use super::super::{plan, profile::Profile, render};
 use super::*;
 
 #[test]
+fn scalar_and_range_profile_contexts_cannot_be_exchanged() {
+    let scalar = include_str!("../generated/profile.json");
+    let ranged = include_str!("../generated/range-patterns.json");
+    assert!(matches!(
+        Profile::from_json(ranged),
+        Err(DateTimeFormatError::InvalidProfile(_))
+    ));
+    assert!(matches!(
+        Profile::from_json(scalar)
+            .unwrap()
+            .with_range_patterns(scalar),
+        Err(DateTimeFormatError::InvalidProfile(_))
+    ));
+    let mut wrong_field: serde_json::Value = serde_json::from_str(ranged).unwrap();
+    wrong_field["overrides"][0]["available"][0]["pattern"]["tokens"][0]["field"] = "Q".into();
+    assert!(matches!(
+        Profile::from_json(scalar)
+            .unwrap()
+            .with_range_patterns(&wrong_field.to_string()),
+        Err(DateTimeFormatError::InvalidProfile(_))
+    ));
+}
+
+#[test]
 fn available_formats_preserve_mandatory_kinds_and_reject_unknown_wire_bits() {
     let exact_only = DateTimeFormatAvailability::from_available_kinds([]);
     assert!(exact_only.contains(DateTimeValueKind::Legacy));

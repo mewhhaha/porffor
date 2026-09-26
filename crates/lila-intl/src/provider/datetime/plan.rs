@@ -21,6 +21,11 @@ pub(super) struct Format {
     pub(super) time: Option<Pattern>,
     pub(super) range_glue: Option<Glue>,
 }
+#[derive(Clone, Copy)]
+enum PatternContext {
+    Scalar,
+    Range,
+}
 pub(super) struct ValidatedPlan<'p> {
     pub(super) locale: &'p Locale,
     pub(super) calendar: &'p Calendar,
@@ -73,6 +78,21 @@ pub(super) fn select<'p>(
     profile: &'p Profile,
     request: &DateTimePlanRequest,
 ) -> Result<ValidatedPlan<'p>, DateTimeFormatError> {
+    select_for_context(profile, request, PatternContext::Scalar)
+}
+
+pub(super) fn select_range<'p>(
+    profile: &'p Profile,
+    request: &DateTimePlanRequest,
+) -> Result<ValidatedPlan<'p>, DateTimeFormatError> {
+    select_for_context(profile, request, PatternContext::Range)
+}
+
+fn select_for_context<'p>(
+    profile: &'p Profile,
+    request: &DateTimePlanRequest,
+    context: PatternContext,
+) -> Result<ValidatedPlan<'p>, DateTimeFormatError> {
     let locale = locale::validate(profile, &request.locale)?;
     let calendar = locale.calendar(request.locale.calendar);
     match request.matcher {
@@ -88,9 +108,15 @@ pub(super) fn select<'p>(
             ));
         }
     }
+    let (styles, available) = match context {
+        PatternContext::Scalar => (&calendar.styles, &calendar.available),
+        PatternContext::Range => (&calendar.range_styles, &calendar.range_available),
+    };
     let candidates = candidates::Candidates::new(
         locale,
         calendar,
+        styles,
+        available,
         request.locale.hour_cycle,
         request.locale.numbering_system.as_str(),
     )?;

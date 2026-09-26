@@ -2,7 +2,7 @@ use crate::datetime::*;
 
 use super::super::{
     pattern::{Field, NameWidth, Pattern, PeriodKind, Token},
-    profile::{invalid, Calendar, Locale},
+    profile::{invalid, Calendar, Locale, Style},
 };
 use super::{
     adjustment::{
@@ -15,6 +15,7 @@ use super::{
 
 pub(super) struct Candidates<'p> {
     calendar: &'p Calendar,
+    styles: &'p [Style; 4],
     cycle: DateTimeHourCycle,
     values: Vec<Format>,
 }
@@ -23,6 +24,8 @@ impl<'p> Candidates<'p> {
     pub(super) fn new(
         locale: &Locale,
         calendar: &'p Calendar,
+        styles: &'p [Style; 4],
+        available: &'p [Pattern],
         cycle: DateTimeHourCycle,
         numbering: &str,
     ) -> Result<Self, DateTimeFormatError> {
@@ -31,12 +34,12 @@ impl<'p> Candidates<'p> {
             .get(numbering)
             .ok_or_else(|| invalid("missing decimal separator"))?;
         let mut patterns = Vec::new();
-        for available in &calendar.available {
-            if matching_clock(available, cycle) {
-                patterns.push(with_cycle(available.clone(), cycle));
+        for pattern in available {
+            if matching_clock(pattern, cycle) {
+                patterns.push(with_cycle(pattern.clone(), cycle));
             }
         }
-        for style in &calendar.styles {
+        for style in styles {
             patterns.push(style.date.clone());
             if matching_clock(&style.time, cycle) {
                 patterns.push(with_cycle(style.time.clone(), cycle));
@@ -105,7 +108,7 @@ impl<'p> Candidates<'p> {
             .collect();
         let mut values: Vec<_> = patterns.into_iter().map(plain).collect();
         for date in &dates {
-            let style = &calendar.styles[combination_style(components(date))];
+            let style = &styles[combination_style(components(date))];
             for time in &times {
                 let pattern = style.at_time.combine(time, date)?;
                 values.push(Format {
@@ -119,6 +122,7 @@ impl<'p> Candidates<'p> {
         }
         Ok(Self {
             calendar,
+            styles,
             cycle,
             values,
         })
@@ -186,7 +190,7 @@ impl<'p> Candidates<'p> {
             }
         }
         if let (Some(date), Some(time)) = (&selected.date, &selected.time) {
-            let style = &self.calendar.styles[combination_style(requested)];
+            let style = &self.styles[combination_style(requested)];
             selected.pattern = style.at_time.combine(time, date)?;
             selected.range_glue = Some(style.standard.clone());
         }
@@ -203,11 +207,11 @@ impl<'p> Candidates<'p> {
     pub(super) fn style(&self, styles: DateTimeStyles) -> Result<Format, DateTimeFormatError> {
         let date = styles
             .date()
-            .map(|style| self.calendar.styles[style_index(style)].date.clone());
+            .map(|style| self.styles[style_index(style)].date.clone());
         let time = styles
             .time()
             .map(|style| {
-                let pattern = &self.calendar.styles[style_index(style)].time;
+                let pattern = &self.styles[style_index(style)].time;
                 if matching_clock(pattern, self.cycle) {
                     Ok(with_cycle(pattern.clone(), self.cycle))
                 } else {
@@ -217,7 +221,7 @@ impl<'p> Candidates<'p> {
             .transpose()?;
         match (date, time) {
             (Some(date), Some(time)) => {
-                let style = &self.calendar.styles
+                let style = &self.styles
                     [style_index(styles.date().ok_or_else(|| invalid("date style missing"))?)];
                 let pattern = style.at_time.combine(&time, &date)?;
                 Ok(Format {

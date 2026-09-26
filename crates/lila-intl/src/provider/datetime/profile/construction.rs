@@ -215,11 +215,14 @@ impl Calendar {
                 latest_first,
             });
         }
+        let styles: [Style; 4] = styles
+            .try_into()
+            .map_err(|_| invalid("invalid style count"))?;
         Ok(Self {
             names: FieldNames::from_raw(raw.names)?,
-            styles: styles
-                .try_into()
-                .map_err(|_| invalid("invalid style count"))?,
+            range_styles: styles.clone(),
+            styles,
+            range_available: available.clone(),
             available,
             intervals,
             interval_fallback: glue(raw.interval_fallback)?,
@@ -227,6 +230,77 @@ impl Calendar {
             append_era: raw.append_era.map(glue).transpose()?,
         })
     }
+
+    pub(super) fn apply_range_overrides(
+        &mut self,
+        rows: raw::RangeOverride,
+        digits: &BTreeMap<String, [char; 10]>,
+        algorithmic: &BTreeMap<String, Vec<String>>,
+    ) -> Result<(), DateTimeFormatError> {
+        if rows.styles.is_empty() && rows.available.is_empty() {
+            return Err(invalid("empty range-pattern calendar"));
+        }
+        let mut styles = BTreeSet::new();
+        for row in rows.styles {
+            let index = match row.style.as_str() {
+                "full" => 0,
+                "long" => 1,
+                "medium" => 2,
+                "short" => 3,
+                _ => return Err(invalid("unknown range-pattern style")),
+            };
+            if !styles.insert((index, row.field.clone())) {
+                return Err(invalid("duplicate range-pattern style"));
+            }
+            let (scalar, ranged) = match row.field.as_str() {
+                "date" => (&self.styles[index].date, &mut self.range_styles[index].date),
+                "time" => (&self.styles[index].time, &mut self.range_styles[index].time),
+                _ => return Err(invalid("unknown range-pattern field")),
+            };
+            *ranged = checked_range_pattern(row.pattern, scalar, digits, algorithmic)?;
+        }
+        let mut available = BTreeSet::new();
+        for row in rows.available {
+            if !available.insert(row.index) {
+                return Err(invalid("duplicate range-pattern available index"));
+            }
+            let scalar = self
+                .available
+                .get(row.index)
+                .ok_or_else(|| invalid("unknown range-pattern available index"))?;
+            let ranged = pattern(row.pattern, digits, algorithmic)?.with_skeleton(&row.skeleton)?;
+            check_range_structure(scalar, &ranged)?;
+            self.range_available[row.index] = ranged;
+        }
+        Ok(())
+    }
+}
+
+fn checked_range_pattern(
+    raw: raw::Pattern,
+    scalar: &Pattern,
+    digits: &BTreeMap<String, [char; 10]>,
+    algorithmic: &BTreeMap<String, Vec<String>>,
+) -> Result<Pattern, DateTimeFormatError> {
+    let ranged = pattern(raw, digits, algorithmic)?;
+    check_range_structure(scalar, &ranged)?;
+    Ok(ranged)
+}
+
+fn check_range_structure(scalar: &Pattern, ranged: &Pattern) -> Result<(), DateTimeFormatError> {
+    let same_tokens = scalar.tokens.len() == ranged.tokens.len()
+        && scalar.tokens.iter().zip(&ranged.tokens).all(|(left, right)| {
+            matches!((left, right), (Token::Literal(_), Token::Literal(_)))
+                || matches!((left, right), (Token::Field(left), Token::Field(right)) if left == right)
+        });
+    if !same_tokens
+        || scalar.skeleton != ranged.skeleton
+        || scalar.numbering != ranged.numbering
+        || scalar == ranged
+    {
+        return Err(invalid("range pattern changes fields or duplicates scalar"));
+    }
+    Ok(())
 }
 
 fn numbering(

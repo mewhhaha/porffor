@@ -131,11 +131,14 @@ pub(super) struct Calendar {
     pub(super) names: FieldNames,
     pub(super) styles: [Style; 4],
     pub(super) available: Vec<Pattern>,
+    pub(super) range_styles: [Style; 4],
+    pub(super) range_available: Vec<Pattern>,
     pub(super) intervals: Vec<Interval>,
     pub(super) interval_fallback: Glue,
     pub(super) append_zone: Glue,
     pub(super) append_era: Option<Glue>,
 }
+#[derive(Clone)]
 pub(super) struct Style {
     pub(super) date: Pattern,
     pub(super) time: Pattern,
@@ -161,6 +164,7 @@ impl Profile {
             .map_err(|error| DateTimeFormatError::InvalidProfile(error.to_string()))?;
         let selector = &raw.selector;
         if raw.schema_version != 1
+            || raw.pattern_context != "scalar_ascii"
             || selector.schema_version != 1
             || selector.release != "47.0.0"
             || selector.commit != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
@@ -244,6 +248,37 @@ impl Profile {
         super::zones::validate(&result)?;
         result.validate_names()?;
         Ok(result)
+    }
+    pub(super) fn with_range_patterns(mut self, source: &str) -> Result<Self, DateTimeFormatError> {
+        let raw: raw::RangePatterns = serde_json::from_str(source)
+            .map_err(|error| DateTimeFormatError::InvalidProfile(error.to_string()))?;
+        if raw.schema_version != 1
+            || raw.pattern_context != "range_default"
+            || raw.overrides.is_empty()
+        {
+            return Err(invalid("invalid range-pattern context"));
+        }
+        let mut keys = BTreeSet::new();
+        for row in raw.overrides {
+            if !keys.insert((row.locale.clone(), row.calendar.clone())) {
+                return Err(invalid("duplicate range-pattern calendar"));
+            }
+            let locale = self
+                .locales
+                .iter_mut()
+                .find(|locale| locale.identifier.as_str() == row.locale)
+                .ok_or_else(|| invalid("unknown range-pattern locale"))?;
+            let data = CalendarData::ALL
+                .into_iter()
+                .find(|data| data.source() == row.calendar)
+                .ok_or_else(|| invalid("unknown range-pattern calendar"))?;
+            locale.calendars[data.index()].apply_range_overrides(
+                row,
+                &self.digits,
+                &self.algorithmic,
+            )?;
+        }
+        Ok(self)
     }
     pub(super) fn locale(&self, identifier: &str) -> Option<&Locale> {
         self.locales

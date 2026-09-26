@@ -33,6 +33,7 @@ def generate(repository, calendar_root, lock_path):
         Path("crates/lila-intl/src/datetime.rs"), Path("crates/lila-intl/src/datetime/input.rs"),
         Path("crates/lila-intl/src/datetime_protocol.rs"),
         Path("crates/lila-intl/src/provider/datetime.rs"), PROVIDER / "generated/profile.json",
+        PROVIDER / "generated/range-patterns.json",
         *(Path("scripts") / name for name in PRODUCERS),
     }
     for path in (repository / PROVIDER).rglob("*.rs"):

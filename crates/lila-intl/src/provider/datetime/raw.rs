@@ -6,11 +6,41 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub(super) struct Profile {
     pub(super) schema_version: u32,
+    pub(super) pattern_context: String,
     pub(super) selector: Selector,
     pub(super) numbering_systems: Vec<Numbering>,
     pub(super) algorithmic_fields: Vec<Algorithmic>,
     pub(super) zone_geography: Geography,
     pub(super) locales: Vec<Locale>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RangePatterns {
+    pub(super) schema_version: u32,
+    pub(super) pattern_context: String,
+    pub(super) overrides: Vec<RangeOverride>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RangeOverride {
+    pub(super) locale: String,
+    pub(super) calendar: String,
+    pub(super) styles: Vec<StyleOverride>,
+    pub(super) available: Vec<AvailableOverride>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StyleOverride {
+    pub(super) style: String,
+    pub(super) field: String,
+    pub(super) pattern: Pattern,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AvailableOverride {
+    pub(super) index: usize,
+    pub(super) skeleton: String,
+    pub(super) pattern: Pattern,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

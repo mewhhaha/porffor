@@ -379,3 +379,21 @@ print(true);
 "#,
     );
 }
+
+#[test]
+fn noncollapsed_range_uses_canonical_cldr_pattern_without_changing_scalar_ascii() {
+    assert_date_time_script(
+        r#"
+var f=new Intl.DateTimeFormat('en-US',{timeZone:'UTC',hour:'numeric',minute:'numeric',second:'numeric'});
+var scalar=f.format(0);
+if(!scalar.includes(' AM')||scalar.includes('\u202f'))throw 'scalar ASCII alternate';
+if(f.formatRange(0,0)!==scalar)throw 'collapsed scalar pattern';
+var range=f.formatRange(0,1000);
+if(!range.includes('\u202fAM')||range.includes(' AM'))throw 'canonical range pattern';
+var parts=f.formatRangeToParts(0,1000);
+if(parts.map(p=>p.value).join('')!==range)throw 'range parts join';
+if(!parts.some(p=>p.type==='literal'&&p.value.includes('\u202f')&&p.source==='startRange'))throw 'range literal source';
+print(true);
+"#,
+    );
+}

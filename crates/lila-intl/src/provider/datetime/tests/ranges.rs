@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn noncollapsed_range_uses_cldr_default_while_equal_range_uses_scalar_pattern() {
+    let input = request(
+        "en-US",
+        DateTimeStyleSelection::Components(time_components()),
+    );
+    let left = instant(0, 0);
+    let right = instant(1, 0);
+    let scalar = format(input.clone(), left);
+    assert!(scalar.to_formatted_string().contains(" AM"));
+    let collapsed = range(input.clone(), left, left);
+    assert_eq!(
+        collapsed.to_formatted_string(),
+        scalar.to_formatted_string()
+    );
+    assert!(collapsed
+        .parts
+        .iter()
+        .all(|part| part.source == DateTimeRangeSource::Shared));
+
+    // CLDR47 supplies no hms interval. The canonical range fallback pattern
+    // therefore formats both endpoints with U+202F before the day period.
+    let ranged = range(input, left, right);
+    assert!(!ranged.to_formatted_string().contains(" AM"));
+    for source in [
+        DateTimeRangeSource::StartRange,
+        DateTimeRangeSource::EndRange,
+    ] {
+        assert!(ranged
+            .parts
+            .iter()
+            .any(|part| part.kind == DateTimePartKind::Literal
+                && part.source == source
+                && part.value.contains('\u{202f}')));
+    }
+}
+
+#[test]
 fn cldr_intervals_own_shared_fields_and_keep_reversed_endpoint_identity() {
     let fields = DateTimeComponents {
         month: Some(DateTimeMonthWidth::Short),

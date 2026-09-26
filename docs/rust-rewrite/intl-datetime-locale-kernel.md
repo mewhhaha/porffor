@@ -59,15 +59,23 @@ component widths. Styles remain distinct from component selections.
 
 ## Pattern selection policy
 
-The profile prefers a supplied CLDR `alt="ascii"` date/time pattern at each
-source locale before continuing inheritance. This applies uniformly to styles,
-available formats, intervals, fallback connectors and append patterns; a missing
-alternate retains the default. A child default precedes a parent alternate, and
-aliases retain the selected leaf's source and value attributes. Names keep their
-separate declared policy. CLDR47 currently supplies 21 such English source
-leaves (17 available formats and four style patterns), and no ASCII interval
-alternates in these inputs. Interval literals therefore retain their original
-punctuation, including narrow no-break spaces where supplied.
+The scalar profile prefers a supplied CLDR `alt="ascii"` date/time pattern at
+each source locale before continuing inheritance. A child default precedes a
+parent alternate, and aliases retain the selected leaf's source and value
+attributes. Names keep their separate declared policy. CLDR47 currently supplies
+21 such English source leaves (17 available formats and four style patterns),
+and no ASCII interval alternates in these inputs.
+
+The separate checked range-pattern overlay selects canonical CLDR date/time
+patterns. Generation includes only leaves that differ from the scalar alternate
+and rejects any field, width, numbering or non-pattern difference. The provider
+holds one shared locale/calendar/name/zone profile and applies those checked
+pattern leaves to a range-specific candidate set. For an equal range, ECMA-402 returns the scalar pattern. For a
+noncollapsed range, it selects the canonical interval or its canonical fallback
+pattern. This follows [ECMA-402 PartitionDateTimeRangePattern](https://tc39.es/ecma402/#sec-partitiondatetimerangepattern),
+which distinguishes `[[pattern]]` from `[[rangePatterns]]`. CLDR's English `hms`
+skeleton has no interval record, so the range fallback formats each endpoint
+with the canonical U+202F day-period separator. No rendered literal is rewritten.
 
 This is an explicit data selection allowed by [LDML47 Overriding
 Data](https://github.com/unicode-org/cldr/blob/2ef784e3a4168bc2a43cd1b5b9839b6636f5899c/docs/ldml/tr35.md#overriding-data).
@@ -164,7 +172,7 @@ inputs retain caller order, as required by the pinned current range algorithms.
 Regenerate the profile with:
 
 ```
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json
+python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --range-output crates/lila-intl/src/provider/datetime/generated/range-patterns.json
 python3 scripts/generate-intl-datetime-identity.py
 ```
 
@@ -173,7 +181,7 @@ identity generation after final formatting because it hashes source bytes.
 Normal CI checks the generated files without changing them:
 
 ```
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --check
+python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --range-output crates/lila-intl/src/provider/datetime/generated/range-patterns.json --check
 python3 scripts/generate-intl-datetime-identity.py --check
 python3 -m unittest discover -s scripts/tests -p test_intl_cldr_profile.py
 python3 -m unittest discover -s scripts/tests -p test_generate_intl_datetime_profile.py

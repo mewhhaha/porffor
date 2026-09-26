@@ -11,22 +11,31 @@ use super::{
 mod selection;
 
 pub(super) fn format(
-    profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    scalar_profile: &Profile,
+    scalar_plan: &ValidatedPlan<'_>,
+    range_plan: &ValidatedPlan<'_>,
     start: DateTimeInput,
     end: DateTimeInput,
     named: &NamedTimeZones,
 ) -> Result<DateTimeRangeParts, DateTimeFormatError> {
-    let selected = plan.format(start.kind())?;
-    let start = render::prepare(plan, start, named)?;
-    let end = render::prepare(plan, end, named)?;
-    let Some(difference) = selection::greatest(plan, &selected.pattern, start.fields, end.fields)?
+    let scalar = scalar_plan.format(start.kind())?;
+    let kind = start.kind();
+    let start = render::prepare(scalar_plan, start, named)?;
+    let end = render::prepare(scalar_plan, end, named)?;
+    let Some(difference) =
+        selection::greatest(scalar_plan, &scalar.pattern, start.fields, end.fields)?
     else {
         return Ok(with_source(
-            render::pattern(profile, plan, &selected.pattern, &start)?,
+            render::pattern(scalar_profile, scalar_plan, &scalar.pattern, &start)?,
             DateTimeRangeSource::Shared,
         ));
     };
+    // The noncollapsed ECMA-402 range record uses CLDR's canonical interval
+    // context. Its checked field/width structure matches the scalar record;
+    // only source literals may differ.
+    let profile = scalar_profile;
+    let plan = range_plan;
+    let selected = plan.format(kind)?;
     if let Some((interval, pattern)) = selection::select(plan, &selected.pattern, difference) {
         return interval_parts(profile, plan, interval, &pattern, &start, &end);
     }

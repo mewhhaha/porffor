@@ -643336,6 +643336,7 @@
       "identifier": "wcho"
     }
   ],
+  "pattern_context": "scalar_ascii",
   "schema_version": 1,
   "selector": {
     "alt_selection": "ascii date/time patterns when supplied; default names; short territory for generic location names",
