@@ -10,6 +10,7 @@ pub(crate) struct LinkedScriptDefinitions {
     pub(super) synchronous: Option<super::synchronous_definition::ModuleExecutionDefinitions>,
     pub(super) entry: Option<super::LinkedModuleEntry>,
     defaults: DefaultExportDefinitions,
+    bytes: super::bytes_definition::BytesDefinitions,
     namespaces: BTreeMap<(boa_ast::Position, boa_ast::Position), ModuleNamespaceModeIr>,
 }
 
@@ -31,6 +32,15 @@ impl LinkedScriptDefinitions {
     ) -> Result<(), String> {
         self.defaults
             .record_body(body, module, mode, form, preceding_source)
+    }
+
+    pub(super) fn record_bytes_body(
+        &mut self,
+        body: &str,
+        preceding_source: &str,
+        mode: ModuleMaterializationModeIr,
+    ) -> Result<(), String> {
+        self.bytes.record_body(body, preceding_source, mode)
     }
 
     pub(super) fn record_namespaces(&mut self, prelude: &str, graph: &ModuleGraphIr) {
@@ -89,6 +99,7 @@ impl LinkedScriptDefinitions {
 
     pub(super) fn prepend(&mut self, prefix: &str) {
         self.defaults.prepend(prefix);
+        self.bytes.prepend(prefix);
         // Linker wrappers are ASCII and terminate in LF. A non-terminated
         // prefix would need to adjust first-line columns as well.
         assert!(prefix.is_ascii() && prefix.ends_with('\n'));
@@ -116,6 +127,7 @@ impl LinkedScriptDefinitions {
             entry.apply(script, analysis);
         }
         self.defaults.apply(script, analysis);
+        self.bytes.apply(script, analysis);
         struct Initializers<'a, 'b> {
             remaining: BTreeMap<(boa_ast::Position, boa_ast::Position), ModuleNamespaceModeIr>,
             analysis: &'b mut Analysis<'a>,

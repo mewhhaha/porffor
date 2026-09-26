@@ -1689,6 +1689,29 @@ fn a_repeated_key_with_different_text_is_one_unit_and_an_inconsistent_load() {
 }
 
 #[test]
+fn identical_source_text_cannot_replace_bytes_module_provenance() {
+    let key = ModuleKey::from_host("/root/value.bin");
+    let bytes = ModuleSourceIr::bytes(key.clone(), vec![0, 0xff], "file:///root/value.bin".into());
+    let ordinary = ModuleSourceIr::new(
+        key.clone(),
+        bytes.source_text().to_string(),
+        "file:///root/value.bin".into(),
+    );
+    assert!(!bytes.same_loaded_source(&ordinary));
+    let graph = build_graph(&ModuleGraphSources {
+        modules: vec![bytes, ordinary],
+        entry: 0,
+        resolutions: Vec::new(),
+    })
+    .expect("both module sources parse");
+    assert_eq!(graph.units.len(), 1);
+    assert_eq!(
+        graph.link_errors,
+        vec![ModuleLinkErrorIr::InconsistentLoad { key }]
+    );
+}
+
+#[test]
 fn a_two_node_cycle_is_one_contiguous_component() {
     let graph = linked(&[
         (

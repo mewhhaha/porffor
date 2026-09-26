@@ -34,6 +34,8 @@ pub enum LoadedModuleKind {
     /// `with { type: "text" }`; `CreateTextModule` ([`ModuleSourceIr::text`])
     /// makes it the module's `default` export.
     Text(String),
+    /// The unmodified contents of a bytes module, including non-UTF-8 bytes.
+    Bytes(Vec<u8>),
 }
 
 /// The module type a request selects through its `type` import attribute.
@@ -46,6 +48,7 @@ enum HostModuleType {
     JavaScript,
     Json,
     Text,
+    Bytes,
 }
 
 impl HostModuleType {
@@ -53,15 +56,18 @@ impl HostModuleType {
     const JSON_KEY_PREFIX: &'static str = "json:";
     /// The host-owned key namespace of text modules.
     const TEXT_KEY_PREFIX: &'static str = "text:";
+    const BYTES_KEY_PREFIX: &'static str = "bytes:";
 
     /// `AllImportAttributesSupported` plus the module-type selection: `type`
-    /// is the only supported key, with the values `"json"` and `"text"`.
+    /// is the only supported key, with the values `"json"`, `"text"`, and
+    /// `"bytes"`.
     fn of_request(request: &ModuleRequestKeyIr) -> Result<Self, ModuleLoadError> {
         let mut module_type = Self::JavaScript;
         for attribute in request.attributes() {
             match (attribute.key.as_str(), attribute.value.as_str()) {
                 ("type", "json") => module_type = Self::Json,
                 ("type", "text") => module_type = Self::Text,
+                ("type", "bytes") => module_type = Self::Bytes,
                 _ => {
                     return Err(ModuleLoadError::UnsupportedAttribute {
                         key: attribute.key.clone(),
@@ -79,6 +85,7 @@ impl HostModuleType {
             Self::JavaScript => ModuleKey::from_host(path.into_owned()),
             Self::Json => ModuleKey::from_host(format!("{}{path}", Self::JSON_KEY_PREFIX)),
             Self::Text => ModuleKey::from_host(format!("{}{path}", Self::TEXT_KEY_PREFIX)),
+            Self::Bytes => ModuleKey::from_host(format!("{}{path}", Self::BYTES_KEY_PREFIX)),
         }
     }
 
@@ -89,6 +96,8 @@ impl HostModuleType {
             (Self::Json, path)
         } else if let Some(path) = key.strip_prefix(Self::TEXT_KEY_PREFIX) {
             (Self::Text, path)
+        } else if let Some(path) = key.strip_prefix(Self::BYTES_KEY_PREFIX) {
+            (Self::Bytes, path)
         } else {
             (Self::JavaScript, key)
         }
@@ -443,6 +452,7 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
                 LoadedModuleKind::Text(String::from_utf8_lossy(body).into_owned())
             }
+            HostModuleType::Bytes => LoadedModuleKind::Bytes(bytes),
             // A `.json` file is JSON, not a module body. Imported without
             // `with { type: "json" }` it fails the module-type check instead of
             // reaching the ECMAScript parser, where `[1, 2]` would parse as a
@@ -498,7 +508,9 @@ pub fn load_module_graph(
                 }
                 // An entry is located, not requested: no `type` attribute
                 // selected a synthetic module type for it.
-                LoadedModuleKind::Json(_) | LoadedModuleKind::Text(_) => {
+                LoadedModuleKind::Json(_)
+                | LoadedModuleKind::Text(_)
+                | LoadedModuleKind::Bytes(_) => {
                     return Err(ModuleLoadError::Denied {
                         specifier: entry_key.as_str().to_string(),
                         reason: "a module graph entry must be JavaScript".to_string(),
@@ -619,6 +631,9 @@ fn load_module_graph_from_entry(
                 LoadedModuleKind::Text(text) => {
                     ModuleSourceIr::text(loaded.key, &text, loaded.meta_url)
                 }
+                LoadedModuleKind::Bytes(bytes) => {
+                    ModuleSourceIr::bytes(loaded.key, bytes, loaded.meta_url)
+                }
             };
             // The load may report a key the graph already holds: module map
             // identity is keyed on the loaded key, not on the specifier that
@@ -627,9 +642,7 @@ fn load_module_graph_from_entry(
             // silently running one of the two.
             let existing = indices.get(&loaded_key).copied();
             let target = match existing {
-                Some(index) if modules[index as usize].source_text() == module.source_text() => {
-                    index
-                }
+                Some(index) if modules[index as usize].same_loaded_source(&module) => index,
                 _ => {
                     let index = u32::try_from(modules.len()).unwrap_or(u32::MAX);
                     modules.push(module);
@@ -1111,6 +1124,61 @@ mod tests {
             loader.load(&own).map(|loaded| loaded.kind),
             Ok(LoadedModuleKind::Text(text)) if text == "export {};"
         ));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn bytes_modules_keep_raw_contents_and_share_one_typed_module_key() {
+        let base = temp_base("bytes");
+        let root = base.join("root");
+        write_tree(
+            &root,
+            &[
+                (
+                    "entry.js",
+                    "import first from './raw.bin' with { type: 'bytes' };\n\
+            import second from './raw.bin' with { type: 'bytes' };\n\
+            import empty from './empty.bin' with { type: 'bytes' };\n\
+            import source from './other.js';\n\
+            import binary from './other.js' with { type: 'bytes' };\n\
+            export default [first, second, empty, source, binary];",
+                ),
+                ("other.js", "export default 1;"),
+            ],
+        );
+        fs::write(root.join("raw.bin"), [0, 0x80, 0xff, 10]).unwrap();
+        fs::write(root.join("empty.bin"), b"").unwrap();
+        let loader = loader_at(&root);
+        let sources = load_module_graph(&entry_at(&root.join("entry.js")), &loader).unwrap();
+        let raw = sources
+            .modules
+            .iter()
+            .position(|module| module.bytes_value() == Some(&[0, 0x80, 0xff, 10][..]))
+            .unwrap();
+        let empty = sources
+            .modules
+            .iter()
+            .position(|module| module.bytes_value() == Some(&[][..]))
+            .unwrap();
+        assert_ne!(raw, empty);
+        assert_eq!(sources.modules.len(), 5);
+        assert_eq!(
+            sources
+                .resolutions
+                .iter()
+                .filter(|(_, _, target)| *target as usize == raw)
+                .count(),
+            2
+        );
+        assert!(sources
+            .modules
+            .iter()
+            .any(|module| module.bytes_value() == Some(b"export default 1;")));
+        assert!(sources
+            .modules
+            .iter()
+            .any(|module| module.bytes_value().is_none()
+                && module.source_text() == "export default 1;"));
         let _ = fs::remove_dir_all(&base);
     }
 

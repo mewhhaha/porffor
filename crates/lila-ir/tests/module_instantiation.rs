@@ -2,7 +2,7 @@ use lila_front::{parse, ParseGoal, ParseOptions, ParsedSource};
 use lila_ir::{
     lower_module_graph, lower_script_graph, ExprIr, FunctionExecutionKind, FunctionFlavor,
     FunctionProtocolIr, ModuleEvaluationModeIr, ModuleExecutionGraphIr, ModuleGraphSources,
-    ModuleKey, ModuleSourceIr, ProgramIr, ScriptIr, StatementIr,
+    ModuleKey, ModuleSourceIr, ProgramIr, ScriptIr, StandardBuiltinId, StatementIr,
 };
 
 fn sources(files: &[(&str, &str)], goal: ParseGoal) -> ModuleGraphSources {
@@ -45,6 +45,73 @@ fn module_program(files: &[(&str, &str)]) -> ProgramIr {
     let program = lower_module_graph(&sources(files, ParseGoal::Module));
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     program
+}
+
+#[test]
+fn bytes_module_initialization_uses_trusted_intrinsics_in_private_activation() {
+    let entry = ModuleSourceIr::new(
+        ModuleKey::from_host("entry.js"),
+        "import bytes from './data.bin' with { type: 'bytes' }; export default bytes;".into(),
+        "file:///entry.js".into(),
+    );
+    let request = entry.module_requests().expect("entry parses").remove(0);
+    let bytes = ModuleSourceIr::bytes(
+        ModuleKey::from_host("bytes:data.bin"),
+        vec![0, 0x80, 0xff],
+        "file:///data.bin".into(),
+    );
+    let program = lower_module_graph(&ModuleGraphSources {
+        modules: vec![entry, bytes],
+        entry: 0,
+        resolutions: vec![(0, request, 1)],
+    });
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = format!("{:?}", program.script.expect("linked Script"));
+    for (intrinsic, count) in [
+        (StandardBuiltinId::Uint8ArrayConstructor, 2),
+        (StandardBuiltinId::ReflectApply, 2),
+        (StandardBuiltinId::TypedArrayPrototypeBufferGetter, 1),
+        (
+            StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
+            1,
+        ),
+    ] {
+        let marker = format!("FunctionValue({:?})", intrinsic.function_id());
+        assert_eq!(script.matches(&marker).count(), count, "{marker}: {script}");
+    }
+}
+
+#[test]
+fn ordinary_javascript_with_identical_bytes_source_gets_no_intrinsic_sites() {
+    let synthetic = ModuleSourceIr::bytes(
+        ModuleKey::from_host("bytes:data.bin"),
+        vec![0xff],
+        "file:///data.bin".into(),
+    );
+    let ordinary = ModuleSourceIr::new(
+        ModuleKey::from_host("ordinary.js"),
+        synthetic.source_text().into(),
+        "file:///ordinary.js".into(),
+    );
+    let program = lower_module_graph(&ModuleGraphSources {
+        modules: vec![ordinary],
+        entry: 0,
+        resolutions: Vec::new(),
+    });
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = format!("{:?}", program.script.expect("linked Script"));
+    for intrinsic in [
+        StandardBuiltinId::Uint8ArrayConstructor,
+        StandardBuiltinId::ReflectApply,
+        StandardBuiltinId::TypedArrayPrototypeBufferGetter,
+        StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
+    ] {
+        let marker = format!("FunctionValue({:?})", intrinsic.function_id());
+        assert!(
+            !script.contains(&marker),
+            "ordinary source acquired {marker}"
+        );
+    }
 }
 
 fn activation_graph(script: &ScriptIr) -> Option<&ModuleExecutionGraphIr> {

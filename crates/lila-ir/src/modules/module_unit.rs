@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{BlockIr, FunctionIr, ModuleNamespaceModeIr, OwnedEnvBindingIr};
 
+use super::loaded_sources::ModuleSourceKind;
 use super::namespace::ModuleNamespaceIr;
 use super::record::SourceTextModuleRecordIr;
 use super::resolved_binding::ResolvedBindingIr;
@@ -14,6 +15,8 @@ pub struct ModuleUnitIr {
     pub record: SourceTextModuleRecordIr,
     /// The module source text, kept so the lowerer can slice spans from it.
     pub source_text: String,
+    /// Host-created synthetic provenance, distinct from source spelling.
+    pub(crate) source_kind: ModuleSourceKind,
     /// Value `import.meta.url` reports.
     pub meta_url: String,
     /// `InitializeEnvironment` for this unit. Filled by the link stage.

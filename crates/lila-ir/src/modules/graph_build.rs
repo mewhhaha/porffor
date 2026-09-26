@@ -40,7 +40,8 @@ pub(crate) fn build_graph(
         if let Some(&existing) = graph.keys.get(source.key()).filter(|_| in_module_map) {
             // Same key, different bytes: the host contradicted itself, and
             // there is no honest way to pick a winner.
-            if graph.units[existing as usize].source_text != source.source_text()
+            if (graph.units[existing as usize].source_text != source.source_text()
+                || &graph.units[existing as usize].source_kind != source.kind())
                 && !inconsistent.iter().any(|key| key == source.key())
             {
                 inconsistent.push(source.key().clone());
@@ -91,6 +92,7 @@ pub(crate) fn build_graph(
                 graph.units.push(ModuleUnitIr {
                     record,
                     source_text: source.source_text().to_string(),
+                    source_kind: source.kind().clone(),
                     meta_url: source.meta_url().to_string(),
                     hoist: None,
                     body: None,

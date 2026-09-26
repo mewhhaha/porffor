@@ -35,14 +35,15 @@ fn module_unit_has_one_private_owner_and_narrow_public_facade() {
 }
 
 #[test]
-fn module_unit_preserves_the_exact_public_field_record() {
+fn module_unit_preserves_public_fields_and_typed_source_provenance() {
     let fields = OWNER_SOURCE
         .split_once("pub struct ModuleUnitIr {")
         .expect("ModuleUnitIr fields")
         .1;
     assert_eq!(
         code_without_whitespace(fields),
-        "pubrecord:SourceTextModuleRecordIr,pubsource_text:String,pubmeta_url:String,\
+        "pubrecord:SourceTextModuleRecordIr,pubsource_text:String,\
+         pub(crate)source_kind:ModuleSourceKind,pubmeta_url:String,\
          pubhoist:Option<BlockIr>,pubbody:Option<BlockIr>,pubfunctions:Vec<FunctionIr>,\
          pubowned_env_bindings:Vec<OwnedEnvBindingIr>,\
          pubnamespaces:BTreeMap<ModuleNamespaceModeIr,ModuleNamespaceIr>,\

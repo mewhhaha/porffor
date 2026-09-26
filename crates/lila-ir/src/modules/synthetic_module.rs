@@ -1,6 +1,7 @@
 //! The default-export Synthetic Module Records the host creates for
 //! non-JavaScript module types, realized ahead of time: `ParseJSONModule`
-//! (`type: "json"`) and `CreateTextModule` (`type: "text"`).
+//! (`type: "json"`), `CreateTextModule` (`type: "text"`), and
+//! `CreateBytesModule` (`type: "bytes"`).
 //!
 //! A text module is `CreateDefaultExportSyntheticModule(source)`: its only
 //! export, `default`, is the module's source text as a String. It is realized
@@ -74,6 +75,29 @@ pub(super) fn synthesize_text_module_source(text: &str) -> String {
     source.push_str("export default ");
     super::namespace::push_js_string_literal(&mut source, text);
     source.push_str(";\n");
+    source
+}
+
+/// Compiler-owned source for `CreateBytesModule`. The four `(0)` constructor
+/// and call sites and the two first arguments of the calls are replaced by
+/// typed intrinsic values only for a module carrying Bytes provenance. No
+/// JavaScript spelling selects an intrinsic. Numeric-length construction
+/// avoids consulting the mutable Array iterator; canonical integer-indexed
+/// stores cannot invoke a prototype setter.
+pub(super) fn synthesize_bytes_module_source(bytes: &[u8]) -> String {
+    // The retained source-phase driver merges module bodies into one Script.
+    // Keep every temporary inside this private invocation so two bytes modules
+    // and a neighboring user module cannot collide on declaration names.
+    let mut source = format!(
+        "export default (() => {{\nconst view = new (0)({});\n",
+        bytes.len()
+    );
+    for (index, byte) in bytes.iter().enumerate() {
+        source.push_str(&format!("view[{index}] = {byte};\n"));
+    }
+    source.push_str("const buffer = (0)((0), view, []);\n");
+    source.push_str("const immutable = (0)((0), buffer, []);\n");
+    source.push_str("return new (0)(immutable);\n})();\n");
     source
 }
 

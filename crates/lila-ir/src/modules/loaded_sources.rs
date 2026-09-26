@@ -20,6 +20,16 @@ pub struct ModuleSourceIr {
     key: ModuleKey,
     meta_url: String,
     pub(super) parse: ModuleParse,
+    /// Synthetic provenance cannot be inferred from its parseable source.
+    kind: ModuleSourceKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModuleSourceKind {
+    JavaScript,
+    Json,
+    Text,
+    Bytes(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +71,7 @@ impl ModuleSourceIr {
             key,
             meta_url,
             parse,
+            kind: ModuleSourceKind::JavaScript,
         }
     }
 
@@ -68,7 +79,18 @@ impl ModuleSourceIr {
     #[must_use]
     pub fn text(key: ModuleKey, text: &str, meta_url: String) -> Self {
         let source_text = super::synthetic_module::synthesize_text_module_source(text);
-        Self::new(key, source_text, meta_url)
+        let mut source = Self::new(key, source_text, meta_url);
+        source.kind = ModuleSourceKind::Text;
+        source
+    }
+
+    /// Performs `CreateBytesModule` on exactly the bytes the host loaded.
+    #[must_use]
+    pub fn bytes(key: ModuleKey, bytes: Vec<u8>, meta_url: String) -> Self {
+        let source_text = super::synthetic_module::synthesize_bytes_module_source(&bytes);
+        let mut source = Self::new(key, source_text, meta_url);
+        source.kind = ModuleSourceKind::Bytes(bytes);
+        source
     }
 
     /// Performs `ParseJSONModule` on a loaded JSON module's text.
@@ -83,7 +105,9 @@ impl ModuleSourceIr {
         meta_url: String,
     ) -> Result<Self, super::synthetic_module::JsonModuleSyntaxError> {
         let source_text = super::synthetic_module::synthesize_json_module_source(json_text)?;
-        Ok(Self::new(key, source_text, meta_url))
+        let mut source = Self::new(key, source_text, meta_url);
+        source.kind = ModuleSourceKind::Json;
+        Ok(source)
     }
 
     /// Builds a graph entry from a module already parsed by the compilation
@@ -95,6 +119,7 @@ impl ModuleSourceIr {
             key,
             meta_url,
             parse: ModuleParse::Module(source),
+            kind: ModuleSourceKind::JavaScript,
         }
     }
 
@@ -108,6 +133,7 @@ impl ModuleSourceIr {
             key,
             meta_url,
             parse: ModuleParse::ScriptEntry(source),
+            kind: ModuleSourceKind::JavaScript,
         }
     }
 
@@ -123,6 +149,26 @@ impl ModuleSourceIr {
             ModuleParse::ScriptEntry(source) => &source.source_text,
             ModuleParse::Rejected { source, .. } => &source.source_text,
         }
+    }
+
+    /// The raw bytes of a host-created bytes module, if this is one.
+    #[must_use]
+    pub fn bytes_value(&self) -> Option<&[u8]> {
+        match &self.kind {
+            ModuleSourceKind::Bytes(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    /// Compare both parsed source and the trusted host module type. Equal
+    /// source spellings cannot turn a JavaScript module into a bytes module.
+    #[must_use]
+    pub fn same_loaded_source(&self, other: &Self) -> bool {
+        self.source_text() == other.source_text() && self.kind == other.kind
+    }
+
+    pub(crate) fn kind(&self) -> &ModuleSourceKind {
+        &self.kind
     }
 
     #[must_use]

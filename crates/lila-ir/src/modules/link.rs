@@ -327,6 +327,14 @@ pub(crate) fn linked_script_source(
                 if position > 0 {
                     text.push_str("\n;\n");
                 }
+                if matches!(
+                    &unit.source_kind,
+                    super::loaded_sources::ModuleSourceKind::Bytes(_)
+                ) {
+                    if let Err(reason) = definitions.record_bytes_body(&body, &text, mode) {
+                        diagnostics.push(IrDiagnostic::lowering(reason));
+                    }
+                }
                 if let Err(reason) = definitions.record_body(
                     &body,
                     unit_id,

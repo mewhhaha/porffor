@@ -28,6 +28,7 @@ pub(super) struct ModuleUnitDefinition {
     pub(super) evaluation: ModuleEvaluationIr,
     pub(super) kind: ModuleActivationKindIr,
     pub(super) requests: Vec<ModuleExecutionRequestIr>,
+    pub(super) bytes_len: Option<usize>,
 }
 
 /// What the merged program runs after the graph statement.
@@ -261,6 +262,9 @@ impl ModuleExecutionDefinitions {
                 analysis,
                 interner,
             );
+            if let Some(bytes_len) = unit.bytes_len {
+                mark_bytes_intrinsics(owner, bytes_len, analysis);
+            }
             assert_eq!(
                 analysis.function_plans[function].protocol,
                 match unit.kind {
@@ -365,6 +369,86 @@ impl ModuleExecutionDefinitions {
             ),
         );
     }
+}
+
+/// Only an owner backed by host Bytes provenance can acquire these exact
+/// intrinsic expressions. Its synthetic body has two constructors and two
+/// `Reflect.apply` calls; every other expression is a literal, local read, or
+/// canonical integer-indexed store. The parser owns the pointers, so source
+/// identifiers and filenames do not participate in the privilege decision.
+fn mark_bytes_intrinsics(
+    owner: &AsyncArrowFunction,
+    bytes_len: usize,
+    analysis: &mut Analysis<'_>,
+) {
+    struct Sites<'a, 'b> {
+        analysis: &'b mut Analysis<'a>,
+        constructors: usize,
+        calls: usize,
+        stores: usize,
+    }
+    impl<'a> Visitor<'a> for Sites<'a, '_> {
+        type BreakTy = ();
+
+        fn visit_expression(&mut self, expression: &'a Expression) -> ControlFlow<()> {
+            match expression {
+                Expression::New(new) => {
+                    let callee = new.constructor().flatten();
+                    self.analysis.module_execution.intrinsics.insert(
+                        std::ptr::from_ref(callee) as usize,
+                        StandardBuiltinId::Uint8ArrayConstructor,
+                    );
+                    self.constructors += 1;
+                }
+                Expression::Call(call) => {
+                    if matches!(call.function().flatten(), Expression::ArrowFunction(_)) {
+                        return expression.visit_with(self);
+                    }
+                    let getter = match self.calls {
+                        0 => StandardBuiltinId::TypedArrayPrototypeBufferGetter,
+                        1 => StandardBuiltinId::ArrayBufferPrototypeTransferToImmutable,
+                        _ => panic!("bytes module has exactly two intrinsic calls"),
+                    };
+                    let argument = call
+                        .args()
+                        .first()
+                        .expect("intrinsic getter argument")
+                        .flatten();
+                    self.analysis.module_execution.intrinsics.insert(
+                        std::ptr::from_ref(call.function().flatten()) as usize,
+                        StandardBuiltinId::ReflectApply,
+                    );
+                    self.analysis
+                        .module_execution
+                        .intrinsics
+                        .insert(std::ptr::from_ref(argument) as usize, getter);
+                    self.calls += 1;
+                }
+                Expression::Assign(_) => self.stores += 1,
+                _ => {}
+            }
+            expression.visit_with(self)
+        }
+    }
+    let mut sites = Sites {
+        analysis,
+        constructors: 0,
+        calls: 0,
+        stores: 0,
+    };
+    let _ = owner.body().visit_with(&mut sites);
+    assert_eq!(
+        sites.constructors, 2,
+        "bytes module has two view constructors"
+    );
+    assert_eq!(
+        sites.calls, 2,
+        "bytes module has getter and immutable-transfer calls"
+    );
+    assert_eq!(
+        sites.stores, bytes_len,
+        "bytes module writes every loaded byte"
+    );
 }
 
 fn reader_expression(expression: &Expression) -> &Expression {

@@ -32,6 +32,7 @@
 //! directory touches the filesystem.
 
 mod admission;
+mod bytes_definition;
 mod default_export_definition;
 mod dynamic;
 mod early;

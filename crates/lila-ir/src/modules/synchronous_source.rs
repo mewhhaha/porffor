@@ -1,6 +1,7 @@
 //! Source assembly for the compiler-private module activation protocol.
 
 use super::link::LinkedScriptSource;
+use super::loaded_sources::ModuleSourceKind;
 use super::module_key::ANONYMOUS_MODULE_KEY;
 use super::namespace::push_js_string_literal;
 use super::record::{import_meta_binding, rewrite_import_meta, DefaultExportFormIr};
@@ -225,6 +226,10 @@ pub(super) fn linked_module_execution_source(
             evaluation: super::ModuleEvaluationIr::new(module),
             kind,
             requests,
+            bytes_len: match &unit.source_kind {
+                ModuleSourceKind::Bytes(bytes) => Some(bytes.len()),
+                _ => None,
+            },
         });
     }
     text.push_str("];\n");
