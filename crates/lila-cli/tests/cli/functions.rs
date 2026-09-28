@@ -3,6 +3,27 @@
 use crate::*;
 
 #[test]
+fn run_wasm_backend_converts_parse_int_radix_with_int32_semantics() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("run")
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg(fixture_path("wasm_parse_int_radix_int32.js"))
+        .output()
+        .expect("run command should run");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("boolean(true)"), "{stdout}");
+}
+
+#[test]
 fn inspect_reports_phase_twelve_function_form_ir_shape() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("inspect")

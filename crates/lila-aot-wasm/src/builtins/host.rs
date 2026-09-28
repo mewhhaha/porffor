@@ -316,31 +316,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_value_to_number_payload(radix_tag_local, radix_payload_local, function)?;
         function.instruction(&Instruction::LocalSet(radix_payload_local));
         self.emit_return_current_completion_if_throw(function);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(f64::NEG_INFINITY)));
-        function.instruction(&Instruction::F64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::Else);
-        function.instruction(&Instruction::LocalGet(radix_payload_local));
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncSatF64S);
+        // ToInt32 shares ToUint32's residue; only its interpretation is signed.
+        self.emit_to_uint32_i64_from_number_payload(radix_payload_local, radix_local, function);
+        function.instruction(&Instruction::LocalGet(radix_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I64ExtendI32S);
         function.instruction(&Instruction::LocalSet(radix_local));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::I64Const(0));

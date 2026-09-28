@@ -46,6 +46,10 @@ replay list. Confirmed causes are distinguished from hypotheses that need a
 reproducer. The frozen baseline remains unchanged as individual tasks close;
 a new complete published run is required to change the conformance totals.
 
+The Wasm-AOT `parseInt` and `Number.parseInt` builtins now apply the full
+ECMAScript ToInt32 radix conversion, including large finite numbers whose
+32-bit residue is zero.
+
 Fake fixtures check the runner and selected compiler behavior. They do not
 establish full ECMAScript conformance. Missing features, runtime errors,
 crashes and timeouts remain non-passing outcomes. Runtime source generation
