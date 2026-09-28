@@ -64,7 +64,7 @@ Tasks with crashes come first, followed by required failure groups ordered by si
 | [F045: Infer function names from computed and numeric property keys](F045-computed-function-names.md) | 6 | 6 | 0 | 0 | suspected | open |
 | [F046: Honor RegExp prototype getter special cases and generic toString](F046-regexp-prototype-receivers.md) | 6 | 6 | 0 | 0 | suspected | open |
 | [F047: Route String.localeCompare through Intl.Collator](F047-string-localecompare.md) | 6 | 6 | 0 | 0 | confirmed | open |
-| [F048: Accept callable Proxy objects in Function.prototype.bind](F048-bind-callable-proxy.md) | 4 | 4 | 0 | 0 | confirmed | open |
+| [F048: Accept callable Proxy objects in Function.prototype.bind](F048-bind-callable-proxy.md) | 4 | 4 | 0 | 0 | confirmed | fixed |
 | [F049: Initialize class-name environments at the correct phase](F049-class-name-initialization.md) | 4 | 4 | 0 | 0 | suspected | open |
 | [F050: Support super and parenthesized property destructuring targets](F050-destructuring-property-target.md) | 4 | 0 | 4 | 0 | confirmed | open |
 | [F051: Emit modules whose only statements are import/export declarations](F051-empty-module-ir.md) | 4 | 0 | 4 | 0 | suspected | open |
@@ -73,13 +73,13 @@ Tasks with crashes come first, followed by required failure groups ordered by si
 | [F054: Use ECMAScript ToInt32 for large parseInt radix arguments](F054-parseint-radix-int32.md) | 4 | 4 | 0 | 0 | confirmed | fixed |
 | [F055: Parse nested property and super destructuring assignment targets](F055-parser-destructuring-targets.md) | 4 | 4 | 0 | 0 | suspected | open |
 | [F056: Allocate builtin-created arrays in the active function realm](F056-realm-created-array-prototypes.md) | 4 | 4 | 0 | 0 | suspected | open |
-| [F057: Escape RegExp source for slash and line terminators](F057-regexp-source-escaping.md) | 4 | 4 | 0 | 0 | confirmed | open |
+| [F057: Escape RegExp source for slash and line terminators](F057-regexp-source-escaping.md) | 4 | 4 | 0 | 0 | confirmed | fixed |
 | [F058: Match the full ECMAScript whitespace set in all RegExp paths](F058-regexp-unicode-whitespace.md) | 4 | 4 | 0 | 0 | suspected | open |
 | [F059: Lower spread arguments through RegExp lastIndex helper calls](F059-spread-call-lowering.md) | 4 | 0 | 4 | 0 | confirmed | open |
 | [F060: Validate every locale passed to locale case conversion](F060-string-localecase-validation.md) | 4 | 4 | 0 | 0 | confirmed | open |
 | [F061: Evaluate assignment RHS before null-super PutValue failure](F061-super-reference-order.md) | 4 | 4 | 0 | 0 | confirmed | open |
 | [F062: Preserve Symbol results returned by ToPrimitive during ToPropertyKey](F062-symbol-property-key-coercion.md) | 4 | 4 | 0 | 0 | suspected | open |
-| [F063: Keep non-ISO reference date fields when calendarName is never](F063-temporal-reference-string.md) | 4 | 4 | 0 | 0 | confirmed | open |
+| [F063: Keep non-ISO reference date fields when calendarName is never](F063-temporal-reference-string.md) | 4 | 4 | 0 | 0 | confirmed | fixed |
 | [F064: Track Await grammar parameters correctly inside class field initializers](F064-class-field-await-grammar.md) | 3 | 3 | 0 | 0 | suspected | open |
 | [F065: Carry class strictness through constructors, heritage and nested functions](F065-class-strict-context.md) | 3 | 3 | 0 | 0 | suspected | open |
 | [F066: Parse let and escaped contextual identifiers as labels where allowed](F066-let-label-grammar.md) | 3 | 3 | 0 | 0 | suspected | open |

@@ -136,10 +136,10 @@
     {
       "id": "F004",
       "key": "intl-dtf-timeout",
-      "title": "Profile the DateTimeFormat–Temporal calendar comparison timeout",
+      "title": "Profile the DateTimeFormat\u2013Temporal calendar comparison timeout",
       "owner": "lila-engine Wasmtime execution; lila-aot-wasm DateTimeFormat/Temporal paths; lila-intl calendar provider",
       "cause_status": "unresolved",
-      "root_cause": "The two executions hit the 60,000 ms Wasmtime epoch deadline. The fixture performs 12 calendars × 101 years × 12 months, repeatedly constructing Temporal dates and querying formatToParts. The recorded timeout does not identify a hot loop or prove nontermination; compiler/runtime/provider profiling is still required.",
+      "root_cause": "The two executions hit the 60,000 ms Wasmtime epoch deadline. The fixture performs 12 calendars \u00d7 101 years \u00d7 12 months, repeatedly constructing Temporal dates and querying formatToParts. The recorded timeout does not identify a hot loop or prove nontermination; compiler/runtime/provider profiling is still required.",
       "evidence": [
         {
           "path": "test262/vendor/test262/test/intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js",
@@ -5006,12 +5006,22 @@
       "title": "Accept callable Proxy objects in Function.prototype.bind",
       "owner": "lila-aot-wasm builtins/function.rs",
       "cause_status": "confirmed",
-      "root_cause": "Function.prototype.bind admits only ValueKind::Function. Callable Proxy objects carry an object representation, so valid receivers are rejected as not callable before name/length/bound construction semantics run.",
+      "root_cause": "The frozen compiler admitted only ValueKind::Function in Function.prototype.bind. Callable Proxies use the Object representation, so valid receivers were rejected before binding. Bound allocation and invocation also assumed an ordinary function layout and dispatch path; supporting Proxies requires observable prototype/descriptor reads, retained Proxy identity, and the caller execution Realm through bound invocation.",
       "evidence": [
         {
           "path": "crates/lila-aot-wasm/src/builtins/function.rs",
           "line": 299,
-          "note": "Bind only compares the receiver tag to ValueKind::Function."
+          "note": "Bind now validates the paired receiver with IsCallable before allocation."
+        },
+        {
+          "path": "crates/lila-aot-wasm/src/functions/bound_function_allocation.rs",
+          "line": 22,
+          "note": "Binding observes Proxy prototype and own-property traps while keeping the target identity."
+        },
+        {
+          "path": "crates/lila-aot-wasm/src/builtins/function.rs",
+          "line": 429,
+          "note": "Invocation keeps the bound record separate and forwards the caller Realm through Proxy call/construct dispatch."
         },
         {
           "path": "test262/vendor/test262/test/staging/sm/Function/bound-length-and-name.js",
@@ -5019,7 +5029,7 @@
           "note": "Fixture binds a Proxy of a function."
         }
       ],
-      "fix": "Use the shared IsCallable predicate and retain the original callable receiver when creating a bound function, including proxy traps and non-constructable targets.",
+      "fix": "Use IsCallable and IsConstructor, perform Proxy-aware prototype and own-length reads, retain the original bound target, and forward calls/constructs through Proxy dispatch with the caller Realm. Keep bound-record storage distinct from the execution context.",
       "validation": "Run both bound-length-and-name and bound-non-constructable modes; check proxy getOwnPropertyDescriptor/get ordering.",
       "test_ids": [
         "sloppy-script:staging/sm/Function/bound-length-and-name.js",
@@ -5033,9 +5043,10 @@
         "NotImplemented": 0,
         "Crash": 0
       },
-      "status": "open",
+      "status": "fixed",
       "document": "F048-bind-callable-proxy.md",
-      "cases": "cases/F048.executions"
+      "cases": "cases/F048.executions",
+      "resolution": "Fixed in `c0914161f349eab7489b7236fff691340c320f29` and accepted after independent review. [Verification record](evidence/resolutions/sol-batch-20260928.json) retains compiler identity, native snapshots, exact execution identities, focused checks, and review evidence.\n\n- Fresh release compiler: `41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9`.\n- Exact replay: **4/4 Success**, with native evidence under `target/test262-scratch/sol-batch-20260928/replay/`.\n- Adjacent Test262: **208/208 Success**.\n- Focused Wasm-AOT engine regressions: **6/6 passed** in `aot_bind_callable_proxy`.\n- The regression control passes on the new compiler and fails on the frozen pre-batch compiler.\n\nIndependent review required a caller-Realm correction after the first implementation trapped in Proxy helpers. The corrected six behavioral tests cover traps, construction, and both directions across Realms. Parent checks also cover nested Proxies, chained binding, missing own length, and revocation.\n\nGPT-6-Sol at max reasoning implemented the fix. The integrated checkpoint passed 43 engine tests, 29 structural checks, and two unit tests. Builds and runs were capped at 10 CPUs and half physical RAM with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
     },
     {
       "id": "F049",
@@ -5258,7 +5269,7 @@
       "status": "fixed",
       "document": "F054-parseint-radix-int32.md",
       "cases": "cases/F054.executions",
-      "resolution": "Fixed in `2ad1bf30e1fa203720de048d1dc5f1041e8fc47e` and accepted after independent review. The Wasm-AOT builtin obtains the full 32-bit residue before signed interpretation. [Verification record](evidence/resolutions/F054.json) retains native outcomes and compiler identity.\n\n- Fresh release compiler: `394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd`.\n- Exact replay: **4/4 Success**, with native evidence in `target/test262-scratch/F054-sol-20260928/replay/`.\n- Adjacent Test262: **114/114 Success** — global parseInt 110, Number.parseInt 2, and staging default-to-decimal 2. Native snapshots are in `target/test262-scratch/F054-sol-20260928/adjacent-snapshots/`.\n- Focused Wasm-AOT CLI regression: **1/1 passed**. The same fixture fails on the original frozen compiler at the large positive radix expectation.\n- Independent review: **1,680 checks passed** across 420 numeric inputs, using Python arbitrary-precision integer modulo for expected results. Evidence is in `target/test262-scratch/F054-parent-review/`.\n\nGPT-6-Sol at max reasoning produced the implementation and regression without code corrections from review. Builds and runs were capped at 10 CPUs and half physical RAM, with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
+      "resolution": "Fixed in `2ad1bf30e1fa203720de048d1dc5f1041e8fc47e` and accepted after independent review. The Wasm-AOT builtin obtains the full 32-bit residue before signed interpretation. [Verification record](evidence/resolutions/F054.json) retains native outcomes and compiler identity.\n\n- Fresh release compiler: `394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd`.\n- Exact replay: **4/4 Success**, with native evidence in `target/test262-scratch/F054-sol-20260928/replay/`.\n- Adjacent Test262: **114/114 Success** \u2014 global parseInt 110, Number.parseInt 2, and staging default-to-decimal 2. Native snapshots are in `target/test262-scratch/F054-sol-20260928/adjacent-snapshots/`.\n- Focused Wasm-AOT CLI regression: **1/1 passed**. The same fixture fails on the original frozen compiler at the large positive radix expectation.\n- Independent review: **1,680 checks passed** across 420 numeric inputs, using Python arbitrary-precision integer modulo for expected results. Evidence is in `target/test262-scratch/F054-parent-review/`.\n\nGPT-6-Sol at max reasoning produced the implementation and regression without code corrections from review. Builds and runs were capped at 10 CPUs and half physical RAM, with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
     },
     {
       "id": "F055",
@@ -5335,15 +5346,20 @@
       "title": "Escape RegExp source for slash and line terminators",
       "owner": "lila-aot-wasm RegExp source getter",
       "cause_status": "confirmed",
-      "root_cause": "RegExp.prototype.source returns the stored original source payload directly. A slash therefore returns / or a/b instead of the escaped source required for reconstructing a literal. The same error appears through a cross-realm getter.",
+      "root_cause": "The frozen RegExp source getter returned OriginalSource directly, and ordinary RegExp toString used that raw source too. Slashes and raw line terminators were not escaped for literal reconstruction; cross-realm getters exposed the same incorrect payload.",
       "evidence": [
         {
+          "path": "crates/lila-aot-wasm/src/builtins/string/regexp_source.rs",
+          "line": 32,
+          "note": "Shared serialization emitter escapes the original pattern without changing matcher storage."
+        },
+        {
           "path": "crates/lila-aot-wasm/src/builtins/string.rs",
-          "line": 2053,
-          "note": "The getter loads HEAP_REGEXP_ORIGINAL_SOURCE_PAYLOAD_OFFSET without escaping."
+          "line": 2013,
+          "note": "Ordinary RegExp stringification now uses the same escaping operation as the source getter."
         }
       ],
-      "fix": "Apply EscapeRegExpPattern to the original source and flags with correct empty pattern, slash, line terminator and UTF-16 handling.",
+      "fix": "Apply one EscapeRegExpPattern emitter at source serialization sites while preserving the original matcher source. Handle empty patterns, backslash parity, character classes, line terminators, UTF-8/WTF-8, and Unicode-set flags.",
       "validation": "Run source.js and cross-compartment-getter in both modes and the standard source value regressions.",
       "test_ids": [
         "sloppy-script:staging/sm/RegExp/cross-compartment-getter.js",
@@ -5357,9 +5373,10 @@
         "NotImplemented": 0,
         "Crash": 0
       },
-      "status": "open",
+      "status": "fixed",
       "document": "F057-regexp-source-escaping.md",
-      "cases": "cases/F057.executions"
+      "cases": "cases/F057.executions",
+      "resolution": "Fixed in `c0914161f349eab7489b7236fff691340c320f29` and accepted after independent review. [Verification record](evidence/resolutions/sol-batch-20260928.json) retains compiler identity, native snapshots, exact execution identities, focused checks, and review evidence.\n\n- Fresh release compiler: `41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9`.\n- Exact replay: **4/4 Success**, with native evidence under `target/test262-scratch/sol-batch-20260928/replay/`.\n- Adjacent Test262: **32/46 Success**. The 14 non-successes are unchanged baseline failures: 12 dynamic-code cases owned by F115 and two generic RegExp cases owned by F046. All were executed and retain their native outcomes.\n- Focused Wasm-AOT engine regressions: **4/4 passed** in `aot_regexp_source_escaping`.\n- The regression control passes on the new compiler and fails on the frozen pre-batch compiler.\n\nAccepted without implementation corrections. Four Wasm regressions cover escaping, cloning/recompilation, Unicode code units, and cross-realm receiver checks; parent review passed 1,220 source/toString and reconstruction comparisons across 305 pattern/flag combinations, using independent Node results.\n\nGPT-6-Sol at max reasoning implemented the fix. The integrated checkpoint passed 43 engine tests, 29 structural checks, and two unit tests. Builds and runs were capped at 10 CPUs and half physical RAM with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
     },
     {
       "id": "F058",
@@ -5542,17 +5559,17 @@
       "title": "Keep non-ISO reference date fields when calendarName is never",
       "owner": "lila-aot-wasm temporal_plain_month_day.rs and temporal_plain_year_month_methods.rs",
       "cause_status": "confirmed",
-      "root_cause": "MonthDay prints its reference year and YearMonth prints its reference day only when emit_temporal_show_calendar_annotation_i32 says to show the calendar annotation. calendarName:\"never\" therefore drops those date fields even for non-ISO calendars; the specification requires the full reference ISO date independently of whether the annotation is suppressed.",
+      "root_cause": "The frozen MonthDay and YearMonth serializers gated their reference ISO date fields on the calendar-annotation predicate. calendarName:never therefore removed the reference year or day even for non-ISO calendars, although those fields must remain independently of annotation visibility.",
       "evidence": [
         {
-          "path": "crates/lila-aot-wasm/src/builtins/temporal_plain_month_day.rs",
-          "line": 1322,
-          "note": "Reference-year output is incorrectly gated by the annotation condition."
+          "path": "crates/lila-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs",
+          "line": 2251,
+          "note": "The shared inclusion predicate is independent of the annotation predicate."
         },
         {
-          "path": "crates/lila-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs",
-          "line": 2097,
-          "note": "Reference-day output uses the same incorrect gate."
+          "path": "crates/lila-aot-wasm/src/builtins/temporal_plain_month_day.rs",
+          "line": 1324,
+          "note": "MonthDay uses the separate predicate when including its reference year."
         },
         {
           "path": "test262/vendor/test262/test/intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
@@ -5560,7 +5577,7 @@
           "note": "Expected non-ISO Gregorian result retains the year with calendarName never."
         }
       ],
-      "fix": "Separate the full-reference-date decision from calendar-annotation visibility for both serialization paths; use the calendar identity and ShowCalendarName rules independently.",
+      "fix": "Separate reference-date inclusion from annotation visibility. Include the reference field for every non-ISO calendar and for always/critical; keep never suppressing only the annotation.",
       "validation": "Run all four assigned executions and all MonthDay/YearMonth stringification options, checking ISO versus Gregorian/non-ISO values under auto, always, critical, and never.",
       "test_ids": [
         "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
@@ -5574,9 +5591,10 @@
         "Crash": 0
       },
       "disposition": "required",
-      "status": "open",
+      "status": "fixed",
       "document": "F063-temporal-reference-string.md",
-      "cases": "cases/F063.executions"
+      "cases": "cases/F063.executions",
+      "resolution": "Fixed in `c0914161f349eab7489b7236fff691340c320f29` and accepted after independent review. [Verification record](evidence/resolutions/sol-batch-20260928.json) retains compiler identity, native snapshots, exact execution identities, focused checks, and review evidence.\n\n- Fresh release compiler: `41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9`.\n- Exact replay: **4/4 Success**, with native evidence under `target/test262-scratch/sol-batch-20260928/replay/`.\n- Adjacent Test262: **126/126 Success**.\n- Focused Wasm-AOT engine regressions: **3/3 passed** in `aot_temporal_reference_string`.\n- The regression control passes on the new compiler and fails on the frozen pre-batch compiler.\n\nAccepted without implementation corrections. Three Wasm regressions cover ISO/Gregorian values, all calendar display modes, expanded years, toJSON, option coercion, and error ordering.\n\nGPT-6-Sol at max reasoning implemented the fix. The integrated checkpoint passed 43 engine tests, 29 structural checks, and two unit tests. Builds and runs were capped at 10 CPUs and half physical RAM with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
     },
     {
       "id": "F064",

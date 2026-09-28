@@ -1,0 +1,4914 @@
+{
+  "schema_version": 1,
+  "task_ids": [
+    "F048",
+    "F057",
+    "F063"
+  ],
+  "fixing_revision": "c0914161f349eab7489b7236fff691340c320f29",
+  "implementation": {
+    "model": "gpt-6-sol",
+    "reasoning_effort": "max",
+    "review": "Accepted after independent source review and capped runtime verification. F048 required a correction after three new tests trapped; review also required preserving the caller realm through bound calls and constructs. F057 and F063 needed no implementation corrections. Structural assertions were updated for the changed ownership boundaries."
+  },
+  "compiler": {
+    "binary_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+    "base_revision": "25f47c8b14a95ed0592302f98ae499eb53683f83",
+    "source_patch_sha256": "3fd48514f1743bc05711f9ddb55afa1fe6c1cb3e57e810d00a96d530dbda2819",
+    "source_files_sha256": {
+      "crates/lila-aot-wasm/src/builtins/function.rs": "645d2f9034a273b84605180a8ab95b1b7a030f79cf40ac9f0e33889c190a59fe",
+      "crates/lila-aot-wasm/src/builtins/string.rs": "9b03bad14c308f72572e120e0401d9acea2259765b58f35433b53cadad7892e7",
+      "crates/lila-aot-wasm/src/builtins/string/regexp_source.rs": "25f6332e18236aa1b2b4d5e5620b723a8cd79cd6aac4da40c6d969c42c76279a",
+      "crates/lila-aot-wasm/src/builtins/temporal_plain_month_day.rs": "e054fcafe861872eacf709857e771140774e73dd27c2ca2bb333da3c33145c59",
+      "crates/lila-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs": "69f2ff83c143b8740e457912c9782409be5ad3eaf6fbd2fa7032afa2333a020c",
+      "crates/lila-aot-wasm/src/emit.rs": "3f4bd37bd65ef5c292cb0da613315a238364470df024090228691ec9eb93190d",
+      "crates/lila-aot-wasm/src/functions.rs": "7439391d7c925ec767afde78126e784b7dac618208bccf1698e83e15b3da2259",
+      "crates/lila-aot-wasm/src/functions/bound_function_allocation.rs": "9d83b4441be5016dedd697661ba37cb09763849747ab15bfc1d27f7bdfdda952",
+      "crates/lila-aot-wasm/src/functions/proxy_execution_realm.rs": "d9567809da5ff3cc7e44beaf698ebdf28b75622b7f79a7700d0ebbbf3cae2136",
+      "crates/lila-aot-wasm/tests/function_prototype_receiver_ownership_structure.rs": "c82c9230a4bf5abff811d6145811601aae92ace16627611770168e93c4e29423",
+      "crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs": "d2397d918fc8e7f1a1b0f2b73ed15b27399dc41bf099cba1520a0f90a370e48f",
+      "crates/lila-engine/tests/aot_bind_callable_proxy.rs": "80eadddc0b24c3fa1b1195e344eb16c9e1b14943d66b89ac94660e4e8a314240",
+      "crates/lila-engine/tests/aot_regexp_source_escaping.rs": "cd74f5e8f62225057fe798097162cc5ff91aad49924d94cfae1f2e07bc7d16c8",
+      "crates/lila-engine/tests/aot_temporal_reference_string.rs": "64a1ceca8fe9f29eeee2c419e9e6f093c572fee4d5a33c32802fb0455ec672a0"
+    },
+    "test_only_adjustments_after_build": [
+      {
+        "path": "crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs",
+        "at_compiler_build_sha256": "2c8f147c4069e4587b0bdb26f4d60883872d91b8bf1f07d0a140c753dd099ced",
+        "final_sha256": "d2397d918fc8e7f1a1b0f2b73ed15b27399dc41bf099cba1520a0f90a370e48f",
+        "reason": "Test-only correction of stale argv materialization assertion; product source unchanged."
+      }
+    ]
+  },
+  "exact_native_replay_audit": {
+    "schema_version": 1,
+    "test262_tree_pin": "91b2052adad1f066ae031e2ff3a1e9bd6d732886",
+    "suite_root": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+    "recorded_test262_pins": [
+      "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+    ],
+    "compiler": {
+      "binary_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+      "base_revision": "25f47c8b14a95ed0592302f98ae499eb53683f83",
+      "source_patch_sha256": "3fd48514f1743bc05711f9ddb55afa1fe6c1cb3e57e810d00a96d530dbda2819",
+      "source_files_sha256": {
+        "crates/lila-aot-wasm/src/builtins/function.rs": "645d2f9034a273b84605180a8ab95b1b7a030f79cf40ac9f0e33889c190a59fe",
+        "crates/lila-aot-wasm/src/builtins/string.rs": "9b03bad14c308f72572e120e0401d9acea2259765b58f35433b53cadad7892e7",
+        "crates/lila-aot-wasm/src/builtins/string/regexp_source.rs": "25f6332e18236aa1b2b4d5e5620b723a8cd79cd6aac4da40c6d969c42c76279a",
+        "crates/lila-aot-wasm/src/builtins/temporal_plain_month_day.rs": "e054fcafe861872eacf709857e771140774e73dd27c2ca2bb333da3c33145c59",
+        "crates/lila-aot-wasm/src/builtins/temporal_plain_year_month_methods.rs": "69f2ff83c143b8740e457912c9782409be5ad3eaf6fbd2fa7032afa2333a020c",
+        "crates/lila-aot-wasm/src/emit.rs": "3f4bd37bd65ef5c292cb0da613315a238364470df024090228691ec9eb93190d",
+        "crates/lila-aot-wasm/src/functions.rs": "7439391d7c925ec767afde78126e784b7dac618208bccf1698e83e15b3da2259",
+        "crates/lila-aot-wasm/src/functions/bound_function_allocation.rs": "9d83b4441be5016dedd697661ba37cb09763849747ab15bfc1d27f7bdfdda952",
+        "crates/lila-aot-wasm/src/functions/proxy_execution_realm.rs": "d9567809da5ff3cc7e44beaf698ebdf28b75622b7f79a7700d0ebbbf3cae2136",
+        "crates/lila-aot-wasm/tests/function_prototype_receiver_ownership_structure.rs": "c82c9230a4bf5abff811d6145811601aae92ace16627611770168e93c4e29423",
+        "crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs": "d2397d918fc8e7f1a1b0f2b73ed15b27399dc41bf099cba1520a0f90a370e48f",
+        "crates/lila-engine/tests/aot_bind_callable_proxy.rs": "80eadddc0b24c3fa1b1195e344eb16c9e1b14943d66b89ac94660e4e8a314240",
+        "crates/lila-engine/tests/aot_regexp_source_escaping.rs": "cd74f5e8f62225057fe798097162cc5ff91aad49924d94cfae1f2e07bc7d16c8",
+        "crates/lila-engine/tests/aot_temporal_reference_string.rs": "64a1ceca8fe9f29eeee2c419e9e6f093c572fee4d5a33c32802fb0455ec672a0"
+      },
+      "test_only_adjustments_after_build": [
+        {
+          "path": "crates/lila-aot-wasm/tests/proxy_execution_realm_structure.rs",
+          "at_compiler_build_sha256": "2c8f147c4069e4587b0bdb26f4d60883872d91b8bf1f07d0a140c753dd099ced",
+          "final_sha256": "d2397d918fc8e7f1a1b0f2b73ed15b27399dc41bf099cba1520a0f90a370e48f",
+          "reason": "Test-only correction of stale argv materialization assertion; product source unchanged."
+        }
+      ]
+    },
+    "compiler_metadata_sha256": "7fa3f65b246f7e80abfe0370d8dd169b170773faf7801efea255990dd0831068",
+    "run_sha256": "411e85f0269010ea627eff746ba88a81ec0e9558831f6f105a31162f52c84960",
+    "execution_list_sha256": "ebf44db9648ff97c30eaeda4d7f658caba701c53e00d468a75152b0e004b7f0b",
+    "native_summary_sha256": "1ee588fc0bdb95b49874ae839b1432de32aef7c07366ace17205fda44c9d4d21",
+    "total": 12,
+    "outcomes": {
+      "Success": 12,
+      "NotImplemented": 0,
+      "Crash": 0,
+      "Bug": 0
+    },
+    "timeouts": 0,
+    "origin_report_sha256": null,
+    "origin_overlap": 0,
+    "origin_transitions": {},
+    "repaired_origin_failures": 0,
+    "repaired_origin_timeout_rechecks": 0,
+    "repaired_origin_non_timeout_failures": 0,
+    "retained_origin_successes": 0,
+    "rows": [
+      {
+        "execution_id": "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+        "outcome": "Success",
+        "source_sha256": "0dd96b44aabd60bd3845df3a134daa04e2b0aec30986785c4347b92e8794a3da",
+        "snapshot_sha256": "b19c5ce8b34de88e9f88ee255478bfc0795839611219cd26929d2a67a54ca26f",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "231f21a06bb6b4faab7fa28efd4c92a879fd9a769464dae7c6f23a3ec454f69b",
+        "timeout": false
+      },
+      {
+        "execution_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+        "outcome": "Success",
+        "source_sha256": "b000924c911b54ef4f5a43558ad738f65cb0de5bc4d1426535c8b875f2f7b88e",
+        "snapshot_sha256": "83568fe92c01945af9f38669cdfc3316b674f26dbf00115640f7ea3c9a57a3fc",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "95956f2087b0fbb59f4b7aa3cd19a257e13cea61e278a2c7d08159b4e71ff579",
+        "timeout": false
+      },
+      {
+        "execution_id": "sloppy-script:staging/sm/Function/bound-length-and-name.js",
+        "outcome": "Success",
+        "source_sha256": "0294f62b483a9f5685ab8c3402683b07a92537388115ee91d9e353edf5a81902",
+        "snapshot_sha256": "42a6bcb8d76c5cad52cebea5f04f4ee211f26c93556ca9c64dbc47e7ecac905f",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "08670c5e331fbc3a41b61db7514a46e7d3654e35e9edfb7fe7a57f85a5ed49a8",
+        "timeout": false
+      },
+      {
+        "execution_id": "sloppy-script:staging/sm/Function/bound-non-constructable.js",
+        "outcome": "Success",
+        "source_sha256": "c9f7c692bb1400104462bf992fb256d008f6038717156cdd7942030e56085d05",
+        "snapshot_sha256": "43360807966ff335894698e03de47460b4a838d3dd76e14cb11487a938620cbe",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "a5c44bd691194e11ed00583e0e51eb7a89598c2744cd858ebb6032550e5dab06",
+        "timeout": false
+      },
+      {
+        "execution_id": "sloppy-script:staging/sm/RegExp/cross-compartment-getter.js",
+        "outcome": "Success",
+        "source_sha256": "e3beff52db85d9df27d15470701e1f9ec803bb3209e17ef9ce6eb6473e824304",
+        "snapshot_sha256": "1c4da8220e9050a674496bb948a836b0d2a6a4c28aeeb24b866b27496c2f328d",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "8cae7329f47c39e767366db2c7d2ae8294d9acce91294c6a07aae5916391696e",
+        "timeout": false
+      },
+      {
+        "execution_id": "sloppy-script:staging/sm/RegExp/source.js",
+        "outcome": "Success",
+        "source_sha256": "c05a533d6d0dc2cd566f727933a0e802209d03af258932ba62beccae0194eb4f",
+        "snapshot_sha256": "c56c95c14dedd90435d665f37f7ba84d64a13e203413a57b3796f26fd5be8ad1",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "965c5990944d0595357500b768356eee0fbd849e527446c88a292041c753ba49",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+        "outcome": "Success",
+        "source_sha256": "0dd96b44aabd60bd3845df3a134daa04e2b0aec30986785c4347b92e8794a3da",
+        "snapshot_sha256": "e5297591bb9812676207ccdeb7a13da8dc5a16c4b32afd1ff01432341ce1e2fc",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "78fd2db556e275983e1ed0189e968e7a49ee1f8e6d364163c181c4315e1ae21c",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+        "outcome": "Success",
+        "source_sha256": "b000924c911b54ef4f5a43558ad738f65cb0de5bc4d1426535c8b875f2f7b88e",
+        "snapshot_sha256": "63f350e48d0d8404c8266d17395054c31841ffe9398069144e3ff61058e99d59",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "ae8129c560b22fd1ab7c24442c30dc2d7eceb61f62143bbe021491c3ed329ab6",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:staging/sm/Function/bound-length-and-name.js",
+        "outcome": "Success",
+        "source_sha256": "0294f62b483a9f5685ab8c3402683b07a92537388115ee91d9e353edf5a81902",
+        "snapshot_sha256": "c7e2419e272ee8b0a6967263ca9e11f905503bf265d54e708ba3bb9e7576f03e",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "fba204adf955cee4b316ec82b85e00858acba2f18152e96ba3c793f07158106e",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:staging/sm/Function/bound-non-constructable.js",
+        "outcome": "Success",
+        "source_sha256": "c9f7c692bb1400104462bf992fb256d008f6038717156cdd7942030e56085d05",
+        "snapshot_sha256": "013e5ad9c733ab1ba21e75fb672a9ea3571b4bbcef63af1472662f073de199a6",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "464f78503c7591192b97d469e7da2f942aa26c7ed1999c5129a996bcc307b6cb",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:staging/sm/RegExp/cross-compartment-getter.js",
+        "outcome": "Success",
+        "source_sha256": "e3beff52db85d9df27d15470701e1f9ec803bb3209e17ef9ce6eb6473e824304",
+        "snapshot_sha256": "5f8ba98e9bddd6908849e444e0a1bbbf5e66f034cbdd5111cd8c0f354e2e03df",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "09c09d3a6e08f218b66b108ee57bf86dc4eaae08b15c006d7517a5cd12b01e4a",
+        "timeout": false
+      },
+      {
+        "execution_id": "strict-script:staging/sm/RegExp/source.js",
+        "outcome": "Success",
+        "source_sha256": "c05a533d6d0dc2cd566f727933a0e802209d03af258932ba62beccae0194eb4f",
+        "snapshot_sha256": "a0ca4f3a65ba3c5b23773baba8c10cfe6064cc08c94670ac9c21f7d81906a830",
+        "transcript_sha256": "78d291ca517c34a35ad67d2fda47de715c33fbf0857a1b16f99bc18e2f9d3206",
+        "result_sha256": "996c8a2fa3b22e727b119465a2a32ff8a19656bd1c9f24d9aa20ccb53e990692",
+        "timeout": false
+      }
+    ]
+  },
+  "engine_targets": {
+    "aot_bind_callable_proxy": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_bound_function_metadata": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_execution_global_environment": {
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_function_caller": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_gc_call_arguments": {
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_regexp_source_escaping": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_temporal_reference_string": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "aot_throw_type_error_realm": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "structural_targets": {
+    "bound_function_heap_slot_structure": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "error_prototype_location_structure": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "function_prototype_receiver_ownership_structure": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "promise_internal_function_realm_context_structure": {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    "proxy_creation_execution_realm_structure": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "proxy_execution_realm_structure": {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "unit_tests": {
+    "bound_this_capture_tests": 1,
+    "proxy_execution_realm::tests": 1
+  },
+  "stages": [
+    {
+      "label": "build-corrected",
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "-p",
+        "lila-cli",
+        "--jobs",
+        "8"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 86.34,
+      "log": "target/test262-scratch/sol-batch-20260928/build-corrected.log",
+      "log_sha256": "ba680ae968bf9ffad3d17f5c204a10de7e6336c9fb002d5495d42c52ba6e2720"
+    },
+    {
+      "label": "engine-corrected",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lila-engine",
+        "--jobs",
+        "8",
+        "--no-fail-fast",
+        "--test",
+        "aot_bind_callable_proxy",
+        "--test",
+        "aot_regexp_source_escaping",
+        "--test",
+        "aot_temporal_reference_string",
+        "--test",
+        "aot_bound_function_metadata",
+        "--test",
+        "aot_gc_call_arguments",
+        "--test",
+        "aot_execution_global_environment",
+        "--test",
+        "aot_function_caller",
+        "--test",
+        "aot_throw_type_error_realm",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 155.22,
+      "log": "target/test262-scratch/sol-batch-20260928/engine-corrected.log",
+      "log_sha256": "0b31a0c1acf48cb397ff60171fd45eaf6348acd42ab897273b5f7ffb5b69aa4f"
+    },
+    {
+      "label": "structure-focused",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lila-aot-wasm",
+        "--jobs",
+        "8",
+        "--no-fail-fast",
+        "--test",
+        "proxy_creation_execution_realm_structure",
+        "--test",
+        "promise_internal_function_realm_context_structure",
+        "--test",
+        "error_prototype_location_structure",
+        "--test",
+        "function_prototype_receiver_ownership_structure",
+        "--test",
+        "proxy_execution_realm_structure",
+        "--test",
+        "bound_function_heap_slot_structure",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 101,
+      "elapsed_seconds": 85.52,
+      "log": "target/test262-scratch/sol-batch-20260928/structure-focused.log",
+      "log_sha256": "a9fdad05f678723ac0bc8ee1b793c041c96989f67cfa31028d62a36b87532ab6"
+    },
+    {
+      "label": "structure-corrected",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lila-aot-wasm",
+        "--jobs",
+        "8",
+        "--test",
+        "proxy_execution_realm_structure",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.75,
+      "log": "target/test262-scratch/sol-batch-20260928/structure-corrected.log",
+      "log_sha256": "e432b67c1d8438289425f0c75dd7ed50f94059d6fc343446d3750860e893b66f"
+    },
+    {
+      "label": "bound-capture-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lila-aot-wasm",
+        "--lib",
+        "bound_this_capture_tests::",
+        "--jobs",
+        "8",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 86.95,
+      "log": "target/test262-scratch/sol-batch-20260928/bound-capture-unit.log",
+      "log_sha256": "c12ea3c19c2e9976f2fce31c9c9658d5a46338e33fd1baf6cc471b1fa0fb16c7"
+    },
+    {
+      "label": "proxy-realm-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--release",
+        "-p",
+        "lila-aot-wasm",
+        "--lib",
+        "proxy_execution_realm::tests::",
+        "--jobs",
+        "8",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.08,
+      "log": "target/test262-scratch/sol-batch-20260928/proxy-realm-unit.log",
+      "log_sha256": "d2d55294e5a70ae6fae26358169f2316f2267dbfa1dba42e1f0116ac6c565a48"
+    },
+    {
+      "label": "exact-replay",
+      "command": [
+        "python3",
+        "scripts/replay-test262-executions.py",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/cases.executions",
+        "--binary",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--output-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay",
+        "--workers",
+        "4"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 15.86,
+      "log": "target/test262-scratch/sol-batch-20260928/exact-replay.log",
+      "log_sha256": "e606afe9cd0bb1c30dd86bf04431acaa42bd20c1f3ffece34625f1a953c4719f"
+    },
+    {
+      "label": "replay-audit",
+      "command": [
+        "python3",
+        "scripts/audit-test262-replay.py",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay",
+        "--compiler",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/compiler.json",
+        "--output",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay-audit.json"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.22,
+      "log": "target/test262-scratch/sol-batch-20260928/replay-audit.log",
+      "log_sha256": "a44a8dfb780824d7418eef13edfbbbddc5d5c33e02c2cf14e91df5babe06f010"
+    },
+    {
+      "label": "F048-bind",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Function/prototype/bind",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F048-bind",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 327.7,
+      "log": "target/test262-scratch/sol-batch-20260928/F048-bind.log",
+      "log_sha256": "01aed559b65a32a559ccc1ca0284132b40d7a973ae39e17a4f231bcf0b614843"
+    },
+    {
+      "label": "F048-proxy-prototype",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Proxy/getPrototypeOf/call-parameters.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F048-proxy-prototype",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.34,
+      "log": "target/test262-scratch/sol-batch-20260928/F048-proxy-prototype.log",
+      "log_sha256": "644d6d713b4bcd02bc9c8c1b1eebf48d463cef0afff07b8c5672d067e1185075"
+    },
+    {
+      "label": "F048-proxy-descriptor",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F048-proxy-descriptor",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.35,
+      "log": "target/test262-scratch/sol-batch-20260928/F048-proxy-descriptor.log",
+      "log_sha256": "644d6d713b4bcd02bc9c8c1b1eebf48d463cef0afff07b8c5672d067e1185075"
+    },
+    {
+      "label": "F048-proxy-apply",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Proxy/apply/call-parameters.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F048-proxy-apply",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.39,
+      "log": "target/test262-scratch/sol-batch-20260928/F048-proxy-apply.log",
+      "log_sha256": "644d6d713b4bcd02bc9c8c1b1eebf48d463cef0afff07b8c5672d067e1185075"
+    },
+    {
+      "label": "F048-proxy-construct",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Proxy/construct/call-parameters-new-target.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F048-proxy-construct",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4.38,
+      "log": "target/test262-scratch/sol-batch-20260928/F048-proxy-construct.log",
+      "log_sha256": "644d6d713b4bcd02bc9c8c1b1eebf48d463cef0afff07b8c5672d067e1185075"
+    },
+    {
+      "label": "F057-source",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/RegExp/prototype/source",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F057-source",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 68.08,
+      "log": "target/test262-scratch/sol-batch-20260928/F057-source.log",
+      "log_sha256": "5003ca389f228b3404a29f60ef954d0540bca0450a96f0aef0bd3e037932ced0"
+    },
+    {
+      "label": "F057-tostring",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/RegExp/prototype/toString",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F057-tostring",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 36.34,
+      "log": "target/test262-scratch/sol-batch-20260928/F057-tostring.log",
+      "log_sha256": "24d5addd02f1007a8ea49f26ae2f30dda4e86714b018aa8e8a5ed48c3a833c81"
+    },
+    {
+      "label": "F057-staging-escape",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "staging/sm/RegExp/escape.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F057-staging-escape",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 9.83,
+      "log": "target/test262-scratch/sol-batch-20260928/F057-staging-escape.log",
+      "log_sha256": "85e6cf7c95f80f96a8bee4169a08dd9218eb86ba87eb0cc20b7e42f9956c9711"
+    },
+    {
+      "label": "F057-staging-tostring",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "staging/sm/RegExp/toString.js",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F057-staging-tostring",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 4.58,
+      "log": "target/test262-scratch/sol-batch-20260928/F057-staging-tostring.log",
+      "log_sha256": "cd1c00a19e2b62ba5b55014efa68381a1e8ff686e6eab743acda9b07b0a31eff"
+    },
+    {
+      "label": "F063-monthday-string",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Temporal/PlainMonthDay/prototype/toString",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-monthday-string",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 104.53,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-monthday-string.log",
+      "log_sha256": "f30ef8a02e5a52a0e1c9c31a59c4fcd797c18531be3ce50008d7a034460c7b77"
+    },
+    {
+      "label": "F063-yearmonth-string",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Temporal/PlainYearMonth/prototype/toString",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-yearmonth-string",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 110.82,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-yearmonth-string.log",
+      "log_sha256": "489bd5f890995d6f4c3d0171deaf41545a06c2104e68117a1d1339ff46cb6a6e"
+    },
+    {
+      "label": "F063-intl-monthday-string",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "intl402/Temporal/PlainMonthDay/prototype/toString",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-intl-monthday-string",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 52.26,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-intl-monthday-string.log",
+      "log_sha256": "056533d9897fd26151cba87c76e105409e945fdf85915b4458a148d17572141f"
+    },
+    {
+      "label": "F063-intl-yearmonth-string",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "intl402/Temporal/PlainYearMonth/prototype/toString",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-intl-yearmonth-string",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 44.1,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-intl-yearmonth-string.log",
+      "log_sha256": "475102215d48eb043bd7a92ca0679f5c554f3c7b0255d88d453712beb9fe9118"
+    },
+    {
+      "label": "F063-monthday-json",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Temporal/PlainMonthDay/prototype/toJSON",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-monthday-json",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 45.54,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-monthday-json.log",
+      "log_sha256": "475102215d48eb043bd7a92ca0679f5c554f3c7b0255d88d453712beb9fe9118"
+    },
+    {
+      "label": "F063-yearmonth-json",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "run",
+        "built-ins/Temporal/PlainYearMonth/prototype/toJSON",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+        "--snapshot-dir",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/adjacent-snapshots",
+        "--snapshot-name",
+        "F063-yearmonth-json",
+        "--threads",
+        "4",
+        "--timeout-ms",
+        "60000"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 43.0,
+      "log": "target/test262-scratch/sol-batch-20260928/F063-yearmonth-json.log",
+      "log_sha256": "056533d9897fd26151cba87c76e105409e945fdf85915b4458a148d17572141f"
+    },
+    {
+      "label": "parent-review",
+      "command": [
+        "python3",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/verify.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 24.24,
+      "log": "target/test262-scratch/sol-batch-20260928/parent-review.log",
+      "log_sha256": "74ccbf80e028ee281748c15128616a093be931e1f7b2b1b4c00481df18fee053"
+    }
+  ],
+  "adjacent_native_snapshots": [
+    {
+      "label": "F048-bind",
+      "selection": "built-ins/Function/prototype/bind",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F048-bind-4309972727285838854.json",
+      "sha256": "b8895f85489539a6cf5b09393a12500f98e677d0317063a2cf4eefdd47dfdd0c",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 4309972727285838854,
+        "run_kind": "full",
+        "total": 200,
+        "passed": 200,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 200
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+            "path": "built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+            "duration_ms": 15726
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+            "path": "built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+            "duration_ms": 15583
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+            "path": "built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+            "duration_ms": 15392
+          },
+          {
+            "test_id": "strict-script:built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+            "path": "built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+            "duration_ms": 13238
+          },
+          {
+            "test_id": "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+            "path": "built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+            "duration_ms": 13204
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/name.js",
+            "path": "built-ins/Function/prototype/bind/name.js",
+            "duration_ms": 12585
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/proto-from-ctor-realm.js",
+            "path": "built-ins/Function/prototype/bind/proto-from-ctor-realm.js",
+            "duration_ms": 12340
+          },
+          {
+            "test_id": "strict-script:built-ins/Function/prototype/bind/name.js",
+            "path": "built-ins/Function/prototype/bind/name.js",
+            "duration_ms": 12150
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+            "path": "built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+            "duration_ms": 11008
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Function/prototype/bind/get-fn-realm.js",
+            "path": "built-ins/Function/prototype/bind/get-fn-realm.js",
+            "duration_ms": 10503
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-0-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-0-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-10-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-10-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-11-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-11-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-16-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-16-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-16-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-16-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-10.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-10.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-11.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-11.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-12.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-12.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-13.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-13.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-14.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-14.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-15.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-15.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-16.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-16.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-4.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-4.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-5.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-5.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-6.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-6.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-7.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-7.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-8.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-8.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-2-9.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-2-9.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-20-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-20-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-20-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-20-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-21-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-21-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-21-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-21-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-3-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-3-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-10.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-10.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-11.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-11.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-12.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-12.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-4.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-4.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-5.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-5.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-6.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-6.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-7.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-7.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-8.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-8.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-6-9.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-6-9.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-8-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-8-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-8-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-8-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-9-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-9-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5-9-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5-9-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-10.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-10.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-11.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-11.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-12.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-12.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-13.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-13.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-14.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-14.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-15.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-15.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-4.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-4.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-5.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-5.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-6.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-6.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-7.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-7.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-8.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-8.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-9.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.1-4-9.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-1.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-10.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-10.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-11.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-11.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-12.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-12.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-13.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-13.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-14.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-14.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-2.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-3.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-4.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-4.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-5.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-5.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-6.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-6.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-7.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-7.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-8.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-8.js",
+          "sloppy-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-9.js",
+          "strict-script:built-ins/Function/prototype/bind/15.3.4.5.2-4-9.js",
+          "sloppy-script:built-ins/Function/prototype/bind/BoundFunction_restricted-properties.js",
+          "strict-script:built-ins/Function/prototype/bind/BoundFunction_restricted-properties.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A1.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A1.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A13.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A13.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A14.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A14.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A15.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A15.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A16.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A16.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A2.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A2.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A3.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A3.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A4.js",
+          "sloppy-script:built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+          "strict-script:built-ins/Function/prototype/bind/S15.3.4.5_A5.js",
+          "sloppy-script:built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+          "strict-script:built-ins/Function/prototype/bind/get-fn-realm-recursive.js",
+          "sloppy-script:built-ins/Function/prototype/bind/get-fn-realm.js",
+          "strict-script:built-ins/Function/prototype/bind/get-fn-realm.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-construct-newtarget-boundtarget-bound.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-construct-newtarget-boundtarget-bound.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-construct-newtarget-boundtarget.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-construct-newtarget-boundtarget.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-construct-newtarget-self-new.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-construct-newtarget-self-new.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-construct-newtarget-self-reflect.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-construct-newtarget-self-reflect.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-length-default-value.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-length-default-value.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-length-exceeds-int32.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-length-exceeds-int32.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-length-prop-desc.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-length-prop-desc.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-length-remaining-args.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-length-remaining-args.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-length-tointeger.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-length-tointeger.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-name-chained.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-name-chained.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-name-error.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-name-error.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-name-non-string.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-name-non-string.js",
+          "sloppy-script:built-ins/Function/prototype/bind/instance-name.js",
+          "strict-script:built-ins/Function/prototype/bind/instance-name.js",
+          "sloppy-script:built-ins/Function/prototype/bind/length.js",
+          "strict-script:built-ins/Function/prototype/bind/length.js",
+          "sloppy-script:built-ins/Function/prototype/bind/name.js",
+          "strict-script:built-ins/Function/prototype/bind/name.js",
+          "sloppy-script:built-ins/Function/prototype/bind/not-a-constructor.js",
+          "strict-script:built-ins/Function/prototype/bind/not-a-constructor.js",
+          "sloppy-script:built-ins/Function/prototype/bind/proto-from-ctor-realm.js",
+          "strict-script:built-ins/Function/prototype/bind/proto-from-ctor-realm.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F048-proxy-prototype",
+      "selection": "built-ins/Proxy/getPrototypeOf/call-parameters.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F048-proxy-prototype-15673608125340584797.json",
+      "sha256": "ee1c169056dd4b550e521bc685d77cbc6c63a641e8ebd34a603ff2a4ff3867b1",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 15673608125340584797,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/call-parameters.js",
+            "path": "built-ins/Proxy/getPrototypeOf/call-parameters.js",
+            "duration_ms": 4133
+          },
+          {
+            "test_id": "strict-script:built-ins/Proxy/getPrototypeOf/call-parameters.js",
+            "path": "built-ins/Proxy/getPrototypeOf/call-parameters.js",
+            "duration_ms": 2611
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Proxy/getPrototypeOf/call-parameters.js",
+          "strict-script:built-ins/Proxy/getPrototypeOf/call-parameters.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F048-proxy-descriptor",
+      "selection": "built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F048-proxy-descriptor-5179691073813062781.json",
+      "sha256": "b88bf175619aeb082194d9a1ce884488eff6466ab703abe08bf21823f14f9f52",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 5179691073813062781,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+            "path": "built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+            "duration_ms": 4141
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+            "path": "built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+            "duration_ms": 2645
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+          "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F048-proxy-apply",
+      "selection": "built-ins/Proxy/apply/call-parameters.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F048-proxy-apply-6506212138614880270.json",
+      "sha256": "a329d0fd262dc07b8b818b2acab544b98f8c962ab5390c81e20a4c372bd41aee",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 6506212138614880270,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/Proxy/apply/call-parameters.js",
+            "path": "built-ins/Proxy/apply/call-parameters.js",
+            "duration_ms": 4181
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Proxy/apply/call-parameters.js",
+            "path": "built-ins/Proxy/apply/call-parameters.js",
+            "duration_ms": 2667
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Proxy/apply/call-parameters.js",
+          "strict-script:built-ins/Proxy/apply/call-parameters.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F048-proxy-construct",
+      "selection": "built-ins/Proxy/construct/call-parameters-new-target.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F048-proxy-construct-8947875385654929504.json",
+      "sha256": "d4c04258464c26e8745faf226a95b7a18a94a2b89e3046293de44123777044c6",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 8947875385654929504,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Proxy/construct/call-parameters-new-target.js",
+            "path": "built-ins/Proxy/construct/call-parameters-new-target.js",
+            "duration_ms": 4176
+          },
+          {
+            "test_id": "strict-script:built-ins/Proxy/construct/call-parameters-new-target.js",
+            "path": "built-ins/Proxy/construct/call-parameters-new-target.js",
+            "duration_ms": 2629
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Proxy/construct/call-parameters-new-target.js",
+          "strict-script:built-ins/Proxy/construct/call-parameters-new-target.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F057-source",
+      "selection": "built-ins/RegExp/prototype/source",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F057-source-17270549627423907678.json",
+      "sha256": "27189f66ba67046a569fd75a75e056c67c4ec5385d7c927497666c8b39718510",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 17270549627423907678,
+        "run_kind": "full",
+        "total": 24,
+        "passed": 14,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 10,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 10,
+          "Success": 14
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value.js",
+            "path": "built-ins/RegExp/prototype/source/value.js",
+            "duration_ms": 17250
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-slash.js",
+            "path": "built-ins/RegExp/prototype/source/value-slash.js",
+            "duration_ms": 14406
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-slash.js",
+            "path": "built-ins/RegExp/prototype/source/value-slash.js",
+            "duration_ms": 14082
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "path": "built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "duration_ms": 14039
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "path": "built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "duration_ms": 14006
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-empty.js",
+            "path": "built-ins/RegExp/prototype/source/value-empty.js",
+            "duration_ms": 13993
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-empty.js",
+            "path": "built-ins/RegExp/prototype/source/value-empty.js",
+            "duration_ms": 13992
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value.js",
+            "path": "built-ins/RegExp/prototype/source/value.js",
+            "duration_ms": 13699
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/cross-realm.js",
+            "path": "built-ins/RegExp/prototype/source/cross-realm.js",
+            "duration_ms": 11826
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/this-val-regexp-prototype.js",
+            "path": "built-ins/RegExp/prototype/source/this-val-regexp-prototype.js",
+            "duration_ms": 11803
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-empty.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-empty.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 13993
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-empty.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-empty.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 13992
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 14006
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-line-terminator.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 14039
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-slash.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-slash.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 14082
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-slash.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-slash.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 14406
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-u.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-u.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 6335
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value-u.js",
+            "test_path": "built-ins/RegExp/prototype/source/value-u.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 10135
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value.js",
+            "test_path": "built-ins/RegExp/prototype/source/value.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 13699
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/source/value.js",
+            "test_path": "built-ins/RegExp/prototype/source/value.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 17250
+          }
+        ],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/RegExp/prototype/source/cross-realm.js",
+          "strict-script:built-ins/RegExp/prototype/source/cross-realm.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/length.js",
+          "strict-script:built-ins/RegExp/prototype/source/length.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/name.js",
+          "strict-script:built-ins/RegExp/prototype/source/name.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/prop-desc.js",
+          "strict-script:built-ins/RegExp/prototype/source/prop-desc.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/this-val-invalid-obj.js",
+          "strict-script:built-ins/RegExp/prototype/source/this-val-invalid-obj.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/this-val-non-obj.js",
+          "strict-script:built-ins/RegExp/prototype/source/this-val-non-obj.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/this-val-regexp-prototype.js",
+          "strict-script:built-ins/RegExp/prototype/source/this-val-regexp-prototype.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/value-empty.js",
+          "strict-script:built-ins/RegExp/prototype/source/value-empty.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+          "strict-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/value-slash.js",
+          "strict-script:built-ins/RegExp/prototype/source/value-slash.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/value-u.js",
+          "strict-script:built-ins/RegExp/prototype/source/value-u.js",
+          "sloppy-script:built-ins/RegExp/prototype/source/value.js",
+          "strict-script:built-ins/RegExp/prototype/source/value.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": [
+        {
+          "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-empty.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:built-ins/RegExp/prototype/source/value-empty.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:built-ins/RegExp/prototype/source/value-line-terminator.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-slash.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:built-ins/RegExp/prototype/source/value-slash.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value-u.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:built-ins/RegExp/prototype/source/value-u.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "sloppy-script:built-ins/RegExp/prototype/source/value.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:built-ins/RegExp/prototype/source/value.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        }
+      ]
+    },
+    {
+      "label": "F057-tostring",
+      "selection": "built-ins/RegExp/prototype/toString",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F057-tostring-17782648330986877322.json",
+      "sha256": "86d4f0fd9035038cc5cedfde0a03e4f2bb963e8cde19e3b3ae6f0d3f82f6a24c",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 17782648330986877322,
+        "run_kind": "full",
+        "total": 18,
+        "passed": 18,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 18
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+            "duration_ms": 11414
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+            "duration_ms": 11356
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/called-as-function.js",
+            "path": "built-ins/RegExp/prototype/toString/called-as-function.js",
+            "duration_ms": 10682
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+            "duration_ms": 9182
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/toString/called-as-function.js",
+            "path": "built-ins/RegExp/prototype/toString/called-as-function.js",
+            "duration_ms": 8596
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/name.js",
+            "path": "built-ins/RegExp/prototype/toString/name.js",
+            "duration_ms": 7235
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A10.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A10.js",
+            "duration_ms": 7157
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+            "duration_ms": 7136
+          },
+          {
+            "test_id": "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A7.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A7.js",
+            "duration_ms": 6974
+          },
+          {
+            "test_id": "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A6.js",
+            "path": "built-ins/RegExp/prototype/toString/S15.10.6.4_A6.js",
+            "duration_ms": 6950
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A10.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A10.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A11.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A11.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A6.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A6.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A7.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A7.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A8.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+          "strict-script:built-ins/RegExp/prototype/toString/S15.10.6.4_A9.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/called-as-function.js",
+          "strict-script:built-ins/RegExp/prototype/toString/called-as-function.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/name.js",
+          "strict-script:built-ins/RegExp/prototype/toString/name.js",
+          "sloppy-script:built-ins/RegExp/prototype/toString/not-a-constructor.js",
+          "strict-script:built-ins/RegExp/prototype/toString/not-a-constructor.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F057-staging-escape",
+      "selection": "staging/sm/RegExp/escape.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F057-staging-escape-8638770032224798289.json",
+      "sha256": "4adfb7ce4e05b13ac8cfd60d1ed795376b7a85ae6a63f510b6db061bf70395e8",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 8638770032224798289,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 0,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 2,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 2,
+          "Success": 0
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:staging/sm/RegExp/escape.js",
+            "path": "staging/sm/RegExp/escape.js",
+            "duration_ms": 9615
+          },
+          {
+            "test_id": "sloppy-script:staging/sm/RegExp/escape.js",
+            "path": "staging/sm/RegExp/escape.js",
+            "duration_ms": 5619
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [
+          {
+            "test_id": "sloppy-script:staging/sm/RegExp/escape.js",
+            "test_path": "staging/sm/RegExp/escape.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 5619
+          },
+          {
+            "test_id": "strict-script:staging/sm/RegExp/escape.js",
+            "test_path": "staging/sm/RegExp/escape.js",
+            "kind": "Unsupported",
+            "outcome": "NotImplemented",
+            "origin": "unknown",
+            "detail": "[origin:unknown] unsupported dynamic-source operation `eval` selected during Wasm execution without a compiled source/environment specialization",
+            "detail_hash": 7269506226992852792,
+            "duration_ms": 9615
+          }
+        ],
+        "completed_test_ids": [
+          "sloppy-script:staging/sm/RegExp/escape.js",
+          "strict-script:staging/sm/RegExp/escape.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": [
+        {
+          "test_id": "sloppy-script:staging/sm/RegExp/escape.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:staging/sm/RegExp/escape.js",
+          "owner": "F115",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        }
+      ]
+    },
+    {
+      "label": "F057-staging-tostring",
+      "selection": "staging/sm/RegExp/toString.js",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F057-staging-tostring-5710159721606376392.json",
+      "sha256": "ab50a46d7433d5184eeaccdb5e5838f4dad8c729b9bbd3239dd703adbf4b116c",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 5710159721606376392,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 0,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 2,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 2,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 0
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:staging/sm/RegExp/toString.js",
+            "path": "staging/sm/RegExp/toString.js",
+            "duration_ms": 4376
+          },
+          {
+            "test_id": "strict-script:staging/sm/RegExp/toString.js",
+            "path": "staging/sm/RegExp/toString.js",
+            "duration_ms": 2778
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [
+          {
+            "test_id": "sloppy-script:staging/sm/RegExp/toString.js",
+            "test_path": "staging/sm/RegExp/toString.js",
+            "kind": "Runtime",
+            "outcome": "Bug",
+            "origin": "unknown",
+            "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1633760: RegExp.prototype.exec receiver is not RegExp)",
+            "detail_hash": 2898545846977746031,
+            "duration_ms": 4376
+          },
+          {
+            "test_id": "strict-script:staging/sm/RegExp/toString.js",
+            "test_path": "staging/sm/RegExp/toString.js",
+            "kind": "Runtime",
+            "outcome": "Bug",
+            "origin": "unknown",
+            "detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object(handle@1626088: RegExp.prototype.exec receiver is not RegExp)",
+            "detail_hash": 2898545846977746031,
+            "duration_ms": 2778
+          }
+        ],
+        "completed_test_ids": [
+          "sloppy-script:staging/sm/RegExp/toString.js",
+          "strict-script:staging/sm/RegExp/toString.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": [
+        {
+          "test_id": "sloppy-script:staging/sm/RegExp/toString.js",
+          "owner": "F046",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        },
+        {
+          "test_id": "strict-script:staging/sm/RegExp/toString.js",
+          "owner": "F046",
+          "same_kind_outcome_and_diagnostic_as_baseline": true
+        }
+      ]
+    },
+    {
+      "label": "F063-monthday-string",
+      "selection": "built-ins/Temporal/PlainMonthDay/prototype/toString",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-monthday-string-16389020667737551051.json",
+      "sha256": "375677b147faf11417b650a92255096fcc8c7227c4a16b497a5b527302023aea",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 16389020667737551051,
+        "run_kind": "full",
+        "total": 32,
+        "passed": 32,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 32
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+            "duration_ms": 17085
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+            "duration_ms": 15326
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+            "duration_ms": 15258
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14870
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+            "duration_ms": 14533
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14082
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+            "duration_ms": 14080
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-object.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/options-object.js",
+            "duration_ms": 13647
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/not-a-constructor.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/not-a-constructor.js",
+            "duration_ms": 13466
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+            "duration_ms": 13341
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/branding.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/branding.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/builtin.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/builtin.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-always.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-always.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-invalid-string.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-invalid-string.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/length.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/length.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/name.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/not-a-constructor.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/not-a-constructor.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-object.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-object.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/options-wrong-type.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/order-of-operations.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toString/prop-desc.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toString/prop-desc.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F063-yearmonth-string",
+      "selection": "built-ins/Temporal/PlainYearMonth/prototype/toString",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-yearmonth-string-4651958189021291652.json",
+      "sha256": "1446bc0ac19bb7c3bed26775e4681475a5c2ae68fa9a0b2dfa8bcffc5051850f",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 4651958189021291652,
+        "run_kind": "full",
+        "total": 34,
+        "passed": 34,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 34
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 15551
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+            "duration_ms": 15489
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+            "duration_ms": 15474
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+            "duration_ms": 15443
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+            "duration_ms": 14806
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14700
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-object.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/options-object.js",
+            "duration_ms": 14292
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/name.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/name.js",
+            "duration_ms": 14289
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/prop-desc.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/prop-desc.js",
+            "duration_ms": 14282
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "duration_ms": 14048
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/branding.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/branding.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/builtin.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/builtin.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-invalid-string.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-invalid-string.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/length.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/length.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/name.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/name.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/not-a-constructor.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/not-a-constructor.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-object.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-object.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/options-wrong-type.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/order-of-operations.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/prop-desc.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/prop-desc.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toString/year-format.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toString/year-format.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F063-intl-monthday-string",
+      "selection": "intl402/Temporal/PlainMonthDay/prototype/toString",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-intl-monthday-string-8848073748372500649.json",
+      "sha256": "710c72c66f4b24a9dc609438e3ea290f21cfe68cb48dc17db0660db8289a8f82",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 8848073748372500649,
+        "run_kind": "full",
+        "total": 16,
+        "passed": 16,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 16
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14575
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14574
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+            "duration_ms": 14263
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+            "duration_ms": 13556
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+            "duration_ms": 13548
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/year-format.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/year-format.js",
+            "duration_ms": 13517
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+            "duration_ms": 12789
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+            "duration_ms": 12439
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+            "duration_ms": 12425
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+            "path": "intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+            "duration_ms": 12417
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-always.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-always.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-auto.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-critical.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-undefined.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-wrong-type.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/options-undefined.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/options-undefined.js",
+          "sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/year-format.js",
+          "strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/year-format.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F063-intl-yearmonth-string",
+      "selection": "intl402/Temporal/PlainYearMonth/prototype/toString",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-intl-yearmonth-string-6013800023407340492.json",
+      "sha256": "64d081c76b8e60553e0324094d06556d25a0d1293e338e13aa2c8aae86d95176",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 6013800023407340492,
+        "run_kind": "full",
+        "total": 14,
+        "passed": 14,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 14
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+            "duration_ms": 15469
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14298
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+            "duration_ms": 14233
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "duration_ms": 13238
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+            "duration_ms": 13135
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+            "duration_ms": 12240
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+            "duration_ms": 11656
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+            "duration_ms": 10844
+          },
+          {
+            "test_id": "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+            "duration_ms": 10831
+          },
+          {
+            "test_id": "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+            "path": "intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+            "duration_ms": 10829
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-always.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-auto.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-critical.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-undefined.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-wrong-type.js",
+          "sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/options-undefined.js",
+          "strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/options-undefined.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F063-monthday-json",
+      "selection": "built-ins/Temporal/PlainMonthDay/prototype/toJSON",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-monthday-json-10313327674500427226.json",
+      "sha256": "672a28e4b7ab10ac97f67bbfe4aaa076f320c03a888724cf15ad28a73a3194e0",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 10313327674500427226,
+        "run_kind": "full",
+        "total": 14,
+        "passed": 14,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 14
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js",
+            "duration_ms": 15492
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+            "duration_ms": 14109
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+            "duration_ms": 14000
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+            "duration_ms": 13408
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+            "duration_ms": 13405
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+            "duration_ms": 12570
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/length.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/length.js",
+            "duration_ms": 12347
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+            "duration_ms": 12175
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js",
+            "duration_ms": 11902
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/builtin.js",
+            "path": "built-ins/Temporal/PlainMonthDay/prototype/toJSON/builtin.js",
+            "duration_ms": 11174
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/basic.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/branding.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/builtin.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/builtin.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/length.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/length.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/name.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/not-a-constructor.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/not-a-constructor.js",
+          "sloppy-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js",
+          "strict-script:built-ins/Temporal/PlainMonthDay/prototype/toJSON/prop-desc.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    },
+    {
+      "label": "F063-yearmonth-json",
+      "selection": "built-ins/Temporal/PlainYearMonth/prototype/toJSON",
+      "path": "target/test262-scratch/sol-batch-20260928/adjacent-snapshots/F063-yearmonth-json-5678164241503607813.json",
+      "sha256": "7b9f9c81212d65acdecdef1c93227e056437205e0927407818943e35fb26ab48",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 5678164241503607813,
+        "run_kind": "full",
+        "total": 16,
+        "passed": 16,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 16
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+            "duration_ms": 13259
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+            "duration_ms": 12274
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+            "duration_ms": 11798
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+            "duration_ms": 10607
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/not-a-constructor.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/not-a-constructor.js",
+            "duration_ms": 9873
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+            "duration_ms": 9690
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+            "duration_ms": 9489
+          },
+          {
+            "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+            "duration_ms": 9107
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+            "duration_ms": 9011
+          },
+          {
+            "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/builtin.js",
+            "path": "built-ins/Temporal/PlainYearMonth/prototype/toJSON/builtin.js",
+            "duration_ms": 8967
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/basic.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/branding.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/builtin.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/builtin.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/length.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/name.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/name.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/not-a-constructor.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/not-a-constructor.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/prop-desc.js",
+          "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/year-format.js",
+          "strict-script:built-ins/Temporal/PlainYearMonth/prototype/toJSON/year-format.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      },
+      "baseline_failure_comparison": []
+    }
+  ],
+  "parent_review": {
+    "results": [
+      {
+        "label": "F048-positive-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F048-control.js"
+        ],
+        "exit_code": 0,
+        "expected_success": true,
+        "verified": true,
+        "elapsed_seconds": 2.44,
+        "compiler_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+        "fixture_sha256": "41b9a2a2bea86d0cb75b4e9e0306e1b7cf01504e9b6cd8296bafff08b8cdaa1d",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F048-positive-control.log",
+        "log_sha256": "32f2a7a77d3d365e8f246a38a50d57391c46e6fc971e68519bf79361f04c2b1d"
+      },
+      {
+        "label": "F048-negative-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-sol-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F048-control.js"
+        ],
+        "exit_code": 1,
+        "expected_success": false,
+        "verified": true,
+        "elapsed_seconds": 2.49,
+        "compiler_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd",
+        "fixture_sha256": "41b9a2a2bea86d0cb75b4e9e0306e1b7cf01504e9b6cd8296bafff08b8cdaa1d",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F048-negative-control.log",
+        "log_sha256": "5a240a2f5368826a9e9d80ba946b35bbf17aab3074e4e79a8e55660edd62f11f"
+      },
+      {
+        "label": "F057-positive-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F057-control.js"
+        ],
+        "exit_code": 0,
+        "expected_success": true,
+        "verified": true,
+        "elapsed_seconds": 2.52,
+        "compiler_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+        "fixture_sha256": "a1757ab99592d2053f519ed76f61035392a4231e5c0f5d9a1a0afccb54a6edb5",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F057-positive-control.log",
+        "log_sha256": "32f2a7a77d3d365e8f246a38a50d57391c46e6fc971e68519bf79361f04c2b1d"
+      },
+      {
+        "label": "F057-negative-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-sol-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F057-control.js"
+        ],
+        "exit_code": 0,
+        "expected_success": false,
+        "verified": true,
+        "elapsed_seconds": 2.35,
+        "compiler_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd",
+        "fixture_sha256": "a1757ab99592d2053f519ed76f61035392a4231e5c0f5d9a1a0afccb54a6edb5",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F057-negative-control.log",
+        "log_sha256": "7a48a0490e4d19f5c3f4b1dba62c815198bf726badbb978cb7575e2f7dc11808"
+      },
+      {
+        "label": "F063-positive-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F063-control.js"
+        ],
+        "exit_code": 0,
+        "expected_success": true,
+        "verified": true,
+        "elapsed_seconds": 4.43,
+        "compiler_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+        "fixture_sha256": "92c95b737fda2fd133da79e2ded8740f073fec74854fbbc8559a7bdf8047755f",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F063-positive-control.log",
+        "log_sha256": "32f2a7a77d3d365e8f246a38a50d57391c46e6fc971e68519bf79361f04c2b1d"
+      },
+      {
+        "label": "F063-negative-control",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-sol-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/F063-control.js"
+        ],
+        "exit_code": 0,
+        "expected_success": false,
+        "verified": true,
+        "elapsed_seconds": 3.42,
+        "compiler_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd",
+        "fixture_sha256": "92c95b737fda2fd133da79e2ded8740f073fec74854fbbc8559a7bdf8047755f",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/F063-negative-control.log",
+        "log_sha256": "7a48a0490e4d19f5c3f4b1dba62c815198bf726badbb978cb7575e2f7dc11808"
+      },
+      {
+        "label": "bind-lifecycle",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/bind-lifecycle.js"
+        ],
+        "exit_code": 0,
+        "expected_success": true,
+        "verified": true,
+        "elapsed_seconds": 2.55,
+        "compiler_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+        "fixture_sha256": "be3cb1352b460e70aed6c0170b5f16630255417e4afcc7fc2c108cb1ad00f891",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/bind-lifecycle.log",
+        "log_sha256": "32f2a7a77d3d365e8f246a38a50d57391c46e6fc971e68519bf79361f04c2b1d"
+      },
+      {
+        "label": "regexp-vectors",
+        "command": [
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/replay/compiler",
+          "--jobs",
+          "1",
+          "run",
+          "--execution-backend",
+          "wasm-aot",
+          "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/sol-batch-20260928/parent-review/regexp-vectors.js"
+        ],
+        "exit_code": 0,
+        "expected_success": true,
+        "verified": true,
+        "elapsed_seconds": 2.92,
+        "compiler_sha256": "41300185c891072679474d8066d7c51634699253a3cc1f574de9cc90c2ce0ab9",
+        "fixture_sha256": "130b40ac7fedeb9a3e932f6a3839cf42a25314a0ee245fc4f416db9f1b39cb6b",
+        "log": "target/test262-scratch/sol-batch-20260928/parent-review/regexp-vectors.log",
+        "log_sha256": "32f2a7a77d3d365e8f246a38a50d57391c46e6fc971e68519bf79361f04c2b1d"
+      }
+    ],
+    "regexp_vectors": {
+      "oracle": "v24.12.0",
+      "valid_vectors": 305,
+      "invalid_inputs": 79,
+      "vectors": [
+        {
+          "pattern": "",
+          "flags": "",
+          "source": "(?:)",
+          "text": "/(?:)/"
+        },
+        {
+          "pattern": "",
+          "flags": "gim",
+          "source": "(?:)",
+          "text": "/(?:)/gim"
+        },
+        {
+          "pattern": "",
+          "flags": "u",
+          "source": "(?:)",
+          "text": "/(?:)/u"
+        },
+        {
+          "pattern": "",
+          "flags": "v",
+          "source": "(?:)",
+          "text": "/(?:)/v"
+        },
+        {
+          "pattern": "/",
+          "flags": "",
+          "source": "\\/",
+          "text": "/\\//"
+        },
+        {
+          "pattern": "/",
+          "flags": "gim",
+          "source": "\\/",
+          "text": "/\\//gim"
+        },
+        {
+          "pattern": "/",
+          "flags": "u",
+          "source": "\\/",
+          "text": "/\\//u"
+        },
+        {
+          "pattern": "/",
+          "flags": "v",
+          "source": "\\/",
+          "text": "/\\//v"
+        },
+        {
+          "pattern": "a/b",
+          "flags": "",
+          "source": "a\\/b",
+          "text": "/a\\/b/"
+        },
+        {
+          "pattern": "a/b",
+          "flags": "gim",
+          "source": "a\\/b",
+          "text": "/a\\/b/gim"
+        },
+        {
+          "pattern": "a/b",
+          "flags": "u",
+          "source": "a\\/b",
+          "text": "/a\\/b/u"
+        },
+        {
+          "pattern": "a/b",
+          "flags": "v",
+          "source": "a\\/b",
+          "text": "/a\\/b/v"
+        },
+        {
+          "pattern": "[/]",
+          "flags": "",
+          "source": "[/]",
+          "text": "/[/]/"
+        },
+        {
+          "pattern": "[/]",
+          "flags": "gim",
+          "source": "[/]",
+          "text": "/[/]/gim"
+        },
+        {
+          "pattern": "[/]",
+          "flags": "u",
+          "source": "[/]",
+          "text": "/[/]/u"
+        },
+        {
+          "pattern": "[^/]",
+          "flags": "",
+          "source": "[^/]",
+          "text": "/[^/]/"
+        },
+        {
+          "pattern": "[^/]",
+          "flags": "gim",
+          "source": "[^/]",
+          "text": "/[^/]/gim"
+        },
+        {
+          "pattern": "[^/]",
+          "flags": "u",
+          "source": "[^/]",
+          "text": "/[^/]/u"
+        },
+        {
+          "pattern": "[[]/",
+          "flags": "",
+          "source": "[[]\\/",
+          "text": "/[[]\\//"
+        },
+        {
+          "pattern": "[[]/",
+          "flags": "gim",
+          "source": "[[]\\/",
+          "text": "/[[]\\//gim"
+        },
+        {
+          "pattern": "[[]/",
+          "flags": "u",
+          "source": "[[]\\/",
+          "text": "/[[]\\//u"
+        },
+        {
+          "pattern": "\\[/\\]",
+          "flags": "",
+          "source": "\\[\\/\\]",
+          "text": "/\\[\\/\\]/"
+        },
+        {
+          "pattern": "\\[/\\]",
+          "flags": "gim",
+          "source": "\\[\\/\\]",
+          "text": "/\\[\\/\\]/gim"
+        },
+        {
+          "pattern": "\\[/\\]",
+          "flags": "u",
+          "source": "\\[\\/\\]",
+          "text": "/\\[\\/\\]/u"
+        },
+        {
+          "pattern": "\\[/\\]",
+          "flags": "v",
+          "source": "\\[\\/\\]",
+          "text": "/\\[\\/\\]/v"
+        },
+        {
+          "pattern": "[\\\\/]",
+          "flags": "",
+          "source": "[\\\\/]",
+          "text": "/[\\\\/]/"
+        },
+        {
+          "pattern": "[\\\\/]",
+          "flags": "gim",
+          "source": "[\\\\/]",
+          "text": "/[\\\\/]/gim"
+        },
+        {
+          "pattern": "[\\\\/]",
+          "flags": "u",
+          "source": "[\\\\/]",
+          "text": "/[\\\\/]/u"
+        },
+        {
+          "pattern": "[a[b]c]/",
+          "flags": "",
+          "source": "[a[b]c]\\/",
+          "text": "/[a[b]c]\\//"
+        },
+        {
+          "pattern": "[a[b]c]/",
+          "flags": "gim",
+          "source": "[a[b]c]\\/",
+          "text": "/[a[b]c]\\//gim"
+        },
+        {
+          "pattern": "[a[b]c]/",
+          "flags": "v",
+          "source": "[a[b]c]\\/",
+          "text": "/[a[b]c]\\//v"
+        },
+        {
+          "pattern": "[[a]--[b]]/",
+          "flags": "",
+          "source": "[[a]--[b]]\\/",
+          "text": "/[[a]--[b]]\\//"
+        },
+        {
+          "pattern": "[[a]--[b]]/",
+          "flags": "gim",
+          "source": "[[a]--[b]]\\/",
+          "text": "/[[a]--[b]]\\//gim"
+        },
+        {
+          "pattern": "[[a]--[b]]/",
+          "flags": "v",
+          "source": "[[a]--[b]]\\/",
+          "text": "/[[a]--[b]]\\//v"
+        },
+        {
+          "pattern": "[a&&b]/",
+          "flags": "",
+          "source": "[a&&b]\\/",
+          "text": "/[a&&b]\\//"
+        },
+        {
+          "pattern": "[a&&b]/",
+          "flags": "gim",
+          "source": "[a&&b]\\/",
+          "text": "/[a&&b]\\//gim"
+        },
+        {
+          "pattern": "[a&&b]/",
+          "flags": "u",
+          "source": "[a&&b]\\/",
+          "text": "/[a&&b]\\//u"
+        },
+        {
+          "pattern": "[a&&b]/",
+          "flags": "v",
+          "source": "[a&&b]\\/",
+          "text": "/[a&&b]\\//v"
+        },
+        {
+          "pattern": "a\ud800/b",
+          "flags": "",
+          "source": "a\ud800\\/b",
+          "text": "/a\ud800\\/b/"
+        },
+        {
+          "pattern": "a\ud800/b",
+          "flags": "gim",
+          "source": "a\ud800\\/b",
+          "text": "/a\ud800\\/b/gim"
+        },
+        {
+          "pattern": "a\ud800/b",
+          "flags": "u",
+          "source": "a\ud800\\/b",
+          "text": "/a\ud800\\/b/u"
+        },
+        {
+          "pattern": "a\ud800/b",
+          "flags": "v",
+          "source": "a\ud800\\/b",
+          "text": "/a\ud800\\/b/v"
+        },
+        {
+          "pattern": "/\udc00",
+          "flags": "",
+          "source": "\\/\udc00",
+          "text": "/\\/\udc00/"
+        },
+        {
+          "pattern": "/\udc00",
+          "flags": "gim",
+          "source": "\\/\udc00",
+          "text": "/\\/\udc00/gim"
+        },
+        {
+          "pattern": "/\udc00",
+          "flags": "u",
+          "source": "\\/\udc00",
+          "text": "/\\/\udc00/u"
+        },
+        {
+          "pattern": "/\udc00",
+          "flags": "v",
+          "source": "\\/\udc00",
+          "text": "/\\/\udc00/v"
+        },
+        {
+          "pattern": "\ud834\udf06/",
+          "flags": "",
+          "source": "\ud834\udf06\\/",
+          "text": "/\ud834\udf06\\//"
+        },
+        {
+          "pattern": "\ud834\udf06/",
+          "flags": "gim",
+          "source": "\ud834\udf06\\/",
+          "text": "/\ud834\udf06\\//gim"
+        },
+        {
+          "pattern": "\ud834\udf06/",
+          "flags": "u",
+          "source": "\ud834\udf06\\/",
+          "text": "/\ud834\udf06\\//u"
+        },
+        {
+          "pattern": "\ud834\udf06/",
+          "flags": "v",
+          "source": "\ud834\udf06\\/",
+          "text": "/\ud834\udf06\\//v"
+        },
+        {
+          "pattern": "\u00e9/\u4e2d",
+          "flags": "",
+          "source": "\u00e9\\/\u4e2d",
+          "text": "/\u00e9\\/\u4e2d/"
+        },
+        {
+          "pattern": "\u00e9/\u4e2d",
+          "flags": "gim",
+          "source": "\u00e9\\/\u4e2d",
+          "text": "/\u00e9\\/\u4e2d/gim"
+        },
+        {
+          "pattern": "\u00e9/\u4e2d",
+          "flags": "u",
+          "source": "\u00e9\\/\u4e2d",
+          "text": "/\u00e9\\/\u4e2d/u"
+        },
+        {
+          "pattern": "\u00e9/\u4e2d",
+          "flags": "v",
+          "source": "\u00e9\\/\u4e2d",
+          "text": "/\u00e9\\/\u4e2d/v"
+        },
+        {
+          "pattern": "\n",
+          "flags": "",
+          "source": "\\n",
+          "text": "/\\n/"
+        },
+        {
+          "pattern": "\n",
+          "flags": "gim",
+          "source": "\\n",
+          "text": "/\\n/gim"
+        },
+        {
+          "pattern": "\n",
+          "flags": "u",
+          "source": "\\n",
+          "text": "/\\n/u"
+        },
+        {
+          "pattern": "\n",
+          "flags": "v",
+          "source": "\\n",
+          "text": "/\\n/v"
+        },
+        {
+          "pattern": "[\n]",
+          "flags": "",
+          "source": "[\\n]",
+          "text": "/[\\n]/"
+        },
+        {
+          "pattern": "[\n]",
+          "flags": "gim",
+          "source": "[\\n]",
+          "text": "/[\\n]/gim"
+        },
+        {
+          "pattern": "[\n]",
+          "flags": "u",
+          "source": "[\\n]",
+          "text": "/[\\n]/u"
+        },
+        {
+          "pattern": "[\n]",
+          "flags": "v",
+          "source": "[\\n]",
+          "text": "/[\\n]/v"
+        },
+        {
+          "pattern": "a\n/b",
+          "flags": "",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/"
+        },
+        {
+          "pattern": "a\n/b",
+          "flags": "gim",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/gim"
+        },
+        {
+          "pattern": "a\n/b",
+          "flags": "u",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/u"
+        },
+        {
+          "pattern": "a\n/b",
+          "flags": "v",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/v"
+        },
+        {
+          "pattern": "\r",
+          "flags": "",
+          "source": "\\r",
+          "text": "/\\r/"
+        },
+        {
+          "pattern": "\r",
+          "flags": "gim",
+          "source": "\\r",
+          "text": "/\\r/gim"
+        },
+        {
+          "pattern": "\r",
+          "flags": "u",
+          "source": "\\r",
+          "text": "/\\r/u"
+        },
+        {
+          "pattern": "\r",
+          "flags": "v",
+          "source": "\\r",
+          "text": "/\\r/v"
+        },
+        {
+          "pattern": "[\r]",
+          "flags": "",
+          "source": "[\\r]",
+          "text": "/[\\r]/"
+        },
+        {
+          "pattern": "[\r]",
+          "flags": "gim",
+          "source": "[\\r]",
+          "text": "/[\\r]/gim"
+        },
+        {
+          "pattern": "[\r]",
+          "flags": "u",
+          "source": "[\\r]",
+          "text": "/[\\r]/u"
+        },
+        {
+          "pattern": "[\r]",
+          "flags": "v",
+          "source": "[\\r]",
+          "text": "/[\\r]/v"
+        },
+        {
+          "pattern": "a\r/b",
+          "flags": "",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/"
+        },
+        {
+          "pattern": "a\r/b",
+          "flags": "gim",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/gim"
+        },
+        {
+          "pattern": "a\r/b",
+          "flags": "u",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/u"
+        },
+        {
+          "pattern": "a\r/b",
+          "flags": "v",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/v"
+        },
+        {
+          "pattern": "\u2028",
+          "flags": "",
+          "source": "\\u2028",
+          "text": "/\\u2028/"
+        },
+        {
+          "pattern": "\u2028",
+          "flags": "gim",
+          "source": "\\u2028",
+          "text": "/\\u2028/gim"
+        },
+        {
+          "pattern": "\u2028",
+          "flags": "u",
+          "source": "\\u2028",
+          "text": "/\\u2028/u"
+        },
+        {
+          "pattern": "\u2028",
+          "flags": "v",
+          "source": "\\u2028",
+          "text": "/\\u2028/v"
+        },
+        {
+          "pattern": "[\u2028]",
+          "flags": "",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/"
+        },
+        {
+          "pattern": "[\u2028]",
+          "flags": "gim",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/gim"
+        },
+        {
+          "pattern": "[\u2028]",
+          "flags": "u",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/u"
+        },
+        {
+          "pattern": "[\u2028]",
+          "flags": "v",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/v"
+        },
+        {
+          "pattern": "a\u2028/b",
+          "flags": "",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\u2028/b",
+          "flags": "gim",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "a\u2028/b",
+          "flags": "u",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/u"
+        },
+        {
+          "pattern": "a\u2028/b",
+          "flags": "v",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/v"
+        },
+        {
+          "pattern": "\u2029",
+          "flags": "",
+          "source": "\\u2029",
+          "text": "/\\u2029/"
+        },
+        {
+          "pattern": "\u2029",
+          "flags": "gim",
+          "source": "\\u2029",
+          "text": "/\\u2029/gim"
+        },
+        {
+          "pattern": "\u2029",
+          "flags": "u",
+          "source": "\\u2029",
+          "text": "/\\u2029/u"
+        },
+        {
+          "pattern": "\u2029",
+          "flags": "v",
+          "source": "\\u2029",
+          "text": "/\\u2029/v"
+        },
+        {
+          "pattern": "[\u2029]",
+          "flags": "",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/"
+        },
+        {
+          "pattern": "[\u2029]",
+          "flags": "gim",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/gim"
+        },
+        {
+          "pattern": "[\u2029]",
+          "flags": "u",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/u"
+        },
+        {
+          "pattern": "[\u2029]",
+          "flags": "v",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/v"
+        },
+        {
+          "pattern": "a\u2029/b",
+          "flags": "",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\u2029/b",
+          "flags": "gim",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/gim"
+        },
+        {
+          "pattern": "a\u2029/b",
+          "flags": "u",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/u"
+        },
+        {
+          "pattern": "a\u2029/b",
+          "flags": "v",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/v"
+        },
+        {
+          "pattern": "\\/",
+          "flags": "",
+          "source": "\\/",
+          "text": "/\\//"
+        },
+        {
+          "pattern": "\\/",
+          "flags": "gim",
+          "source": "\\/",
+          "text": "/\\//gim"
+        },
+        {
+          "pattern": "\\/",
+          "flags": "u",
+          "source": "\\/",
+          "text": "/\\//u"
+        },
+        {
+          "pattern": "\\/",
+          "flags": "v",
+          "source": "\\/",
+          "text": "/\\//v"
+        },
+        {
+          "pattern": "[\\/]",
+          "flags": "",
+          "source": "[\\/]",
+          "text": "/[\\/]/"
+        },
+        {
+          "pattern": "[\\/]",
+          "flags": "gim",
+          "source": "[\\/]",
+          "text": "/[\\/]/gim"
+        },
+        {
+          "pattern": "[\\/]",
+          "flags": "u",
+          "source": "[\\/]",
+          "text": "/[\\/]/u"
+        },
+        {
+          "pattern": "[\\/]",
+          "flags": "v",
+          "source": "[\\/]",
+          "text": "/[\\/]/v"
+        },
+        {
+          "pattern": "\\\n",
+          "flags": "",
+          "source": "\\n",
+          "text": "/\\n/"
+        },
+        {
+          "pattern": "\\\n",
+          "flags": "gim",
+          "source": "\\n",
+          "text": "/\\n/gim"
+        },
+        {
+          "pattern": "[\\\n]",
+          "flags": "",
+          "source": "[\\n]",
+          "text": "/[\\n]/"
+        },
+        {
+          "pattern": "[\\\n]",
+          "flags": "gim",
+          "source": "[\\n]",
+          "text": "/[\\n]/gim"
+        },
+        {
+          "pattern": "a\\\n/b",
+          "flags": "",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/"
+        },
+        {
+          "pattern": "a\\\n/b",
+          "flags": "gim",
+          "source": "a\\n\\/b",
+          "text": "/a\\n\\/b/gim"
+        },
+        {
+          "pattern": "\\\r",
+          "flags": "",
+          "source": "\\r",
+          "text": "/\\r/"
+        },
+        {
+          "pattern": "\\\r",
+          "flags": "gim",
+          "source": "\\r",
+          "text": "/\\r/gim"
+        },
+        {
+          "pattern": "[\\\r]",
+          "flags": "",
+          "source": "[\\r]",
+          "text": "/[\\r]/"
+        },
+        {
+          "pattern": "[\\\r]",
+          "flags": "gim",
+          "source": "[\\r]",
+          "text": "/[\\r]/gim"
+        },
+        {
+          "pattern": "a\\\r/b",
+          "flags": "",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/"
+        },
+        {
+          "pattern": "a\\\r/b",
+          "flags": "gim",
+          "source": "a\\r\\/b",
+          "text": "/a\\r\\/b/gim"
+        },
+        {
+          "pattern": "\\\u2028",
+          "flags": "",
+          "source": "\\u2028",
+          "text": "/\\u2028/"
+        },
+        {
+          "pattern": "\\\u2028",
+          "flags": "gim",
+          "source": "\\u2028",
+          "text": "/\\u2028/gim"
+        },
+        {
+          "pattern": "[\\\u2028]",
+          "flags": "",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/"
+        },
+        {
+          "pattern": "[\\\u2028]",
+          "flags": "gim",
+          "source": "[\\u2028]",
+          "text": "/[\\u2028]/gim"
+        },
+        {
+          "pattern": "a\\\u2028/b",
+          "flags": "",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\\\u2028/b",
+          "flags": "gim",
+          "source": "a\\u2028\\/b",
+          "text": "/a\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "\\\u2029",
+          "flags": "",
+          "source": "\\u2029",
+          "text": "/\\u2029/"
+        },
+        {
+          "pattern": "\\\u2029",
+          "flags": "gim",
+          "source": "\\u2029",
+          "text": "/\\u2029/gim"
+        },
+        {
+          "pattern": "[\\\u2029]",
+          "flags": "",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/"
+        },
+        {
+          "pattern": "[\\\u2029]",
+          "flags": "gim",
+          "source": "[\\u2029]",
+          "text": "/[\\u2029]/gim"
+        },
+        {
+          "pattern": "a\\\u2029/b",
+          "flags": "",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\\\u2029/b",
+          "flags": "gim",
+          "source": "a\\u2029\\/b",
+          "text": "/a\\u2029\\/b/gim"
+        },
+        {
+          "pattern": "\\\\/",
+          "flags": "",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//"
+        },
+        {
+          "pattern": "\\\\/",
+          "flags": "gim",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//gim"
+        },
+        {
+          "pattern": "\\\\/",
+          "flags": "u",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//u"
+        },
+        {
+          "pattern": "\\\\/",
+          "flags": "v",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//v"
+        },
+        {
+          "pattern": "\\\\\n",
+          "flags": "",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/"
+        },
+        {
+          "pattern": "\\\\\n",
+          "flags": "gim",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/gim"
+        },
+        {
+          "pattern": "\\\\\n",
+          "flags": "u",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/u"
+        },
+        {
+          "pattern": "\\\\\n",
+          "flags": "v",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/v"
+        },
+        {
+          "pattern": "[\\\\\n]",
+          "flags": "",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/"
+        },
+        {
+          "pattern": "[\\\\\n]",
+          "flags": "gim",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/gim"
+        },
+        {
+          "pattern": "[\\\\\n]",
+          "flags": "u",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/u"
+        },
+        {
+          "pattern": "[\\\\\n]",
+          "flags": "v",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/v"
+        },
+        {
+          "pattern": "a\\\\\n/b",
+          "flags": "",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/"
+        },
+        {
+          "pattern": "a\\\\\n/b",
+          "flags": "gim",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\n/b",
+          "flags": "u",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\n/b",
+          "flags": "v",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/v"
+        },
+        {
+          "pattern": "\\\\\r",
+          "flags": "",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/"
+        },
+        {
+          "pattern": "\\\\\r",
+          "flags": "gim",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/gim"
+        },
+        {
+          "pattern": "\\\\\r",
+          "flags": "u",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/u"
+        },
+        {
+          "pattern": "\\\\\r",
+          "flags": "v",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/v"
+        },
+        {
+          "pattern": "[\\\\\r]",
+          "flags": "",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/"
+        },
+        {
+          "pattern": "[\\\\\r]",
+          "flags": "gim",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/gim"
+        },
+        {
+          "pattern": "[\\\\\r]",
+          "flags": "u",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/u"
+        },
+        {
+          "pattern": "[\\\\\r]",
+          "flags": "v",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/v"
+        },
+        {
+          "pattern": "a\\\\\r/b",
+          "flags": "",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/"
+        },
+        {
+          "pattern": "a\\\\\r/b",
+          "flags": "gim",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\r/b",
+          "flags": "u",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\r/b",
+          "flags": "v",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/v"
+        },
+        {
+          "pattern": "\\\\\u2028",
+          "flags": "",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/"
+        },
+        {
+          "pattern": "\\\\\u2028",
+          "flags": "gim",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/gim"
+        },
+        {
+          "pattern": "\\\\\u2028",
+          "flags": "u",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/u"
+        },
+        {
+          "pattern": "\\\\\u2028",
+          "flags": "v",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/v"
+        },
+        {
+          "pattern": "[\\\\\u2028]",
+          "flags": "",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/"
+        },
+        {
+          "pattern": "[\\\\\u2028]",
+          "flags": "gim",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/gim"
+        },
+        {
+          "pattern": "[\\\\\u2028]",
+          "flags": "u",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/u"
+        },
+        {
+          "pattern": "[\\\\\u2028]",
+          "flags": "v",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/v"
+        },
+        {
+          "pattern": "a\\\\\u2028/b",
+          "flags": "",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\\\\\u2028/b",
+          "flags": "gim",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\u2028/b",
+          "flags": "u",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\u2028/b",
+          "flags": "v",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/v"
+        },
+        {
+          "pattern": "\\\\\u2029",
+          "flags": "",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/"
+        },
+        {
+          "pattern": "\\\\\u2029",
+          "flags": "gim",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/gim"
+        },
+        {
+          "pattern": "\\\\\u2029",
+          "flags": "u",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/u"
+        },
+        {
+          "pattern": "\\\\\u2029",
+          "flags": "v",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/v"
+        },
+        {
+          "pattern": "[\\\\\u2029]",
+          "flags": "",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/"
+        },
+        {
+          "pattern": "[\\\\\u2029]",
+          "flags": "gim",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/gim"
+        },
+        {
+          "pattern": "[\\\\\u2029]",
+          "flags": "u",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/u"
+        },
+        {
+          "pattern": "[\\\\\u2029]",
+          "flags": "v",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/v"
+        },
+        {
+          "pattern": "a\\\\\u2029/b",
+          "flags": "",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\\\\\u2029/b",
+          "flags": "gim",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\u2029/b",
+          "flags": "u",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\u2029/b",
+          "flags": "v",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/v"
+        },
+        {
+          "pattern": "\\\\\\/",
+          "flags": "",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//"
+        },
+        {
+          "pattern": "\\\\\\/",
+          "flags": "gim",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//gim"
+        },
+        {
+          "pattern": "\\\\\\/",
+          "flags": "u",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//u"
+        },
+        {
+          "pattern": "\\\\\\/",
+          "flags": "v",
+          "source": "\\\\\\/",
+          "text": "/\\\\\\//v"
+        },
+        {
+          "pattern": "[\\\\\\/]",
+          "flags": "",
+          "source": "[\\\\\\/]",
+          "text": "/[\\\\\\/]/"
+        },
+        {
+          "pattern": "[\\\\\\/]",
+          "flags": "gim",
+          "source": "[\\\\\\/]",
+          "text": "/[\\\\\\/]/gim"
+        },
+        {
+          "pattern": "[\\\\\\/]",
+          "flags": "u",
+          "source": "[\\\\\\/]",
+          "text": "/[\\\\\\/]/u"
+        },
+        {
+          "pattern": "[\\\\\\/]",
+          "flags": "v",
+          "source": "[\\\\\\/]",
+          "text": "/[\\\\\\/]/v"
+        },
+        {
+          "pattern": "\\\\\\\n",
+          "flags": "",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/"
+        },
+        {
+          "pattern": "\\\\\\\n",
+          "flags": "gim",
+          "source": "\\\\\\n",
+          "text": "/\\\\\\n/gim"
+        },
+        {
+          "pattern": "[\\\\\\\n]",
+          "flags": "",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/"
+        },
+        {
+          "pattern": "[\\\\\\\n]",
+          "flags": "gim",
+          "source": "[\\\\\\n]",
+          "text": "/[\\\\\\n]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\n/b",
+          "flags": "",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\n/b",
+          "flags": "gim",
+          "source": "a\\\\\\n\\/b",
+          "text": "/a\\\\\\n\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\r",
+          "flags": "",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/"
+        },
+        {
+          "pattern": "\\\\\\\r",
+          "flags": "gim",
+          "source": "\\\\\\r",
+          "text": "/\\\\\\r/gim"
+        },
+        {
+          "pattern": "[\\\\\\\r]",
+          "flags": "",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/"
+        },
+        {
+          "pattern": "[\\\\\\\r]",
+          "flags": "gim",
+          "source": "[\\\\\\r]",
+          "text": "/[\\\\\\r]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\r/b",
+          "flags": "",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\r/b",
+          "flags": "gim",
+          "source": "a\\\\\\r\\/b",
+          "text": "/a\\\\\\r\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\u2028",
+          "flags": "",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/"
+        },
+        {
+          "pattern": "\\\\\\\u2028",
+          "flags": "gim",
+          "source": "\\\\\\u2028",
+          "text": "/\\\\\\u2028/gim"
+        },
+        {
+          "pattern": "[\\\\\\\u2028]",
+          "flags": "",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/"
+        },
+        {
+          "pattern": "[\\\\\\\u2028]",
+          "flags": "gim",
+          "source": "[\\\\\\u2028]",
+          "text": "/[\\\\\\u2028]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\u2028/b",
+          "flags": "",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\u2028/b",
+          "flags": "gim",
+          "source": "a\\\\\\u2028\\/b",
+          "text": "/a\\\\\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\u2029",
+          "flags": "",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/"
+        },
+        {
+          "pattern": "\\\\\\\u2029",
+          "flags": "gim",
+          "source": "\\\\\\u2029",
+          "text": "/\\\\\\u2029/gim"
+        },
+        {
+          "pattern": "[\\\\\\\u2029]",
+          "flags": "",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/"
+        },
+        {
+          "pattern": "[\\\\\\\u2029]",
+          "flags": "gim",
+          "source": "[\\\\\\u2029]",
+          "text": "/[\\\\\\u2029]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\u2029/b",
+          "flags": "",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\u2029/b",
+          "flags": "gim",
+          "source": "a\\\\\\u2029\\/b",
+          "text": "/a\\\\\\u2029\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\\/",
+          "flags": "",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//"
+        },
+        {
+          "pattern": "\\\\\\\\/",
+          "flags": "gim",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//gim"
+        },
+        {
+          "pattern": "\\\\\\\\/",
+          "flags": "u",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//u"
+        },
+        {
+          "pattern": "\\\\\\\\/",
+          "flags": "v",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//v"
+        },
+        {
+          "pattern": "[\\\\\\\\/]",
+          "flags": "",
+          "source": "[\\\\\\\\/]",
+          "text": "/[\\\\\\\\/]/"
+        },
+        {
+          "pattern": "[\\\\\\\\/]",
+          "flags": "gim",
+          "source": "[\\\\\\\\/]",
+          "text": "/[\\\\\\\\/]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\/]",
+          "flags": "u",
+          "source": "[\\\\\\\\/]",
+          "text": "/[\\\\\\\\/]/u"
+        },
+        {
+          "pattern": "\\\\\\\\\n",
+          "flags": "",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/"
+        },
+        {
+          "pattern": "\\\\\\\\\n",
+          "flags": "gim",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\n",
+          "flags": "u",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/u"
+        },
+        {
+          "pattern": "\\\\\\\\\n",
+          "flags": "v",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/v"
+        },
+        {
+          "pattern": "[\\\\\\\\\n]",
+          "flags": "",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\n]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\n]",
+          "flags": "u",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/u"
+        },
+        {
+          "pattern": "[\\\\\\\\\n]",
+          "flags": "v",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/v"
+        },
+        {
+          "pattern": "a\\\\\\\\\n/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\n/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\n/b",
+          "flags": "u",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\\\\\n/b",
+          "flags": "v",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/v"
+        },
+        {
+          "pattern": "\\\\\\\\\r",
+          "flags": "",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/"
+        },
+        {
+          "pattern": "\\\\\\\\\r",
+          "flags": "gim",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\r",
+          "flags": "u",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/u"
+        },
+        {
+          "pattern": "\\\\\\\\\r",
+          "flags": "v",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/v"
+        },
+        {
+          "pattern": "[\\\\\\\\\r]",
+          "flags": "",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\r]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\r]",
+          "flags": "u",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/u"
+        },
+        {
+          "pattern": "[\\\\\\\\\r]",
+          "flags": "v",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/v"
+        },
+        {
+          "pattern": "a\\\\\\\\\r/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\r/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\r/b",
+          "flags": "u",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\\\\\r/b",
+          "flags": "v",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/v"
+        },
+        {
+          "pattern": "\\\\\\\\\u2028",
+          "flags": "",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/"
+        },
+        {
+          "pattern": "\\\\\\\\\u2028",
+          "flags": "gim",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\u2028",
+          "flags": "u",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/u"
+        },
+        {
+          "pattern": "\\\\\\\\\u2028",
+          "flags": "v",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/v"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2028]",
+          "flags": "",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2028]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2028]",
+          "flags": "u",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/u"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2028]",
+          "flags": "v",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/v"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2028/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2028/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2028/b",
+          "flags": "u",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2028/b",
+          "flags": "v",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/v"
+        },
+        {
+          "pattern": "\\\\\\\\\u2029",
+          "flags": "",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/"
+        },
+        {
+          "pattern": "\\\\\\\\\u2029",
+          "flags": "gim",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\u2029",
+          "flags": "u",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/u"
+        },
+        {
+          "pattern": "\\\\\\\\\u2029",
+          "flags": "v",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/v"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2029]",
+          "flags": "",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2029]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2029]",
+          "flags": "u",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/u"
+        },
+        {
+          "pattern": "[\\\\\\\\\u2029]",
+          "flags": "v",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/v"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2029/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2029/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2029/b",
+          "flags": "u",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/u"
+        },
+        {
+          "pattern": "a\\\\\\\\\u2029/b",
+          "flags": "v",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/v"
+        },
+        {
+          "pattern": "\\\\\\\\\\/",
+          "flags": "",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//"
+        },
+        {
+          "pattern": "\\\\\\\\\\/",
+          "flags": "gim",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//gim"
+        },
+        {
+          "pattern": "\\\\\\\\\\/",
+          "flags": "u",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//u"
+        },
+        {
+          "pattern": "\\\\\\\\\\/",
+          "flags": "v",
+          "source": "\\\\\\\\\\/",
+          "text": "/\\\\\\\\\\//v"
+        },
+        {
+          "pattern": "[\\\\\\\\\\/]",
+          "flags": "",
+          "source": "[\\\\\\\\\\/]",
+          "text": "/[\\\\\\\\\\/]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\\/]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\/]",
+          "text": "/[\\\\\\\\\\/]/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\\/]",
+          "flags": "u",
+          "source": "[\\\\\\\\\\/]",
+          "text": "/[\\\\\\\\\\/]/u"
+        },
+        {
+          "pattern": "[\\\\\\\\\\/]",
+          "flags": "v",
+          "source": "[\\\\\\\\\\/]",
+          "text": "/[\\\\\\\\\\/]/v"
+        },
+        {
+          "pattern": "\\\\\\\\\\\n",
+          "flags": "",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/"
+        },
+        {
+          "pattern": "\\\\\\\\\\\n",
+          "flags": "gim",
+          "source": "\\\\\\\\\\n",
+          "text": "/\\\\\\\\\\n/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\n]",
+          "flags": "",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\n]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\n]",
+          "text": "/[\\\\\\\\\\n]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\n/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\n/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\n\\/b",
+          "text": "/a\\\\\\\\\\n\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\\\r",
+          "flags": "",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/"
+        },
+        {
+          "pattern": "\\\\\\\\\\\r",
+          "flags": "gim",
+          "source": "\\\\\\\\\\r",
+          "text": "/\\\\\\\\\\r/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\r]",
+          "flags": "",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\r]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\r]",
+          "text": "/[\\\\\\\\\\r]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\r/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\r/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\r\\/b",
+          "text": "/a\\\\\\\\\\r\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\\\u2028",
+          "flags": "",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/"
+        },
+        {
+          "pattern": "\\\\\\\\\\\u2028",
+          "flags": "gim",
+          "source": "\\\\\\\\\\u2028",
+          "text": "/\\\\\\\\\\u2028/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\u2028]",
+          "flags": "",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\u2028]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\u2028]",
+          "text": "/[\\\\\\\\\\u2028]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\u2028/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\u2028/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\u2028\\/b",
+          "text": "/a\\\\\\\\\\u2028\\/b/gim"
+        },
+        {
+          "pattern": "\\\\\\\\\\\u2029",
+          "flags": "",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/"
+        },
+        {
+          "pattern": "\\\\\\\\\\\u2029",
+          "flags": "gim",
+          "source": "\\\\\\\\\\u2029",
+          "text": "/\\\\\\\\\\u2029/gim"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\u2029]",
+          "flags": "",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/"
+        },
+        {
+          "pattern": "[\\\\\\\\\\\u2029]",
+          "flags": "gim",
+          "source": "[\\\\\\\\\\u2029]",
+          "text": "/[\\\\\\\\\\u2029]/gim"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\u2029/b",
+          "flags": "",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/"
+        },
+        {
+          "pattern": "a\\\\\\\\\\\u2029/b",
+          "flags": "gim",
+          "source": "a\\\\\\\\\\u2029\\/b",
+          "text": "/a\\\\\\\\\\u2029\\/b/gim"
+        }
+      ]
+    }
+  },
+  "first_attempt": {
+    "compiler": {
+      "binary_sha256": "a61d60a0b9793e0ebb558e488e36669ba9edec875339ee372deca45e1b1d4253",
+      "base_revision": "25f47c8b14a95ed0592302f98ae499eb53683f83",
+      "source_patch_sha256": "80f0f23571bc550c111b6babd347dec049f17d12a0d23d42dee758e8a05b646a"
+    },
+    "stages": [
+      {
+        "label": "build",
+        "command": [
+          "cargo",
+          "build",
+          "--release",
+          "-p",
+          "lila-cli",
+          "--jobs",
+          "8"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 86.63,
+        "log": "target/test262-scratch/sol-batch-20260928/build.log",
+        "log_sha256": "0f2c9f9b3855c49a5b9d413d78ae6d12563f81664e77ef7475da7713fdd19510"
+      },
+      {
+        "label": "engine-focused",
+        "command": [
+          "cargo",
+          "test",
+          "--release",
+          "-p",
+          "lila-engine",
+          "--jobs",
+          "8",
+          "--no-fail-fast",
+          "--test",
+          "aot_bind_callable_proxy",
+          "--test",
+          "aot_regexp_source_escaping",
+          "--test",
+          "aot_temporal_reference_string",
+          "--test",
+          "aot_bound_function_metadata",
+          "--test",
+          "aot_gc_call_arguments",
+          "--test",
+          "aot_execution_global_environment",
+          "--",
+          "--test-threads=2"
+        ],
+        "exit_code": 101,
+        "elapsed_seconds": 116.76,
+        "log": "target/test262-scratch/sol-batch-20260928/engine-focused.log",
+        "log_sha256": "a77cee16aea397cc32b9b783c7b61f90fe4699a8eb1967c1a5e8064db3853c96"
+      }
+    ],
+    "engine_passed": 31,
+    "engine_failed": 3,
+    "failures": [
+      "bind_observes_proxy_prototype_and_metadata_before_calling_original_proxy",
+      "bound_proxy_of_nonconstructor_can_call_but_cannot_construct",
+      "bound_proxy_preserves_construct_trap_and_proxy_new_target"
+    ]
+  },
+  "structural_check_retry": "One stale preexisting argv-materialization assertion was corrected after 28 structural assertions passed and one failed; the corrected target was rerun without rebuilding the compiler.",
+  "observed_services": [
+    {
+      "unit": "lila-sol-batch-20260928a",
+      "ActiveState": "failed",
+      "SubState": "failed",
+      "Result": "exit-code",
+      "ExecMainStatus": "101",
+      "MemoryPeak": "5110927360",
+      "CPUUsageNSec": "273565466000",
+      "CPUQuotaPerSecUSec": "10s",
+      "AllowedCPUs": "0-9",
+      "MemoryMax": "50149513216",
+      "MemorySwapMax": "0"
+    },
+    {
+      "unit": "lila-sol-batch-20260928b",
+      "ActiveState": "failed",
+      "SubState": "failed",
+      "Result": "exit-code",
+      "ExecMainStatus": "101",
+      "MemoryPeak": "7582375936",
+      "CPUUsageNSec": "416306500000",
+      "CPUQuotaPerSecUSec": "10s",
+      "AllowedCPUs": "0-9",
+      "MemoryMax": "50149513216",
+      "MemorySwapMax": "0"
+    },
+    {
+      "unit": "lila-sol-batch-20260928c",
+      "ActiveState": "active",
+      "SubState": "exited",
+      "Result": "success",
+      "ExecMainStatus": "0",
+      "MemoryPeak": "3903905792",
+      "CPUUsageNSec": "1314107316000",
+      "CPUQuotaPerSecUSec": "10s",
+      "AllowedCPUs": "0-9",
+      "MemoryMax": "50149513216",
+      "MemorySwapMax": "0"
+    }
+  ],
+  "resource_limits": {
+    "cpus": 10,
+    "memory_max_bytes": 50149513216,
+    "swap_max_bytes": 0
+  },
+  "full_matrix_rerun": false,
+  "published_baseline_unchanged": true
+}
