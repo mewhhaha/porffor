@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17526193780850628700,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 24,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 24
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Object/setPrototypeOf/proto-not-obj.js",
+      "path": "built-ins/Object/setPrototypeOf/proto-not-obj.js",
+      "duration_ms": 12205
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/setPrototypeOf/proto-not-obj.js",
+      "path": "built-ins/Object/setPrototypeOf/proto-not-obj.js",
+      "duration_ms": 12203
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/setPrototypeOf/success.js",
+      "path": "built-ins/Object/setPrototypeOf/success.js",
+      "duration_ms": 11946
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/setPrototypeOf/success.js",
+      "path": "built-ins/Object/setPrototypeOf/success.js",
+      "duration_ms": 11916
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+      "path": "built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+      "duration_ms": 10323
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+      "path": "built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+      "duration_ms": 10293
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/setPrototypeOf/bigint.js",
+      "path": "built-ins/Object/setPrototypeOf/bigint.js",
+      "duration_ms": 10258
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+      "path": "built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+      "duration_ms": 10024
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+      "path": "built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+      "duration_ms": 9952
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/setPrototypeOf/property-descriptor.js",
+      "path": "built-ins/Object/setPrototypeOf/property-descriptor.js",
+      "duration_ms": 9811
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Object/setPrototypeOf/bigint.js",
+    "strict-script:built-ins/Object/setPrototypeOf/bigint.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/length.js",
+    "strict-script:built-ins/Object/setPrototypeOf/length.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/name.js",
+    "strict-script:built-ins/Object/setPrototypeOf/name.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/not-a-constructor.js",
+    "strict-script:built-ins/Object/setPrototypeOf/not-a-constructor.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+    "strict-script:built-ins/Object/setPrototypeOf/o-not-obj-coercible.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/o-not-obj.js",
+    "strict-script:built-ins/Object/setPrototypeOf/o-not-obj.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/property-descriptor.js",
+    "strict-script:built-ins/Object/setPrototypeOf/property-descriptor.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/proto-not-obj.js",
+    "strict-script:built-ins/Object/setPrototypeOf/proto-not-obj.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/set-error.js",
+    "strict-script:built-ins/Object/setPrototypeOf/set-error.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+    "strict-script:built-ins/Object/setPrototypeOf/set-failure-cycle.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/set-failure-non-extensible.js",
+    "strict-script:built-ins/Object/setPrototypeOf/set-failure-non-extensible.js",
+    "sloppy-script:built-ins/Object/setPrototypeOf/success.js",
+    "strict-script:built-ins/Object/setPrototypeOf/success.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Object",
+    "setPrototypeOf"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

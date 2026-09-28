@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6003891418745903191,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 24,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 24
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/trunc/Math.trunc_Zero.js",
+      "path": "built-ins/Math/trunc/Math.trunc_Zero.js",
+      "duration_ms": 14372
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/trunc/Math.trunc_Zero.js",
+      "path": "built-ins/Math/trunc/Math.trunc_Zero.js",
+      "duration_ms": 14347
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/trunc/length.js",
+      "path": "built-ins/Math/trunc/length.js",
+      "duration_ms": 12513
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/trunc/length.js",
+      "path": "built-ins/Math/trunc/length.js",
+      "duration_ms": 12482
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+      "path": "built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+      "duration_ms": 12319
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+      "path": "built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+      "duration_ms": 12262
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/trunc/Math.trunc_Success.js",
+      "path": "built-ins/Math/trunc/Math.trunc_Success.js",
+      "duration_ms": 12220
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/trunc/Math.trunc_Success.js",
+      "path": "built-ins/Math/trunc/Math.trunc_Success.js",
+      "duration_ms": 12120
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+      "path": "built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+      "duration_ms": 12000
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+      "path": "built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+      "duration_ms": 11898
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_Infinity.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_Infinity.js",
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_NaN.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_NaN.js",
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_NegDecimal.js",
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_PosDecimal.js",
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_Success.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_Success.js",
+    "sloppy-script:built-ins/Math/trunc/Math.trunc_Zero.js",
+    "strict-script:built-ins/Math/trunc/Math.trunc_Zero.js",
+    "sloppy-script:built-ins/Math/trunc/length.js",
+    "strict-script:built-ins/Math/trunc/length.js",
+    "sloppy-script:built-ins/Math/trunc/name.js",
+    "strict-script:built-ins/Math/trunc/name.js",
+    "sloppy-script:built-ins/Math/trunc/not-a-constructor.js",
+    "strict-script:built-ins/Math/trunc/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/trunc/prop-desc.js",
+    "strict-script:built-ins/Math/trunc/prop-desc.js",
+    "sloppy-script:built-ins/Math/trunc/trunc-sampleTests.js",
+    "strict-script:built-ins/Math/trunc/trunc-sampleTests.js",
+    "sloppy-script:built-ins/Math/trunc/trunc-specialVals.js",
+    "strict-script:built-ins/Math/trunc/trunc-specialVals.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "trunc"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

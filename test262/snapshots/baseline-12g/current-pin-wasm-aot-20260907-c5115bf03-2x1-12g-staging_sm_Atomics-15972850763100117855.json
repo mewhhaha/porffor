@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15972850763100117855,
+  "run_kind": "matrix-filter-leaf",
+  "total": 4,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Atomics/cross-compartment.js",
+      "path": "staging/sm/Atomics/cross-compartment.js",
+      "duration_ms": 13737
+    },
+    {
+      "test_id": "strict-script:staging/sm/Atomics/cross-compartment.js",
+      "path": "staging/sm/Atomics/cross-compartment.js",
+      "duration_ms": 13726
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Atomics/detached-buffers.js",
+      "path": "staging/sm/Atomics/detached-buffers.js",
+      "duration_ms": 10570
+    },
+    {
+      "test_id": "strict-script:staging/sm/Atomics/detached-buffers.js",
+      "path": "staging/sm/Atomics/detached-buffers.js",
+      "duration_ms": 10570
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Atomics/detached-buffers.js",
+      "test_path": "staging/sm/Atomics/detached-buffers.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1573704: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 10570
+    },
+    {
+      "test_id": "strict-script:staging/sm/Atomics/detached-buffers.js",
+      "test_path": "staging/sm/Atomics/detached-buffers.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1573712: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 10570
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Atomics/cross-compartment.js",
+    "strict-script:staging/sm/Atomics/cross-compartment.js",
+    "sloppy-script:staging/sm/Atomics/detached-buffers.js",
+    "strict-script:staging/sm/Atomics/detached-buffers.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Atomics"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

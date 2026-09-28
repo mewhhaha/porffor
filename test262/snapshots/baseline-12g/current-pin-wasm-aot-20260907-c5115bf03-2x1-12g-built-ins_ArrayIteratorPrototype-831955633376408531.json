@@ -1,0 +1,146 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 831955633376408531,
+  "run_kind": "matrix-filter-leaf",
+  "total": 46,
+  "passed": 46,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 46
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+      "duration_ms": 13686
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+      "duration_ms": 13609
+    },
+    {
+      "test_id": "strict-script:built-ins/ArrayIteratorPrototype/next/property-descriptor.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/property-descriptor.js",
+      "duration_ms": 9913
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/next/property-descriptor.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/property-descriptor.js",
+      "duration_ms": 9903
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/property-descriptor.js",
+      "path": "built-ins/ArrayIteratorPrototype/Symbol.toStringTag/property-descriptor.js",
+      "duration_ms": 9320
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-expansion-after-exhaustion.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/args-unmapped-expansion-after-exhaustion.js",
+      "duration_ms": 9277
+    },
+    {
+      "test_id": "strict-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-from-to-string.js",
+      "path": "built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-from-to-string.js",
+      "duration_ms": 9176
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-truncation-before-exhaustion.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/args-unmapped-truncation-before-exhaustion.js",
+      "duration_ms": 9107
+    },
+    {
+      "test_id": "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-iteration.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/args-unmapped-iteration.js",
+      "duration_ms": 9100
+    },
+    {
+      "test_id": "strict-script:built-ins/ArrayIteratorPrototype/next/iteration-mutable.js",
+      "path": "built-ins/ArrayIteratorPrototype/next/iteration-mutable.js",
+      "duration_ms": 8989
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/property-descriptor.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/property-descriptor.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-direct.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-direct.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-from-to-string.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/Symbol.toStringTag/value-from-to-string.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Float32Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Float32Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Float64Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Float64Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Int16Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Int16Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Int32Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Int32Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Int8Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Int8Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Uint16Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Uint16Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Uint32Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Uint32Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Uint8Array.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Uint8Array.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/Uint8ClampedArray.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/Uint8ClampedArray.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-mapped-expansion-after-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-mapped-expansion-before-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-mapped-iteration.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-mapped-truncation-before-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-expansion-after-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-expansion-before-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-iteration.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/args-unmapped-truncation-before-exhaustion.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/detach-typedarray-in-progress.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/iteration-mutable.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/iteration-mutable.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/iteration.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/iteration.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/length.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/length.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/name.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/name.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/non-own-slots.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/non-own-slots.js",
+    "sloppy-script:built-ins/ArrayIteratorPrototype/next/property-descriptor.js",
+    "strict-script:built-ins/ArrayIteratorPrototype/next/property-descriptor.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "ArrayIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,162 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13716247978907671257,
+  "run_kind": "matrix-filter-leaf",
+  "total": 40,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/statements/break/12.8-1.js",
+      "path": "language/statements/break/12.8-1.js",
+      "duration_ms": 9917
+    },
+    {
+      "test_id": "strict-script:language/statements/break/12.8-1.js",
+      "path": "language/statements/break/12.8-1.js",
+      "duration_ms": 9905
+    },
+    {
+      "test_id": "strict-script:language/statements/break/S12.8_A4_T3.js",
+      "path": "language/statements/break/S12.8_A4_T3.js",
+      "duration_ms": 9085
+    },
+    {
+      "test_id": "strict-script:language/statements/break/S12.8_A9_T2.js",
+      "path": "language/statements/break/S12.8_A9_T2.js",
+      "duration_ms": 9010
+    },
+    {
+      "test_id": "strict-script:language/statements/break/S12.8_A4_T1.js",
+      "path": "language/statements/break/S12.8_A4_T1.js",
+      "duration_ms": 8955
+    },
+    {
+      "test_id": "sloppy-script:language/statements/break/S12.8_A4_T1.js",
+      "path": "language/statements/break/S12.8_A4_T1.js",
+      "duration_ms": 8948
+    },
+    {
+      "test_id": "strict-script:language/statements/break/S12.8_A3.js",
+      "path": "language/statements/break/S12.8_A3.js",
+      "duration_ms": 8729
+    },
+    {
+      "test_id": "sloppy-script:language/statements/break/S12.8_A3.js",
+      "path": "language/statements/break/S12.8_A3.js",
+      "duration_ms": 8700
+    },
+    {
+      "test_id": "sloppy-script:language/statements/break/S12.8_A4_T3.js",
+      "path": "language/statements/break/S12.8_A4_T3.js",
+      "duration_ms": 8637
+    },
+    {
+      "test_id": "sloppy-script:language/statements/break/S12.8_A4_T2.js",
+      "path": "language/statements/break/S12.8_A4_T2.js",
+      "duration_ms": 8522
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/break/S12.8_A7.js",
+      "test_path": "language/statements/break/S12.8_A7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6267
+    },
+    {
+      "test_id": "strict-script:language/statements/break/S12.8_A7.js",
+      "test_path": "language/statements/break/S12.8_A7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6236
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/break/12.8-1.js",
+    "strict-script:language/statements/break/12.8-1.js",
+    "sloppy-script:language/statements/break/S12.8_A1_T1.js",
+    "strict-script:language/statements/break/S12.8_A1_T1.js",
+    "sloppy-script:language/statements/break/S12.8_A1_T2.js",
+    "strict-script:language/statements/break/S12.8_A1_T2.js",
+    "sloppy-script:language/statements/break/S12.8_A1_T3.js",
+    "strict-script:language/statements/break/S12.8_A1_T3.js",
+    "sloppy-script:language/statements/break/S12.8_A1_T4.js",
+    "strict-script:language/statements/break/S12.8_A1_T4.js",
+    "sloppy-script:language/statements/break/S12.8_A3.js",
+    "strict-script:language/statements/break/S12.8_A3.js",
+    "sloppy-script:language/statements/break/S12.8_A4_T1.js",
+    "strict-script:language/statements/break/S12.8_A4_T1.js",
+    "sloppy-script:language/statements/break/S12.8_A4_T2.js",
+    "strict-script:language/statements/break/S12.8_A4_T2.js",
+    "sloppy-script:language/statements/break/S12.8_A4_T3.js",
+    "strict-script:language/statements/break/S12.8_A4_T3.js",
+    "sloppy-script:language/statements/break/S12.8_A5_T1.js",
+    "strict-script:language/statements/break/S12.8_A5_T1.js",
+    "sloppy-script:language/statements/break/S12.8_A5_T2.js",
+    "strict-script:language/statements/break/S12.8_A5_T2.js",
+    "sloppy-script:language/statements/break/S12.8_A5_T3.js",
+    "strict-script:language/statements/break/S12.8_A5_T3.js",
+    "sloppy-script:language/statements/break/S12.8_A6.js",
+    "strict-script:language/statements/break/S12.8_A6.js",
+    "sloppy-script:language/statements/break/S12.8_A7.js",
+    "strict-script:language/statements/break/S12.8_A7.js",
+    "sloppy-script:language/statements/break/S12.8_A8_T1.js",
+    "strict-script:language/statements/break/S12.8_A8_T1.js",
+    "sloppy-script:language/statements/break/S12.8_A8_T2.js",
+    "strict-script:language/statements/break/S12.8_A8_T2.js",
+    "sloppy-script:language/statements/break/S12.8_A9_T1.js",
+    "strict-script:language/statements/break/S12.8_A9_T1.js",
+    "sloppy-script:language/statements/break/S12.8_A9_T2.js",
+    "strict-script:language/statements/break/S12.8_A9_T2.js",
+    "sloppy-script:language/statements/break/line-terminators.js",
+    "strict-script:language/statements/break/line-terminators.js",
+    "sloppy-script:language/statements/break/static-init-without-label.js",
+    "strict-script:language/statements/break/static-init-without-label.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "break"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

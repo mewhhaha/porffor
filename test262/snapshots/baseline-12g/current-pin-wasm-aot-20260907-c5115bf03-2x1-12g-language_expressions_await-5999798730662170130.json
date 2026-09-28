@@ -1,0 +1,145 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5999798730662170130,
+  "run_kind": "matrix-filter-leaf",
+  "total": 44,
+  "passed": 44,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 44
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/await/await-awaits-thenables.js",
+      "path": "language/expressions/await/await-awaits-thenables.js",
+      "duration_ms": 14822
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/await/await-awaits-thenable-not-callable.js",
+      "path": "language/expressions/await/await-awaits-thenable-not-callable.js",
+      "duration_ms": 14501
+    },
+    {
+      "test_id": "strict-script:language/expressions/await/syntax-await-in-ConditionalExpression.js",
+      "path": "language/expressions/await/syntax-await-in-ConditionalExpression.js",
+      "duration_ms": 14422
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/await/syntax-await-in-ConditionalExpression.js",
+      "path": "language/expressions/await/syntax-await-in-ConditionalExpression.js",
+      "duration_ms": 14408
+    },
+    {
+      "test_id": "strict-script:language/expressions/await/await-throws-rejections.js",
+      "path": "language/expressions/await/await-throws-rejections.js",
+      "duration_ms": 14215
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/await/await-throws-rejections.js",
+      "path": "language/expressions/await/await-throws-rejections.js",
+      "duration_ms": 14191
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/await/await-awaits-thenables.js",
+      "path": "language/expressions/await/await-awaits-thenables.js",
+      "duration_ms": 14037
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/await/syntax-await-has-UnaryExpression.js",
+      "path": "language/expressions/await/syntax-await-has-UnaryExpression.js",
+      "duration_ms": 13897
+    },
+    {
+      "test_id": "strict-script:language/expressions/await/syntax-await-has-UnaryExpression.js",
+      "path": "language/expressions/await/syntax-await-has-UnaryExpression.js",
+      "duration_ms": 13888
+    },
+    {
+      "test_id": "strict-script:language/expressions/await/await-monkey-patched-promise.js",
+      "path": "language/expressions/await/await-monkey-patched-promise.js",
+      "duration_ms": 13634
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/await/async-await-interleaved.js",
+    "strict-script:language/expressions/await/async-await-interleaved.js",
+    "sloppy-script:language/expressions/await/async-generator-interleaved.js",
+    "strict-script:language/expressions/await/async-generator-interleaved.js",
+    "sloppy-script:language/expressions/await/await-BindingIdentifier-in-global.js",
+    "strict-script:language/expressions/await/await-BindingIdentifier-in-global.js",
+    "sloppy-script:language/expressions/await/await-BindingIdentifier-nested.js",
+    "strict-script:language/expressions/await/await-BindingIdentifier-nested.js",
+    "sloppy-script:language/expressions/await/await-awaits-thenable-not-callable.js",
+    "strict-script:language/expressions/await/await-awaits-thenable-not-callable.js",
+    "sloppy-script:language/expressions/await/await-awaits-thenables-that-throw.js",
+    "strict-script:language/expressions/await/await-awaits-thenables-that-throw.js",
+    "sloppy-script:language/expressions/await/await-awaits-thenables.js",
+    "strict-script:language/expressions/await/await-awaits-thenables.js",
+    "sloppy-script:language/expressions/await/await-in-function.js",
+    "strict-script:language/expressions/await/await-in-function.js",
+    "sloppy-script:language/expressions/await/await-in-generator.js",
+    "strict-script:language/expressions/await/await-in-generator.js",
+    "sloppy-script:language/expressions/await/await-in-global.js",
+    "strict-script:language/expressions/await/await-in-global.js",
+    "sloppy-script:language/expressions/await/await-in-nested-function.js",
+    "strict-script:language/expressions/await/await-in-nested-function.js",
+    "sloppy-script:language/expressions/await/await-in-nested-generator.js",
+    "strict-script:language/expressions/await/await-in-nested-generator.js",
+    "sloppy-script:language/expressions/await/await-monkey-patched-promise.js",
+    "strict-script:language/expressions/await/await-monkey-patched-promise.js",
+    "sloppy-script:language/expressions/await/await-non-promise-thenable.js",
+    "strict-script:language/expressions/await/await-non-promise-thenable.js",
+    "sloppy-script:language/expressions/await/await-non-promise.js",
+    "strict-script:language/expressions/await/await-non-promise.js",
+    "sloppy-script:language/expressions/await/await-throws-rejections.js",
+    "strict-script:language/expressions/await/await-throws-rejections.js",
+    "sloppy-script:language/expressions/await/early-errors-await-not-simple-assignment-target.js",
+    "strict-script:language/expressions/await/early-errors-await-not-simple-assignment-target.js",
+    "sloppy-script:language/expressions/await/for-await-of-interleaved.js",
+    "strict-script:language/expressions/await/for-await-of-interleaved.js",
+    "sloppy-script:language/expressions/await/no-operand.js",
+    "strict-script:language/expressions/await/no-operand.js",
+    "sloppy-script:language/expressions/await/syntax-await-has-UnaryExpression-with-MultiplicativeExpression.js",
+    "strict-script:language/expressions/await/syntax-await-has-UnaryExpression-with-MultiplicativeExpression.js",
+    "sloppy-script:language/expressions/await/syntax-await-has-UnaryExpression.js",
+    "strict-script:language/expressions/await/syntax-await-has-UnaryExpression.js",
+    "sloppy-script:language/expressions/await/syntax-await-in-ConditionalExpression.js",
+    "strict-script:language/expressions/await/syntax-await-in-ConditionalExpression.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "await"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

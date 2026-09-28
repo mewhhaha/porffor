@@ -1,0 +1,135 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8113398182242932829,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 35,
+  "passed": 35,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 35
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+      "path": "language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+      "duration_ms": 12915
+    },
+    {
+      "test_id": "strict-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+      "path": "language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+      "duration_ms": 12899
+    },
+    {
+      "test_id": "strict-script:language/identifiers/vals-eng-alpha-upper.js",
+      "path": "language/identifiers/vals-eng-alpha-upper.js",
+      "duration_ms": 11046
+    },
+    {
+      "test_id": "sloppy-script:language/identifiers/vals-eng-alpha-upper.js",
+      "path": "language/identifiers/vals-eng-alpha-upper.js",
+      "duration_ms": 10939
+    },
+    {
+      "test_id": "strict-script:language/identifiers/vals-rus-alpha-upper.js",
+      "path": "language/identifiers/vals-rus-alpha-upper.js",
+      "duration_ms": 10739
+    },
+    {
+      "test_id": "sloppy-script:language/identifiers/vals-rus-alpha-upper.js",
+      "path": "language/identifiers/vals-rus-alpha-upper.js",
+      "duration_ms": 10737
+    },
+    {
+      "test_id": "strict-script:language/identifiers/vals-eng-alpha-lower.js",
+      "path": "language/identifiers/vals-eng-alpha-lower.js",
+      "duration_ms": 10461
+    },
+    {
+      "test_id": "sloppy-script:language/identifiers/vals-eng-alpha-lower.js",
+      "path": "language/identifiers/vals-eng-alpha-lower.js",
+      "duration_ms": 10451
+    },
+    {
+      "test_id": "strict-script:language/identifiers/vals-rus-alpha-lower.js",
+      "path": "language/identifiers/vals-rus-alpha-lower.js",
+      "duration_ms": 10204
+    },
+    {
+      "test_id": "sloppy-script:language/identifiers/vals-rus-alpha-lower.js",
+      "path": "language/identifiers/vals-rus-alpha-lower.js",
+      "duration_ms": 10197
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "strict-script:language/identifiers/vals-cjk-escaped.js",
+    "sloppy-script:language/identifiers/vals-cjk.js",
+    "strict-script:language/identifiers/vals-cjk.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex.js",
+    "strict-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+    "strict-script:language/identifiers/vals-eng-alpha-lower-via-escape-hex4.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-lower.js",
+    "strict-script:language/identifiers/vals-eng-alpha-lower.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-upper-via-escape-hex.js",
+    "strict-script:language/identifiers/vals-eng-alpha-upper-via-escape-hex.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-upper-via-escape-hex4.js",
+    "strict-script:language/identifiers/vals-eng-alpha-upper-via-escape-hex4.js",
+    "sloppy-script:language/identifiers/vals-eng-alpha-upper.js",
+    "strict-script:language/identifiers/vals-eng-alpha-upper.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-lower-via-escape-hex.js",
+    "strict-script:language/identifiers/vals-rus-alpha-lower-via-escape-hex.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-lower-via-escape-hex4.js",
+    "strict-script:language/identifiers/vals-rus-alpha-lower-via-escape-hex4.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-lower.js",
+    "strict-script:language/identifiers/vals-rus-alpha-lower.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-upper-via-escape-hex.js",
+    "strict-script:language/identifiers/vals-rus-alpha-upper-via-escape-hex.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-upper-via-escape-hex4.js",
+    "strict-script:language/identifiers/vals-rus-alpha-upper-via-escape-hex4.js",
+    "sloppy-script:language/identifiers/vals-rus-alpha-upper.js",
+    "strict-script:language/identifiers/vals-rus-alpha-upper.js",
+    "sloppy-script:language/identifiers/vertical-tilde-continue-escaped.js",
+    "strict-script:language/identifiers/vertical-tilde-continue-escaped.js",
+    "sloppy-script:language/identifiers/vertical-tilde-continue.js",
+    "strict-script:language/identifiers/vertical-tilde-continue.js",
+    "sloppy-script:language/identifiers/vertical-tilde-start-escaped.js",
+    "strict-script:language/identifiers/vertical-tilde-start-escaped.js",
+    "sloppy-script:language/identifiers/vertical-tilde-start.js",
+    "strict-script:language/identifiers/vertical-tilde-start.js"
+  ],
+  "matrix_path": [
+    "language",
+    "identifiers"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

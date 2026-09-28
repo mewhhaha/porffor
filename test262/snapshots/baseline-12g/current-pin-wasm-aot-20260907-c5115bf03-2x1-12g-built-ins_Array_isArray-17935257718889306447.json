@@ -1,0 +1,159 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17935257718889306447,
+  "run_kind": "matrix-filter-leaf",
+  "total": 58,
+  "passed": 58,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 58
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-15.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-1-15.js",
+      "duration_ms": 12908
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-5.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-1-5.js",
+      "duration_ms": 12286
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/isArray/15.4.3.2-1-9.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-1-9.js",
+      "duration_ms": 11278
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-9.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-1-9.js",
+      "duration_ms": 11175
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/15.4.3.2-2-2.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-2-2.js",
+      "duration_ms": 10799
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/isArray/15.4.3.2-2-2.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-2-2.js",
+      "duration_ms": 10798
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/isArray/proxy.js",
+      "path": "built-ins/Array/isArray/proxy.js",
+      "duration_ms": 10683
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/proxy.js",
+      "path": "built-ins/Array/isArray/proxy.js",
+      "duration_ms": 10673
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/isArray/15.4.3.2-2-1.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-2-1.js",
+      "duration_ms": 10614
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/isArray/15.4.3.2-2-1.js",
+      "path": "built-ins/Array/isArray/15.4.3.2-2-1.js",
+      "duration_ms": 10507
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-1.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-1.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-2.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-2.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-3.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-3.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-4.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-4.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-5.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-5.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-6.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-6.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-0-7.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-0-7.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-1.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-1.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-10.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-10.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-11.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-11.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-12.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-12.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-13.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-13.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-15.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-15.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-2.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-2.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-3.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-3.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-4.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-4.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-5.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-5.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-6.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-6.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-7.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-7.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-8.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-8.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-1-9.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-1-9.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-2-1.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-2-1.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-2-2.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-2-2.js",
+    "sloppy-script:built-ins/Array/isArray/15.4.3.2-2-3.js",
+    "strict-script:built-ins/Array/isArray/15.4.3.2-2-3.js",
+    "sloppy-script:built-ins/Array/isArray/descriptor.js",
+    "strict-script:built-ins/Array/isArray/descriptor.js",
+    "sloppy-script:built-ins/Array/isArray/name.js",
+    "strict-script:built-ins/Array/isArray/name.js",
+    "sloppy-script:built-ins/Array/isArray/not-a-constructor.js",
+    "strict-script:built-ins/Array/isArray/not-a-constructor.js",
+    "sloppy-script:built-ins/Array/isArray/proxy-revoked.js",
+    "strict-script:built-ins/Array/isArray/proxy-revoked.js",
+    "sloppy-script:built-ins/Array/isArray/proxy.js",
+    "strict-script:built-ins/Array/isArray/proxy.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Array",
+    "isArray"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

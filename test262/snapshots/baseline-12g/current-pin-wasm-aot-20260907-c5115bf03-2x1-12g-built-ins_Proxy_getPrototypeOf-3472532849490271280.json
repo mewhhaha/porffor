@@ -1,0 +1,139 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3472532849490271280,
+  "run_kind": "matrix-filter-leaf",
+  "total": 38,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-string.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-string.js",
+      "duration_ms": 10485
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/return-is-abrupt.js",
+      "path": "built-ins/Proxy/getPrototypeOf/return-is-abrupt.js",
+      "duration_ms": 10411
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-is-null-target-is-proxy.js",
+      "duration_ms": 10281
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+      "duration_ms": 10185
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+      "duration_ms": 10043
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-not-callable.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-is-not-callable.js",
+      "duration_ms": 9812
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-boolean.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-boolean.js",
+      "duration_ms": 9790
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getPrototypeOf/extensible-target-return-handlerproto.js",
+      "path": "built-ins/Proxy/getPrototypeOf/extensible-target-return-handlerproto.js",
+      "duration_ms": 9772
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getPrototypeOf/instanceof-custom-return-accepted.js",
+      "path": "built-ins/Proxy/getPrototypeOf/instanceof-custom-return-accepted.js",
+      "duration_ms": 9568
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-undefined.js",
+      "path": "built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-undefined.js",
+      "duration_ms": 9546
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/call-parameters.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/extensible-target-return-handlerproto.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/extensible-target-return-handlerproto.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/instanceof-custom-return-accepted.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/instanceof-custom-return-accepted.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/instanceof-target-not-extensible-not-same-proto-throws.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/instanceof-target-not-extensible-not-same-proto-throws.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/not-extensible-not-same-proto-throws.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/not-extensible-not-same-proto-throws.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/not-extensible-same-proto.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/not-extensible-same-proto.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/null-handler.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/null-handler.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-is-undefined.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-boolean.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-boolean.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-number.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-number.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-string.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-string.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-symbol.js",
+    "sloppy-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-undefined.js",
+    "strict-script:built-ins/Proxy/getPrototypeOf/trap-result-neither-object-nor-null-throws-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "getPrototypeOf"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

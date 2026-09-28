@@ -1,0 +1,150 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15769805752800675205,
+  "run_kind": "matrix-filter-leaf",
+  "total": 28,
+  "passed": 26,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 26
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T3.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A3_T3.js",
+      "duration_ms": 10164
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T1.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A3_T1.js",
+      "duration_ms": 9904
+    },
+    {
+      "test_id": "strict-script:language/expressions/unary-minus/S11.4.7_A4.2.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A4.2.js",
+      "duration_ms": 9417
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A4.2.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A4.2.js",
+      "duration_ms": 9398
+    },
+    {
+      "test_id": "strict-script:language/expressions/unary-minus/S11.4.7_A3_T1.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A3_T1.js",
+      "duration_ms": 9390
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T2.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A3_T2.js",
+      "duration_ms": 9318
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+      "duration_ms": 9250
+    },
+    {
+      "test_id": "strict-script:language/expressions/unary-minus/S11.4.7_A2.1_T2.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A2.1_T2.js",
+      "duration_ms": 9158
+    },
+    {
+      "test_id": "strict-script:language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+      "duration_ms": 9136
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A2.1_T1.js",
+      "path": "language/expressions/unary-minus/S11.4.7_A2.1_T1.js",
+      "duration_ms": 9116
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/unary-minus/S11.4.7_A1.js",
+      "test_path": "language/expressions/unary-minus/S11.4.7_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6731
+    },
+    {
+      "test_id": "strict-script:language/expressions/unary-minus/S11.4.7_A1.js",
+      "test_path": "language/expressions/unary-minus/S11.4.7_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6640
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/unary-minus/11.4.7-4-1.js",
+    "strict-script:language/expressions/unary-minus/11.4.7-4-1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A1.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A2.1_T1.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A2.1_T1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A2.1_T2.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A2.1_T2.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A2.2_T1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T1.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A3_T1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T2.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A3_T2.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T3.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A3_T3.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T4.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A3_T4.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A3_T5.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A3_T5.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A4.1.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A4.1.js",
+    "sloppy-script:language/expressions/unary-minus/S11.4.7_A4.2.js",
+    "strict-script:language/expressions/unary-minus/S11.4.7_A4.2.js",
+    "sloppy-script:language/expressions/unary-minus/bigint-non-primitive.js",
+    "strict-script:language/expressions/unary-minus/bigint-non-primitive.js",
+    "sloppy-script:language/expressions/unary-minus/bigint.js",
+    "strict-script:language/expressions/unary-minus/bigint.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "unary-minus"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

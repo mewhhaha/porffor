@@ -1,0 +1,427 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10485958538073392785,
+  "run_kind": "matrix-filter-leaf",
+  "total": 46,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 24,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 28,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "path": "built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "duration_ms": 11210
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/prototype/prototype.js",
+      "path": "built-ins/GeneratorFunction/prototype/prototype.js",
+      "duration_ms": 11190
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/prototype/prototype.js",
+      "path": "built-ins/GeneratorFunction/prototype/prototype.js",
+      "duration_ms": 11190
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "path": "built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "duration_ms": 11067
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "duration_ms": 10928
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "duration_ms": 10790
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/prototype/not-callable.js",
+      "path": "built-ins/GeneratorFunction/prototype/not-callable.js",
+      "duration_ms": 10474
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/prototype/not-callable.js",
+      "path": "built-ins/GeneratorFunction/prototype/not-callable.js",
+      "duration_ms": 10454
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/name.js",
+      "path": "built-ins/GeneratorFunction/name.js",
+      "duration_ms": 9217
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/name.js",
+      "path": "built-ins/GeneratorFunction/name.js",
+      "duration_ms": 9175
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/has-instance.js",
+      "test_path": "built-ins/GeneratorFunction/has-instance.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 5932
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/has-instance.js",
+      "test_path": "built-ins/GeneratorFunction/has-instance.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 5820
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-construct-throws.js",
+      "test_path": "built-ins/GeneratorFunction/instance-construct-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 5960
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-construct-throws.js",
+      "test_path": "built-ins/GeneratorFunction/instance-construct-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6023
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-length.js",
+      "test_path": "built-ins/GeneratorFunction/instance-length.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6632
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-length.js",
+      "test_path": "built-ins/GeneratorFunction/instance-length.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6618
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-name.js",
+      "test_path": "built-ins/GeneratorFunction/instance-name.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6591
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-name.js",
+      "test_path": "built-ins/GeneratorFunction/instance-name.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6592
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-prototype.js",
+      "test_path": "built-ins/GeneratorFunction/instance-prototype.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 5155
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-prototype.js",
+      "test_path": "built-ins/GeneratorFunction/instance-prototype.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 5164
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-restricted-properties.js",
+      "test_path": "built-ins/GeneratorFunction/instance-restricted-properties.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4716
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-restricted-properties.js",
+      "test_path": "built-ins/GeneratorFunction/instance-restricted-properties.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4735
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+      "test_path": "built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6799
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+      "test_path": "built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6798
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4320
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4298
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4309
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4311
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4498
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4327
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4257
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+      "test_path": "built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 4296
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/is-a-constructor.js",
+      "test_path": "built-ins/GeneratorFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4586
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/is-a-constructor.js",
+      "test_path": "built-ins/GeneratorFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4589
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "test_path": "built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249744: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11067
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "test_path": "built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249752: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11210
+    },
+    {
+      "test_id": "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249912: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10928
+    },
+    {
+      "test_id": "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249928: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10790
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/GeneratorFunction/extensibility.js",
+    "strict-script:built-ins/GeneratorFunction/extensibility.js",
+    "sloppy-script:built-ins/GeneratorFunction/has-instance.js",
+    "strict-script:built-ins/GeneratorFunction/has-instance.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-construct-throws.js",
+    "strict-script:built-ins/GeneratorFunction/instance-construct-throws.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-length.js",
+    "strict-script:built-ins/GeneratorFunction/instance-length.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-name.js",
+    "strict-script:built-ins/GeneratorFunction/instance-name.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-prototype.js",
+    "strict-script:built-ins/GeneratorFunction/instance-prototype.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-restricted-properties.js",
+    "strict-script:built-ins/GeneratorFunction/instance-restricted-properties.js",
+    "sloppy-script:built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+    "strict-script:built-ins/GeneratorFunction/instance-yield-expr-in-param.js",
+    "sloppy-script:built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+    "strict-script:built-ins/GeneratorFunction/invoked-as-constructor-no-arguments.js",
+    "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+    "strict-script:built-ins/GeneratorFunction/invoked-as-function-multiple-arguments.js",
+    "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+    "strict-script:built-ins/GeneratorFunction/invoked-as-function-no-arguments.js",
+    "sloppy-script:built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+    "strict-script:built-ins/GeneratorFunction/invoked-as-function-single-argument.js",
+    "sloppy-script:built-ins/GeneratorFunction/is-a-constructor.js",
+    "strict-script:built-ins/GeneratorFunction/is-a-constructor.js",
+    "sloppy-script:built-ins/GeneratorFunction/length.js",
+    "strict-script:built-ins/GeneratorFunction/length.js",
+    "sloppy-script:built-ins/GeneratorFunction/name.js",
+    "strict-script:built-ins/GeneratorFunction/name.js",
+    "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+    "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm-prototype.js",
+    "sloppy-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+    "strict-script:built-ins/GeneratorFunction/proto-from-ctor-realm.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/constructor.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/constructor.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/extensibility.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/extensibility.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/not-callable.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/not-callable.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/prop-desc.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/prop-desc.js",
+    "sloppy-script:built-ins/GeneratorFunction/prototype/prototype.js",
+    "strict-script:built-ins/GeneratorFunction/prototype/prototype.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "GeneratorFunction"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

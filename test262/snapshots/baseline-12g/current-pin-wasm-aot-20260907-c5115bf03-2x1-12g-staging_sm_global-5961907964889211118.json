@@ -1,0 +1,246 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5961907964889211118,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 8,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 10,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-native-callback-is-indirect.js",
+      "path": "staging/sm/global/eval-native-callback-is-indirect.js",
+      "duration_ms": 14198
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/globalThis-enumeration.js",
+      "path": "staging/sm/global/globalThis-enumeration.js",
+      "duration_ms": 12238
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/parseFloat-01.js",
+      "path": "staging/sm/global/parseFloat-01.js",
+      "duration_ms": 11915
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/parseFloat-01.js",
+      "path": "staging/sm/global/parseFloat-01.js",
+      "duration_ms": 11895
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-inside-with-is-direct.js",
+      "path": "staging/sm/global/eval-inside-with-is-direct.js",
+      "duration_ms": 11784
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/parseInt-01.js",
+      "path": "staging/sm/global/parseInt-01.js",
+      "duration_ms": 10708
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/parseInt-01.js",
+      "path": "staging/sm/global/parseInt-01.js",
+      "duration_ms": 10689
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/parenthesized-eval-is-direct.js",
+      "path": "staging/sm/global/parenthesized-eval-is-direct.js",
+      "duration_ms": 10307
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-02.js",
+      "path": "staging/sm/global/eval-02.js",
+      "duration_ms": 10166
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/parenthesized-eval-is-direct.js",
+      "path": "staging/sm/global/parenthesized-eval-is-direct.js",
+      "duration_ms": 10096
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/global/adding-global-var-nonextensible-error.js",
+      "test_path": "staging/sm/global/adding-global-var-nonextensible-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4726
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/bug-320887.js",
+      "test_path": "staging/sm/global/bug-320887.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4657
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/bug-320887.js",
+      "test_path": "staging/sm/global/bug-320887.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4697
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-01.js",
+      "test_path": "staging/sm/global/eval-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5389
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-02.js",
+      "test_path": "staging/sm/global/eval-02.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 10166
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-in-strict-eval-in-normal-function.js",
+      "test_path": "staging/sm/global/eval-in-strict-eval-in-normal-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7733
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-inside-with-is-direct.js",
+      "test_path": "staging/sm/global/eval-inside-with-is-direct.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1512760: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11784
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/eval-native-callback-is-indirect.js",
+      "test_path": "staging/sm/global/eval-native-callback-is-indirect.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1845336: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 14198
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/parenthesized-eval-is-direct.js",
+      "test_path": "staging/sm/global/parenthesized-eval-is-direct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 10307
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/parenthesized-eval-is-direct.js",
+      "test_path": "staging/sm/global/parenthesized-eval-is-direct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 10096
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/global/parseInt-01.js",
+      "test_path": "staging/sm/global/parseInt-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 16) to be true)",
+      "detail_hash": 3420259615254720635,
+      "duration_ms": 10708
+    },
+    {
+      "test_id": "strict-script:staging/sm/global/parseInt-01.js",
+      "test_path": "staging/sm/global/parseInt-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 16) to be true)",
+      "detail_hash": 3420259615254720635,
+      "duration_ms": 10689
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/global/adding-global-var-nonextensible-error.js",
+    "sloppy-script:staging/sm/global/bug-320887.js",
+    "strict-script:staging/sm/global/bug-320887.js",
+    "sloppy-script:staging/sm/global/bug660612.js",
+    "strict-script:staging/sm/global/bug660612.js",
+    "sloppy-script:staging/sm/global/decodeURI-decodes-FFFE-FFFF.js",
+    "strict-script:staging/sm/global/decodeURI-decodes-FFFE-FFFF.js",
+    "strict-script:staging/sm/global/delete-global-NaN-property.js",
+    "sloppy-script:staging/sm/global/direct-eval-but-not.js",
+    "sloppy-script:staging/sm/global/eval-01.js",
+    "sloppy-script:staging/sm/global/eval-02.js",
+    "sloppy-script:staging/sm/global/eval-in-strict-eval-in-normal-function.js",
+    "sloppy-script:staging/sm/global/eval-inside-with-is-direct.js",
+    "sloppy-script:staging/sm/global/eval-native-callback-is-indirect.js",
+    "sloppy-script:staging/sm/global/globalThis-enumeration.js",
+    "strict-script:staging/sm/global/globalThis-enumeration.js",
+    "sloppy-script:staging/sm/global/parenthesized-eval-is-direct.js",
+    "strict-script:staging/sm/global/parenthesized-eval-is-direct.js",
+    "sloppy-script:staging/sm/global/parseFloat-01.js",
+    "strict-script:staging/sm/global/parseFloat-01.js",
+    "sloppy-script:staging/sm/global/parseInt-01.js",
+    "strict-script:staging/sm/global/parseInt-01.js",
+    "sloppy-script:staging/sm/global/parseInt-default-to-decimal.js",
+    "strict-script:staging/sm/global/parseInt-default-to-decimal.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "global"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

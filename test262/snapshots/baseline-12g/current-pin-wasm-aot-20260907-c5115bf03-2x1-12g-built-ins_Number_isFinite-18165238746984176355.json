@@ -1,0 +1,117 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 18165238746984176355,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/not-a-constructor.js",
+      "path": "built-ins/Number/isFinite/not-a-constructor.js",
+      "duration_ms": 10938
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/isFinite/not-a-constructor.js",
+      "path": "built-ins/Number/isFinite/not-a-constructor.js",
+      "duration_ms": 10880
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/infinity.js",
+      "path": "built-ins/Number/isFinite/infinity.js",
+      "duration_ms": 8794
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/length.js",
+      "path": "built-ins/Number/isFinite/length.js",
+      "duration_ms": 8542
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/name.js",
+      "path": "built-ins/Number/isFinite/name.js",
+      "duration_ms": 8372
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/arg-is-not-number.js",
+      "path": "built-ins/Number/isFinite/arg-is-not-number.js",
+      "duration_ms": 8242
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/isFinite/name.js",
+      "path": "built-ins/Number/isFinite/name.js",
+      "duration_ms": 8190
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/isFinite/finite-numbers.js",
+      "path": "built-ins/Number/isFinite/finite-numbers.js",
+      "duration_ms": 8159
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/isFinite/finite-numbers.js",
+      "path": "built-ins/Number/isFinite/finite-numbers.js",
+      "duration_ms": 7973
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/isFinite/arg-is-not-number.js",
+      "path": "built-ins/Number/isFinite/arg-is-not-number.js",
+      "duration_ms": 7657
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Number/isFinite/arg-is-not-number.js",
+    "strict-script:built-ins/Number/isFinite/arg-is-not-number.js",
+    "sloppy-script:built-ins/Number/isFinite/finite-numbers.js",
+    "strict-script:built-ins/Number/isFinite/finite-numbers.js",
+    "sloppy-script:built-ins/Number/isFinite/infinity.js",
+    "strict-script:built-ins/Number/isFinite/infinity.js",
+    "sloppy-script:built-ins/Number/isFinite/length.js",
+    "strict-script:built-ins/Number/isFinite/length.js",
+    "sloppy-script:built-ins/Number/isFinite/name.js",
+    "strict-script:built-ins/Number/isFinite/name.js",
+    "sloppy-script:built-ins/Number/isFinite/nan.js",
+    "strict-script:built-ins/Number/isFinite/nan.js",
+    "sloppy-script:built-ins/Number/isFinite/not-a-constructor.js",
+    "strict-script:built-ins/Number/isFinite/not-a-constructor.js",
+    "sloppy-script:built-ins/Number/isFinite/prop-desc.js",
+    "strict-script:built-ins/Number/isFinite/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Number",
+    "isFinite"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

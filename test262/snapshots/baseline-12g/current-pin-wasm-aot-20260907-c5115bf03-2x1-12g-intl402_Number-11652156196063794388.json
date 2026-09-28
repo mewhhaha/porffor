@@ -1,0 +1,175 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11652156196063794388,
+  "run_kind": "matrix-filter-leaf",
+  "total": 14,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "path": "intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "duration_ms": 17425
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "path": "intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "duration_ms": 17323
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/builtin.js",
+      "path": "intl402/Number/prototype/toLocaleString/builtin.js",
+      "duration_ms": 12509
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/builtin.js",
+      "path": "intl402/Number/prototype/toLocaleString/builtin.js",
+      "duration_ms": 12428
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/length.js",
+      "path": "intl402/Number/prototype/toLocaleString/length.js",
+      "duration_ms": 10526
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/length.js",
+      "path": "intl402/Number/prototype/toLocaleString/length.js",
+      "duration_ms": 10486
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/this-number-value.js",
+      "path": "intl402/Number/prototype/toLocaleString/this-number-value.js",
+      "duration_ms": 10474
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/this-number-value.js",
+      "path": "intl402/Number/prototype/toLocaleString/this-number-value.js",
+      "duration_ms": 10372
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "path": "intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "duration_ms": 10329
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "path": "intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "duration_ms": 10309
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519536: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 10309
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519544: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 10329
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1540328: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 10135
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1540344: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 10246
+    },
+    {
+      "test_id": "sloppy-script:intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1537504: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 8475
+    },
+    {
+      "test_id": "strict-script:intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "test_path": "intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1537512: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 8372
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/Number/prototype/toLocaleString/builtin.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/builtin.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/default-options-object-prototype.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/length.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/length.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/this-number-value.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/this-number-value.js",
+    "sloppy-script:intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+    "strict-script:intl402/Number/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "Number"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

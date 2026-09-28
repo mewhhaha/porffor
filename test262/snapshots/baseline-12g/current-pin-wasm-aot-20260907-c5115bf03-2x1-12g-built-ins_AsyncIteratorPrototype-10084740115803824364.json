@@ -1,0 +1,126 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10084740115803824364,
+  "run_kind": "matrix-filter-leaf",
+  "total": 26,
+  "passed": 26,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 26
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "duration_ms": 18327
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+      "duration_ms": 17700
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "duration_ms": 17694
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "duration_ms": 15415
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+      "duration_ms": 15415
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+      "duration_ms": 14201
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+      "duration_ms": 13829
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+      "duration_ms": 13787
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+      "duration_ms": 11812
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+      "path": "built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+      "duration_ms": 11340
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/invokes-return.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/is-function.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/length.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/name.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/prop-desc.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/return-val.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-rejected-return.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return-getter.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncDispose/throw-return.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/length.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/length.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/name.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/name.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/prop-desc.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/prop-desc.js",
+    "sloppy-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/return-val.js",
+    "strict-script:built-ins/AsyncIteratorPrototype/Symbol.asyncIterator/return-val.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AsyncIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

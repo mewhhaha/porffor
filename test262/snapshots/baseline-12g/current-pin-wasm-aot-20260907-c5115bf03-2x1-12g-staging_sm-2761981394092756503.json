@@ -1,0 +1,67 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2761981394092756503,
+  "run_kind": "matrix-filter-leaf",
+  "total": 1,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/argumentsLengthOpt.js",
+      "path": "staging/sm/argumentsLengthOpt.js",
+      "duration_ms": 8740
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/argumentsLengthOpt.js",
+      "test_path": "staging/sm/argumentsLengthOpt.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 8740
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/argumentsLengthOpt.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

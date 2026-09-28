@@ -1,0 +1,182 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4142096003678276029,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 81,
+  "passed": 81,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 81
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Array/prototype/values/resizable-buffer.js",
+      "path": "built-ins/Array/prototype/values/resizable-buffer.js",
+      "duration_ms": 14221
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/values/resizable-buffer.js",
+      "path": "built-ins/Array/prototype/values/resizable-buffer.js",
+      "duration_ms": 14221
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/with/index-throw-completion.js",
+      "path": "built-ins/Array/prototype/with/index-throw-completion.js",
+      "duration_ms": 12222
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/with/property-descriptor.js",
+      "path": "built-ins/Array/prototype/with/property-descriptor.js",
+      "duration_ms": 11898
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+      "path": "built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+      "duration_ms": 11699
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+      "path": "built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+      "duration_ms": 11698
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/values/returns-iterator.js",
+      "path": "built-ins/Array/prototype/values/returns-iterator.js",
+      "duration_ms": 11081
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/unshift/set-length-array-length-is-non-writable.js",
+      "path": "built-ins/Array/prototype/unshift/set-length-array-length-is-non-writable.js",
+      "duration_ms": 10925
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Array/prototype/values/returns-iterator.js",
+      "path": "built-ins/Array/prototype/values/returns-iterator.js",
+      "duration_ms": 10867
+    },
+    {
+      "test_id": "strict-script:built-ins/Array/prototype/unshift/throws-if-integer-limit-exceeded.js",
+      "path": "built-ins/Array/prototype/unshift/throws-if-integer-limit-exceeded.js",
+      "duration_ms": 10628
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "strict-script:built-ins/Array/prototype/unshift/prop-desc.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/read-only-property.js",
+    "strict-script:built-ins/Array/prototype/unshift/read-only-property.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/set-length-array-is-frozen.js",
+    "strict-script:built-ins/Array/prototype/unshift/set-length-array-is-frozen.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/set-length-array-length-is-non-writable.js",
+    "strict-script:built-ins/Array/prototype/unshift/set-length-array-length-is-non-writable.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/set-length-zero-array-is-frozen.js",
+    "strict-script:built-ins/Array/prototype/unshift/set-length-zero-array-is-frozen.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/set-length-zero-array-length-is-non-writable.js",
+    "strict-script:built-ins/Array/prototype/unshift/set-length-zero-array-length-is-non-writable.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/throws-if-integer-limit-exceeded.js",
+    "strict-script:built-ins/Array/prototype/unshift/throws-if-integer-limit-exceeded.js",
+    "sloppy-script:built-ins/Array/prototype/unshift/throws-with-string-receiver.js",
+    "strict-script:built-ins/Array/prototype/unshift/throws-with-string-receiver.js",
+    "sloppy-script:built-ins/Array/prototype/values/iteration-mutable.js",
+    "strict-script:built-ins/Array/prototype/values/iteration-mutable.js",
+    "sloppy-script:built-ins/Array/prototype/values/iteration.js",
+    "strict-script:built-ins/Array/prototype/values/iteration.js",
+    "sloppy-script:built-ins/Array/prototype/values/length.js",
+    "strict-script:built-ins/Array/prototype/values/length.js",
+    "sloppy-script:built-ins/Array/prototype/values/name.js",
+    "strict-script:built-ins/Array/prototype/values/name.js",
+    "sloppy-script:built-ins/Array/prototype/values/not-a-constructor.js",
+    "strict-script:built-ins/Array/prototype/values/not-a-constructor.js",
+    "sloppy-script:built-ins/Array/prototype/values/prop-desc.js",
+    "strict-script:built-ins/Array/prototype/values/prop-desc.js",
+    "sloppy-script:built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+    "strict-script:built-ins/Array/prototype/values/resizable-buffer-grow-mid-iteration.js",
+    "sloppy-script:built-ins/Array/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+    "strict-script:built-ins/Array/prototype/values/resizable-buffer-shrink-mid-iteration.js",
+    "sloppy-script:built-ins/Array/prototype/values/resizable-buffer.js",
+    "strict-script:built-ins/Array/prototype/values/resizable-buffer.js",
+    "sloppy-script:built-ins/Array/prototype/values/returns-iterator-from-object.js",
+    "strict-script:built-ins/Array/prototype/values/returns-iterator-from-object.js",
+    "sloppy-script:built-ins/Array/prototype/values/returns-iterator.js",
+    "strict-script:built-ins/Array/prototype/values/returns-iterator.js",
+    "sloppy-script:built-ins/Array/prototype/values/this-val-non-obj-coercible.js",
+    "strict-script:built-ins/Array/prototype/values/this-val-non-obj-coercible.js",
+    "sloppy-script:built-ins/Array/prototype/with/frozen-this-value.js",
+    "strict-script:built-ins/Array/prototype/with/frozen-this-value.js",
+    "sloppy-script:built-ins/Array/prototype/with/holes-not-preserved.js",
+    "strict-script:built-ins/Array/prototype/with/holes-not-preserved.js",
+    "sloppy-script:built-ins/Array/prototype/with/ignores-species.js",
+    "strict-script:built-ins/Array/prototype/with/ignores-species.js",
+    "sloppy-script:built-ins/Array/prototype/with/immutable.js",
+    "strict-script:built-ins/Array/prototype/with/immutable.js",
+    "sloppy-script:built-ins/Array/prototype/with/index-bigger-or-eq-than-length.js",
+    "strict-script:built-ins/Array/prototype/with/index-bigger-or-eq-than-length.js",
+    "sloppy-script:built-ins/Array/prototype/with/index-casted-to-number.js",
+    "strict-script:built-ins/Array/prototype/with/index-casted-to-number.js",
+    "sloppy-script:built-ins/Array/prototype/with/index-negative.js",
+    "strict-script:built-ins/Array/prototype/with/index-negative.js",
+    "sloppy-script:built-ins/Array/prototype/with/index-smaller-than-minus-length.js",
+    "strict-script:built-ins/Array/prototype/with/index-smaller-than-minus-length.js",
+    "sloppy-script:built-ins/Array/prototype/with/index-throw-completion.js",
+    "strict-script:built-ins/Array/prototype/with/index-throw-completion.js",
+    "sloppy-script:built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+    "strict-script:built-ins/Array/prototype/with/length-decreased-while-iterating.js",
+    "sloppy-script:built-ins/Array/prototype/with/length-exceeding-array-length-limit.js",
+    "strict-script:built-ins/Array/prototype/with/length-exceeding-array-length-limit.js",
+    "sloppy-script:built-ins/Array/prototype/with/length-increased-while-iterating.js",
+    "strict-script:built-ins/Array/prototype/with/length-increased-while-iterating.js",
+    "sloppy-script:built-ins/Array/prototype/with/length-tolength.js",
+    "strict-script:built-ins/Array/prototype/with/length-tolength.js",
+    "sloppy-script:built-ins/Array/prototype/with/length.js",
+    "strict-script:built-ins/Array/prototype/with/length.js",
+    "sloppy-script:built-ins/Array/prototype/with/name.js",
+    "strict-script:built-ins/Array/prototype/with/name.js",
+    "sloppy-script:built-ins/Array/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "strict-script:built-ins/Array/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "sloppy-script:built-ins/Array/prototype/with/no-get-replaced-index.js",
+    "strict-script:built-ins/Array/prototype/with/no-get-replaced-index.js",
+    "sloppy-script:built-ins/Array/prototype/with/not-a-constructor.js",
+    "strict-script:built-ins/Array/prototype/with/not-a-constructor.js",
+    "sloppy-script:built-ins/Array/prototype/with/property-descriptor.js",
+    "strict-script:built-ins/Array/prototype/with/property-descriptor.js",
+    "sloppy-script:built-ins/Array/prototype/with/this-value-boolean.js",
+    "strict-script:built-ins/Array/prototype/with/this-value-boolean.js",
+    "sloppy-script:built-ins/Array/prototype/with/this-value-nullish.js",
+    "strict-script:built-ins/Array/prototype/with/this-value-nullish.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Array",
+    "prototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

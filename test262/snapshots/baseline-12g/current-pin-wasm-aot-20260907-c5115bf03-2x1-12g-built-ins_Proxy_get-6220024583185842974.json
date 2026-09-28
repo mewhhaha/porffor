@@ -1,0 +1,139 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6220024583185842974,
+  "run_kind": "matrix-filter-leaf",
+  "total": 38,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/return-is-abrupt.js",
+      "path": "built-ins/Proxy/get/return-is-abrupt.js",
+      "duration_ms": 12952
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/get/return-is-abrupt.js",
+      "path": "built-ins/Proxy/get/return-is-abrupt.js",
+      "duration_ms": 12890
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 9988
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 9921
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/null-handler.js",
+      "path": "built-ins/Proxy/get/null-handler.js",
+      "duration_ms": 9582
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/get/call-parameters.js",
+      "path": "built-ins/Proxy/get/call-parameters.js",
+      "duration_ms": 9509
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/call-parameters.js",
+      "path": "built-ins/Proxy/get/call-parameters.js",
+      "duration_ms": 9507
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+      "path": "built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+      "duration_ms": 9288
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+      "path": "built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+      "duration_ms": 9260
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/get/trap-is-not-callable-realm.js",
+      "path": "built-ins/Proxy/get/trap-is-not-callable-realm.js",
+      "duration_ms": 9194
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/get/accessor-get-is-undefined-throws.js",
+    "strict-script:built-ins/Proxy/get/accessor-get-is-undefined-throws.js",
+    "sloppy-script:built-ins/Proxy/get/call-parameters.js",
+    "strict-script:built-ins/Proxy/get/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/get/not-same-value-configurable-false-writable-false-throws.js",
+    "strict-script:built-ins/Proxy/get/not-same-value-configurable-false-writable-false-throws.js",
+    "sloppy-script:built-ins/Proxy/get/null-handler.js",
+    "strict-script:built-ins/Proxy/get/null-handler.js",
+    "sloppy-script:built-ins/Proxy/get/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/get/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result-accessor-property.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result-accessor-property.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result-configurable-false-writable-true.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result-configurable-false-writable-true.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result-configurable-true-assessor-get-undefined.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result-configurable-true-assessor-get-undefined.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result-configurable-true-writable-false.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result-configurable-true-writable-false.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result-same-value-configurable-false-writable-false.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result-same-value-configurable-false-writable-false.js",
+    "sloppy-script:built-ins/Proxy/get/return-trap-result.js",
+    "strict-script:built-ins/Proxy/get/return-trap-result.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/get/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/get/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/get/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/get/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-undefined-no-property.js",
+    "strict-script:built-ins/Proxy/get/trap-is-undefined-no-property.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-undefined-receiver.js",
+    "strict-script:built-ins/Proxy/get/trap-is-undefined-receiver.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/get/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/get/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/get/trap-is-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "get"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

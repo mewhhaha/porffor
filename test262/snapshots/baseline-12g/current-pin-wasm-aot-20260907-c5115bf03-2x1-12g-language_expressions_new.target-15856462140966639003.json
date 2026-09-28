@@ -1,0 +1,150 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15856462140966639003,
+  "run_kind": "matrix-filter-leaf",
+  "total": 28,
+  "passed": 26,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 2,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 26
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/new.target/unary-expr.js",
+      "path": "language/expressions/new.target/unary-expr.js",
+      "duration_ms": 21881
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/unary-expr.js",
+      "path": "language/expressions/new.target/unary-expr.js",
+      "duration_ms": 20119
+    },
+    {
+      "test_id": "strict-script:language/expressions/new.target/value-via-reflect-construct.js",
+      "path": "language/expressions/new.target/value-via-reflect-construct.js",
+      "duration_ms": 9479
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/value-via-reflect-construct.js",
+      "path": "language/expressions/new.target/value-via-reflect-construct.js",
+      "duration_ms": 9449
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/value-via-call.js",
+      "path": "language/expressions/new.target/value-via-call.js",
+      "duration_ms": 8795
+    },
+    {
+      "test_id": "strict-script:language/expressions/new.target/value-via-member.js",
+      "path": "language/expressions/new.target/value-via-member.js",
+      "duration_ms": 8587
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/value-via-member.js",
+      "path": "language/expressions/new.target/value-via-member.js",
+      "duration_ms": 8576
+    },
+    {
+      "test_id": "strict-script:language/expressions/new.target/value-via-super-call.js",
+      "path": "language/expressions/new.target/value-via-super-call.js",
+      "duration_ms": 7999
+    },
+    {
+      "test_id": "strict-script:language/expressions/new.target/value-via-new.js",
+      "path": "language/expressions/new.target/value-via-new.js",
+      "duration_ms": 7779
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/value-via-new.js",
+      "path": "language/expressions/new.target/value-via-new.js",
+      "duration_ms": 7759
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/new.target/asi.js",
+      "test_path": "language/expressions/new.target/asi.js",
+      "kind": "Parser",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] parse error: unexpected private identifier at line 130, col 1",
+      "detail_hash": 10061122784951101634,
+      "duration_ms": 181
+    },
+    {
+      "test_id": "strict-script:language/expressions/new.target/asi.js",
+      "test_path": "language/expressions/new.target/asi.js",
+      "kind": "Parser",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] parse error: unexpected private identifier at line 131, col 1",
+      "detail_hash": 10289604633413261676,
+      "duration_ms": 191
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/new.target/asi.js",
+    "strict-script:language/expressions/new.target/asi.js",
+    "sloppy-script:language/expressions/new.target/escaped-new.js",
+    "strict-script:language/expressions/new.target/escaped-new.js",
+    "sloppy-script:language/expressions/new.target/escaped-target.js",
+    "strict-script:language/expressions/new.target/escaped-target.js",
+    "sloppy-script:language/expressions/new.target/unary-expr.js",
+    "strict-script:language/expressions/new.target/unary-expr.js",
+    "sloppy-script:language/expressions/new.target/value-via-call.js",
+    "strict-script:language/expressions/new.target/value-via-call.js",
+    "sloppy-script:language/expressions/new.target/value-via-fpapply.js",
+    "strict-script:language/expressions/new.target/value-via-fpapply.js",
+    "sloppy-script:language/expressions/new.target/value-via-fpcall.js",
+    "strict-script:language/expressions/new.target/value-via-fpcall.js",
+    "sloppy-script:language/expressions/new.target/value-via-member.js",
+    "strict-script:language/expressions/new.target/value-via-member.js",
+    "sloppy-script:language/expressions/new.target/value-via-new.js",
+    "strict-script:language/expressions/new.target/value-via-new.js",
+    "sloppy-script:language/expressions/new.target/value-via-reflect-apply.js",
+    "strict-script:language/expressions/new.target/value-via-reflect-apply.js",
+    "sloppy-script:language/expressions/new.target/value-via-reflect-construct.js",
+    "strict-script:language/expressions/new.target/value-via-reflect-construct.js",
+    "sloppy-script:language/expressions/new.target/value-via-super-call.js",
+    "strict-script:language/expressions/new.target/value-via-super-call.js",
+    "sloppy-script:language/expressions/new.target/value-via-super-property.js",
+    "strict-script:language/expressions/new.target/value-via-super-property.js",
+    "sloppy-script:language/expressions/new.target/value-via-tagged-template.js",
+    "strict-script:language/expressions/new.target/value-via-tagged-template.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "new.target"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

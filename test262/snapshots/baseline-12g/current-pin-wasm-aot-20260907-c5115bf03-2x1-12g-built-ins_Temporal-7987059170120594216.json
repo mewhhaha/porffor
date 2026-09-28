@@ -1,0 +1,86 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7987059170120594216,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Temporal/getOwnPropertyNames.js",
+      "path": "built-ins/Temporal/getOwnPropertyNames.js",
+      "duration_ms": 14427
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/getOwnPropertyNames.js",
+      "path": "built-ins/Temporal/getOwnPropertyNames.js",
+      "duration_ms": 14396
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/keys.js",
+      "path": "built-ins/Temporal/keys.js",
+      "duration_ms": 14060
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/keys.js",
+      "path": "built-ins/Temporal/keys.js",
+      "duration_ms": 14050
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/prop-desc.js",
+      "path": "built-ins/Temporal/prop-desc.js",
+      "duration_ms": 12078
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/prop-desc.js",
+      "path": "built-ins/Temporal/prop-desc.js",
+      "duration_ms": 12068
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Temporal/getOwnPropertyNames.js",
+    "strict-script:built-ins/Temporal/getOwnPropertyNames.js",
+    "sloppy-script:built-ins/Temporal/keys.js",
+    "strict-script:built-ins/Temporal/keys.js",
+    "sloppy-script:built-ins/Temporal/prop-desc.js",
+    "strict-script:built-ins/Temporal/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Temporal"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

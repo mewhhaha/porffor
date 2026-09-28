@@ -1,0 +1,165 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16570360566772848562,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 20
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+      "path": "intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+      "duration_ms": 21363
+    },
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+      "path": "intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+      "duration_ms": 21354
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/toLocaleTimeString/builtin.js",
+      "path": "intl402/Date/prototype/toLocaleTimeString/builtin.js",
+      "duration_ms": 14673
+    },
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/toLocaleTimeString/builtin.js",
+      "path": "intl402/Date/prototype/toLocaleTimeString/builtin.js",
+      "duration_ms": 14664
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/this-value-invalid-date.js",
+      "path": "intl402/Date/prototype/this-value-invalid-date.js",
+      "duration_ms": 13072
+    },
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/this-value-invalid-date.js",
+      "path": "intl402/Date/prototype/this-value-invalid-date.js",
+      "duration_ms": 13011
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/toLocaleTimeString/length.js",
+      "path": "intl402/Date/prototype/toLocaleTimeString/length.js",
+      "duration_ms": 12640
+    },
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/toLocaleTimeString/length.js",
+      "path": "intl402/Date/prototype/toLocaleTimeString/length.js",
+      "duration_ms": 12638
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "path": "intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "duration_ms": 12419
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/this-value-non-date.js",
+      "path": "intl402/Date/prototype/this-value-non-date.js",
+      "duration_ms": 12318
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+      "test_path": "intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string((Testing with locales undefined; options undefined.))",
+      "detail_hash": 10574319236015794462,
+      "duration_ms": 10796
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+      "test_path": "intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string((Testing with locales undefined; options undefined.))",
+      "detail_hash": 10574319236015794462,
+      "duration_ms": 10833
+    },
+    {
+      "test_id": "sloppy-script:intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "test_path": "intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "icu-intl",
+      "detail": "[origin:icu-intl] uncaught throw: wasm-aot completion: string(Internal error: Expected exception was not thrown by Intl.DateTimeFormat for locales null. Expected SameValue(undefined, undefined) to be false)",
+      "detail_hash": 10050028114736191905,
+      "duration_ms": 12247
+    },
+    {
+      "test_id": "strict-script:intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "test_path": "intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "icu-intl",
+      "detail": "[origin:icu-intl] uncaught throw: wasm-aot completion: string(Internal error: Expected exception was not thrown by Intl.DateTimeFormat for locales null. Expected SameValue(undefined, undefined) to be false)",
+      "detail_hash": 10050028114736191905,
+      "duration_ms": 12419
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+    "strict-script:intl402/Date/prototype/returns-same-results-as-DateTimeFormat.js",
+    "sloppy-script:intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+    "strict-script:intl402/Date/prototype/taint-Intl-DateTimeFormat.js",
+    "sloppy-script:intl402/Date/prototype/this-value-invalid-date.js",
+    "strict-script:intl402/Date/prototype/this-value-invalid-date.js",
+    "sloppy-script:intl402/Date/prototype/this-value-non-date.js",
+    "strict-script:intl402/Date/prototype/this-value-non-date.js",
+    "sloppy-script:intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+    "strict-script:intl402/Date/prototype/throws-same-exceptions-as-DateTimeFormat.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleDateString/builtin.js",
+    "strict-script:intl402/Date/prototype/toLocaleDateString/builtin.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleDateString/length.js",
+    "strict-script:intl402/Date/prototype/toLocaleDateString/length.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleString/builtin.js",
+    "strict-script:intl402/Date/prototype/toLocaleString/builtin.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleString/default-options-object-prototype.js",
+    "strict-script:intl402/Date/prototype/toLocaleString/default-options-object-prototype.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleString/length.js",
+    "strict-script:intl402/Date/prototype/toLocaleString/length.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleTimeString/builtin.js",
+    "strict-script:intl402/Date/prototype/toLocaleTimeString/builtin.js",
+    "sloppy-script:intl402/Date/prototype/toLocaleTimeString/length.js",
+    "strict-script:intl402/Date/prototype/toLocaleTimeString/length.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "Date"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,110 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17970158720507426142,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 8,
+  "passed": 7,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 7
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/statements/for/scope-head-lex-open.js",
+      "path": "language/statements/for/scope-head-lex-open.js",
+      "duration_ms": 10793
+    },
+    {
+      "test_id": "sloppy-script:language/statements/for/scope-head-lex-open.js",
+      "path": "language/statements/for/scope-head-lex-open.js",
+      "duration_ms": 10279
+    },
+    {
+      "test_id": "strict-script:language/statements/for/scope-head-lex-close.js",
+      "path": "language/statements/for/scope-head-lex-close.js",
+      "duration_ms": 10076
+    },
+    {
+      "test_id": "strict-script:language/statements/for/tco-const-body.js",
+      "path": "language/statements/for/tco-const-body.js",
+      "duration_ms": 7333
+    },
+    {
+      "test_id": "strict-script:language/statements/for/tco-var-body.js",
+      "path": "language/statements/for/tco-var-body.js",
+      "duration_ms": 7321
+    },
+    {
+      "test_id": "strict-script:language/statements/for/tco-lhs-body.js",
+      "path": "language/statements/for/tco-lhs-body.js",
+      "duration_ms": 7301
+    },
+    {
+      "test_id": "strict-script:language/statements/for/tco-let-body.js",
+      "path": "language/statements/for/tco-let-body.js",
+      "duration_ms": 6859
+    },
+    {
+      "test_id": "sloppy-script:language/statements/for/scope-head-var-none.js",
+      "path": "language/statements/for/scope-head-var-none.js",
+      "duration_ms": 6777
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/for/scope-head-var-none.js",
+      "test_path": "language/statements/for/scope-head-var-none.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6777
+    }
+  ],
+  "completed_test_ids": [
+    "strict-script:language/statements/for/scope-head-lex-close.js",
+    "sloppy-script:language/statements/for/scope-head-lex-open.js",
+    "strict-script:language/statements/for/scope-head-lex-open.js",
+    "sloppy-script:language/statements/for/scope-head-var-none.js",
+    "strict-script:language/statements/for/tco-const-body.js",
+    "strict-script:language/statements/for/tco-let-body.js",
+    "strict-script:language/statements/for/tco-lhs-body.js",
+    "strict-script:language/statements/for/tco-var-body.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "for"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,127 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13898962527771304395,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 26,
+  "passed": 26,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 26
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+      "path": "built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+      "duration_ms": 13018
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+      "path": "built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+      "duration_ms": 13003
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype/with/this-value-invalid.js",
+      "path": "built-ins/TypedArray/prototype/with/this-value-invalid.js",
+      "duration_ms": 12924
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype/with/this-value-invalid.js",
+      "path": "built-ins/TypedArray/prototype/with/this-value-invalid.js",
+      "duration_ms": 12914
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype/with/length-property-ignored.js",
+      "path": "built-ins/TypedArray/prototype/with/length-property-ignored.js",
+      "duration_ms": 12681
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype/with/length-property-ignored.js",
+      "path": "built-ins/TypedArray/prototype/with/length-property-ignored.js",
+      "duration_ms": 12640
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
+      "path": "built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
+      "duration_ms": 12603
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype/with/value-throw-completion.js",
+      "path": "built-ins/TypedArray/prototype/with/value-throw-completion.js",
+      "duration_ms": 12536
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype/with/value-throw-completion.js",
+      "path": "built-ins/TypedArray/prototype/with/value-throw-completion.js",
+      "duration_ms": 12531
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
+      "path": "built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
+      "duration_ms": 12417
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArray/prototype/with/index-validated-against-current-length.js",
+    "strict-script:built-ins/TypedArray/prototype/with/index-validated-against-current-length.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/length-property-ignored.js",
+    "strict-script:built-ins/TypedArray/prototype/with/length-property-ignored.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/length.js",
+    "strict-script:built-ins/TypedArray/prototype/with/length.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/name.js",
+    "strict-script:built-ins/TypedArray/prototype/with/name.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "strict-script:built-ins/TypedArray/prototype/with/negative-fractional-index-truncated-to-zero.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
+    "strict-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
+    "strict-script:built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/not-a-constructor.js",
+    "strict-script:built-ins/TypedArray/prototype/with/not-a-constructor.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/order-of-evaluation.js",
+    "strict-script:built-ins/TypedArray/prototype/with/order-of-evaluation.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/property-descriptor.js",
+    "strict-script:built-ins/TypedArray/prototype/with/property-descriptor.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/this-value-invalid.js",
+    "strict-script:built-ins/TypedArray/prototype/with/this-value-invalid.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+    "strict-script:built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
+    "sloppy-script:built-ins/TypedArray/prototype/with/value-throw-completion.js",
+    "strict-script:built-ins/TypedArray/prototype/with/value-throw-completion.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArray",
+    "prototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

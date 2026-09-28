@@ -1,0 +1,391 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15130719570232715304,
+  "run_kind": "matrix-filter-leaf",
+  "total": 39,
+  "passed": 14,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 10,
+    "Unsupported": 15,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 1,
+    "NotImplemented": 18,
+    "Success": 14
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js",
+      "path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js",
+      "duration_ms": 15568
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-proxy.js",
+      "path": "staging/sm/lexical-environment/unscopables-proxy.js",
+      "duration_ms": 15252
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "path": "staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "duration_ms": 14706
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/block-scoped-functions-strict.js",
+      "path": "staging/sm/lexical-environment/block-scoped-functions-strict.js",
+      "duration_ms": 14592
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "path": "staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "duration_ms": 14571
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/with-global-ignores-global-let-variables.js",
+      "path": "staging/sm/lexical-environment/with-global-ignores-global-let-variables.js",
+      "duration_ms": 13108
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-closures.js",
+      "path": "staging/sm/lexical-environment/unscopables-closures.js",
+      "duration_ms": 13023
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/for-loop.js",
+      "path": "staging/sm/lexical-environment/for-loop.js",
+      "duration_ms": 12700
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/for-loop.js",
+      "path": "staging/sm/lexical-environment/for-loop.js",
+      "duration_ms": 12459
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b.js",
+      "path": "staging/sm/lexical-environment/block-scoped-functions-annex-b.js",
+      "duration_ms": 12370
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(object, function) to be true)",
+      "detail_hash": 5959999468018605536,
+      "duration_ms": 7621
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 9604
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-generators.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-generators.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5842
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 15568
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 9584
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-with.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-with.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: var initializer target `desc` must remain declared while installing facts",
+      "detail_hash": 1183809566247496348,
+      "duration_ms": 1810
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 9453
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/bug-1216623.js",
+      "test_path": "staging/sm/lexical-environment/bug-1216623.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1527448: lexical binding accessed before initialization)",
+      "detail_hash": 13141646907139854207,
+      "duration_ms": 8780
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/bug-1216623.js",
+      "test_path": "staging/sm/lexical-environment/bug-1216623.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1527456: lexical binding accessed before initialization)",
+      "detail_hash": 13141646907139854207,
+      "duration_ms": 8962
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/catch-body.js",
+      "test_path": "staging/sm/lexical-environment/catch-body.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: function expression",
+      "detail_hash": 7024802034780609459,
+      "duration_ms": 7089
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/catch-body.js",
+      "test_path": "staging/sm/lexical-environment/catch-body.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: function expression",
+      "detail_hash": 7024802034780609459,
+      "duration_ms": 6929
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+      "test_path": "staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6457
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+      "test_path": "staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6456
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/eval-has-lexical-environment.js",
+      "test_path": "staging/sm/lexical-environment/eval-has-lexical-environment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5642
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "test_path": "staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 14706
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "test_path": "staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 14571
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/for-loop.js",
+      "test_path": "staging/sm/lexical-environment/for-loop.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 12700
+    },
+    {
+      "test_id": "strict-script:staging/sm/lexical-environment/for-loop.js",
+      "test_path": "staging/sm/lexical-environment/for-loop.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 12459
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-closures.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-closures.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519696: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 13023
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-const.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-const.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1509376: unbound identifier in with scope)",
+      "detail_hash": 13119121151102932367,
+      "duration_ms": 7783
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-delete.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-delete.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5359
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-global.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-global.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4776
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-miss.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-miss.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1509264: unbound identifier in with scope)",
+      "detail_hash": 13119121151102932367,
+      "duration_ms": 8939
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/unscopables-tdz.js",
+      "test_path": "staging/sm/lexical-environment/unscopables-tdz.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1509280: unbound identifier in with scope)",
+      "detail_hash": 13119121151102932367,
+      "duration_ms": 7281
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js",
+      "test_path": "staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5410
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-eval.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-generators.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-if.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-notapplicable.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-parameter.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-same-name.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-with.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-deprecated-redecl.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-hoisted-tdz.js",
+    "strict-script:staging/sm/lexical-environment/block-scoped-functions-strict.js",
+    "sloppy-script:staging/sm/lexical-environment/bug-1216623.js",
+    "strict-script:staging/sm/lexical-environment/bug-1216623.js",
+    "sloppy-script:staging/sm/lexical-environment/catch-body.js",
+    "strict-script:staging/sm/lexical-environment/catch-body.js",
+    "sloppy-script:staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+    "strict-script:staging/sm/lexical-environment/const-declaration-in-for-loop.js",
+    "sloppy-script:staging/sm/lexical-environment/eval-has-lexical-environment.js",
+    "sloppy-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+    "strict-script:staging/sm/lexical-environment/for-loop-with-bindings-added-at-runtime.js",
+    "sloppy-script:staging/sm/lexical-environment/for-loop.js",
+    "strict-script:staging/sm/lexical-environment/for-loop.js",
+    "sloppy-script:staging/sm/lexical-environment/implicit-this-in-with.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-basics.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-closures.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-const.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-delete.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-getters.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-global.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-ignored.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-miss.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-mutation-frozen.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-proto.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-proxy.js",
+    "sloppy-script:staging/sm/lexical-environment/unscopables-tdz.js",
+    "sloppy-script:staging/sm/lexical-environment/var-in-catch-body-annex-b-eval.js",
+    "sloppy-script:staging/sm/lexical-environment/with-global-ignores-global-let-variables.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "lexical-environment"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

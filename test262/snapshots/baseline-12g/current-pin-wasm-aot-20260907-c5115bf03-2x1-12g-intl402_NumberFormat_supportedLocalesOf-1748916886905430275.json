@@ -1,0 +1,234 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1748916886905430275,
+  "run_kind": "matrix-filter-leaf",
+  "total": 12,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 12,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 12,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "duration_ms": 14995
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "duration_ms": 14918
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "duration_ms": 10567
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "duration_ms": 9668
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "duration_ms": 9423
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "duration_ms": 8936
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "duration_ms": 8722
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "duration_ms": 8612
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/length.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/length.js",
+      "duration_ms": 7576
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/name.js",
+      "path": "intl402/NumberFormat/supportedLocalesOf/name.js",
+      "duration_ms": 7484
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1520024: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 8722
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/basic.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1520032: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 8612
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1520672: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 9668
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/builtin.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1520688: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 10567
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/length.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1548152: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 7475
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/length.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/length.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1548160: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 7576
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/name.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1548152: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 7484
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/name.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1548160: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 7477
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1549816: Object.getOwnPropertyDescriptor called on null or undefined)",
+      "detail_hash": 11200759276960290448,
+      "duration_ms": 9423
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1549824: Object.getOwnPropertyDescriptor called on null or undefined)",
+      "detail_hash": 11200759276960290448,
+      "duration_ms": 8936
+    },
+    {
+      "test_id": "sloppy-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@5702032: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 14918
+    },
+    {
+      "test_id": "strict-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "test_path": "intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@5702048: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 14995
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/basic.js",
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/builtin.js",
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/length.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/length.js",
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/name.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/name.js",
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/prop-desc.js",
+    "sloppy-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js",
+    "strict-script:intl402/NumberFormat/supportedLocalesOf/taint-Object-prototype.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "NumberFormat",
+    "supportedLocalesOf"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

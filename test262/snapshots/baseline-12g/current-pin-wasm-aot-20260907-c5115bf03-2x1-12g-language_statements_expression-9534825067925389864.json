@@ -1,0 +1,128 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9534825067925389864,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/statements/expression/S12.4_A2_T2.js",
+      "path": "language/statements/expression/S12.4_A2_T2.js",
+      "duration_ms": 6146
+    },
+    {
+      "test_id": "sloppy-script:language/statements/expression/S12.4_A2_T2.js",
+      "path": "language/statements/expression/S12.4_A2_T2.js",
+      "duration_ms": 6145
+    },
+    {
+      "test_id": "sloppy-script:language/statements/expression/S12.4_A2_T1.js",
+      "path": "language/statements/expression/S12.4_A2_T1.js",
+      "duration_ms": 6094
+    },
+    {
+      "test_id": "strict-script:language/statements/expression/S12.4_A2_T1.js",
+      "path": "language/statements/expression/S12.4_A2_T1.js",
+      "duration_ms": 6074
+    },
+    {
+      "test_id": "sloppy-script:language/statements/expression/S12.4_A1.js",
+      "path": "language/statements/expression/S12.4_A1.js",
+      "duration_ms": 83
+    },
+    {
+      "test_id": "strict-script:language/statements/expression/S12.4_A1.js",
+      "path": "language/statements/expression/S12.4_A1.js",
+      "duration_ms": 80
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/expression/S12.4_A2_T1.js",
+      "test_path": "language/statements/expression/S12.4_A2_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6094
+    },
+    {
+      "test_id": "strict-script:language/statements/expression/S12.4_A2_T1.js",
+      "test_path": "language/statements/expression/S12.4_A2_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6074
+    },
+    {
+      "test_id": "sloppy-script:language/statements/expression/S12.4_A2_T2.js",
+      "test_path": "language/statements/expression/S12.4_A2_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6145
+    },
+    {
+      "test_id": "strict-script:language/statements/expression/S12.4_A2_T2.js",
+      "test_path": "language/statements/expression/S12.4_A2_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6146
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/expression/S12.4_A1.js",
+    "strict-script:language/statements/expression/S12.4_A1.js",
+    "sloppy-script:language/statements/expression/S12.4_A2_T1.js",
+    "strict-script:language/statements/expression/S12.4_A2_T1.js",
+    "sloppy-script:language/statements/expression/S12.4_A2_T2.js",
+    "strict-script:language/statements/expression/S12.4_A2_T2.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "expression"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

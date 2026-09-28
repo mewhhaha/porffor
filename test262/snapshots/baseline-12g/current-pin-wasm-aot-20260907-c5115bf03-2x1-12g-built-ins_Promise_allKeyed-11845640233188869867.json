@@ -1,0 +1,113 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11845640233188869867,
+  "run_kind": "matrix-filter-leaf",
+  "total": 12,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Promise/allKeyed/length.js",
+      "path": "built-ins/Promise/allKeyed/length.js",
+      "duration_ms": 11767
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/allKeyed/length.js",
+      "path": "built-ins/Promise/allKeyed/length.js",
+      "duration_ms": 11745
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/allKeyed/prop-desc.js",
+      "path": "built-ins/Promise/allKeyed/prop-desc.js",
+      "duration_ms": 10327
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/allKeyed/prop-desc.js",
+      "path": "built-ins/Promise/allKeyed/prop-desc.js",
+      "duration_ms": 10287
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/allKeyed/extensible.js",
+      "path": "built-ins/Promise/allKeyed/extensible.js",
+      "duration_ms": 10103
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/allKeyed/extensible.js",
+      "path": "built-ins/Promise/allKeyed/extensible.js",
+      "duration_ms": 9448
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/allKeyed/name.js",
+      "path": "built-ins/Promise/allKeyed/name.js",
+      "duration_ms": 8421
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/allKeyed/name.js",
+      "path": "built-ins/Promise/allKeyed/name.js",
+      "duration_ms": 8240
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/allKeyed/not-a-constructor.js",
+      "path": "built-ins/Promise/allKeyed/not-a-constructor.js",
+      "duration_ms": 8131
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/allKeyed/not-a-constructor.js",
+      "path": "built-ins/Promise/allKeyed/not-a-constructor.js",
+      "duration_ms": 7920
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Promise/allKeyed/extensible.js",
+    "strict-script:built-ins/Promise/allKeyed/extensible.js",
+    "sloppy-script:built-ins/Promise/allKeyed/length.js",
+    "strict-script:built-ins/Promise/allKeyed/length.js",
+    "sloppy-script:built-ins/Promise/allKeyed/name.js",
+    "strict-script:built-ins/Promise/allKeyed/name.js",
+    "sloppy-script:built-ins/Promise/allKeyed/not-a-constructor.js",
+    "strict-script:built-ins/Promise/allKeyed/not-a-constructor.js",
+    "sloppy-script:built-ins/Promise/allKeyed/prop-desc.js",
+    "strict-script:built-ins/Promise/allKeyed/prop-desc.js",
+    "sloppy-script:built-ins/Promise/allKeyed/proto.js",
+    "strict-script:built-ins/Promise/allKeyed/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Promise",
+    "allKeyed"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,98 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8933287897794135200,
+  "run_kind": "matrix-filter-leaf",
+  "total": 8,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/length.js",
+      "path": "built-ins/AbstractModuleSource/length.js",
+      "duration_ms": 13779
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/prototype/constructor.js",
+      "path": "built-ins/AbstractModuleSource/prototype/constructor.js",
+      "duration_ms": 13768
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/prototype/Symbol.toStringTag.js",
+      "path": "built-ins/AbstractModuleSource/prototype/Symbol.toStringTag.js",
+      "duration_ms": 13761
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/prototype.js",
+      "path": "built-ins/AbstractModuleSource/prototype.js",
+      "duration_ms": 13742
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/name.js",
+      "path": "built-ins/AbstractModuleSource/name.js",
+      "duration_ms": 13721
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/prototype/proto.js",
+      "path": "built-ins/AbstractModuleSource/prototype/proto.js",
+      "duration_ms": 13059
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/proto.js",
+      "path": "built-ins/AbstractModuleSource/proto.js",
+      "duration_ms": 12870
+    },
+    {
+      "test_id": "module:built-ins/AbstractModuleSource/throw-from-constructor.js",
+      "path": "built-ins/AbstractModuleSource/throw-from-constructor.js",
+      "duration_ms": 11129
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "module:built-ins/AbstractModuleSource/length.js",
+    "module:built-ins/AbstractModuleSource/name.js",
+    "module:built-ins/AbstractModuleSource/proto.js",
+    "module:built-ins/AbstractModuleSource/prototype.js",
+    "module:built-ins/AbstractModuleSource/prototype/Symbol.toStringTag.js",
+    "module:built-ins/AbstractModuleSource/prototype/constructor.js",
+    "module:built-ins/AbstractModuleSource/prototype/proto.js",
+    "module:built-ins/AbstractModuleSource/throw-from-constructor.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AbstractModuleSource"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

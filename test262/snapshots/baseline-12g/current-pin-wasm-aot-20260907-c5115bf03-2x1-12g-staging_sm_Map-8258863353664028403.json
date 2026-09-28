@@ -1,0 +1,117 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8258863353664028403,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Map/constructor-iterator-close.js",
+      "path": "staging/sm/Map/constructor-iterator-close.js",
+      "duration_ms": 21342
+    },
+    {
+      "test_id": "strict-script:staging/sm/Map/constructor-iterator-close.js",
+      "path": "staging/sm/Map/constructor-iterator-close.js",
+      "duration_ms": 21293
+    },
+    {
+      "test_id": "strict-script:staging/sm/Map/symbols.js",
+      "path": "staging/sm/Map/symbols.js",
+      "duration_ms": 15999
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Map/symbols.js",
+      "path": "staging/sm/Map/symbols.js",
+      "duration_ms": 15997
+    },
+    {
+      "test_id": "strict-script:staging/sm/Map/iterable.js",
+      "path": "staging/sm/Map/iterable.js",
+      "duration_ms": 11802
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Map/iterable.js",
+      "path": "staging/sm/Map/iterable.js",
+      "duration_ms": 11746
+    },
+    {
+      "test_id": "strict-script:staging/sm/Map/getter-name.js",
+      "path": "staging/sm/Map/getter-name.js",
+      "duration_ms": 10243
+    },
+    {
+      "test_id": "strict-script:staging/sm/Map/iterator-thisv-error.js",
+      "path": "staging/sm/Map/iterator-thisv-error.js",
+      "duration_ms": 9501
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Map/iterator-thisv-error.js",
+      "path": "staging/sm/Map/iterator-thisv-error.js",
+      "duration_ms": 9453
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Map/constructor-iterator-primitive.js",
+      "path": "staging/sm/Map/constructor-iterator-primitive.js",
+      "duration_ms": 9227
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Map/NaN-as-key.js",
+    "strict-script:staging/sm/Map/NaN-as-key.js",
+    "sloppy-script:staging/sm/Map/constructor-iterator-close.js",
+    "strict-script:staging/sm/Map/constructor-iterator-close.js",
+    "sloppy-script:staging/sm/Map/constructor-iterator-primitive.js",
+    "strict-script:staging/sm/Map/constructor-iterator-primitive.js",
+    "sloppy-script:staging/sm/Map/forEach-selfhosted-behavior.js",
+    "strict-script:staging/sm/Map/forEach-selfhosted-behavior.js",
+    "sloppy-script:staging/sm/Map/getter-name.js",
+    "strict-script:staging/sm/Map/getter-name.js",
+    "sloppy-script:staging/sm/Map/iterable.js",
+    "strict-script:staging/sm/Map/iterable.js",
+    "sloppy-script:staging/sm/Map/iterator-thisv-error.js",
+    "strict-script:staging/sm/Map/iterator-thisv-error.js",
+    "sloppy-script:staging/sm/Map/symbols.js",
+    "strict-script:staging/sm/Map/symbols.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Map"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

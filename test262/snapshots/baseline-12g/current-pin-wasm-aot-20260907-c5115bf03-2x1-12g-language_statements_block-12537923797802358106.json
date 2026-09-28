@@ -1,0 +1,141 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12537923797802358106,
+  "run_kind": "matrix-filter-leaf",
+  "total": 40,
+  "passed": 40,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 40
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/statements/block/S12.1_A5.js",
+      "path": "language/statements/block/S12.1_A5.js",
+      "duration_ms": 12632
+    },
+    {
+      "test_id": "sloppy-script:language/statements/block/S12.1_A5.js",
+      "path": "language/statements/block/S12.1_A5.js",
+      "duration_ms": 12612
+    },
+    {
+      "test_id": "sloppy-script:language/statements/block/scope-var-none.js",
+      "path": "language/statements/block/scope-var-none.js",
+      "duration_ms": 12431
+    },
+    {
+      "test_id": "strict-script:language/statements/block/scope-var-none.js",
+      "path": "language/statements/block/scope-var-none.js",
+      "duration_ms": 12424
+    },
+    {
+      "test_id": "strict-script:language/statements/block/tco-stmt.js",
+      "path": "language/statements/block/tco-stmt.js",
+      "duration_ms": 11533
+    },
+    {
+      "test_id": "strict-script:language/statements/block/tco-stmt-list.js",
+      "path": "language/statements/block/tco-stmt-list.js",
+      "duration_ms": 11527
+    },
+    {
+      "test_id": "strict-script:language/statements/block/scope-lex-close.js",
+      "path": "language/statements/block/scope-lex-close.js",
+      "duration_ms": 10480
+    },
+    {
+      "test_id": "strict-script:language/statements/block/S12.1_A2.js",
+      "path": "language/statements/block/S12.1_A2.js",
+      "duration_ms": 10180
+    },
+    {
+      "test_id": "sloppy-script:language/statements/block/scope-lex-close.js",
+      "path": "language/statements/block/scope-lex-close.js",
+      "duration_ms": 10177
+    },
+    {
+      "test_id": "sloppy-script:language/statements/block/S12.1_A2.js",
+      "path": "language/statements/block/S12.1_A2.js",
+      "duration_ms": 10162
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/block/12.1-1.js",
+    "strict-script:language/statements/block/12.1-1.js",
+    "sloppy-script:language/statements/block/12.1-2.js",
+    "strict-script:language/statements/block/12.1-2.js",
+    "sloppy-script:language/statements/block/12.1-3.js",
+    "strict-script:language/statements/block/12.1-3.js",
+    "sloppy-script:language/statements/block/12.1-4.js",
+    "strict-script:language/statements/block/12.1-4.js",
+    "sloppy-script:language/statements/block/12.1-5.js",
+    "strict-script:language/statements/block/12.1-5.js",
+    "sloppy-script:language/statements/block/12.1-6.js",
+    "strict-script:language/statements/block/12.1-6.js",
+    "sloppy-script:language/statements/block/12.1-7.js",
+    "strict-script:language/statements/block/12.1-7.js",
+    "sloppy-script:language/statements/block/S12.1_A2.js",
+    "strict-script:language/statements/block/S12.1_A2.js",
+    "sloppy-script:language/statements/block/S12.1_A4_T1.js",
+    "strict-script:language/statements/block/S12.1_A4_T1.js",
+    "sloppy-script:language/statements/block/S12.1_A4_T2.js",
+    "strict-script:language/statements/block/S12.1_A4_T2.js",
+    "sloppy-script:language/statements/block/S12.1_A5.js",
+    "strict-script:language/statements/block/S12.1_A5.js",
+    "sloppy-script:language/statements/block/early-errors/invalid-names-call-expression-bad-reference.js",
+    "strict-script:language/statements/block/early-errors/invalid-names-call-expression-bad-reference.js",
+    "sloppy-script:language/statements/block/early-errors/invalid-names-call-expression-this.js",
+    "strict-script:language/statements/block/early-errors/invalid-names-call-expression-this.js",
+    "sloppy-script:language/statements/block/early-errors/invalid-names-member-expression-bad-reference.js",
+    "strict-script:language/statements/block/early-errors/invalid-names-member-expression-bad-reference.js",
+    "sloppy-script:language/statements/block/early-errors/invalid-names-member-expression-this.js",
+    "strict-script:language/statements/block/early-errors/invalid-names-member-expression-this.js",
+    "sloppy-script:language/statements/block/labeled-continue.js",
+    "strict-script:language/statements/block/labeled-continue.js",
+    "sloppy-script:language/statements/block/scope-lex-close.js",
+    "strict-script:language/statements/block/scope-lex-close.js",
+    "sloppy-script:language/statements/block/scope-lex-open.js",
+    "strict-script:language/statements/block/scope-lex-open.js",
+    "sloppy-script:language/statements/block/scope-var-none.js",
+    "strict-script:language/statements/block/scope-var-none.js",
+    "strict-script:language/statements/block/tco-stmt-list.js",
+    "strict-script:language/statements/block/tco-stmt.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "block"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

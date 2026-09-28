@@ -1,0 +1,206 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11395043247072494132,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 8,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "duration_ms": 15982
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "duration_ms": 15881
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+      "duration_ms": 13692
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+      "duration_ms": 13610
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "duration_ms": 12185
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+      "duration_ms": 12090
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+      "duration_ms": 11975
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/options-undefined.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/options-undefined.js",
+      "duration_ms": 11791
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "duration_ms": 10112
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "path": "intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "duration_ms": 10080
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1668856: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 15881
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1668872: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 15982
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1669072: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 10080
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1669080: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 10112
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(PlainTime.toLocaleString should format lone option {\"hour\":\"numeric\"} Expected SameValue(11 AM, Thu Dec 26 2024 11:46:40 GMT+0000 (Coordinated Universal Time)) to be true)",
+      "detail_hash": 17372929188493115064,
+      "duration_ms": 8996
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(PlainTime.toLocaleString should format lone option {\"hour\":\"numeric\"} Expected SameValue(11 AM, Thu Dec 26 2024 11:46:40 GMT+0000 (Coordinated Universal Time)) to be true)",
+      "detail_hash": 17372929188493115064,
+      "duration_ms": 12185
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1666752: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 8673
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+      "test_path": "intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1666768: Unsupported timeZone option)",
+      "detail_hash": 13773193486989122923,
+      "duration_ms": 8995
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/basic.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/datestyle-and-timestyle.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/datestyle-and-timestyle.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/default-does-not-include-date-and-time-zone-name.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/era.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/hourcycle.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/hourcycle.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/ignore-timezone.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/locales-undefined.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/locales-undefined.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/lone-options-accepted.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/options-conflict.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/options-conflict.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/options-undefined.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/options-undefined.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/resolved-time-zone.js",
+    "sloppy-script:intl402/Temporal/PlainTime/prototype/toLocaleString/timeStyle-undefined.js",
+    "strict-script:intl402/Temporal/PlainTime/prototype/toLocaleString/timeStyle-undefined.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "Temporal",
+    "PlainTime"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

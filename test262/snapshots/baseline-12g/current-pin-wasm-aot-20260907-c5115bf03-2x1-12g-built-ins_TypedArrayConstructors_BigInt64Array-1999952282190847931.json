@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1999952282190847931,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 24,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 24
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+      "duration_ms": 14827
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+      "duration_ms": 14589
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+      "duration_ms": 12572
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+      "duration_ms": 12572
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+      "duration_ms": 12431
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+      "duration_ms": 12409
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+      "duration_ms": 11043
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+      "duration_ms": 11033
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+      "duration_ms": 10943
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+      "path": "built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+      "duration_ms": 10932
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/BYTES_PER_ELEMENT.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/BYTES_PER_ELEMENT.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/is-a-constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/is-a-constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/length.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/length.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/name.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/name.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prop-desc.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/proto.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/BYTES_PER_ELEMENT.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/BYTES_PER_ELEMENT.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/not-typedarray-object.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js",
+    "strict-script:built-ins/TypedArrayConstructors/BigInt64Array/prototype/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArrayConstructors",
+    "BigInt64Array"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

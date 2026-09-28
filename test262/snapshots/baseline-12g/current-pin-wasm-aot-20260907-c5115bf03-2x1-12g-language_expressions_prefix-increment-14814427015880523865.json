@@ -1,0 +1,169 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14814427015880523865,
+  "run_kind": "matrix-filter-leaf",
+  "total": 57,
+  "passed": 56,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 56
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/S11.4.4_A5_T3.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A5_T3.js",
+      "duration_ms": 14075
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/S11.4.4_A5_T2.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A5_T2.js",
+      "duration_ms": 13779
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js",
+      "path": "language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js",
+      "duration_ms": 13107
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+      "duration_ms": 12571
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js",
+      "path": "language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js",
+      "duration_ms": 12551
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T5.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A3_T5.js",
+      "duration_ms": 12276
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-increment/S11.4.4_A2.1_T1.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A2.1_T1.js",
+      "duration_ms": 12261
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+      "duration_ms": 11762
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-increment/S11.4.4_A2.2_T1.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A2.2_T1.js",
+      "duration_ms": 11553
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T5.js",
+      "path": "language/expressions/prefix-increment/S11.4.4_A4_T5.js",
+      "duration_ms": 11342
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js",
+      "test_path": "language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1843128: unbound identifier in with scope)",
+      "detail_hash": 13119121151102932367,
+      "duration_ms": 13107
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/prefix-increment/11.4.4-2-3-s.js",
+    "strict-script:language/expressions/prefix-increment/11.4.4-2-3-s.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A2.1_T1.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A2.1_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A2.1_T2.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A2.2_T1.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A2.2_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T1.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A3_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T2.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A3_T2.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T3.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A3_T3.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T4.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A3_T4.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A3_T5.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A3_T5.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A4_T1.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A4_T2.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T2.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A4_T3.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T3.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A4_T4.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T4.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A4_T5.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A4_T5.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A5_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A5_T2.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A5_T3.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A6_T1.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A6_T1.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A6_T2.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A6_T2.js",
+    "sloppy-script:language/expressions/prefix-increment/S11.4.4_A6_T3.js",
+    "strict-script:language/expressions/prefix-increment/S11.4.4_A6_T3.js",
+    "sloppy-script:language/expressions/prefix-increment/arguments-nostrict.js",
+    "strict-script:language/expressions/prefix-increment/arguments.js",
+    "sloppy-script:language/expressions/prefix-increment/bigint.js",
+    "strict-script:language/expressions/prefix-increment/bigint.js",
+    "sloppy-script:language/expressions/prefix-increment/eval-nostrict.js",
+    "strict-script:language/expressions/prefix-increment/eval.js",
+    "sloppy-script:language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js",
+    "sloppy-script:language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js",
+    "sloppy-script:language/expressions/prefix-increment/target-cover-id.js",
+    "strict-script:language/expressions/prefix-increment/target-cover-id.js",
+    "sloppy-script:language/expressions/prefix-increment/target-cover-newtarget.js",
+    "strict-script:language/expressions/prefix-increment/target-cover-newtarget.js",
+    "sloppy-script:language/expressions/prefix-increment/target-cover-yieldexpr.js",
+    "strict-script:language/expressions/prefix-increment/target-cover-yieldexpr.js",
+    "sloppy-script:language/expressions/prefix-increment/target-newtarget.js",
+    "strict-script:language/expressions/prefix-increment/target-newtarget.js",
+    "sloppy-script:language/expressions/prefix-increment/this.js",
+    "strict-script:language/expressions/prefix-increment/this.js",
+    "sloppy-script:language/expressions/prefix-increment/whitespace.js",
+    "strict-script:language/expressions/prefix-increment/whitespace.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "prefix-increment"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

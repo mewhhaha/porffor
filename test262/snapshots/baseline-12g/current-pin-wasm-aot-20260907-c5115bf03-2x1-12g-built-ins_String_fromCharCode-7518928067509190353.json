@@ -1,0 +1,135 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7518928067509190353,
+  "run_kind": "matrix-filter-leaf",
+  "total": 34,
+  "passed": 34,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 34
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js",
+      "path": "built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js",
+      "duration_ms": 13343
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js",
+      "path": "built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js",
+      "duration_ms": 13323
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A4.js",
+      "path": "built-ins/String/fromCharCode/S15.5.3.2_A4.js",
+      "duration_ms": 12475
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+      "path": "built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+      "duration_ms": 12385
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+      "path": "built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+      "duration_ms": 12100
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+      "path": "built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+      "duration_ms": 11719
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+      "path": "built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+      "duration_ms": 11530
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCharCode/S9.7_A2.1.js",
+      "path": "built-ins/String/fromCharCode/S9.7_A2.1.js",
+      "duration_ms": 10918
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCharCode/S9.7_A2.2.js",
+      "path": "built-ins/String/fromCharCode/S9.7_A2.2.js",
+      "duration_ms": 10758
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A2.js",
+      "path": "built-ins/String/fromCharCode/S15.5.3.2_A2.js",
+      "duration_ms": 10655
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A1.js",
+    "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A1.js",
+    "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A2.js",
+    "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A2.js",
+    "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T1.js",
+    "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T1.js",
+    "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+    "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A3_T2.js",
+    "sloppy-script:built-ins/String/fromCharCode/S15.5.3.2_A4.js",
+    "strict-script:built-ins/String/fromCharCode/S15.5.3.2_A4.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A1.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A1.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A2.1.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A2.1.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A2.2.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A2.2.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.1_T1.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A3.1_T1.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.1_T2.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A3.1_T2.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.1_T3.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A3.1_T3.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A3.1_T4.js",
+    "sloppy-script:built-ins/String/fromCharCode/S9.7_A3.2_T1.js",
+    "strict-script:built-ins/String/fromCharCode/S9.7_A3.2_T1.js",
+    "sloppy-script:built-ins/String/fromCharCode/name.js",
+    "strict-script:built-ins/String/fromCharCode/name.js",
+    "sloppy-script:built-ins/String/fromCharCode/not-a-constructor.js",
+    "strict-script:built-ins/String/fromCharCode/not-a-constructor.js",
+    "sloppy-script:built-ins/String/fromCharCode/touint16-tonumber-throws-bigint.js",
+    "strict-script:built-ins/String/fromCharCode/touint16-tonumber-throws-bigint.js",
+    "sloppy-script:built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js",
+    "strict-script:built-ins/String/fromCharCode/touint16-tonumber-throws-valueof.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "String",
+    "fromCharCode"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

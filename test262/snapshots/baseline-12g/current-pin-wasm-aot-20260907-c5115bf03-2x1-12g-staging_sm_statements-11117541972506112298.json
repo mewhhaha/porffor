@@ -1,0 +1,296 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11117541972506112298,
+  "run_kind": "matrix-filter-leaf",
+  "total": 34,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 12,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 12,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/statements/try-completion.js",
+      "path": "staging/sm/statements/try-completion.js",
+      "duration_ms": 15978
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/try-completion.js",
+      "path": "staging/sm/statements/try-completion.js",
+      "duration_ms": 15921
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-inof-finally.js",
+      "path": "staging/sm/statements/for-inof-finally.js",
+      "duration_ms": 12176
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-inof-finally.js",
+      "path": "staging/sm/statements/for-inof-finally.js",
+      "duration_ms": 12167
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-of-iterator-close-throw.js",
+      "path": "staging/sm/statements/for-of-iterator-close-throw.js",
+      "duration_ms": 11983
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-of-iterator-close-throw.js",
+      "path": "staging/sm/statements/for-of-iterator-close-throw.js",
+      "duration_ms": 11942
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-inof-loop-const-declaration.js",
+      "path": "staging/sm/statements/for-inof-loop-const-declaration.js",
+      "duration_ms": 11261
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-inof-loop-const-declaration.js",
+      "path": "staging/sm/statements/for-inof-loop-const-declaration.js",
+      "duration_ms": 11251
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+      "path": "staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+      "duration_ms": 11096
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+      "path": "staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+      "duration_ms": 11055
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/statements/arrow-function-in-for-statement-head.js",
+      "test_path": "staging/sm/statements/arrow-function-in-for-statement-head.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5842
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/arrow-function-in-for-statement-head.js",
+      "test_path": "staging/sm/statements/arrow-function-in-for-statement-head.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5903
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-in-with-declaration.js",
+      "test_path": "staging/sm/statements/for-in-with-declaration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6149
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-in-with-declaration.js",
+      "test_path": "staging/sm/statements/for-in-with-declaration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6157
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+      "test_path": "staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+      "detail_hash": 3366044000637110293,
+      "duration_ms": 7695
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+      "test_path": "staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+      "detail_hash": 3366044000637110293,
+      "duration_ms": 7735
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-of-iterator-close.js",
+      "test_path": "staging/sm/statements/for-of-iterator-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1578240: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 10094
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-of-iterator-close.js",
+      "test_path": "staging/sm/statements/for-of-iterator-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1578256: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 10121
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/for-of-var-with-initializer.js",
+      "test_path": "staging/sm/statements/for-of-var-with-initializer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5833
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/for-of-var-with-initializer.js",
+      "test_path": "staging/sm/statements/for-of-var-with-initializer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5883
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/property-reference-self-assignment.js",
+      "test_path": "staging/sm/statements/property-reference-self-assignment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4183
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/property-reference-self-assignment.js",
+      "test_path": "staging/sm/statements/property-reference-self-assignment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4243
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/regress-642975.js",
+      "test_path": "staging/sm/statements/regress-642975.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4374
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/regress-642975.js",
+      "test_path": "staging/sm/statements/regress-642975.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4404
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/statements/try-completion.js",
+      "test_path": "staging/sm/statements/try-completion.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 15978
+    },
+    {
+      "test_id": "strict-script:staging/sm/statements/try-completion.js",
+      "test_path": "staging/sm/statements/try-completion.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 15921
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+    "strict-script:staging/sm/statements/arrow-function-at-end-of-for-statement-head.js",
+    "sloppy-script:staging/sm/statements/arrow-function-in-for-statement-head.js",
+    "strict-script:staging/sm/statements/arrow-function-in-for-statement-head.js",
+    "sloppy-script:staging/sm/statements/for-in-with-declaration.js",
+    "strict-script:staging/sm/statements/for-in-with-declaration.js",
+    "sloppy-script:staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+    "strict-script:staging/sm/statements/for-in-with-gc-and-unvisited-deletion.js",
+    "sloppy-script:staging/sm/statements/for-inof-finally.js",
+    "strict-script:staging/sm/statements/for-inof-finally.js",
+    "sloppy-script:staging/sm/statements/for-inof-loop-const-declaration.js",
+    "strict-script:staging/sm/statements/for-inof-loop-const-declaration.js",
+    "sloppy-script:staging/sm/statements/for-inof-name-iteration-expression-contains-index-string.js",
+    "strict-script:staging/sm/statements/for-inof-name-iteration-expression-contains-index-string.js",
+    "sloppy-script:staging/sm/statements/for-loop-declaration-contains-computed-name.js",
+    "strict-script:staging/sm/statements/for-loop-declaration-contains-computed-name.js",
+    "sloppy-script:staging/sm/statements/for-loop-declaration-contains-initializer.js",
+    "strict-script:staging/sm/statements/for-loop-declaration-contains-initializer.js",
+    "sloppy-script:staging/sm/statements/for-of-iterator-close-throw.js",
+    "strict-script:staging/sm/statements/for-of-iterator-close-throw.js",
+    "sloppy-script:staging/sm/statements/for-of-iterator-close.js",
+    "strict-script:staging/sm/statements/for-of-iterator-close.js",
+    "sloppy-script:staging/sm/statements/for-of-iterator-primitive.js",
+    "strict-script:staging/sm/statements/for-of-iterator-primitive.js",
+    "sloppy-script:staging/sm/statements/for-of-var-with-initializer.js",
+    "strict-script:staging/sm/statements/for-of-var-with-initializer.js",
+    "sloppy-script:staging/sm/statements/if-constant-folding.js",
+    "strict-script:staging/sm/statements/if-constant-folding.js",
+    "sloppy-script:staging/sm/statements/property-reference-self-assignment.js",
+    "strict-script:staging/sm/statements/property-reference-self-assignment.js",
+    "sloppy-script:staging/sm/statements/regress-642975.js",
+    "strict-script:staging/sm/statements/regress-642975.js",
+    "sloppy-script:staging/sm/statements/try-completion.js",
+    "strict-script:staging/sm/statements/try-completion.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "statements"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

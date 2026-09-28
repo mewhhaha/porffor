@@ -1,0 +1,122 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10819573838338414260,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/punctuators/S7.7_A1.js",
+      "path": "language/punctuators/S7.7_A1.js",
+      "duration_ms": 11622
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A1.js",
+      "path": "language/punctuators/S7.7_A1.js",
+      "duration_ms": 10478
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T3.js",
+      "path": "language/punctuators/S7.7_A2_T3.js",
+      "duration_ms": 82
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T10.js",
+      "path": "language/punctuators/S7.7_A2_T10.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "sloppy-script:language/punctuators/S7.7_A2_T2.js",
+      "path": "language/punctuators/S7.7_A2_T2.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T2.js",
+      "path": "language/punctuators/S7.7_A2_T2.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T6.js",
+      "path": "language/punctuators/S7.7_A2_T6.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T7.js",
+      "path": "language/punctuators/S7.7_A2_T7.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "sloppy-script:language/punctuators/S7.7_A2_T1.js",
+      "path": "language/punctuators/S7.7_A2_T1.js",
+      "duration_ms": 80
+    },
+    {
+      "test_id": "strict-script:language/punctuators/S7.7_A2_T1.js",
+      "path": "language/punctuators/S7.7_A2_T1.js",
+      "duration_ms": 80
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/punctuators/S7.7_A1.js",
+    "strict-script:language/punctuators/S7.7_A1.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T1.js",
+    "strict-script:language/punctuators/S7.7_A2_T1.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T10.js",
+    "strict-script:language/punctuators/S7.7_A2_T10.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T2.js",
+    "strict-script:language/punctuators/S7.7_A2_T2.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T3.js",
+    "strict-script:language/punctuators/S7.7_A2_T3.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T4.js",
+    "strict-script:language/punctuators/S7.7_A2_T4.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T5.js",
+    "strict-script:language/punctuators/S7.7_A2_T5.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T6.js",
+    "strict-script:language/punctuators/S7.7_A2_T6.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T7.js",
+    "strict-script:language/punctuators/S7.7_A2_T7.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T8.js",
+    "strict-script:language/punctuators/S7.7_A2_T8.js",
+    "sloppy-script:language/punctuators/S7.7_A2_T9.js",
+    "strict-script:language/punctuators/S7.7_A2_T9.js"
+  ],
+  "matrix_path": [
+    "language",
+    "punctuators"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

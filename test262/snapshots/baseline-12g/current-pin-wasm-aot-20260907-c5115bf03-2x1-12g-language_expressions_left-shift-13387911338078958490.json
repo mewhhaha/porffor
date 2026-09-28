@@ -1,0 +1,291 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13387911338078958490,
+  "run_kind": "matrix-filter-leaf",
+  "total": 89,
+  "passed": 79,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 8,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 8,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 79
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/left-shift/order-of-evaluation.js",
+      "path": "language/expressions/left-shift/order-of-evaluation.js",
+      "duration_ms": 18173
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/order-of-evaluation.js",
+      "path": "language/expressions/left-shift/order-of-evaluation.js",
+      "duration_ms": 18089
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "duration_ms": 14812
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "duration_ms": 13876
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "duration_ms": 13753
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A2.1_T1.js",
+      "path": "language/expressions/left-shift/S11.7.1_A2.1_T1.js",
+      "duration_ms": 13618
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "duration_ms": 13432
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "duration_ms": 13330
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "duration_ms": 13318
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "path": "language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "duration_ms": 13299
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A1.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6541
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A1.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6652
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5401026 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 292515432419778792,
+      "duration_ms": 13753
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T1.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5412783 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 3797823188183493450,
+      "duration_ms": 13299
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5360451 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 9177254034031315274,
+      "duration_ms": 13876
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T2.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5372208 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 17730635590090746060,
+      "duration_ms": 13318
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5204682 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 15613889637944715466,
+      "duration_ms": 13330
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T3.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5216439 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 13019226856669541497,
+      "duration_ms": 13260
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5244235 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 7694918151838857601,
+      "duration_ms": 13432
+    },
+    {
+      "test_id": "strict-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "test_path": "language/expressions/left-shift/S11.7.1_A4_T4.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5255992 bytes, 119 locals); most locals: wasm[0]::function[29] (184878 bytes, 158 locals)",
+      "detail_hash": 6802652100725796617,
+      "duration_ms": 14812
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.1_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.1_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.1_T2.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.1_T2.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.1_T3.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.1_T3.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.2_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.2_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.3_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.3_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.4_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.4_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.4_T2.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.4_T2.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.4_T3.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A2.4_T3.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A2.4_T4.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T1.1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T1.1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T1.2.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T1.2.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T1.3.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T1.3.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T1.4.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T1.4.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T1.5.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T1.5.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.2.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.2.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.3.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.3.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.4.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.4.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.5.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.5.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.6.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.6.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.7.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.7.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.8.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.8.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A3_T2.9.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A3_T2.9.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A4_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A4_T2.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T3.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A4_T3.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A4_T4.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A5.1_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A5.1_T1.js",
+    "sloppy-script:language/expressions/left-shift/S11.7.1_A5.2_T1.js",
+    "strict-script:language/expressions/left-shift/S11.7.1_A5.2_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A1_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A1_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A2.1_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A2.1_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A2.2_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A2.2_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A2.3_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A2.3_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A3.1_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A3.1_T1.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A3.1_T2.js",
+    "strict-script:language/expressions/left-shift/S9.5_A3.1_T2.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A3.1_T3.js",
+    "strict-script:language/expressions/left-shift/S9.5_A3.1_T3.js",
+    "sloppy-script:language/expressions/left-shift/S9.5_A3.2_T1.js",
+    "strict-script:language/expressions/left-shift/S9.5_A3.2_T1.js",
+    "sloppy-script:language/expressions/left-shift/bigint-and-number.js",
+    "strict-script:language/expressions/left-shift/bigint-and-number.js",
+    "sloppy-script:language/expressions/left-shift/bigint-errors.js",
+    "strict-script:language/expressions/left-shift/bigint-errors.js",
+    "sloppy-script:language/expressions/left-shift/bigint-non-primitive.js",
+    "strict-script:language/expressions/left-shift/bigint-non-primitive.js",
+    "sloppy-script:language/expressions/left-shift/bigint-toprimitive.js",
+    "strict-script:language/expressions/left-shift/bigint-toprimitive.js",
+    "sloppy-script:language/expressions/left-shift/bigint-wrapped-values.js",
+    "strict-script:language/expressions/left-shift/bigint-wrapped-values.js",
+    "sloppy-script:language/expressions/left-shift/bigint.js",
+    "strict-script:language/expressions/left-shift/bigint.js",
+    "sloppy-script:language/expressions/left-shift/order-of-evaluation.js",
+    "strict-script:language/expressions/left-shift/order-of-evaluation.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "left-shift"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

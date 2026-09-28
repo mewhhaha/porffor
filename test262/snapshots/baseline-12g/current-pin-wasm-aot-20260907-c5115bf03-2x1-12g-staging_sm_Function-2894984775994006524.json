@@ -1,0 +1,686 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2894984775994006524,
+  "run_kind": "matrix-filter-leaf",
+  "total": 87,
+  "passed": 38,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 22,
+    "Unsupported": 27,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 13,
+    "Crash": 8,
+    "NotImplemented": 28,
+    "Success": 38
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-toString-builtin.js",
+      "path": "staging/sm/Function/function-toString-builtin.js",
+      "duration_ms": 360435
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-toString-builtin.js",
+      "path": "staging/sm/Function/function-toString-builtin.js",
+      "duration_ms": 360431
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-bind.js",
+      "path": "staging/sm/Function/function-bind.js",
+      "duration_ms": 360429
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-call.js",
+      "path": "staging/sm/Function/function-call.js",
+      "duration_ms": 360161
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/has-instance-jitted.js",
+      "path": "staging/sm/Function/has-instance-jitted.js",
+      "duration_ms": 360132
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-toString-builtin-name.js",
+      "path": "staging/sm/Function/function-toString-builtin-name.js",
+      "duration_ms": 360131
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/strict-arguments.js",
+      "path": "staging/sm/Function/strict-arguments.js",
+      "duration_ms": 53121
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/has-instance.js",
+      "path": "staging/sm/Function/has-instance.js",
+      "duration_ms": 18335
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/15.3.4.3-01.js",
+      "path": "staging/sm/Function/15.3.4.3-01.js",
+      "duration_ms": 15955
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/builtin-no-construct.js",
+      "path": "staging/sm/Function/builtin-no-construct.js",
+      "duration_ms": 15911
+    }
+  ],
+  "timeout_test_ids": [
+    "sloppy-script:staging/sm/Function/function-bind.js",
+    "sloppy-script:staging/sm/Function/function-call.js",
+    "strict-script:staging/sm/Function/function-toString-builtin-name.js",
+    "sloppy-script:staging/sm/Function/function-toString-builtin.js",
+    "strict-script:staging/sm/Function/function-toString-builtin.js",
+    "sloppy-script:staging/sm/Function/has-instance-jitted.js"
+  ],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Function/Function-with-eval.js",
+      "test_path": "staging/sm/Function/Function-with-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5542
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/Function-with-eval.js",
+      "test_path": "staging/sm/Function/Function-with-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5520
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/arguments-iterator.js",
+      "test_path": "staging/sm/Function/arguments-iterator.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 14150
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/arguments-parameter-shadowing.js",
+      "test_path": "staging/sm/Function/arguments-parameter-shadowing.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(true, false) to be true)",
+      "detail_hash": 9209149662995185067,
+      "duration_ms": 10337
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/arrow-has-duplicated.js",
+      "test_path": "staging/sm/Function/arrow-has-duplicated.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6468
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/bound-length-and-name.js",
+      "test_path": "staging/sm/Function/bound-length-and-name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1514592: Function.prototype.bind receiver is not callable)",
+      "detail_hash": 11411000611750517339,
+      "duration_ms": 8306
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/bound-length-and-name.js",
+      "test_path": "staging/sm/Function/bound-length-and-name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1514608: Function.prototype.bind receiver is not callable)",
+      "detail_hash": 11411000611750517339,
+      "duration_ms": 8388
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/bound-non-constructable.js",
+      "test_path": "staging/sm/Function/bound-non-constructable.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1543592: Function.prototype.bind receiver is not callable)",
+      "detail_hash": 11411000611750517339,
+      "duration_ms": 9200
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/bound-non-constructable.js",
+      "test_path": "staging/sm/Function/bound-non-constructable.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1543600: Function.prototype.bind receiver is not callable)",
+      "detail_hash": 11411000611750517339,
+      "duration_ms": 10208
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/constructor-binding.js",
+      "test_path": "staging/sm/Function/constructor-binding.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5551
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/constructor-binding.js",
+      "test_path": "staging/sm/Function/constructor-binding.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5540
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/create-function-parse-before-getprototype.js",
+      "test_path": "staging/sm/Function/create-function-parse-before-getprototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1517632: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9433
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/create-function-parse-before-getprototype.js",
+      "test_path": "staging/sm/Function/create-function-parse-before-getprototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1517648: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 11568
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-bind.js",
+      "test_path": "staging/sm/Function/function-bind.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360429ms",
+      "detail_hash": 3277313511653589299,
+      "duration_ms": 360429
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-call.js",
+      "test_path": "staging/sm/Function/function-call.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360161ms",
+      "detail_hash": 6695451687109331488,
+      "duration_ms": 360161
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-caller-restrictions.js",
+      "test_path": "staging/sm/Function/function-caller-restrictions.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1512048: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 9424
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+      "test_path": "staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7633
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+      "test_path": "staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7662
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-assignment.js",
+      "test_path": "staging/sm/Function/function-name-assignment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7622
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-binding.js",
+      "test_path": "staging/sm/Function/function-name-binding.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5742
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-name-binding.js",
+      "test_path": "staging/sm/Function/function-name-binding.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5731
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-computed-01.js",
+      "test_path": "staging/sm/Function/function-name-computed-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<anonymous>, func) to be true)",
+      "detail_hash": 11052568129832993046,
+      "duration_ms": 11697
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-name-computed-01.js",
+      "test_path": "staging/sm/Function/function-name-computed-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<anonymous>, func) to be true)",
+      "detail_hash": 11052568129832993046,
+      "duration_ms": 11727
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-computed-02.js",
+      "test_path": "staging/sm/Function/function-name-computed-02.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<anonymous>, 1) to be true)",
+      "detail_hash": 10192516054439884943,
+      "duration_ms": 10810
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-name-computed-02.js",
+      "test_path": "staging/sm/Function/function-name-computed-02.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<anonymous>, 1) to be true)",
+      "detail_hash": 10192516054439884943,
+      "duration_ms": 11273
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-for.js",
+      "test_path": "staging/sm/Function/function-name-for.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5008
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-method.js",
+      "test_path": "staging/sm/Function/function-name-method.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 15111
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-name-method.js",
+      "test_path": "staging/sm/Function/function-name-method.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 15127
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-name-property.js",
+      "test_path": "staging/sm/Function/function-name-property.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5088
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-name-property.js",
+      "test_path": "staging/sm/Function/function-name-property.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4919
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-toString-builtin-name.js",
+      "test_path": "staging/sm/Function/function-toString-builtin-name.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1575448: RegExp.prototype.exec unsupported pattern)",
+      "detail_hash": 7329146270662904045,
+      "duration_ms": 13872
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-toString-builtin-name.js",
+      "test_path": "staging/sm/Function/function-toString-builtin-name.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360131ms",
+      "detail_hash": 7463258916411307714,
+      "duration_ms": 360131
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/function-toString-builtin.js",
+      "test_path": "staging/sm/Function/function-toString-builtin.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360435ms",
+      "detail_hash": 16874686504918632861,
+      "duration_ms": 360435
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/function-toString-builtin.js",
+      "test_path": "staging/sm/Function/function-toString-builtin.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360431ms",
+      "detail_hash": 2864174118256425134,
+      "duration_ms": 360431
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/has-instance-jitted.js",
+      "test_path": "staging/sm/Function/has-instance-jitted.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360132ms",
+      "detail_hash": 8905774206565417196,
+      "duration_ms": 360132
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/implicit-this-in-parameter-expression.js",
+      "test_path": "staging/sm/Function/implicit-this-in-parameter-expression.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 7592
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/invalid-parameter-list.js",
+      "test_path": "staging/sm/Function/invalid-parameter-list.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4657
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/invalid-parameter-list.js",
+      "test_path": "staging/sm/Function/invalid-parameter-list.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4666
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/line-terminator-before-arrow.js",
+      "test_path": "staging/sm/Function/line-terminator-before-arrow.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6545
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/line-terminator-before-arrow.js",
+      "test_path": "staging/sm/Function/line-terminator-before-arrow.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6516
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/method-has-duplicated.js",
+      "test_path": "staging/sm/Function/method-has-duplicated.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6467
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/method-has-duplicated.js",
+      "test_path": "staging/sm/Function/method-has-duplicated.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6477
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/parameter-redeclaration.js",
+      "test_path": "staging/sm/Function/parameter-redeclaration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 7010
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/parameter-redeclaration.js",
+      "test_path": "staging/sm/Function/parameter-redeclaration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6486
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/rest-has-duplicated.js",
+      "test_path": "staging/sm/Function/rest-has-duplicated.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6466
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/rest-parameter-names.js",
+      "test_path": "staging/sm/Function/rest-parameter-names.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 10197
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/return-finally.js",
+      "test_path": "staging/sm/Function/return-finally.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: branch target label is not open at this point: its frame was closed or belongs to another body",
+      "detail_hash": 13304071803752953324,
+      "duration_ms": 11071
+    },
+    {
+      "test_id": "strict-script:staging/sm/Function/return-finally.js",
+      "test_path": "staging/sm/Function/return-finally.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: branch target label is not open at this point: its frame was closed or belongs to another body",
+      "detail_hash": 13304071803752953324,
+      "duration_ms": 10980
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Function/strict-arguments.js",
+      "test_path": "staging/sm/Function/strict-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 53121
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Function/10.2.1.1.6.js",
+    "sloppy-script:staging/sm/Function/15.3.4.3-01.js",
+    "sloppy-script:staging/sm/Function/Function-prototype.js",
+    "strict-script:staging/sm/Function/Function-prototype.js",
+    "sloppy-script:staging/sm/Function/Function-with-eval.js",
+    "strict-script:staging/sm/Function/Function-with-eval.js",
+    "sloppy-script:staging/sm/Function/arguments-caller-callee.js",
+    "sloppy-script:staging/sm/Function/arguments-extra-property.js",
+    "strict-script:staging/sm/Function/arguments-extra-property.js",
+    "sloppy-script:staging/sm/Function/arguments-iterator.js",
+    "sloppy-script:staging/sm/Function/arguments-parameter-shadowing.js",
+    "sloppy-script:staging/sm/Function/arguments-property-attributes.js",
+    "sloppy-script:staging/sm/Function/arrow-has-duplicated.js",
+    "sloppy-script:staging/sm/Function/bound-length-and-name.js",
+    "strict-script:staging/sm/Function/bound-length-and-name.js",
+    "sloppy-script:staging/sm/Function/bound-non-constructable.js",
+    "strict-script:staging/sm/Function/bound-non-constructable.js",
+    "sloppy-script:staging/sm/Function/builtin-no-construct.js",
+    "strict-script:staging/sm/Function/builtin-no-construct.js",
+    "sloppy-script:staging/sm/Function/builtin-no-prototype.js",
+    "strict-script:staging/sm/Function/builtin-no-prototype.js",
+    "sloppy-script:staging/sm/Function/configurable-length-builtins.js",
+    "sloppy-script:staging/sm/Function/configurable-length.js",
+    "sloppy-script:staging/sm/Function/constructor-binding.js",
+    "strict-script:staging/sm/Function/constructor-binding.js",
+    "sloppy-script:staging/sm/Function/create-function-parse-before-getprototype.js",
+    "strict-script:staging/sm/Function/create-function-parse-before-getprototype.js",
+    "sloppy-script:staging/sm/Function/function-bind.js",
+    "sloppy-script:staging/sm/Function/function-call.js",
+    "sloppy-script:staging/sm/Function/function-caller-restrictions.js",
+    "sloppy-script:staging/sm/Function/function-caller.js",
+    "strict-script:staging/sm/Function/function-caller.js",
+    "sloppy-script:staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+    "strict-script:staging/sm/Function/function-constructor-toString-arguments-before-parsing-params.js",
+    "sloppy-script:staging/sm/Function/function-name-assignment.js",
+    "sloppy-script:staging/sm/Function/function-name-binding.js",
+    "strict-script:staging/sm/Function/function-name-binding.js",
+    "sloppy-script:staging/sm/Function/function-name-class.js",
+    "strict-script:staging/sm/Function/function-name-class.js",
+    "sloppy-script:staging/sm/Function/function-name-computed-01.js",
+    "strict-script:staging/sm/Function/function-name-computed-01.js",
+    "sloppy-script:staging/sm/Function/function-name-computed-02.js",
+    "strict-script:staging/sm/Function/function-name-computed-02.js",
+    "sloppy-script:staging/sm/Function/function-name-for.js",
+    "sloppy-script:staging/sm/Function/function-name-method.js",
+    "strict-script:staging/sm/Function/function-name-method.js",
+    "sloppy-script:staging/sm/Function/function-name-property.js",
+    "strict-script:staging/sm/Function/function-name-property.js",
+    "sloppy-script:staging/sm/Function/function-name.js",
+    "sloppy-script:staging/sm/Function/function-toString-builtin-name.js",
+    "strict-script:staging/sm/Function/function-toString-builtin-name.js",
+    "sloppy-script:staging/sm/Function/function-toString-builtin.js",
+    "strict-script:staging/sm/Function/function-toString-builtin.js",
+    "sloppy-script:staging/sm/Function/has-instance-jitted.js",
+    "strict-script:staging/sm/Function/has-instance-jitted.js",
+    "sloppy-script:staging/sm/Function/has-instance.js",
+    "strict-script:staging/sm/Function/has-instance.js",
+    "sloppy-script:staging/sm/Function/implicit-this-in-parameter-expression.js",
+    "sloppy-script:staging/sm/Function/invalid-parameter-list.js",
+    "strict-script:staging/sm/Function/invalid-parameter-list.js",
+    "sloppy-script:staging/sm/Function/line-terminator-before-arrow.js",
+    "strict-script:staging/sm/Function/line-terminator-before-arrow.js",
+    "sloppy-script:staging/sm/Function/method-has-duplicated.js",
+    "strict-script:staging/sm/Function/method-has-duplicated.js",
+    "sloppy-script:staging/sm/Function/parameter-redeclaration.js",
+    "strict-script:staging/sm/Function/parameter-redeclaration.js",
+    "sloppy-script:staging/sm/Function/redefine-arguments-length.js",
+    "strict-script:staging/sm/Function/redefine-arguments-length.js",
+    "sloppy-script:staging/sm/Function/regress-518103.js",
+    "strict-script:staging/sm/Function/regress-518103.js",
+    "sloppy-script:staging/sm/Function/regress-524826.js",
+    "strict-script:staging/sm/Function/regress-524826.js",
+    "sloppy-script:staging/sm/Function/regress-528082.js",
+    "strict-script:staging/sm/Function/regress-528082.js",
+    "sloppy-script:staging/sm/Function/regress-533254.js",
+    "strict-script:staging/sm/Function/regress-533254.js",
+    "sloppy-script:staging/sm/Function/regress-545980.js",
+    "strict-script:staging/sm/Function/regress-545980.js",
+    "sloppy-script:staging/sm/Function/rest-has-duplicated.js",
+    "sloppy-script:staging/sm/Function/rest-parameter-names.js",
+    "sloppy-script:staging/sm/Function/return-finally.js",
+    "strict-script:staging/sm/Function/return-finally.js",
+    "sloppy-script:staging/sm/Function/spread-iterator-primitive.js",
+    "strict-script:staging/sm/Function/spread-iterator-primitive.js",
+    "sloppy-script:staging/sm/Function/strict-arguments.js",
+    "sloppy-script:staging/sm/Function/throw-type-error.js",
+    "strict-script:staging/sm/Function/throw-type-error.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Function"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

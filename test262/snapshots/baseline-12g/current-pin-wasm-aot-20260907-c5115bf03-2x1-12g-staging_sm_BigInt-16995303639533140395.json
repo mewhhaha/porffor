@@ -1,0 +1,172 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16995303639533140395,
+  "run_kind": "matrix-filter-leaf",
+  "total": 10,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/BigInt/Number-conversion-rounding.js",
+      "path": "staging/sm/BigInt/Number-conversion-rounding.js",
+      "duration_ms": 15616
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/large-bit-length.js",
+      "path": "staging/sm/BigInt/large-bit-length.js",
+      "duration_ms": 15276
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/large-bit-length.js",
+      "path": "staging/sm/BigInt/large-bit-length.js",
+      "duration_ms": 15276
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/Number-conversion-rounding.js",
+      "path": "staging/sm/BigInt/Number-conversion-rounding.js",
+      "duration_ms": 14904
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/decimal.js",
+      "path": "staging/sm/BigInt/decimal.js",
+      "duration_ms": 11866
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/decimal.js",
+      "path": "staging/sm/BigInt/decimal.js",
+      "duration_ms": 11859
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/property-name.js",
+      "path": "staging/sm/BigInt/property-name.js",
+      "duration_ms": 9667
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/property-name.js",
+      "path": "staging/sm/BigInt/property-name.js",
+      "duration_ms": 9655
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/mod.js",
+      "path": "staging/sm/BigInt/mod.js",
+      "duration_ms": 9383
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/mod.js",
+      "path": "staging/sm/BigInt/mod.js",
+      "duration_ms": 9372
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/Number-conversion-rounding.js",
+      "test_path": "staging/sm/BigInt/Number-conversion-rounding.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[3] (6589915 bytes, 117 locals); most locals: wasm[0]::function[27] (184878 bytes, 158 locals)",
+      "detail_hash": 12009914488304271617,
+      "duration_ms": 14904
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/Number-conversion-rounding.js",
+      "test_path": "staging/sm/BigInt/Number-conversion-rounding.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[3] (6599999 bytes, 117 locals); most locals: wasm[0]::function[27] (184878 bytes, 158 locals)",
+      "detail_hash": 17053400240195339402,
+      "duration_ms": 15616
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/decimal.js",
+      "test_path": "staging/sm/BigInt/decimal.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1574048: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 11866
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/decimal.js",
+      "test_path": "staging/sm/BigInt/decimal.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1574064: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 11859
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/BigInt/property-name.js",
+      "test_path": "staging/sm/BigInt/property-name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<method>, 1) to be true)",
+      "detail_hash": 11935251347701720857,
+      "duration_ms": 9667
+    },
+    {
+      "test_id": "strict-script:staging/sm/BigInt/property-name.js",
+      "test_path": "staging/sm/BigInt/property-name.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<method>, 1) to be true)",
+      "detail_hash": 11935251347701720857,
+      "duration_ms": 9655
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/BigInt/Number-conversion-rounding.js",
+    "strict-script:staging/sm/BigInt/Number-conversion-rounding.js",
+    "sloppy-script:staging/sm/BigInt/decimal.js",
+    "strict-script:staging/sm/BigInt/decimal.js",
+    "sloppy-script:staging/sm/BigInt/large-bit-length.js",
+    "strict-script:staging/sm/BigInt/large-bit-length.js",
+    "sloppy-script:staging/sm/BigInt/mod.js",
+    "strict-script:staging/sm/BigInt/mod.js",
+    "sloppy-script:staging/sm/BigInt/property-name.js",
+    "strict-script:staging/sm/BigInt/property-name.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "BigInt"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

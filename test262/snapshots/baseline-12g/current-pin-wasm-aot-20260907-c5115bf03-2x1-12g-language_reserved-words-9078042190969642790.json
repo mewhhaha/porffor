@@ -1,0 +1,153 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9078042190969642790,
+  "run_kind": "matrix-filter-leaf",
+  "total": 53,
+  "passed": 53,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 53
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/reserved-words/ident-name-keyword-memberexpr.js",
+      "path": "language/reserved-words/ident-name-keyword-memberexpr.js",
+      "duration_ms": 13217
+    },
+    {
+      "test_id": "sloppy-script:language/reserved-words/ident-name-keyword-memberexpr.js",
+      "path": "language/reserved-words/ident-name-keyword-memberexpr.js",
+      "duration_ms": 13042
+    },
+    {
+      "test_id": "strict-script:language/reserved-words/ident-name-keyword-accessor.js",
+      "path": "language/reserved-words/ident-name-keyword-accessor.js",
+      "duration_ms": 12286
+    },
+    {
+      "test_id": "sloppy-script:language/reserved-words/ident-name-keyword-accessor.js",
+      "path": "language/reserved-words/ident-name-keyword-accessor.js",
+      "duration_ms": 12186
+    },
+    {
+      "test_id": "strict-script:language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+      "path": "language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+      "duration_ms": 10752
+    },
+    {
+      "test_id": "strict-script:language/reserved-words/ident-name-keyword-memberexpr-str.js",
+      "path": "language/reserved-words/ident-name-keyword-memberexpr-str.js",
+      "duration_ms": 10415
+    },
+    {
+      "test_id": "sloppy-script:language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+      "path": "language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+      "duration_ms": 10348
+    },
+    {
+      "test_id": "sloppy-script:language/reserved-words/ident-name-keyword-memberexpr-str.js",
+      "path": "language/reserved-words/ident-name-keyword-memberexpr-str.js",
+      "duration_ms": 10291
+    },
+    {
+      "test_id": "sloppy-script:language/reserved-words/unreserved-words.js",
+      "path": "language/reserved-words/unreserved-words.js",
+      "duration_ms": 10008
+    },
+    {
+      "test_id": "strict-script:language/reserved-words/unreserved-words.js",
+      "path": "language/reserved-words/unreserved-words.js",
+      "duration_ms": 9988
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "module:language/reserved-words/await-module.js",
+    "sloppy-script:language/reserved-words/await-script.js",
+    "strict-script:language/reserved-words/await-script.js",
+    "sloppy-script:language/reserved-words/ident-name-global-property-accessor.js",
+    "strict-script:language/reserved-words/ident-name-global-property-accessor.js",
+    "sloppy-script:language/reserved-words/ident-name-global-property-memberexpr-str.js",
+    "strict-script:language/reserved-words/ident-name-global-property-memberexpr-str.js",
+    "sloppy-script:language/reserved-words/ident-name-global-property-memberexpr.js",
+    "strict-script:language/reserved-words/ident-name-global-property-memberexpr.js",
+    "sloppy-script:language/reserved-words/ident-name-global-property-prop-name.js",
+    "strict-script:language/reserved-words/ident-name-global-property-prop-name.js",
+    "sloppy-script:language/reserved-words/ident-name-keyword-accessor.js",
+    "strict-script:language/reserved-words/ident-name-keyword-accessor.js",
+    "sloppy-script:language/reserved-words/ident-name-keyword-memberexpr-str.js",
+    "strict-script:language/reserved-words/ident-name-keyword-memberexpr-str.js",
+    "sloppy-script:language/reserved-words/ident-name-keyword-memberexpr.js",
+    "strict-script:language/reserved-words/ident-name-keyword-memberexpr.js",
+    "sloppy-script:language/reserved-words/ident-name-keyword-prop-name.js",
+    "strict-script:language/reserved-words/ident-name-keyword-prop-name.js",
+    "sloppy-script:language/reserved-words/ident-name-reserved-word-literal-accessor.js",
+    "strict-script:language/reserved-words/ident-name-reserved-word-literal-accessor.js",
+    "sloppy-script:language/reserved-words/ident-name-reserved-word-literal-memberexpr-str.js",
+    "strict-script:language/reserved-words/ident-name-reserved-word-literal-memberexpr-str.js",
+    "sloppy-script:language/reserved-words/ident-name-reserved-word-literal-memberexpr.js",
+    "strict-script:language/reserved-words/ident-name-reserved-word-literal-memberexpr.js",
+    "sloppy-script:language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+    "strict-script:language/reserved-words/ident-name-reserved-word-literal-prop-name.js",
+    "sloppy-script:language/reserved-words/ident-reference-false-escaped.js",
+    "strict-script:language/reserved-words/ident-reference-false-escaped.js",
+    "sloppy-script:language/reserved-words/ident-reference-false.js",
+    "strict-script:language/reserved-words/ident-reference-false.js",
+    "sloppy-script:language/reserved-words/ident-reference-null-escaped.js",
+    "strict-script:language/reserved-words/ident-reference-null-escaped.js",
+    "sloppy-script:language/reserved-words/ident-reference-null.js",
+    "strict-script:language/reserved-words/ident-reference-null.js",
+    "sloppy-script:language/reserved-words/ident-reference-true-escaped.js",
+    "strict-script:language/reserved-words/ident-reference-true-escaped.js",
+    "sloppy-script:language/reserved-words/ident-reference-true.js",
+    "strict-script:language/reserved-words/ident-reference-true.js",
+    "sloppy-script:language/reserved-words/label-ident-false-escaped.js",
+    "strict-script:language/reserved-words/label-ident-false-escaped.js",
+    "sloppy-script:language/reserved-words/label-ident-false.js",
+    "strict-script:language/reserved-words/label-ident-false.js",
+    "sloppy-script:language/reserved-words/label-ident-null-escaped.js",
+    "strict-script:language/reserved-words/label-ident-null-escaped.js",
+    "sloppy-script:language/reserved-words/label-ident-null.js",
+    "strict-script:language/reserved-words/label-ident-null.js",
+    "sloppy-script:language/reserved-words/label-ident-true-escaped.js",
+    "strict-script:language/reserved-words/label-ident-true-escaped.js",
+    "sloppy-script:language/reserved-words/label-ident-true.js",
+    "strict-script:language/reserved-words/label-ident-true.js",
+    "sloppy-script:language/reserved-words/unreserved-words.js",
+    "strict-script:language/reserved-words/unreserved-words.js"
+  ],
+  "matrix_path": [
+    "language",
+    "reserved-words"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

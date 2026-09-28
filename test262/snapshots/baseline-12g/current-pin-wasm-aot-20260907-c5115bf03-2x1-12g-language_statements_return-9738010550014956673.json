@@ -1,0 +1,132 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9738010550014956673,
+  "run_kind": "matrix-filter-leaf",
+  "total": 31,
+  "passed": 31,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 31
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/statements/return/S12.9_A5.js",
+      "path": "language/statements/return/S12.9_A5.js",
+      "duration_ms": 12147
+    },
+    {
+      "test_id": "sloppy-script:language/statements/return/line-terminators.js",
+      "path": "language/statements/return/line-terminators.js",
+      "duration_ms": 12010
+    },
+    {
+      "test_id": "strict-script:language/statements/return/S12.9_A4.js",
+      "path": "language/statements/return/S12.9_A4.js",
+      "duration_ms": 11151
+    },
+    {
+      "test_id": "strict-script:language/statements/return/line-terminators.js",
+      "path": "language/statements/return/line-terminators.js",
+      "duration_ms": 10974
+    },
+    {
+      "test_id": "sloppy-script:language/statements/return/S12.9_A5.js",
+      "path": "language/statements/return/S12.9_A5.js",
+      "duration_ms": 10420
+    },
+    {
+      "test_id": "strict-script:language/statements/return/S12.9_A3.js",
+      "path": "language/statements/return/S12.9_A3.js",
+      "duration_ms": 9956
+    },
+    {
+      "test_id": "sloppy-script:language/statements/return/S12.9_A4.js",
+      "path": "language/statements/return/S12.9_A4.js",
+      "duration_ms": 9926
+    },
+    {
+      "test_id": "sloppy-script:language/statements/return/S12.9_A3.js",
+      "path": "language/statements/return/S12.9_A3.js",
+      "duration_ms": 9766
+    },
+    {
+      "test_id": "strict-script:language/statements/return/12.9-1.js",
+      "path": "language/statements/return/12.9-1.js",
+      "duration_ms": 8186
+    },
+    {
+      "test_id": "strict-script:language/statements/return/tco.js",
+      "path": "language/statements/return/tco.js",
+      "duration_ms": 7524
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/return/12.9-1.js",
+    "strict-script:language/statements/return/12.9-1.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T1.js",
+    "strict-script:language/statements/return/S12.9_A1_T1.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T10.js",
+    "strict-script:language/statements/return/S12.9_A1_T10.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T2.js",
+    "strict-script:language/statements/return/S12.9_A1_T2.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T3.js",
+    "strict-script:language/statements/return/S12.9_A1_T3.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T4.js",
+    "strict-script:language/statements/return/S12.9_A1_T4.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T5.js",
+    "strict-script:language/statements/return/S12.9_A1_T5.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T6.js",
+    "strict-script:language/statements/return/S12.9_A1_T6.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T7.js",
+    "strict-script:language/statements/return/S12.9_A1_T7.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T8.js",
+    "strict-script:language/statements/return/S12.9_A1_T8.js",
+    "sloppy-script:language/statements/return/S12.9_A1_T9.js",
+    "strict-script:language/statements/return/S12.9_A1_T9.js",
+    "sloppy-script:language/statements/return/S12.9_A3.js",
+    "strict-script:language/statements/return/S12.9_A3.js",
+    "sloppy-script:language/statements/return/S12.9_A4.js",
+    "strict-script:language/statements/return/S12.9_A4.js",
+    "sloppy-script:language/statements/return/S12.9_A5.js",
+    "strict-script:language/statements/return/S12.9_A5.js",
+    "sloppy-script:language/statements/return/line-terminators.js",
+    "strict-script:language/statements/return/line-terminators.js",
+    "strict-script:language/statements/return/tco.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "return"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

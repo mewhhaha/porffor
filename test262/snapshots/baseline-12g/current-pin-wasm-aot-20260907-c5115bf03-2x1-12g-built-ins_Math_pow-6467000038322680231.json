@@ -1,0 +1,157 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6467000038322680231,
+  "run_kind": "matrix-filter-leaf",
+  "total": 56,
+  "passed": 56,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 56
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A14.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A14.js",
+      "duration_ms": 12705
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A3.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A3.js",
+      "duration_ms": 12135
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A22.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A22.js",
+      "duration_ms": 12125
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A22.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A22.js",
+      "duration_ms": 12094
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A21.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A21.js",
+      "duration_ms": 11976
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A3.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A3.js",
+      "duration_ms": 11844
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A9.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A9.js",
+      "duration_ms": 11450
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A23.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A23.js",
+      "duration_ms": 11371
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A14.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A14.js",
+      "duration_ms": 11316
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/pow/applying-the-exp-operator_A5.js",
+      "path": "built-ins/Math/pow/applying-the-exp-operator_A5.js",
+      "duration_ms": 11180
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A1.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A1.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A10.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A10.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A11.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A11.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A12.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A12.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A13.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A13.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A14.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A14.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A15.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A15.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A16.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A16.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A17.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A17.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A18.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A18.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A19.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A19.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A2.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A2.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A20.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A20.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A21.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A21.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A22.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A22.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A23.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A23.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A3.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A3.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A4.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A4.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A5.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A5.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A6.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A6.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A7.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A7.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A8.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A8.js",
+    "sloppy-script:built-ins/Math/pow/applying-the-exp-operator_A9.js",
+    "strict-script:built-ins/Math/pow/applying-the-exp-operator_A9.js",
+    "sloppy-script:built-ins/Math/pow/int32_min-exponent.js",
+    "strict-script:built-ins/Math/pow/int32_min-exponent.js",
+    "sloppy-script:built-ins/Math/pow/length.js",
+    "strict-script:built-ins/Math/pow/length.js",
+    "sloppy-script:built-ins/Math/pow/name.js",
+    "strict-script:built-ins/Math/pow/name.js",
+    "sloppy-script:built-ins/Math/pow/not-a-constructor.js",
+    "strict-script:built-ins/Math/pow/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/pow/prop-desc.js",
+    "strict-script:built-ins/Math/pow/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "pow"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

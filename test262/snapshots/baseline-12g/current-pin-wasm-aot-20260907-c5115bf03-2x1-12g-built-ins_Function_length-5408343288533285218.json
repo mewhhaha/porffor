@@ -1,0 +1,368 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5408343288533285218,
+  "run_kind": "matrix-filter-leaf",
+  "total": 26,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 24,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 24,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "duration_ms": 7348
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "duration_ms": 7299
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "duration_ms": 6752
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "duration_ms": 6602
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "duration_ms": 6590
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "duration_ms": 6581
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "duration_ms": 6536
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "duration_ms": 6531
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "duration_ms": 6479
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "path": "built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "duration_ms": 6476
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5842
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A1_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5815
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5838
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A1_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5836
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5806
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A1_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A1_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5785
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6193
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A2_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6193
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6131
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A2_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6171
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6134
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A2_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A2_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6163
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6581
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6531
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6476
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6602
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6479
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A3_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6536
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7348
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7299
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6752
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6590
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6460
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/length/S15.3.5.1_A4_T3.js",
+      "test_path": "built-ins/Function/length/S15.3.5.1_A4_T3.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6389
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Function/length/15.3.3.2-1.js",
+    "strict-script:built-ins/Function/length/15.3.3.2-1.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T1.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A1_T1.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T2.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A1_T2.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A1_T3.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A1_T3.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T1.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A2_T1.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T2.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A2_T2.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A2_T3.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A2_T3.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A3_T1.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A3_T2.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A3_T3.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A4_T1.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A4_T2.js",
+    "sloppy-script:built-ins/Function/length/S15.3.5.1_A4_T3.js",
+    "strict-script:built-ins/Function/length/S15.3.5.1_A4_T3.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Function",
+    "length"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,313 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3148114802237356984,
+  "run_kind": "matrix-filter-leaf",
+  "total": 21,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 17,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 19,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/syntax/yield-as-identifier.js",
+      "path": "staging/sm/syntax/yield-as-identifier.js",
+      "duration_ms": 10730
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/yield-as-identifier.js",
+      "path": "staging/sm/syntax/yield-as-identifier.js",
+      "duration_ms": 10689
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/omitted-catch-binding.js",
+      "path": "staging/sm/syntax/omitted-catch-binding.js",
+      "duration_ms": 7783
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/omitted-catch-binding.js",
+      "path": "staging/sm/syntax/omitted-catch-binding.js",
+      "duration_ms": 7632
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/escaped-let-static-identifier.js",
+      "path": "staging/sm/syntax/escaped-let-static-identifier.js",
+      "duration_ms": 7522
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/escaped-let-static-identifier.js",
+      "path": "staging/sm/syntax/escaped-let-static-identifier.js",
+      "duration_ms": 7190
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/let-as-label.js",
+      "path": "staging/sm/syntax/let-as-label.js",
+      "duration_ms": 6534
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/keyword-unescaped-requirement.js",
+      "path": "staging/sm/syntax/keyword-unescaped-requirement.js",
+      "duration_ms": 6288
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/declaration-forbidden-in-label.js",
+      "path": "staging/sm/syntax/declaration-forbidden-in-label.js",
+      "duration_ms": 6093
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "path": "staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "duration_ms": 6016
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/bug1863308.js",
+      "test_path": "staging/sm/syntax/bug1863308.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5661
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/bug1863308.js",
+      "test_path": "staging/sm/syntax/bug1863308.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5933
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/class-error.js",
+      "test_path": "staging/sm/syntax/class-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5892
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/class-error.js",
+      "test_path": "staging/sm/syntax/class-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5903
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/declaration-forbidden-in-label.js",
+      "test_path": "staging/sm/syntax/declaration-forbidden-in-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5995
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/declaration-forbidden-in-label.js",
+      "test_path": "staging/sm/syntax/declaration-forbidden-in-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6093
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/escaped-let-static-identifier.js",
+      "test_path": "staging/sm/syntax/escaped-let-static-identifier.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7190
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/escaped-let-static-identifier.js",
+      "test_path": "staging/sm/syntax/escaped-let-static-identifier.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 7522
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/keyword-unescaped-requirement.js",
+      "test_path": "staging/sm/syntax/keyword-unescaped-requirement.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5982
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/keyword-unescaped-requirement.js",
+      "test_path": "staging/sm/syntax/keyword-unescaped-requirement.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6288
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/let-as-label.js",
+      "test_path": "staging/sm/syntax/let-as-label.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6534
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "test_path": "staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6016
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "test_path": "staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5869
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5048
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5209
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4324
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+      "test_path": "staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4364
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/syntax/yield-as-identifier.js",
+      "test_path": "staging/sm/syntax/yield-as-identifier.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2251696: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 10689
+    },
+    {
+      "test_id": "strict-script:staging/sm/syntax/yield-as-identifier.js",
+      "test_path": "staging/sm/syntax/yield-as-identifier.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2251704: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 10730
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/syntax/bug1863308.js",
+    "strict-script:staging/sm/syntax/bug1863308.js",
+    "sloppy-script:staging/sm/syntax/class-error.js",
+    "strict-script:staging/sm/syntax/class-error.js",
+    "sloppy-script:staging/sm/syntax/declaration-forbidden-in-label.js",
+    "strict-script:staging/sm/syntax/declaration-forbidden-in-label.js",
+    "sloppy-script:staging/sm/syntax/escaped-let-static-identifier.js",
+    "strict-script:staging/sm/syntax/escaped-let-static-identifier.js",
+    "sloppy-script:staging/sm/syntax/keyword-unescaped-requirement.js",
+    "strict-script:staging/sm/syntax/keyword-unescaped-requirement.js",
+    "sloppy-script:staging/sm/syntax/let-as-label.js",
+    "sloppy-script:staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+    "strict-script:staging/sm/syntax/linefeed-at-eof-in-unterminated-string-or-template.js",
+    "sloppy-script:staging/sm/syntax/omitted-catch-binding.js",
+    "strict-script:staging/sm/syntax/omitted-catch-binding.js",
+    "sloppy-script:staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+    "strict-script:staging/sm/syntax/syntax-parsed-arrow-then-bigint.js",
+    "sloppy-script:staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+    "strict-script:staging/sm/syntax/syntax-parsed-arrow-then-directive.js",
+    "sloppy-script:staging/sm/syntax/yield-as-identifier.js",
+    "strict-script:staging/sm/syntax/yield-as-identifier.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "syntax"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

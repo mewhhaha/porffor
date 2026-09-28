@@ -1,0 +1,149 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5710688776489611688,
+  "run_kind": "matrix-filter-leaf",
+  "total": 48,
+  "passed": 48,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 48
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+      "duration_ms": 17108
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+      "duration_ms": 17066
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/desc-realm.js",
+      "path": "built-ins/Proxy/defineProperty/desc-realm.js",
+      "duration_ms": 14882
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/null-handler-realm.js",
+      "path": "built-ins/Proxy/defineProperty/null-handler-realm.js",
+      "duration_ms": 14078
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+      "path": "built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+      "duration_ms": 13528
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+      "path": "built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+      "duration_ms": 13428
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+      "path": "built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+      "duration_ms": 13403
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+      "path": "built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+      "duration_ms": 13305
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 12992
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 12982
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/defineProperty/call-parameters.js",
+    "strict-script:built-ins/Proxy/defineProperty/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/desc-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/desc-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/null-handler-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/null-handler-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/null-handler.js",
+    "strict-script:built-ins/Proxy/defineProperty/null-handler.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+    "strict-script:built-ins/Proxy/defineProperty/return-boolean-and-define-target.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/defineProperty/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-configurable-desc-not-configurable-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-configurable-desc-not-configurable-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-configurable-desc-not-configurable.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-configurable-desc-not-configurable.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-not-configurable-target-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-not-configurable-target-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-not-configurable-target.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-not-configurable-target.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-not-compatible-descriptor.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-not-configurable-writable-desc-not-writable.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-not-configurable-writable-desc-not-writable.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-undefined-not-configurable-descriptor-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-undefined-not-configurable-descriptor-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-undefined-not-configurable-descriptor.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-undefined-not-configurable-descriptor.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible.js",
+    "strict-script:built-ins/Proxy/defineProperty/targetdesc-undefined-target-is-not-extensible.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-is-undefined.js",
+    "sloppy-script:built-ins/Proxy/defineProperty/trap-return-is-false.js",
+    "strict-script:built-ins/Proxy/defineProperty/trap-return-is-false.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "defineProperty"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

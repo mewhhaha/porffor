@@ -1,0 +1,158 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1739916181399571395,
+  "run_kind": "matrix-filter-leaf",
+  "total": 58,
+  "passed": 58,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 58
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+      "path": "built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+      "duration_ms": 10612
+    },
+    {
+      "test_id": "strict-script:built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+      "path": "built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+      "duration_ms": 10575
+    },
+    {
+      "test_id": "strict-script:built-ins/WeakRef/proto-from-ctor-realm.js",
+      "path": "built-ins/WeakRef/proto-from-ctor-realm.js",
+      "duration_ms": 10410
+    },
+    {
+      "test_id": "sloppy-script:built-ins/WeakRef/proto-from-ctor-realm.js",
+      "path": "built-ins/WeakRef/proto-from-ctor-realm.js",
+      "duration_ms": 10342
+    },
+    {
+      "test_id": "sloppy-script:built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+      "path": "built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+      "duration_ms": 9800
+    },
+    {
+      "test_id": "strict-script:built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+      "path": "built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+      "duration_ms": 9798
+    },
+    {
+      "test_id": "sloppy-script:built-ins/WeakRef/constructor.js",
+      "path": "built-ins/WeakRef/constructor.js",
+      "duration_ms": 9561
+    },
+    {
+      "test_id": "strict-script:built-ins/WeakRef/proto.js",
+      "path": "built-ins/WeakRef/proto.js",
+      "duration_ms": 9513
+    },
+    {
+      "test_id": "strict-script:built-ins/WeakRef/prop-desc.js",
+      "path": "built-ins/WeakRef/prop-desc.js",
+      "duration_ms": 9511
+    },
+    {
+      "test_id": "sloppy-script:built-ins/WeakRef/proto.js",
+      "path": "built-ins/WeakRef/proto.js",
+      "duration_ms": 9408
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/WeakRef/constructor.js",
+    "strict-script:built-ins/WeakRef/constructor.js",
+    "sloppy-script:built-ins/WeakRef/instance-extensible.js",
+    "strict-script:built-ins/WeakRef/instance-extensible.js",
+    "sloppy-script:built-ins/WeakRef/is-a-constructor.js",
+    "strict-script:built-ins/WeakRef/is-a-constructor.js",
+    "sloppy-script:built-ins/WeakRef/length.js",
+    "strict-script:built-ins/WeakRef/length.js",
+    "sloppy-script:built-ins/WeakRef/name.js",
+    "strict-script:built-ins/WeakRef/name.js",
+    "sloppy-script:built-ins/WeakRef/newtarget-prototype-is-not-object.js",
+    "strict-script:built-ins/WeakRef/newtarget-prototype-is-not-object.js",
+    "sloppy-script:built-ins/WeakRef/prop-desc.js",
+    "strict-script:built-ins/WeakRef/prop-desc.js",
+    "sloppy-script:built-ins/WeakRef/proto-from-ctor-realm.js",
+    "strict-script:built-ins/WeakRef/proto-from-ctor-realm.js",
+    "sloppy-script:built-ins/WeakRef/proto.js",
+    "strict-script:built-ins/WeakRef/proto.js",
+    "sloppy-script:built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+    "strict-script:built-ins/WeakRef/prototype-from-newtarget-abrupt.js",
+    "sloppy-script:built-ins/WeakRef/prototype-from-newtarget-custom.js",
+    "strict-script:built-ins/WeakRef/prototype-from-newtarget-custom.js",
+    "sloppy-script:built-ins/WeakRef/prototype-from-newtarget.js",
+    "strict-script:built-ins/WeakRef/prototype-from-newtarget.js",
+    "sloppy-script:built-ins/WeakRef/prototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/WeakRef/prototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/WeakRef/prototype/constructor.js",
+    "strict-script:built-ins/WeakRef/prototype/constructor.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/custom-this.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/custom-this.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/length.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/length.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/name.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/name.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/not-a-constructor.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/not-a-constructor.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/prop-desc.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/prop-desc.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/return-object-target.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/return-object-target.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/return-symbol-target.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/return-symbol-target.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/this-does-not-have-internal-target-throws.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/this-does-not-have-internal-target-throws.js",
+    "sloppy-script:built-ins/WeakRef/prototype/deref/this-not-object-throws.js",
+    "strict-script:built-ins/WeakRef/prototype/deref/this-not-object-throws.js",
+    "sloppy-script:built-ins/WeakRef/prototype/prop-desc.js",
+    "strict-script:built-ins/WeakRef/prototype/prop-desc.js",
+    "sloppy-script:built-ins/WeakRef/prototype/proto.js",
+    "strict-script:built-ins/WeakRef/prototype/proto.js",
+    "sloppy-script:built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+    "strict-script:built-ins/WeakRef/returns-new-object-from-constructor-with-object-target.js",
+    "sloppy-script:built-ins/WeakRef/returns-new-object-from-constructor-with-symbol-target.js",
+    "strict-script:built-ins/WeakRef/returns-new-object-from-constructor-with-symbol-target.js",
+    "sloppy-script:built-ins/WeakRef/throws-when-target-cannot-be-held-weakly.js",
+    "strict-script:built-ins/WeakRef/throws-when-target-cannot-be-held-weakly.js",
+    "sloppy-script:built-ins/WeakRef/undefined-newtarget-throws.js",
+    "strict-script:built-ins/WeakRef/undefined-newtarget-throws.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "WeakRef"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

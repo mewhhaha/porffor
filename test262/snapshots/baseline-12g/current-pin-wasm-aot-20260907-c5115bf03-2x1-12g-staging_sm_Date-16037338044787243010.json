@@ -1,0 +1,393 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16037338044787243010,
+  "run_kind": "matrix-filter-leaf",
+  "total": 56,
+  "passed": 34,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 22,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 16,
+    "NotImplemented": 0,
+    "Success": 34
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "duration_ms": 360266
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "duration_ms": 360258
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "duration_ms": 360253
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "duration_ms": 360241
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "duration_ms": 359651
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "duration_ms": 359637
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "duration_ms": 294607
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "duration_ms": 294607
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "duration_ms": 293085
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "path": "staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "duration_ms": 293071
+    }
+  ],
+  "timeout_test_ids": [
+    "sloppy-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-8-of-8.js"
+  ],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Date/defaultvalue.js",
+      "test_path": "staging/sm/Date/defaultvalue.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(, 10) to be true)",
+      "detail_hash": 14014037695426906852,
+      "duration_ms": 17136
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/defaultvalue.js",
+      "test_path": "staging/sm/Date/defaultvalue.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(, 10) to be true)",
+      "detail_hash": 14014037695426906852,
+      "duration_ms": 18413
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-1-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-1-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x6d89e6 - lila!helper::heap_alloc\n    1: 0x6d8f30 - lila!helper::plain_object_alloc\n    2: 0x6f1f6c - lila!helper::proxy_construct\n    3: 0x144bf9 - lila!js::tzOffsetFromUnixTimestamp#f11\n    4: 0x6f0837 - lila!helper::proxy_call\n    5: 0x146bbd - lila!js::clearDSTOffsetCache#f12\n    6: 0x6f0837 - lila!helper::proxy_call\n    7: 0x152ce4 - lila!js::runDSTOffsetCachingTestsFraction#f7\n    8: 0x6f0837 - lila!helper::proxy_call\n    9:  0xc2518 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 3376811603468897293,
+      "duration_ms": 17811
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-1-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-1-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x6db2f1 - lila!helper::heap_alloc\n    1: 0x6db83b - lila!helper::plain_object_alloc\n    2: 0x6f4877 - lila!helper::proxy_construct\n    3: 0x1473e9 - lila!js::tzOffsetFromUnixTimestamp#f11\n    4: 0x6f3142 - lila!helper::proxy_call\n    5: 0x1493ed - lila!js::clearDSTOffsetCache#f12\n    6: 0x6f3142 - lila!helper::proxy_call\n    7: 0x1555ef - lila!js::runDSTOffsetCachingTestsFraction#f7\n    8: 0x6f3142 - lila!helper::proxy_call\n    9:  0xc4c7c - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 12047859585920523773,
+      "duration_ms": 16162
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-2-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 270707ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 15211697594692757333,
+      "duration_ms": 286460
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-2-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 260599ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 3566378421791040436,
+      "duration_ms": 286468
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360266ms",
+      "detail_hash": 14029455404861170737,
+      "duration_ms": 360266
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-3-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360253ms",
+      "detail_hash": 5896444892515063809,
+      "duration_ms": 360253
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-4-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 243777ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 205416429846163271,
+      "duration_ms": 268049
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-4-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 249397ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 3795759242958811139,
+      "duration_ms": 268062
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 341165ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 9184150133878623579,
+      "duration_ms": 359637
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-5-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 341227ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 921796825296685392,
+      "duration_ms": 359651
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 271557ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 17421069135204293811,
+      "duration_ms": 293071
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-6-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 275984ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 1229652129017863084,
+      "duration_ms": 293085
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360241ms",
+      "detail_hash": 5498644915243764287,
+      "duration_ms": 360241
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-7-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360258ms",
+      "detail_hash": 3218806357519797746,
+      "duration_ms": 360258
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 261438ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 4146880493022320573,
+      "duration_ms": 294607
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "test_path": "staging/sm/Date/dst-offset-caching-8-of-8.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 274112ms (wasm epoch interrupt, bound 60000ms)",
+      "detail_hash": 15819785226829142888,
+      "duration_ms": 294607
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/non-iso.js",
+      "test_path": "staging/sm/Date/non-iso.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 857819960000) to be true)",
+      "detail_hash": 10118271417558084161,
+      "duration_ms": 10338
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/non-iso.js",
+      "test_path": "staging/sm/Date/non-iso.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 857819960000) to be true)",
+      "detail_hash": 10118271417558084161,
+      "duration_ms": 11185
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Date/to-temporal-instant.js",
+      "test_path": "staging/sm/Date/to-temporal-instant.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1721320: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 11938
+    },
+    {
+      "test_id": "strict-script:staging/sm/Date/to-temporal-instant.js",
+      "test_path": "staging/sm/Date/to-temporal-instant.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1721328: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 11927
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Date/UTC-convert-all-arguments.js",
+    "strict-script:staging/sm/Date/UTC-convert-all-arguments.js",
+    "sloppy-script:staging/sm/Date/constructor-convert-all-arguments.js",
+    "strict-script:staging/sm/Date/constructor-convert-all-arguments.js",
+    "sloppy-script:staging/sm/Date/constructor-one-Date-argument.js",
+    "strict-script:staging/sm/Date/constructor-one-Date-argument.js",
+    "sloppy-script:staging/sm/Date/constructor-one-argument.js",
+    "strict-script:staging/sm/Date/constructor-one-argument.js",
+    "sloppy-script:staging/sm/Date/defaultvalue.js",
+    "strict-script:staging/sm/Date/defaultvalue.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-1-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-1-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-2-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-3-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-4-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-5-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-6-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-7-of-8.js",
+    "sloppy-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+    "strict-script:staging/sm/Date/dst-offset-caching-8-of-8.js",
+    "sloppy-script:staging/sm/Date/equality-to-boolean.js",
+    "strict-script:staging/sm/Date/equality-to-boolean.js",
+    "sloppy-script:staging/sm/Date/fractions.js",
+    "strict-script:staging/sm/Date/fractions.js",
+    "sloppy-script:staging/sm/Date/makeday-year-month-is-infinity.js",
+    "strict-script:staging/sm/Date/makeday-year-month-is-infinity.js",
+    "sloppy-script:staging/sm/Date/non-iso.js",
+    "strict-script:staging/sm/Date/non-iso.js",
+    "sloppy-script:staging/sm/Date/prototype-is-not-a-date.js",
+    "strict-script:staging/sm/Date/prototype-is-not-a-date.js",
+    "sloppy-script:staging/sm/Date/setTime-argument-shortcircuiting.js",
+    "strict-script:staging/sm/Date/setTime-argument-shortcircuiting.js",
+    "sloppy-script:staging/sm/Date/time-components-negative-zero.js",
+    "strict-script:staging/sm/Date/time-components-negative-zero.js",
+    "sloppy-script:staging/sm/Date/timeclip.js",
+    "strict-script:staging/sm/Date/timeclip.js",
+    "sloppy-script:staging/sm/Date/to-temporal-instant.js",
+    "strict-script:staging/sm/Date/to-temporal-instant.js",
+    "sloppy-script:staging/sm/Date/toISOString-01.js",
+    "strict-script:staging/sm/Date/toISOString-01.js",
+    "sloppy-script:staging/sm/Date/toISOString.js",
+    "strict-script:staging/sm/Date/toISOString.js",
+    "sloppy-script:staging/sm/Date/toJSON-01.js",
+    "strict-script:staging/sm/Date/toJSON-01.js",
+    "sloppy-script:staging/sm/Date/toPrimitive.js",
+    "strict-script:staging/sm/Date/toPrimitive.js",
+    "sloppy-script:staging/sm/Date/toString-generic.js",
+    "strict-script:staging/sm/Date/toString-generic.js",
+    "sloppy-script:staging/sm/Date/two-digit-years.js",
+    "strict-script:staging/sm/Date/two-digit-years.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Date"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

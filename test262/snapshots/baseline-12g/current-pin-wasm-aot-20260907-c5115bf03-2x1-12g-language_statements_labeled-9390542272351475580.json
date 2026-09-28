@@ -1,0 +1,179 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9390542272351475580,
+  "run_kind": "matrix-filter-leaf",
+  "total": 37,
+  "passed": 33,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 33
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/statements/labeled/S12.12_A1_T1.js",
+      "path": "language/statements/labeled/S12.12_A1_T1.js",
+      "duration_ms": 9715
+    },
+    {
+      "test_id": "strict-script:language/statements/labeled/S12.12_A1_T1.js",
+      "path": "language/statements/labeled/S12.12_A1_T1.js",
+      "duration_ms": 9062
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/let-identifier-with-newline.js",
+      "path": "language/statements/labeled/let-identifier-with-newline.js",
+      "duration_ms": 8859
+    },
+    {
+      "test_id": "strict-script:language/statements/labeled/tco.js",
+      "path": "language/statements/labeled/tco.js",
+      "duration_ms": 7634
+    },
+    {
+      "test_id": "strict-script:language/statements/labeled/value-await-non-module.js",
+      "path": "language/statements/labeled/value-await-non-module.js",
+      "duration_ms": 7494
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/let-block-with-newline.js",
+      "path": "language/statements/labeled/let-block-with-newline.js",
+      "duration_ms": 7110
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/value-yield-non-strict-escaped.js",
+      "path": "language/statements/labeled/value-yield-non-strict-escaped.js",
+      "duration_ms": 6989
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/value-yield-non-strict.js",
+      "path": "language/statements/labeled/value-yield-non-strict.js",
+      "duration_ms": 6809
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/cptn-break.js",
+      "path": "language/statements/labeled/cptn-break.js",
+      "duration_ms": 5570
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/cptn-nrml.js",
+      "path": "language/statements/labeled/cptn-nrml.js",
+      "duration_ms": 5562
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/labeled/cptn-break.js",
+      "test_path": "language/statements/labeled/cptn-break.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5570
+    },
+    {
+      "test_id": "strict-script:language/statements/labeled/cptn-break.js",
+      "test_path": "language/statements/labeled/cptn-break.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5470
+    },
+    {
+      "test_id": "sloppy-script:language/statements/labeled/cptn-nrml.js",
+      "test_path": "language/statements/labeled/cptn-nrml.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5562
+    },
+    {
+      "test_id": "strict-script:language/statements/labeled/cptn-nrml.js",
+      "test_path": "language/statements/labeled/cptn-nrml.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5461
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/labeled/S12.12_A1_T1.js",
+    "strict-script:language/statements/labeled/S12.12_A1_T1.js",
+    "sloppy-script:language/statements/labeled/continue.js",
+    "strict-script:language/statements/labeled/continue.js",
+    "sloppy-script:language/statements/labeled/cptn-break.js",
+    "strict-script:language/statements/labeled/cptn-break.js",
+    "sloppy-script:language/statements/labeled/cptn-nrml.js",
+    "strict-script:language/statements/labeled/cptn-nrml.js",
+    "sloppy-script:language/statements/labeled/decl-async-function.js",
+    "strict-script:language/statements/labeled/decl-async-function.js",
+    "sloppy-script:language/statements/labeled/decl-async-generator.js",
+    "strict-script:language/statements/labeled/decl-async-generator.js",
+    "sloppy-script:language/statements/labeled/decl-cls.js",
+    "strict-script:language/statements/labeled/decl-cls.js",
+    "sloppy-script:language/statements/labeled/decl-const.js",
+    "strict-script:language/statements/labeled/decl-const.js",
+    "strict-script:language/statements/labeled/decl-fun-strict.js",
+    "sloppy-script:language/statements/labeled/decl-gen.js",
+    "strict-script:language/statements/labeled/decl-gen.js",
+    "sloppy-script:language/statements/labeled/decl-let.js",
+    "strict-script:language/statements/labeled/decl-let.js",
+    "sloppy-script:language/statements/labeled/let-array-with-newline.js",
+    "sloppy-script:language/statements/labeled/let-block-with-newline.js",
+    "sloppy-script:language/statements/labeled/let-identifier-with-newline.js",
+    "sloppy-script:language/statements/labeled/static-init-invalid-await.js",
+    "strict-script:language/statements/labeled/static-init-invalid-await.js",
+    "strict-script:language/statements/labeled/tco.js",
+    "module:language/statements/labeled/value-await-module-escaped.js",
+    "module:language/statements/labeled/value-await-module.js",
+    "sloppy-script:language/statements/labeled/value-await-non-module-escaped.js",
+    "strict-script:language/statements/labeled/value-await-non-module-escaped.js",
+    "sloppy-script:language/statements/labeled/value-await-non-module.js",
+    "strict-script:language/statements/labeled/value-await-non-module.js",
+    "sloppy-script:language/statements/labeled/value-yield-non-strict-escaped.js",
+    "sloppy-script:language/statements/labeled/value-yield-non-strict.js",
+    "strict-script:language/statements/labeled/value-yield-strict-escaped.js",
+    "strict-script:language/statements/labeled/value-yield-strict.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "labeled"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

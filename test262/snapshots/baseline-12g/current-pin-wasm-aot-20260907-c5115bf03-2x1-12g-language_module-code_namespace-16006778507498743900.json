@@ -1,0 +1,220 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16006778507498743900,
+  "run_kind": "matrix-filter-leaf",
+  "total": 38,
+  "passed": 30,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 8,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 8,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 30
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:language/module-code/namespace/internals/delete-non-exported.js",
+      "path": "language/module-code/namespace/internals/delete-non-exported.js",
+      "duration_ms": 11316
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/define-own-property.js",
+      "path": "language/module-code/namespace/internals/define-own-property.js",
+      "duration_ms": 11018
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/has-property-str-found-init.js",
+      "path": "language/module-code/namespace/internals/has-property-str-found-init.js",
+      "duration_ms": 9620
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/has-property-str-found-uninit.js",
+      "path": "language/module-code/namespace/internals/has-property-str-found-uninit.js",
+      "duration_ms": 8993
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-nested-namespace-props-nrml.js",
+      "path": "language/module-code/namespace/internals/get-nested-namespace-props-nrml.js",
+      "duration_ms": 8894
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/delete-exported-uninit.js",
+      "path": "language/module-code/namespace/internals/delete-exported-uninit.js",
+      "duration_ms": 8873
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-own-property-str-found-init.js",
+      "path": "language/module-code/namespace/internals/get-own-property-str-found-init.js",
+      "duration_ms": 8742
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-nested-namespace-dflt-skip.js",
+      "path": "language/module-code/namespace/internals/get-nested-namespace-dflt-skip.js",
+      "duration_ms": 8595
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/has-property-sym-found.js",
+      "path": "language/module-code/namespace/internals/has-property-sym-found.js",
+      "duration_ms": 8540
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-own-property-str-found-uninit.js",
+      "path": "language/module-code/namespace/internals/get-own-property-str-found-uninit.js",
+      "duration_ms": 8502
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:language/module-code/namespace/internals/define-own-property.js",
+      "test_path": "language/module-code/namespace/internals/define-own-property.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Reflect.defineProperty: indirect Expected SameValue(false, true) to be true)",
+      "detail_hash": 6617687267094532732,
+      "duration_ms": 11018
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/enumerate-binding-uninit.js",
+      "test_path": "language/module-code/namespace/internals/enumerate-binding-uninit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1526432: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 5835
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-own-property-str-found-init.js",
+      "test_path": "language/module-code/namespace/internals/get-own-property-str-found-init.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(undefined, 201) to be true)",
+      "detail_hash": 5974194151066009397,
+      "duration_ms": 8742
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/get-own-property-str-found-uninit.js",
+      "test_path": "language/module-code/namespace/internals/get-own-property-str-found-uninit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1526928: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 8502
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/object-hasOwnProperty-binding-uninit.js",
+      "test_path": "language/module-code/namespace/internals/object-hasOwnProperty-binding-uninit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1519008: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 6176
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/object-keys-binding-uninit.js",
+      "test_path": "language/module-code/namespace/internals/object-keys-binding-uninit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1517560: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 5210
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/object-propertyIsEnumerable-binding-uninit.js",
+      "test_path": "language/module-code/namespace/internals/object-propertyIsEnumerable-binding-uninit.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1519016: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 5765
+    },
+    {
+      "test_id": "module:language/module-code/namespace/internals/super-access-to-tdz-binding.js",
+      "test_path": "language/module-code/namespace/internals/super-access-to-tdz-binding.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1522032: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 5382
+    }
+  ],
+  "completed_test_ids": [
+    "module:language/module-code/namespace/Symbol.iterator.js",
+    "module:language/module-code/namespace/Symbol.toStringTag.js",
+    "module:language/module-code/namespace/internals/define-own-property.js",
+    "module:language/module-code/namespace/internals/delete-exported-init.js",
+    "module:language/module-code/namespace/internals/delete-exported-uninit.js",
+    "module:language/module-code/namespace/internals/delete-non-exported.js",
+    "module:language/module-code/namespace/internals/enumerate-binding-uninit.js",
+    "module:language/module-code/namespace/internals/get-nested-namespace-dflt-skip.js",
+    "module:language/module-code/namespace/internals/get-nested-namespace-props-nrml.js",
+    "module:language/module-code/namespace/internals/get-own-property-str-found-init.js",
+    "module:language/module-code/namespace/internals/get-own-property-str-found-uninit.js",
+    "module:language/module-code/namespace/internals/get-own-property-str-not-found.js",
+    "module:language/module-code/namespace/internals/get-own-property-sym.js",
+    "module:language/module-code/namespace/internals/get-prototype-of.js",
+    "module:language/module-code/namespace/internals/get-str-found-init.js",
+    "module:language/module-code/namespace/internals/get-str-found-uninit.js",
+    "module:language/module-code/namespace/internals/get-str-initialize.js",
+    "module:language/module-code/namespace/internals/get-str-not-found.js",
+    "module:language/module-code/namespace/internals/get-str-update.js",
+    "module:language/module-code/namespace/internals/get-sym-found.js",
+    "module:language/module-code/namespace/internals/get-sym-not-found.js",
+    "module:language/module-code/namespace/internals/has-property-str-found-init.js",
+    "module:language/module-code/namespace/internals/has-property-str-found-uninit.js",
+    "module:language/module-code/namespace/internals/has-property-str-not-found.js",
+    "module:language/module-code/namespace/internals/has-property-sym-found.js",
+    "module:language/module-code/namespace/internals/has-property-sym-not-found.js",
+    "module:language/module-code/namespace/internals/is-extensible.js",
+    "module:language/module-code/namespace/internals/object-hasOwnProperty-binding-uninit.js",
+    "module:language/module-code/namespace/internals/object-keys-binding-uninit.js",
+    "module:language/module-code/namespace/internals/object-propertyIsEnumerable-binding-uninit.js",
+    "module:language/module-code/namespace/internals/own-property-keys-binding-types.js",
+    "module:language/module-code/namespace/internals/own-property-keys-sort.js",
+    "module:language/module-code/namespace/internals/prevent-extensions.js",
+    "module:language/module-code/namespace/internals/set-prototype-of-null.js",
+    "module:language/module-code/namespace/internals/set-prototype-of.js",
+    "module:language/module-code/namespace/internals/set.js",
+    "module:language/module-code/namespace/internals/super-access-to-tdz-binding.js",
+    "module:language/module-code/namespace/internals/super-set-to-tdz-binding-with-accessor.js"
+  ],
+  "matrix_path": [
+    "language",
+    "module-code",
+    "namespace"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

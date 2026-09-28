@@ -1,0 +1,156 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16958127174020732342,
+  "run_kind": "matrix-filter-leaf",
+  "total": 34,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T1.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.1_T1.js",
+      "duration_ms": 10757
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A4_T3.js",
+      "path": "language/expressions/logical-and/S11.11.1_A4_T3.js",
+      "duration_ms": 10684
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A3_T1.js",
+      "path": "language/expressions/logical-and/S11.11.1_A3_T1.js",
+      "duration_ms": 10421
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+      "duration_ms": 10405
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T4.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.1_T4.js",
+      "duration_ms": 10342
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+      "duration_ms": 10315
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T3.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.4_T3.js",
+      "duration_ms": 10314
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+      "duration_ms": 10302
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T1.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.4_T1.js",
+      "duration_ms": 10293
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+      "path": "language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+      "duration_ms": 10275
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/logical-and/S11.11.1_A1.js",
+      "test_path": "language/expressions/logical-and/S11.11.1_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6520
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-and/S11.11.1_A1.js",
+      "test_path": "language/expressions/logical-and/S11.11.1_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6622
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A1.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A1.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.1_T1.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T1.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.1_T2.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T2.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T3.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.1_T4.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.1_T4.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T1.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.4_T1.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A2.4_T2.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A2.4_T3.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A3_T1.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A3_T1.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A3_T2.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A3_T2.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A3_T3.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A3_T3.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A3_T4.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A3_T4.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A4_T1.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A4_T1.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A4_T2.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A4_T2.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A4_T3.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A4_T3.js",
+    "sloppy-script:language/expressions/logical-and/S11.11.1_A4_T4.js",
+    "strict-script:language/expressions/logical-and/S11.11.1_A4_T4.js",
+    "sloppy-script:language/expressions/logical-and/symbol-logical-and-evaluation.js",
+    "strict-script:language/expressions/logical-and/symbol-logical-and-evaluation.js",
+    "strict-script:language/expressions/logical-and/tco-right.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "logical-and"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

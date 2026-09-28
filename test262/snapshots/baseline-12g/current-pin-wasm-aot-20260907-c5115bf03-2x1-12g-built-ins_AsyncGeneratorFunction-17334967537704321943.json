@@ -1,0 +1,427 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17334967537704321943,
+  "run_kind": "matrix-filter-leaf",
+  "total": 46,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 16,
+    "Unsupported": 12,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 12,
+    "Crash": 0,
+    "NotImplemented": 16,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "duration_ms": 14937
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/prototype/extensibility.js",
+      "path": "built-ins/AsyncGeneratorFunction/prototype/extensibility.js",
+      "duration_ms": 12351
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "path": "built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "duration_ms": 12117
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "duration_ms": 11670
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "path": "built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "duration_ms": 11578
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "duration_ms": 11493
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "duration_ms": 11487
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "path": "built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "duration_ms": 10651
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "path": "built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "duration_ms": 10414
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/extensibility.js",
+      "path": "built-ins/AsyncGeneratorFunction/extensibility.js",
+      "duration_ms": 10125
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/has-instance.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/has-instance.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6169
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/has-instance.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/has-instance.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6169
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1525744: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 10414
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1525760: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 10651
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6417
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6682
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-length.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-length.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5573
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-length.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-length.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5645
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-name.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-name.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5565
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-name.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-name.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5632
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-prototype.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-prototype.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5574
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-prototype.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-prototype.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 5604
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1525736: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 11578
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1525744: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 12117
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519240: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 7647
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519248: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 7666
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519272: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 8683
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519288: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 8713
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1518920: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 9698
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1518928: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 9732
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519256: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 9165
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1519264: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 9411
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5022
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5083
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249768: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11487
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249776: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11493
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2250376: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 11670
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2250392: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 14937
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/AsyncGeneratorFunction/extensibility.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/extensibility.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/has-instance.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/has-instance.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-await-expr-in-param.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-construct-throws.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-length.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-length.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-name.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-name.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-prototype.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-prototype.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/instance-yield-expr-in-param.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-constructor-no-arguments.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-multiple-arguments.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-no-arguments.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/invoked-as-function-single-argument.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/is-a-constructor.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/length.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/length.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/name.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/name.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm-prototype.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/proto-from-ctor-realm.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/constructor.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/constructor.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/extensibility.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/extensibility.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/not-callable.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/not-callable.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/prop-desc.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/prop-desc.js",
+    "sloppy-script:built-ins/AsyncGeneratorFunction/prototype/prototype.js",
+    "strict-script:built-ins/AsyncGeneratorFunction/prototype/prototype.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AsyncGeneratorFunction"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

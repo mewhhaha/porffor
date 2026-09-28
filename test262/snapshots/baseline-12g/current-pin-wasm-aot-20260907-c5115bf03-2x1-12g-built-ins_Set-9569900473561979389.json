@@ -1,0 +1,144 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9569900473561979389,
+  "run_kind": "matrix-filter-leaf",
+  "total": 44,
+  "passed": 44,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 44
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Set/valid-values.js",
+      "path": "built-ins/Set/valid-values.js",
+      "duration_ms": 15257
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Set/valid-values.js",
+      "path": "built-ins/Set/valid-values.js",
+      "duration_ms": 15246
+    },
+    {
+      "test_id": "strict-script:built-ins/Set/set-undefined-newtarget.js",
+      "path": "built-ins/Set/set-undefined-newtarget.js",
+      "duration_ms": 12933
+    },
+    {
+      "test_id": "strict-script:built-ins/Set/set-iterator-close-after-add-failure.js",
+      "path": "built-ins/Set/set-iterator-close-after-add-failure.js",
+      "duration_ms": 12843
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Set/set-iterator-close-after-add-failure.js",
+      "path": "built-ins/Set/set-iterator-close-after-add-failure.js",
+      "duration_ms": 12833
+    },
+    {
+      "test_id": "strict-script:built-ins/Set/set-iterator-next-failure.js",
+      "path": "built-ins/Set/set-iterator-next-failure.js",
+      "duration_ms": 12824
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Set/set-undefined-newtarget.js",
+      "path": "built-ins/Set/set-undefined-newtarget.js",
+      "duration_ms": 12822
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Set/set-iterator-next-failure.js",
+      "path": "built-ins/Set/set-iterator-next-failure.js",
+      "duration_ms": 12808
+    },
+    {
+      "test_id": "strict-script:built-ins/Set/set-no-iterable.js",
+      "path": "built-ins/Set/set-no-iterable.js",
+      "duration_ms": 11917
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Set/set-no-iterable.js",
+      "path": "built-ins/Set/set-no-iterable.js",
+      "duration_ms": 11886
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Set/bigint-number-same-value.js",
+    "strict-script:built-ins/Set/bigint-number-same-value.js",
+    "sloppy-script:built-ins/Set/constructor.js",
+    "strict-script:built-ins/Set/constructor.js",
+    "sloppy-script:built-ins/Set/is-a-constructor.js",
+    "strict-script:built-ins/Set/is-a-constructor.js",
+    "sloppy-script:built-ins/Set/length.js",
+    "strict-script:built-ins/Set/length.js",
+    "sloppy-script:built-ins/Set/name.js",
+    "strict-script:built-ins/Set/name.js",
+    "sloppy-script:built-ins/Set/properties-of-the-set-prototype-object.js",
+    "strict-script:built-ins/Set/properties-of-the-set-prototype-object.js",
+    "sloppy-script:built-ins/Set/proto-from-ctor-realm.js",
+    "strict-script:built-ins/Set/proto-from-ctor-realm.js",
+    "sloppy-script:built-ins/Set/prototype-of-set.js",
+    "strict-script:built-ins/Set/prototype-of-set.js",
+    "sloppy-script:built-ins/Set/set-does-not-throw-when-add-is-not-callable.js",
+    "strict-script:built-ins/Set/set-does-not-throw-when-add-is-not-callable.js",
+    "sloppy-script:built-ins/Set/set-get-add-method-failure.js",
+    "strict-script:built-ins/Set/set-get-add-method-failure.js",
+    "sloppy-script:built-ins/Set/set-iterable-calls-add.js",
+    "strict-script:built-ins/Set/set-iterable-calls-add.js",
+    "sloppy-script:built-ins/Set/set-iterable-empty-does-not-call-add.js",
+    "strict-script:built-ins/Set/set-iterable-empty-does-not-call-add.js",
+    "sloppy-script:built-ins/Set/set-iterable-throws-when-add-is-not-callable.js",
+    "strict-script:built-ins/Set/set-iterable-throws-when-add-is-not-callable.js",
+    "sloppy-script:built-ins/Set/set-iterable.js",
+    "strict-script:built-ins/Set/set-iterable.js",
+    "sloppy-script:built-ins/Set/set-iterator-close-after-add-failure.js",
+    "strict-script:built-ins/Set/set-iterator-close-after-add-failure.js",
+    "sloppy-script:built-ins/Set/set-iterator-next-failure.js",
+    "strict-script:built-ins/Set/set-iterator-next-failure.js",
+    "sloppy-script:built-ins/Set/set-iterator-value-failure.js",
+    "strict-script:built-ins/Set/set-iterator-value-failure.js",
+    "sloppy-script:built-ins/Set/set-newtarget.js",
+    "strict-script:built-ins/Set/set-newtarget.js",
+    "sloppy-script:built-ins/Set/set-no-iterable.js",
+    "strict-script:built-ins/Set/set-no-iterable.js",
+    "sloppy-script:built-ins/Set/set-undefined-newtarget.js",
+    "strict-script:built-ins/Set/set-undefined-newtarget.js",
+    "sloppy-script:built-ins/Set/set.js",
+    "strict-script:built-ins/Set/set.js",
+    "sloppy-script:built-ins/Set/valid-values.js",
+    "strict-script:built-ins/Set/valid-values.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Set"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

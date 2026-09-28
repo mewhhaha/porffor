@@ -1,0 +1,35 @@
+{
+  "identity": {
+    "checkout_commit": "c5115bf03ba3fdec1a8eb9b3436a939431b2ca1f",
+    "checkout_tree": "c134fe2aec670b6a8de93dd82f5ce0d76d887bfe",
+    "environment": {
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8",
+      "LC_TIME": "C.UTF-8",
+      "LILA_CACHE_LIMIT_BYTES": "35433480192",
+      "LILA_FUNCTION_CACHE_LIMIT_BYTES": "34359738368",
+      "LILA_MODULE_CACHE_LIMIT_BYTES": "536870912",
+      "LILA_MODULE_MEMORY_CACHE_ENTRIES": null,
+      "LILA_PROGRAM_CACHE_LIMIT_BYTES": "536870912",
+      "LILA_TEST262_DISABLE_CASE_RUNNER": null,
+      "LILA_TEST262_FORCE_CASE_RUNNER": "1",
+      "RUST_MIN_STACK": null,
+      "TZ": "UTC"
+    },
+    "executable": "/home/mewhhaha/src/porffor/target/baseline-control/lila-c5115bf03",
+    "executable_sha256": "739119789093b85ac01f6ac87a799f75c3b92d3ca3d34f1493290f5668799aa1",
+    "execution_backend": "wasm-aot",
+    "isolate_cases": true,
+    "jobs": 1,
+    "repository": "/home/mewhhaha/src/porffor",
+    "snapshot_directory": "/home/mewhhaha/src/porffor/test262/snapshots",
+    "snapshot_name": "current-pin-wasm-aot-20260907-c5115bf03-8x1",
+    "source_input_files": 2995,
+    "source_inputs_sha256": "fe289371ed83871363e96f137ed3a71dc2f52413c48ea75bcfe419892f38542c",
+    "suite_files": 56490,
+    "suite_root": "/home/mewhhaha/src/porffor/test262/vendor/test262",
+    "suite_sha256": "59e1b7b5309385116cd270c4a43d91b31b2352fd686425c891b636c3f8005490",
+    "threads": 8
+  },
+  "schema_version": 1
+}

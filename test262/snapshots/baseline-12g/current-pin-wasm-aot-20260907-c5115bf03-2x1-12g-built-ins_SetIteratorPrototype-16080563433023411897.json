@@ -1,0 +1,122 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16080563433023411897,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/SetIteratorPrototype/next/name.js",
+      "path": "built-ins/SetIteratorPrototype/next/name.js",
+      "duration_ms": 12338
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/next/name.js",
+      "path": "built-ins/SetIteratorPrototype/next/name.js",
+      "duration_ms": 11572
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/next/length.js",
+      "path": "built-ins/SetIteratorPrototype/next/length.js",
+      "duration_ms": 10890
+    },
+    {
+      "test_id": "sloppy-script:built-ins/SetIteratorPrototype/next/iteration.js",
+      "path": "built-ins/SetIteratorPrototype/next/iteration.js",
+      "duration_ms": 10778
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/next/iteration.js",
+      "path": "built-ins/SetIteratorPrototype/next/iteration.js",
+      "duration_ms": 10742
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots-set.js",
+      "path": "built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots-set.js",
+      "duration_ms": 10667
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+      "path": "built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+      "duration_ms": 10389
+    },
+    {
+      "test_id": "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+      "path": "built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+      "duration_ms": 10378
+    },
+    {
+      "test_id": "strict-script:built-ins/SetIteratorPrototype/Symbol.toStringTag.js",
+      "path": "built-ins/SetIteratorPrototype/Symbol.toStringTag.js",
+      "duration_ms": 10283
+    },
+    {
+      "test_id": "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-values.js",
+      "path": "built-ins/SetIteratorPrototype/next/this-not-object-throw-values.js",
+      "duration_ms": 10234
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/SetIteratorPrototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/SetIteratorPrototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots-set.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots-set.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/does-not-have-mapiterator-internal-slots.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/iteration-mutable.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/iteration-mutable.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/iteration.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/iteration.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/length.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/length.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/name.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/name.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-entries.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-entries.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-keys.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-prototype-iterator.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-prototype-iterator.js",
+    "sloppy-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-values.js",
+    "strict-script:built-ins/SetIteratorPrototype/next/this-not-object-throw-values.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "SetIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,110 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6729308759980875333,
+  "run_kind": "matrix-filter-leaf",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Infinity/15.1.1.2-0.js",
+      "path": "built-ins/Infinity/15.1.1.2-0.js",
+      "duration_ms": 10199
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/15.1.1.2-0.js",
+      "path": "built-ins/Infinity/15.1.1.2-0.js",
+      "duration_ms": 10130
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/prop-desc.js",
+      "path": "built-ins/Infinity/prop-desc.js",
+      "duration_ms": 9916
+    },
+    {
+      "test_id": "strict-script:built-ins/Infinity/prop-desc.js",
+      "path": "built-ins/Infinity/prop-desc.js",
+      "duration_ms": 9910
+    },
+    {
+      "test_id": "strict-script:built-ins/Infinity/S15.1.1.2_A4.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A4.js",
+      "duration_ms": 9521
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/S15.1.1.2_A4.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A4.js",
+      "duration_ms": 9519
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/S15.1.1.2_A2_T2.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A2_T2.js",
+      "duration_ms": 9085
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/S15.1.1.2_A3_T2.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A3_T2.js",
+      "duration_ms": 9083
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Infinity/S15.1.1.2_A1.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A1.js",
+      "duration_ms": 7876
+    },
+    {
+      "test_id": "strict-script:built-ins/Infinity/S15.1.1.2_A1.js",
+      "path": "built-ins/Infinity/S15.1.1.2_A1.js",
+      "duration_ms": 7806
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Infinity/15.1.1.2-0.js",
+    "strict-script:built-ins/Infinity/15.1.1.2-0.js",
+    "sloppy-script:built-ins/Infinity/S15.1.1.2_A1.js",
+    "strict-script:built-ins/Infinity/S15.1.1.2_A1.js",
+    "sloppy-script:built-ins/Infinity/S15.1.1.2_A2_T2.js",
+    "sloppy-script:built-ins/Infinity/S15.1.1.2_A3_T2.js",
+    "sloppy-script:built-ins/Infinity/S15.1.1.2_A4.js",
+    "strict-script:built-ins/Infinity/S15.1.1.2_A4.js",
+    "sloppy-script:built-ins/Infinity/prop-desc.js",
+    "strict-script:built-ins/Infinity/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Infinity"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

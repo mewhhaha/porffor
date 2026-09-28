@@ -1,0 +1,196 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2856159552389519832,
+  "run_kind": "matrix-filter-leaf",
+  "total": 14,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 8,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 8,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/Set/is-disjoint-from.js",
+      "path": "staging/sm/Set/is-disjoint-from.js",
+      "duration_ms": 24474
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/is-superset-of.js",
+      "path": "staging/sm/Set/is-superset-of.js",
+      "duration_ms": 23643
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/is-superset-of.js",
+      "path": "staging/sm/Set/is-superset-of.js",
+      "duration_ms": 23222
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/union.js",
+      "path": "staging/sm/Set/union.js",
+      "duration_ms": 22947
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/union.js",
+      "path": "staging/sm/Set/union.js",
+      "duration_ms": 22785
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/symmetric-difference.js",
+      "path": "staging/sm/Set/symmetric-difference.js",
+      "duration_ms": 21754
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/is-subset-of.js",
+      "path": "staging/sm/Set/is-subset-of.js",
+      "duration_ms": 20508
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/is-subset-of.js",
+      "path": "staging/sm/Set/is-subset-of.js",
+      "duration_ms": 19988
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/is-disjoint-from.js",
+      "path": "staging/sm/Set/is-disjoint-from.js",
+      "duration_ms": 19609
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/intersection.js",
+      "path": "staging/sm/Set/intersection.js",
+      "duration_ms": 15738
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Set/difference.js",
+      "test_path": "staging/sm/Set/difference.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[9] (5096304 bytes, 247 locals); most locals: wasm[0]::function[9] (5096304 bytes, 247 locals)",
+      "detail_hash": 7685768044690811895,
+      "duration_ms": 14946
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/difference.js",
+      "test_path": "staging/sm/Set/difference.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[9] (5142930 bytes, 247 locals); most locals: wasm[0]::function[9] (5142930 bytes, 247 locals)",
+      "detail_hash": 15509914238316203965,
+      "duration_ms": 14653
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/intersection.js",
+      "test_path": "staging/sm/Set/intersection.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[9] (5166204 bytes, 251 locals); most locals: wasm[0]::function[9] (5166204 bytes, 251 locals)",
+      "detail_hash": 11854098117454649870,
+      "duration_ms": 14084
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/intersection.js",
+      "test_path": "staging/sm/Set/intersection.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[9] (5212831 bytes, 251 locals); most locals: wasm[0]::function[9] (5212831 bytes, 251 locals)",
+      "detail_hash": 11905530432982346866,
+      "duration_ms": 15738
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/symmetric-difference.js",
+      "test_path": "staging/sm/Set/symmetric-difference.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(3, 1) to be true)",
+      "detail_hash": 9070564496475010298,
+      "duration_ms": 21754
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/symmetric-difference.js",
+      "test_path": "staging/sm/Set/symmetric-difference.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[9] (4182655 bytes, 221 locals); most locals: wasm[0]::function[9] (4182655 bytes, 221 locals)",
+      "detail_hash": 12883283565842299475,
+      "duration_ms": 13154
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Set/union.js",
+      "test_path": "staging/sm/Set/union.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(3, 1) to be true)",
+      "detail_hash": 9070564496475010298,
+      "duration_ms": 22947
+    },
+    {
+      "test_id": "strict-script:staging/sm/Set/union.js",
+      "test_path": "staging/sm/Set/union.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(3, 1) to be true)",
+      "detail_hash": 9070564496475010298,
+      "duration_ms": 22785
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Set/difference.js",
+    "strict-script:staging/sm/Set/difference.js",
+    "sloppy-script:staging/sm/Set/intersection.js",
+    "strict-script:staging/sm/Set/intersection.js",
+    "sloppy-script:staging/sm/Set/is-disjoint-from.js",
+    "strict-script:staging/sm/Set/is-disjoint-from.js",
+    "sloppy-script:staging/sm/Set/is-subset-of.js",
+    "strict-script:staging/sm/Set/is-subset-of.js",
+    "sloppy-script:staging/sm/Set/is-superset-of.js",
+    "strict-script:staging/sm/Set/is-superset-of.js",
+    "sloppy-script:staging/sm/Set/symmetric-difference.js",
+    "strict-script:staging/sm/Set/symmetric-difference.js",
+    "sloppy-script:staging/sm/Set/union.js",
+    "strict-script:staging/sm/Set/union.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Set"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

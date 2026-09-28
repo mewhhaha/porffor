@@ -1,0 +1,217 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8647085569297120762,
+  "run_kind": "matrix-filter-leaf",
+  "total": 36,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "duration_ms": 15399
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "path": "built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "duration_ms": 15388
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+      "path": "built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+      "duration_ms": 13635
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+      "path": "built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+      "duration_ms": 13624
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/instance-length.js",
+      "path": "built-ins/AsyncFunction/instance-length.js",
+      "duration_ms": 13104
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/instance-length.js",
+      "path": "built-ins/AsyncFunction/instance-length.js",
+      "duration_ms": 13085
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/AsyncFunction-name.js",
+      "path": "built-ins/AsyncFunction/AsyncFunction-name.js",
+      "duration_ms": 12632
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/instance-has-name.js",
+      "path": "built-ins/AsyncFunction/instance-has-name.js",
+      "duration_ms": 12388
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/instance-has-name.js",
+      "path": "built-ins/AsyncFunction/instance-has-name.js",
+      "duration_ms": 12381
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/AsyncFunction-prototype.js",
+      "path": "built-ins/AsyncFunction/AsyncFunction-prototype.js",
+      "duration_ms": 12357
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/AsyncFunction-construct.js",
+      "test_path": "built-ins/AsyncFunction/AsyncFunction-construct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 820455555759327634,
+      "duration_ms": 5010
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/AsyncFunction-construct.js",
+      "test_path": "built-ins/AsyncFunction/AsyncFunction-construct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 820455555759327634,
+      "duration_ms": 4980
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/instance-construct-throws.js",
+      "test_path": "built-ins/AsyncFunction/instance-construct-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1514200: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 12172
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/instance-construct-throws.js",
+      "test_path": "built-ins/AsyncFunction/instance-construct-throws.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1514208: %ThrowTypeError%)",
+      "detail_hash": 10859394448158486531,
+      "duration_ms": 12178
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/is-a-constructor.js",
+      "test_path": "built-ins/AsyncFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5053
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/is-a-constructor.js",
+      "test_path": "built-ins/AsyncFunction/is-a-constructor.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5234
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249792: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 15399
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "test_path": "built-ins/AsyncFunction/proto-from-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2249800: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 15388
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-construct.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-construct.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-is-extensible.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-is-extensible.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-is-subclass.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-is-subclass.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-length.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-length.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-name.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-name.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction-prototype.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction-prototype.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunction.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunction.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunctionPrototype-is-extensible.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunctionPrototype-is-extensible.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunctionPrototype-is-not-callable.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunctionPrototype-is-not-callable.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunctionPrototype-prototype.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunctionPrototype-prototype.js",
+    "sloppy-script:built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+    "strict-script:built-ins/AsyncFunction/AsyncFunctionPrototype-to-string.js",
+    "sloppy-script:built-ins/AsyncFunction/instance-construct-throws.js",
+    "strict-script:built-ins/AsyncFunction/instance-construct-throws.js",
+    "sloppy-script:built-ins/AsyncFunction/instance-has-name.js",
+    "strict-script:built-ins/AsyncFunction/instance-has-name.js",
+    "sloppy-script:built-ins/AsyncFunction/instance-length.js",
+    "strict-script:built-ins/AsyncFunction/instance-length.js",
+    "sloppy-script:built-ins/AsyncFunction/instance-prototype-property.js",
+    "strict-script:built-ins/AsyncFunction/instance-prototype-property.js",
+    "sloppy-script:built-ins/AsyncFunction/is-a-constructor.js",
+    "strict-script:built-ins/AsyncFunction/is-a-constructor.js",
+    "sloppy-script:built-ins/AsyncFunction/is-not-a-global.js",
+    "strict-script:built-ins/AsyncFunction/is-not-a-global.js",
+    "sloppy-script:built-ins/AsyncFunction/proto-from-ctor-realm.js",
+    "strict-script:built-ins/AsyncFunction/proto-from-ctor-realm.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AsyncFunction"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

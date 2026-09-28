@@ -1,0 +1,422 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10997194434943388161,
+  "run_kind": "matrix-filter-leaf",
+  "total": 60,
+  "passed": 34,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 26,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 26,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 34
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/Math/expm1-monotonicity.js",
+      "path": "staging/sm/Math/expm1-monotonicity.js",
+      "duration_ms": 26000
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/expm1-monotonicity.js",
+      "path": "staging/sm/Math/expm1-monotonicity.js",
+      "duration_ms": 25967
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/f16round.js",
+      "path": "staging/sm/Math/f16round.js",
+      "duration_ms": 20588
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/f16round.js",
+      "path": "staging/sm/Math/f16round.js",
+      "duration_ms": 20553
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/20.2.2.ToNumber.js",
+      "path": "staging/sm/Math/20.2.2.ToNumber.js",
+      "duration_ms": 16081
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/fround.js",
+      "path": "staging/sm/Math/fround.js",
+      "duration_ms": 16057
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/fround.js",
+      "path": "staging/sm/Math/fround.js",
+      "duration_ms": 16038
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/20.2.2.ToNumber.js",
+      "path": "staging/sm/Math/20.2.2.ToNumber.js",
+      "duration_ms": 15467
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/log2-approx.js",
+      "path": "staging/sm/Math/log2-approx.js",
+      "duration_ms": 15123
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/log2-approx.js",
+      "path": "staging/sm/Math/log2-approx.js",
+      "duration_ms": 15074
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Math/acosh-approx.js",
+      "test_path": "staging/sm/Math/acosh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1794336: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 12329
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/acosh-approx.js",
+      "test_path": "staging/sm/Math/acosh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1794344: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 12431
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/asinh-approx.js",
+      "test_path": "staging/sm/Math/asinh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1805824: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13081
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/asinh-approx.js",
+      "test_path": "staging/sm/Math/asinh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1805840: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13586
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/atanh-approx.js",
+      "test_path": "staging/sm/Math/atanh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1796592: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 12720
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/atanh-approx.js",
+      "test_path": "staging/sm/Math/atanh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1796600: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13265
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/cbrt-approx.js",
+      "test_path": "staging/sm/Math/cbrt-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 1) to be true)",
+      "detail_hash": 12474739062555293223,
+      "duration_ms": 9021
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/cbrt-approx.js",
+      "test_path": "staging/sm/Math/cbrt-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 1) to be true)",
+      "detail_hash": 12474739062555293223,
+      "duration_ms": 9211
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/cosh-approx.js",
+      "test_path": "staging/sm/Math/cosh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, Infinity) to be true)",
+      "detail_hash": 17696836429643251025,
+      "duration_ms": 9876
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/cosh-approx.js",
+      "test_path": "staging/sm/Math/cosh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, Infinity) to be true)",
+      "detail_hash": 17696836429643251025,
+      "duration_ms": 9939
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/exp-exact.js",
+      "test_path": "staging/sm/Math/exp-exact.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 2.718281828459045) to be true)",
+      "detail_hash": 11582789556130803386,
+      "duration_ms": 8197
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/exp-exact.js",
+      "test_path": "staging/sm/Math/exp-exact.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(NaN, 2.718281828459045) to be true)",
+      "detail_hash": 11582789556130803386,
+      "duration_ms": 8251
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/expm1-approx.js",
+      "test_path": "staging/sm/Math/expm1-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588160: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 11129
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/expm1-approx.js",
+      "test_path": "staging/sm/Math/expm1-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588176: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 11123
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/expm1-monotonicity.js",
+      "test_path": "staging/sm/Math/expm1-monotonicity.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 25967
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/expm1-monotonicity.js",
+      "test_path": "staging/sm/Math/expm1-monotonicity.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 26000
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/log10-approx.js",
+      "test_path": "staging/sm/Math/log10-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1587880: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13235
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/log10-approx.js",
+      "test_path": "staging/sm/Math/log10-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1587888: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13194
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/log1p-approx.js",
+      "test_path": "staging/sm/Math/log1p-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1587984: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13709
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/log1p-approx.js",
+      "test_path": "staging/sm/Math/log1p-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588000: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 13731
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/log2-approx.js",
+      "test_path": "staging/sm/Math/log2-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588200: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 15074
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/log2-approx.js",
+      "test_path": "staging/sm/Math/log2-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588208: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 15123
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/sinh-approx.js",
+      "test_path": "staging/sm/Math/sinh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588392: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 14190
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/sinh-approx.js",
+      "test_path": "staging/sm/Math/sinh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1588408: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 14175
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Math/tanh-approx.js",
+      "test_path": "staging/sm/Math/tanh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1589144: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 12200
+    },
+    {
+      "test_id": "strict-script:staging/sm/Math/tanh-approx.js",
+      "test_path": "staging/sm/Math/tanh-approx.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1589152: Cannot read properties of null or undefined)",
+      "detail_hash": 6429290637190836501,
+      "duration_ms": 12210
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Math/20.2.2.ToNumber.js",
+    "strict-script:staging/sm/Math/20.2.2.ToNumber.js",
+    "sloppy-script:staging/sm/Math/acosh-approx.js",
+    "strict-script:staging/sm/Math/acosh-approx.js",
+    "sloppy-script:staging/sm/Math/acosh-exact.js",
+    "strict-script:staging/sm/Math/acosh-exact.js",
+    "sloppy-script:staging/sm/Math/asinh-approx.js",
+    "strict-script:staging/sm/Math/asinh-approx.js",
+    "sloppy-script:staging/sm/Math/asinh-exact.js",
+    "strict-script:staging/sm/Math/asinh-exact.js",
+    "sloppy-script:staging/sm/Math/atanh-approx.js",
+    "strict-script:staging/sm/Math/atanh-approx.js",
+    "sloppy-script:staging/sm/Math/atanh-exact.js",
+    "strict-script:staging/sm/Math/atanh-exact.js",
+    "sloppy-script:staging/sm/Math/cbrt-approx.js",
+    "strict-script:staging/sm/Math/cbrt-approx.js",
+    "sloppy-script:staging/sm/Math/cbrt-exact.js",
+    "strict-script:staging/sm/Math/cbrt-exact.js",
+    "sloppy-script:staging/sm/Math/clz32.js",
+    "strict-script:staging/sm/Math/clz32.js",
+    "sloppy-script:staging/sm/Math/cosh-approx.js",
+    "strict-script:staging/sm/Math/cosh-approx.js",
+    "sloppy-script:staging/sm/Math/cosh-exact.js",
+    "strict-script:staging/sm/Math/cosh-exact.js",
+    "sloppy-script:staging/sm/Math/exp-exact.js",
+    "strict-script:staging/sm/Math/exp-exact.js",
+    "sloppy-script:staging/sm/Math/expm1-approx.js",
+    "strict-script:staging/sm/Math/expm1-approx.js",
+    "sloppy-script:staging/sm/Math/expm1-exact.js",
+    "strict-script:staging/sm/Math/expm1-exact.js",
+    "sloppy-script:staging/sm/Math/expm1-monotonicity.js",
+    "strict-script:staging/sm/Math/expm1-monotonicity.js",
+    "sloppy-script:staging/sm/Math/f16round.js",
+    "strict-script:staging/sm/Math/f16round.js",
+    "sloppy-script:staging/sm/Math/fround.js",
+    "strict-script:staging/sm/Math/fround.js",
+    "sloppy-script:staging/sm/Math/log10-approx.js",
+    "strict-script:staging/sm/Math/log10-approx.js",
+    "sloppy-script:staging/sm/Math/log10-exact.js",
+    "strict-script:staging/sm/Math/log10-exact.js",
+    "sloppy-script:staging/sm/Math/log1p-approx.js",
+    "strict-script:staging/sm/Math/log1p-approx.js",
+    "sloppy-script:staging/sm/Math/log1p-exact.js",
+    "strict-script:staging/sm/Math/log1p-exact.js",
+    "sloppy-script:staging/sm/Math/log2-approx.js",
+    "strict-script:staging/sm/Math/log2-approx.js",
+    "sloppy-script:staging/sm/Math/log2-exact.js",
+    "strict-script:staging/sm/Math/log2-exact.js",
+    "sloppy-script:staging/sm/Math/sign.js",
+    "strict-script:staging/sm/Math/sign.js",
+    "sloppy-script:staging/sm/Math/sinh-approx.js",
+    "strict-script:staging/sm/Math/sinh-approx.js",
+    "sloppy-script:staging/sm/Math/sinh-exact.js",
+    "strict-script:staging/sm/Math/sinh-exact.js",
+    "sloppy-script:staging/sm/Math/tanh-approx.js",
+    "strict-script:staging/sm/Math/tanh-approx.js",
+    "sloppy-script:staging/sm/Math/tanh-exact.js",
+    "strict-script:staging/sm/Math/tanh-exact.js",
+    "sloppy-script:staging/sm/Math/trunc.js",
+    "strict-script:staging/sm/Math/trunc.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Math"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

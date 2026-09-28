@@ -1,0 +1,92 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10389105971464709168,
+  "run_kind": "matrix-filter-leaf",
+  "total": 5,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:staging/sm/module/bug1488117.js",
+      "path": "staging/sm/module/bug1488117.js",
+      "duration_ms": 7816
+    },
+    {
+      "test_id": "module:staging/sm/module/module-export-name-star.js",
+      "path": "staging/sm/module/module-export-name-star.js",
+      "duration_ms": 181
+    },
+    {
+      "test_id": "module:staging/sm/module/await-restricted-nested.js",
+      "path": "staging/sm/module/await-restricted-nested.js",
+      "duration_ms": 91
+    },
+    {
+      "test_id": "module:staging/sm/module/duplicate-exported-names-in-single-export-declaration.js",
+      "path": "staging/sm/module/duplicate-exported-names-in-single-export-declaration.js",
+      "duration_ms": 90
+    },
+    {
+      "test_id": "module:staging/sm/module/duplicate-exported-names-in-single-export-var-declaration.js",
+      "path": "staging/sm/module/duplicate-exported-names-in-single-export-var-declaration.js",
+      "duration_ms": 90
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:staging/sm/module/module-export-name-star.js",
+      "test_path": "staging/sm/module/module-export-name-star.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: no lowered script ir. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8184126009088080641,
+      "duration_ms": 181
+    }
+  ],
+  "completed_test_ids": [
+    "module:staging/sm/module/await-restricted-nested.js",
+    "module:staging/sm/module/bug1488117.js",
+    "module:staging/sm/module/duplicate-exported-names-in-single-export-declaration.js",
+    "module:staging/sm/module/duplicate-exported-names-in-single-export-var-declaration.js",
+    "module:staging/sm/module/module-export-name-star.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "module"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

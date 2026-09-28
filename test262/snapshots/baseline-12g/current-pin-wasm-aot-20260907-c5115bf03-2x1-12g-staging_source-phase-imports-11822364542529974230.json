@@ -1,0 +1,83 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11822364542529974230,
+  "run_kind": "matrix-filter-leaf",
+  "total": 2,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/source-phase-imports/import-source-source-text-module.js",
+      "path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "duration_ms": 14269
+    },
+    {
+      "test_id": "sloppy-script:staging/source-phase-imports/import-source-source-text-module.js",
+      "path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "duration_ms": 14265
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/source-phase-imports/import-source-source-text-module.js",
+      "test_path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:ReferenceError: unbound identifier",
+      "detail_hash": 9609895783756660590,
+      "duration_ms": 14265
+    },
+    {
+      "test_id": "strict-script:staging/source-phase-imports/import-source-source-text-module.js",
+      "test_path": "staging/source-phase-imports/import-source-source-text-module.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:ReferenceError: unbound identifier",
+      "detail_hash": 9609895783756660590,
+      "duration_ms": 14269
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/source-phase-imports/import-source-source-text-module.js",
+    "strict-script:staging/source-phase-imports/import-source-source-text-module.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "source-phase-imports"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

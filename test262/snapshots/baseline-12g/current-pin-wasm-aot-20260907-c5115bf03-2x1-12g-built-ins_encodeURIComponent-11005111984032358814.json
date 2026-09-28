@@ -1,0 +1,162 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11005111984032358814,
+  "run_kind": "matrix-filter-leaf",
+  "total": 62,
+  "passed": 62,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 62
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+      "duration_ms": 12224
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+      "duration_ms": 12224
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+      "duration_ms": 11983
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+      "duration_ms": 11633
+    },
+    {
+      "test_id": "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+      "duration_ms": 11512
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.1_T1.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A2.1_T1.js",
+      "duration_ms": 11469
+    },
+    {
+      "test_id": "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+      "duration_ms": 11298
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T2.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A1.2_T2.js",
+      "duration_ms": 11163
+    },
+    {
+      "test_id": "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+      "duration_ms": 10937
+    },
+    {
+      "test_id": "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+      "path": "built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+      "duration_ms": 10899
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.1_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.1_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.1_T2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.1_T2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.2_T2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A1.3_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A1.3_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.1_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.1_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.2_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.2_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.3_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.4_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.4_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.4_T2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.4_T2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A2.5_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A2.5_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A3.1_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A3.1_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T3.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A3.2_T3.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A3.3_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A3.3_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T3.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T3.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T4.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A4_T4.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.1.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.2.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.3.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.4.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.4.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.5.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.5.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.6.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.6.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A5.7.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A5.7.js",
+    "sloppy-script:built-ins/encodeURIComponent/S15.1.3.4_A6_T1.js",
+    "strict-script:built-ins/encodeURIComponent/S15.1.3.4_A6_T1.js",
+    "sloppy-script:built-ins/encodeURIComponent/name.js",
+    "strict-script:built-ins/encodeURIComponent/name.js",
+    "sloppy-script:built-ins/encodeURIComponent/not-a-constructor.js",
+    "strict-script:built-ins/encodeURIComponent/not-a-constructor.js",
+    "sloppy-script:built-ins/encodeURIComponent/prop-desc.js",
+    "strict-script:built-ins/encodeURIComponent/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "encodeURIComponent"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

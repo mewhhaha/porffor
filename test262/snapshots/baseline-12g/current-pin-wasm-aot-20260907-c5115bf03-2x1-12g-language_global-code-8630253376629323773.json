@@ -1,0 +1,386 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8630253376629323773,
+  "run_kind": "matrix-filter-leaf",
+  "total": 75,
+  "passed": 54,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 19,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 19,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 54
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/global-code/decl-func.js",
+      "path": "language/global-code/decl-func.js",
+      "duration_ms": 17578
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/S10.4.1_A1_T2.js",
+      "path": "language/global-code/S10.4.1_A1_T2.js",
+      "duration_ms": 15435
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-var.js",
+      "path": "language/global-code/script-decl-var.js",
+      "duration_ms": 14681
+    },
+    {
+      "test_id": "strict-script:language/global-code/unscopables-ignored.js",
+      "path": "language/global-code/unscopables-ignored.js",
+      "duration_ms": 13875
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/decl-func.js",
+      "path": "language/global-code/decl-func.js",
+      "duration_ms": 13594
+    },
+    {
+      "test_id": "strict-script:language/global-code/S10.1.7_A1_T1.js",
+      "path": "language/global-code/S10.1.7_A1_T1.js",
+      "duration_ms": 13393
+    },
+    {
+      "test_id": "strict-script:language/global-code/decl-lex.js",
+      "path": "language/global-code/decl-lex.js",
+      "duration_ms": 13372
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/S10.1.7_A1_T1.js",
+      "path": "language/global-code/S10.1.7_A1_T1.js",
+      "duration_ms": 13255
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-var.js",
+      "path": "language/global-code/script-decl-var.js",
+      "duration_ms": 13051
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/decl-var.js",
+      "path": "language/global-code/decl-var.js",
+      "duration_ms": 12489
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/global-code/decl-lex-restricted-global.js",
+      "test_path": "language/global-code/decl-lex-restricted-global.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] negative test expected runtime error but execution succeeded",
+      "detail_hash": 9325025967594038657,
+      "duration_ms": 6921
+    },
+    {
+      "test_id": "strict-script:language/global-code/decl-lex-restricted-global.js",
+      "test_path": "language/global-code/decl-lex-restricted-global.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] negative test expected runtime error but execution succeeded",
+      "detail_hash": 9325025967594038657,
+      "duration_ms": 6982
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-func-dups.js",
+      "test_path": "language/global-code/script-decl-func-dups.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1875616: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 8513
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-func-dups.js",
+      "test_path": "language/global-code/script-decl-func-dups.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1875624: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 10555
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-func.js",
+      "test_path": "language/global-code/script-decl-func.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904752: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 9849
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-func.js",
+      "test_path": "language/global-code/script-decl-func.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904760: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 11807
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex-deletion.js",
+      "test_path": "language/global-code/script-decl-lex-deletion.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1875512: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 11544
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex-lex.js",
+      "test_path": "language/global-code/script-decl-lex-lex.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1880992: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 10441
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-lex-lex.js",
+      "test_path": "language/global-code/script-decl-lex-lex.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1881000: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 10451
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex-restricted-global.js",
+      "test_path": "language/global-code/script-decl-lex-restricted-global.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1889240: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 9924
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-lex-restricted-global.js",
+      "test_path": "language/global-code/script-decl-lex-restricted-global.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1889248: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 10219
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex-var-declared-via-eval.js",
+      "test_path": "language/global-code/script-decl-lex-var-declared-via-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 3611
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-lex-var-declared-via-eval.js",
+      "test_path": "language/global-code/script-decl-lex-var-declared-via-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 3631
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex-var.js",
+      "test_path": "language/global-code/script-decl-lex-var.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1881640: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9505
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-lex-var.js",
+      "test_path": "language/global-code/script-decl-lex-var.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1881648: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9554
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-lex.js",
+      "test_path": "language/global-code/script-decl-lex.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1876256: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 12202
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-lex.js",
+      "test_path": "language/global-code/script-decl-lex.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1876264: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 12245
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-var-collision.js",
+      "test_path": "language/global-code/script-decl-var-collision.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1878384: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 10945
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-var-collision.js",
+      "test_path": "language/global-code/script-decl-var-collision.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1878392: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 10957
+    },
+    {
+      "test_id": "sloppy-script:language/global-code/script-decl-var.js",
+      "test_path": "language/global-code/script-decl-var.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904528: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 13051
+    },
+    {
+      "test_id": "strict-script:language/global-code/script-decl-var.js",
+      "test_path": "language/global-code/script-decl-var.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904536: $262.evalScript dynamic source evaluation escaped typed lowering)",
+      "detail_hash": 12814736359694830754,
+      "duration_ms": 14681
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/global-code/S10.1.7_A1_T1.js",
+    "strict-script:language/global-code/S10.1.7_A1_T1.js",
+    "sloppy-script:language/global-code/S10.4.1_A1_T1.js",
+    "sloppy-script:language/global-code/S10.4.1_A1_T2.js",
+    "strict-script:language/global-code/block-decl-strict.js",
+    "sloppy-script:language/global-code/decl-func-dup.js",
+    "strict-script:language/global-code/decl-func-dup.js",
+    "sloppy-script:language/global-code/decl-func.js",
+    "strict-script:language/global-code/decl-func.js",
+    "sloppy-script:language/global-code/decl-lex-configurable-global.js",
+    "strict-script:language/global-code/decl-lex-configurable-global.js",
+    "sloppy-script:language/global-code/decl-lex-deletion.js",
+    "sloppy-script:language/global-code/decl-lex-restricted-global.js",
+    "strict-script:language/global-code/decl-lex-restricted-global.js",
+    "sloppy-script:language/global-code/decl-lex.js",
+    "strict-script:language/global-code/decl-lex.js",
+    "sloppy-script:language/global-code/decl-var.js",
+    "strict-script:language/global-code/decl-var.js",
+    "sloppy-script:language/global-code/export.js",
+    "strict-script:language/global-code/export.js",
+    "sloppy-script:language/global-code/import.js",
+    "strict-script:language/global-code/import.js",
+    "sloppy-script:language/global-code/invalid-private-names-call-expression-bad-reference.js",
+    "strict-script:language/global-code/invalid-private-names-call-expression-bad-reference.js",
+    "sloppy-script:language/global-code/invalid-private-names-call-expression-this.js",
+    "strict-script:language/global-code/invalid-private-names-call-expression-this.js",
+    "sloppy-script:language/global-code/invalid-private-names-member-expression-bad-reference.js",
+    "strict-script:language/global-code/invalid-private-names-member-expression-bad-reference.js",
+    "sloppy-script:language/global-code/invalid-private-names-member-expression-this.js",
+    "strict-script:language/global-code/invalid-private-names-member-expression-this.js",
+    "sloppy-script:language/global-code/new.target-arrow.js",
+    "strict-script:language/global-code/new.target-arrow.js",
+    "sloppy-script:language/global-code/new.target.js",
+    "strict-script:language/global-code/new.target.js",
+    "sloppy-script:language/global-code/return.js",
+    "strict-script:language/global-code/return.js",
+    "sloppy-script:language/global-code/script-decl-func-dups.js",
+    "strict-script:language/global-code/script-decl-func-dups.js",
+    "sloppy-script:language/global-code/script-decl-func-err-non-configurable.js",
+    "strict-script:language/global-code/script-decl-func-err-non-configurable.js",
+    "sloppy-script:language/global-code/script-decl-func-err-non-extensible.js",
+    "strict-script:language/global-code/script-decl-func-err-non-extensible.js",
+    "sloppy-script:language/global-code/script-decl-func.js",
+    "strict-script:language/global-code/script-decl-func.js",
+    "sloppy-script:language/global-code/script-decl-lex-deletion.js",
+    "sloppy-script:language/global-code/script-decl-lex-lex.js",
+    "strict-script:language/global-code/script-decl-lex-lex.js",
+    "sloppy-script:language/global-code/script-decl-lex-restricted-global.js",
+    "strict-script:language/global-code/script-decl-lex-restricted-global.js",
+    "sloppy-script:language/global-code/script-decl-lex-var-declared-via-eval.js",
+    "strict-script:language/global-code/script-decl-lex-var-declared-via-eval.js",
+    "sloppy-script:language/global-code/script-decl-lex-var.js",
+    "strict-script:language/global-code/script-decl-lex-var.js",
+    "sloppy-script:language/global-code/script-decl-lex.js",
+    "strict-script:language/global-code/script-decl-lex.js",
+    "sloppy-script:language/global-code/script-decl-var-collision.js",
+    "strict-script:language/global-code/script-decl-var-collision.js",
+    "sloppy-script:language/global-code/script-decl-var-err.js",
+    "strict-script:language/global-code/script-decl-var-err.js",
+    "sloppy-script:language/global-code/script-decl-var.js",
+    "strict-script:language/global-code/script-decl-var.js",
+    "sloppy-script:language/global-code/super-call-arrow.js",
+    "strict-script:language/global-code/super-call-arrow.js",
+    "sloppy-script:language/global-code/super-call.js",
+    "strict-script:language/global-code/super-call.js",
+    "sloppy-script:language/global-code/super-prop-arrow.js",
+    "strict-script:language/global-code/super-prop-arrow.js",
+    "sloppy-script:language/global-code/super-prop.js",
+    "strict-script:language/global-code/super-prop.js",
+    "strict-script:language/global-code/switch-case-decl-strict.js",
+    "strict-script:language/global-code/switch-dflt-decl-strict.js",
+    "sloppy-script:language/global-code/unscopables-ignored.js",
+    "strict-script:language/global-code/unscopables-ignored.js",
+    "sloppy-script:language/global-code/yield-non-strict.js",
+    "strict-script:language/global-code/yield-strict.js"
+  ],
+  "matrix_path": [
+    "language",
+    "global-code"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

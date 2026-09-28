@@ -1,0 +1,113 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 510636211172315411,
+  "run_kind": "matrix-filter-leaf",
+  "total": 12,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Promise/withResolvers/result.js",
+      "path": "built-ins/Promise/withResolvers/result.js",
+      "duration_ms": 13598
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/withResolvers/result.js",
+      "path": "built-ins/Promise/withResolvers/result.js",
+      "duration_ms": 13598
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/withResolvers/ctx-non-object.js",
+      "path": "built-ins/Promise/withResolvers/ctx-non-object.js",
+      "duration_ms": 12613
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/withResolvers/ctx-non-object.js",
+      "path": "built-ins/Promise/withResolvers/ctx-non-object.js",
+      "duration_ms": 12582
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/withResolvers/promise.js",
+      "path": "built-ins/Promise/withResolvers/promise.js",
+      "duration_ms": 10540
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/withResolvers/promise.js",
+      "path": "built-ins/Promise/withResolvers/promise.js",
+      "duration_ms": 10530
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/withResolvers/ctx-non-ctor.js",
+      "path": "built-ins/Promise/withResolvers/ctx-non-ctor.js",
+      "duration_ms": 10225
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/withResolvers/ctx-non-ctor.js",
+      "path": "built-ins/Promise/withResolvers/ctx-non-ctor.js",
+      "duration_ms": 10214
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/withResolvers/ctx-ctor.js",
+      "path": "built-ins/Promise/withResolvers/ctx-ctor.js",
+      "duration_ms": 8421
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/withResolvers/ctx-ctor.js",
+      "path": "built-ins/Promise/withResolvers/ctx-ctor.js",
+      "duration_ms": 8416
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Promise/withResolvers/ctx-ctor.js",
+    "strict-script:built-ins/Promise/withResolvers/ctx-ctor.js",
+    "sloppy-script:built-ins/Promise/withResolvers/ctx-non-ctor.js",
+    "strict-script:built-ins/Promise/withResolvers/ctx-non-ctor.js",
+    "sloppy-script:built-ins/Promise/withResolvers/ctx-non-object.js",
+    "strict-script:built-ins/Promise/withResolvers/ctx-non-object.js",
+    "sloppy-script:built-ins/Promise/withResolvers/promise.js",
+    "strict-script:built-ins/Promise/withResolvers/promise.js",
+    "sloppy-script:built-ins/Promise/withResolvers/resolvers.js",
+    "strict-script:built-ins/Promise/withResolvers/resolvers.js",
+    "sloppy-script:built-ins/Promise/withResolvers/result.js",
+    "strict-script:built-ins/Promise/withResolvers/result.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Promise",
+    "withResolvers"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

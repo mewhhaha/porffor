@@ -1,0 +1,111 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 613711767583769801,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/subclass.js",
+      "path": "built-ins/Temporal/PlainYearMonth/subclass.js",
+      "duration_ms": 38408
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/subclass.js",
+      "path": "built-ins/Temporal/PlainYearMonth/subclass.js",
+      "duration_ms": 38407
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+      "path": "built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+      "duration_ms": 11758
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+      "path": "built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+      "duration_ms": 11757
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+      "duration_ms": 10926
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+      "duration_ms": 10242
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+      "duration_ms": 10071
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+      "duration_ms": 9620
+    },
+    {
+      "test_id": "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+      "duration_ms": 8936
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+      "path": "built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+      "duration_ms": 8872
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+    "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/basic.js",
+    "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+    "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/branding.js",
+    "sloppy-script:built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+    "strict-script:built-ins/Temporal/PlainYearMonth/prototype/year/prop-desc.js",
+    "sloppy-script:built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+    "strict-script:built-ins/Temporal/PlainYearMonth/refisoday-undefined.js",
+    "sloppy-script:built-ins/Temporal/PlainYearMonth/subclass.js",
+    "strict-script:built-ins/Temporal/PlainYearMonth/subclass.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Temporal",
+    "PlainYearMonth"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

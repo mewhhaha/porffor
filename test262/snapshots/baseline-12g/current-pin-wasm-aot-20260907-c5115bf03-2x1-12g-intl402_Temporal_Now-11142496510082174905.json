@@ -1,0 +1,148 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11142496510082174905,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "path": "intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "duration_ms": 9800
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "path": "intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "duration_ms": 9737
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "duration_ms": 9326
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "duration_ms": 9260
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "duration_ms": 8775
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "duration_ms": 8633
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "test_path": "intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1668104: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9737
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "test_path": "intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1668112: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9800
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "test_path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1664512: Invalid Temporal.ZonedDateTime time zone)",
+      "detail_hash": 3575116220593042605,
+      "duration_ms": 8633
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "test_path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1664520: Invalid Temporal.ZonedDateTime time zone)",
+      "detail_hash": 3575116220593042605,
+      "duration_ms": 8775
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "test_path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1664152: Invalid Temporal time zone identifier)",
+      "detail_hash": 7492063445788306513,
+      "duration_ms": 9326
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "test_path": "intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: RangeError: wasm-aot completion: object(handle@1664160: Invalid Temporal time zone identifier)",
+      "detail_hash": 7492063445788306513,
+      "duration_ms": 9260
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+    "strict-script:intl402/Temporal/Now/plainDateTimeISO/timezone-string-datetime.js",
+    "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+    "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string-datetime.js",
+    "sloppy-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js",
+    "strict-script:intl402/Temporal/Now/zonedDateTimeISO/timezone-string.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "Temporal",
+    "Now"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

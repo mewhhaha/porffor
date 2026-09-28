@@ -1,0 +1,83 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15542663337816248898,
+  "run_kind": "matrix-filter-leaf",
+  "total": 2,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:intl402/language-tags-with-underscore.js",
+      "path": "intl402/language-tags-with-underscore.js",
+      "duration_ms": 16948
+    },
+    {
+      "test_id": "strict-script:intl402/language-tags-with-underscore.js",
+      "path": "intl402/language-tags-with-underscore.js",
+      "duration_ms": 16937
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/language-tags-with-underscore.js",
+      "test_path": "intl402/language-tags-with-underscore.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@5726488: assert.throws received the wrong error constructor (Testing with Collator.))",
+      "detail_hash": 8121543278402743840,
+      "duration_ms": 16948
+    },
+    {
+      "test_id": "strict-script:intl402/language-tags-with-underscore.js",
+      "test_path": "intl402/language-tags-with-underscore.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@5726496: assert.throws received the wrong error constructor (Testing with Collator.))",
+      "detail_hash": 8121543278402743840,
+      "duration_ms": 16937
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/language-tags-with-underscore.js",
+    "strict-script:intl402/language-tags-with-underscore.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "language-tags-with-underscore.js"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

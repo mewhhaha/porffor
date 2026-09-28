@@ -1,0 +1,333 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4033328843946004105,
+  "run_kind": "matrix-filter-leaf",
+  "total": 21,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 21,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 21,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/eval/redeclared-arguments-in-param-expression-eval.js",
+      "path": "staging/sm/eval/redeclared-arguments-in-param-expression-eval.js",
+      "duration_ms": 9975
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-strictcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-strictcaller-indirect-strictcode.js",
+      "duration_ms": 6763
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-normalcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-strictcaller-indirect-normalcode.js",
+      "duration_ms": 6734
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-normalcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-normalcaller-indirect-normalcode.js",
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-strictcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-normalcaller-indirect-strictcode.js",
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/regress-531682.js",
+      "path": "staging/sm/eval/regress-531682.js",
+      "duration_ms": 6245
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-strictcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-strictcaller-direct-strictcode.js",
+      "duration_ms": 5893
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-direct-strictcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-normalcaller-direct-strictcode.js",
+      "duration_ms": 5812
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-normalcode.js",
+      "path": "staging/sm/eval/exhaustive-fun-strictcaller-direct-normalcode.js",
+      "duration_ms": 5803
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-direct-strictcode.js",
+      "path": "staging/sm/eval/exhaustive-global-normalcaller-direct-strictcode.js",
+      "duration_ms": 5798
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-direct-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-normalcaller-direct-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5771
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-direct-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-normalcaller-direct-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5812
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-normalcaller-indirect-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-normalcaller-indirect-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-strictcaller-direct-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5803
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-strictcaller-direct-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5893
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-strictcaller-indirect-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 6734
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-fun-strictcaller-indirect-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 6763
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-direct-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-normalcaller-direct-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5666
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-direct-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-normalcaller-direct-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5798
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-indirect-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-normalcaller-indirect-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 5672
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-indirect-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-normalcaller-indirect-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 5651
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/exhaustive-global-strictcaller-direct-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-strictcaller-direct-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5511
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/exhaustive-global-strictcaller-direct-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-strictcaller-direct-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5611
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/exhaustive-global-strictcaller-indirect-normalcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-strictcaller-indirect-normalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 5520
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/exhaustive-global-strictcaller-indirect-strictcode.js",
+      "test_path": "staging/sm/eval/exhaustive-global-strictcaller-indirect-strictcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires source compilation after AOT",
+      "detail_hash": 17457195203877687242,
+      "duration_ms": 5611
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/line-terminator-paragraph-terminator.js",
+      "test_path": "staging/sm/eval/line-terminator-paragraph-terminator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5480
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/line-terminator-paragraph-terminator.js",
+      "test_path": "staging/sm/eval/line-terminator-paragraph-terminator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5611
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/redeclared-arguments-in-param-expression-eval.js",
+      "test_path": "staging/sm/eval/redeclared-arguments-in-param-expression-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 9975
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/eval/regress-531682.js",
+      "test_path": "staging/sm/eval/regress-531682.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6245
+    },
+    {
+      "test_id": "strict-script:staging/sm/eval/undeclared-name-in-nested-strict-eval.js",
+      "test_path": "staging/sm/eval/undeclared-name-in-nested-strict-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5561
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-direct-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-direct-strictcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-normalcaller-indirect-strictcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-direct-strictcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-fun-strictcaller-indirect-strictcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-direct-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-direct-strictcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-indirect-normalcode.js",
+    "sloppy-script:staging/sm/eval/exhaustive-global-normalcaller-indirect-strictcode.js",
+    "strict-script:staging/sm/eval/exhaustive-global-strictcaller-direct-normalcode.js",
+    "strict-script:staging/sm/eval/exhaustive-global-strictcaller-direct-strictcode.js",
+    "strict-script:staging/sm/eval/exhaustive-global-strictcaller-indirect-normalcode.js",
+    "strict-script:staging/sm/eval/exhaustive-global-strictcaller-indirect-strictcode.js",
+    "sloppy-script:staging/sm/eval/line-terminator-paragraph-terminator.js",
+    "strict-script:staging/sm/eval/line-terminator-paragraph-terminator.js",
+    "sloppy-script:staging/sm/eval/redeclared-arguments-in-param-expression-eval.js",
+    "sloppy-script:staging/sm/eval/regress-531682.js",
+    "strict-script:staging/sm/eval/undeclared-name-in-nested-strict-eval.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "eval"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

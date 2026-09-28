@@ -1,0 +1,215 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3136534736747134068,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 33,
+  "passed": 25,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 6,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 25
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/statements/function/unscopables-with-in-nested-fn.js",
+      "path": "language/statements/function/unscopables-with-in-nested-fn.js",
+      "duration_ms": 16260
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/unscopables-with.js",
+      "path": "language/statements/function/unscopables-with.js",
+      "duration_ms": 12677
+    },
+    {
+      "test_id": "strict-script:language/statements/function/params-dflt-args-unmapped.js",
+      "path": "language/statements/function/params-dflt-args-unmapped.js",
+      "duration_ms": 8238
+    },
+    {
+      "test_id": "strict-script:language/statements/function/params-dflt-ref-arguments.js",
+      "path": "language/statements/function/params-dflt-ref-arguments.js",
+      "duration_ms": 8212
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/params-dflt-ref-arguments.js",
+      "path": "language/statements/function/params-dflt-ref-arguments.js",
+      "duration_ms": 8210
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/params-dflt-args-unmapped.js",
+      "path": "language/statements/function/params-dflt-args-unmapped.js",
+      "duration_ms": 8164
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/params-trailing-comma-multiple.js",
+      "path": "language/statements/function/params-trailing-comma-multiple.js",
+      "duration_ms": 8081
+    },
+    {
+      "test_id": "strict-script:language/statements/function/scope-paramsbody-var-open.js",
+      "path": "language/statements/function/scope-paramsbody-var-open.js",
+      "duration_ms": 8044
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/static-init-await-binding-valid.js",
+      "path": "language/statements/function/static-init-await-binding-valid.js",
+      "duration_ms": 7935
+    },
+    {
+      "test_id": "strict-script:language/statements/function/params-trailing-comma-multiple.js",
+      "path": "language/statements/function/params-trailing-comma-multiple.js",
+      "duration_ms": 7851
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/function/param-eval-stricteval.js",
+      "test_path": "language/statements/function/param-eval-stricteval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5921
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/scope-body-lex-distinct.js",
+      "test_path": "language/statements/function/scope-body-lex-distinct.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 7002
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/scope-param-elem-var-close.js",
+      "test_path": "language/statements/function/scope-param-elem-var-close.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5288
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/scope-param-elem-var-open.js",
+      "test_path": "language/statements/function/scope-param-elem-var-open.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5232
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/scope-param-rest-elem-var-close.js",
+      "test_path": "language/statements/function/scope-param-rest-elem-var-close.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5309
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/scope-param-rest-elem-var-open.js",
+      "test_path": "language/statements/function/scope-param-rest-elem-var-open.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5188
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/unscopables-with-in-nested-fn.js",
+      "test_path": "language/statements/function/unscopables-with-in-nested-fn.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1856360: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 16260
+    },
+    {
+      "test_id": "sloppy-script:language/statements/function/unscopables-with.js",
+      "test_path": "language/statements/function/unscopables-with.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1854240: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 12677
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/function/param-eval-non-strict.js",
+    "sloppy-script:language/statements/function/param-eval-strict-body.js",
+    "strict-script:language/statements/function/param-eval-strict.js",
+    "sloppy-script:language/statements/function/param-eval-stricteval.js",
+    "sloppy-script:language/statements/function/params-dflt-args-unmapped.js",
+    "strict-script:language/statements/function/params-dflt-args-unmapped.js",
+    "sloppy-script:language/statements/function/params-dflt-ref-arguments.js",
+    "strict-script:language/statements/function/params-dflt-ref-arguments.js",
+    "sloppy-script:language/statements/function/params-trailing-comma-multiple.js",
+    "strict-script:language/statements/function/params-trailing-comma-multiple.js",
+    "sloppy-script:language/statements/function/params-trailing-comma-single.js",
+    "strict-script:language/statements/function/params-trailing-comma-single.js",
+    "sloppy-script:language/statements/function/rest-param-strict-body.js",
+    "strict-script:language/statements/function/rest-param-strict-body.js",
+    "sloppy-script:language/statements/function/rest-params-trailing-comma-early-error.js",
+    "strict-script:language/statements/function/rest-params-trailing-comma-early-error.js",
+    "sloppy-script:language/statements/function/scope-body-lex-distinct.js",
+    "sloppy-script:language/statements/function/scope-param-elem-var-close.js",
+    "sloppy-script:language/statements/function/scope-param-elem-var-open.js",
+    "sloppy-script:language/statements/function/scope-param-rest-elem-var-close.js",
+    "sloppy-script:language/statements/function/scope-param-rest-elem-var-open.js",
+    "sloppy-script:language/statements/function/scope-paramsbody-var-close.js",
+    "strict-script:language/statements/function/scope-paramsbody-var-close.js",
+    "sloppy-script:language/statements/function/scope-paramsbody-var-open.js",
+    "strict-script:language/statements/function/scope-paramsbody-var-open.js",
+    "sloppy-script:language/statements/function/static-init-await-binding-invalid.js",
+    "strict-script:language/statements/function/static-init-await-binding-invalid.js",
+    "sloppy-script:language/statements/function/static-init-await-binding-valid.js",
+    "strict-script:language/statements/function/static-init-await-binding-valid.js",
+    "sloppy-script:language/statements/function/unscopables-with-in-nested-fn.js",
+    "sloppy-script:language/statements/function/unscopables-with.js",
+    "sloppy-script:language/statements/function/use-strict-with-non-simple-param.js",
+    "strict-script:language/statements/function/use-strict-with-non-simple-param.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "function"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

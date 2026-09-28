@@ -1,0 +1,129 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17526468620485411901,
+  "run_kind": "matrix-filter-leaf",
+  "total": 28,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/statements/throw/S12.13_A3_T6.js",
+      "path": "language/statements/throw/S12.13_A3_T6.js",
+      "duration_ms": 14280
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A3_T6.js",
+      "path": "language/statements/throw/S12.13_A3_T6.js",
+      "duration_ms": 14250
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A2_T6.js",
+      "path": "language/statements/throw/S12.13_A2_T6.js",
+      "duration_ms": 12611
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A2_T7.js",
+      "path": "language/statements/throw/S12.13_A2_T7.js",
+      "duration_ms": 12222
+    },
+    {
+      "test_id": "sloppy-script:language/statements/throw/S12.13_A2_T6.js",
+      "path": "language/statements/throw/S12.13_A2_T6.js",
+      "duration_ms": 11908
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A3_T2.js",
+      "path": "language/statements/throw/S12.13_A3_T2.js",
+      "duration_ms": 11256
+    },
+    {
+      "test_id": "sloppy-script:language/statements/throw/S12.13_A3_T2.js",
+      "path": "language/statements/throw/S12.13_A3_T2.js",
+      "duration_ms": 11065
+    },
+    {
+      "test_id": "sloppy-script:language/statements/throw/S12.13_A3_T4.js",
+      "path": "language/statements/throw/S12.13_A3_T4.js",
+      "duration_ms": 10822
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A3_T4.js",
+      "path": "language/statements/throw/S12.13_A3_T4.js",
+      "duration_ms": 10822
+    },
+    {
+      "test_id": "strict-script:language/statements/throw/S12.13_A2_T4.js",
+      "path": "language/statements/throw/S12.13_A2_T4.js",
+      "duration_ms": 10628
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/throw/S12.13_A1.js",
+    "strict-script:language/statements/throw/S12.13_A1.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T1.js",
+    "strict-script:language/statements/throw/S12.13_A2_T1.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T2.js",
+    "strict-script:language/statements/throw/S12.13_A2_T2.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T3.js",
+    "strict-script:language/statements/throw/S12.13_A2_T3.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T4.js",
+    "strict-script:language/statements/throw/S12.13_A2_T4.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T5.js",
+    "strict-script:language/statements/throw/S12.13_A2_T5.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T6.js",
+    "strict-script:language/statements/throw/S12.13_A2_T6.js",
+    "sloppy-script:language/statements/throw/S12.13_A2_T7.js",
+    "strict-script:language/statements/throw/S12.13_A2_T7.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T1.js",
+    "strict-script:language/statements/throw/S12.13_A3_T1.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T2.js",
+    "strict-script:language/statements/throw/S12.13_A3_T2.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T3.js",
+    "strict-script:language/statements/throw/S12.13_A3_T3.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T4.js",
+    "strict-script:language/statements/throw/S12.13_A3_T4.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T5.js",
+    "strict-script:language/statements/throw/S12.13_A3_T5.js",
+    "sloppy-script:language/statements/throw/S12.13_A3_T6.js",
+    "strict-script:language/statements/throw/S12.13_A3_T6.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "throw"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

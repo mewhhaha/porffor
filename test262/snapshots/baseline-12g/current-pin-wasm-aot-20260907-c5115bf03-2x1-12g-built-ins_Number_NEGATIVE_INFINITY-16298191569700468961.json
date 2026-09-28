@@ -1,0 +1,99 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16298191569700468961,
+  "run_kind": "matrix-filter-leaf",
+  "total": 8,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+      "duration_ms": 11471
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+      "duration_ms": 9926
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+      "duration_ms": 9923
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+      "duration_ms": 9459
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/value.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/value.js",
+      "duration_ms": 8776
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+      "duration_ms": 8402
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+      "duration_ms": 8401
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/NEGATIVE_INFINITY/value.js",
+      "path": "built-ins/Number/NEGATIVE_INFINITY/value.js",
+      "duration_ms": 6771
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+    "strict-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A1.js",
+    "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+    "strict-script:built-ins/Number/NEGATIVE_INFINITY/S15.7.3.5_A2.js",
+    "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+    "strict-script:built-ins/Number/NEGATIVE_INFINITY/prop-desc.js",
+    "sloppy-script:built-ins/Number/NEGATIVE_INFINITY/value.js",
+    "strict-script:built-ins/Number/NEGATIVE_INFINITY/value.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Number",
+    "NEGATIVE_INFINITY"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

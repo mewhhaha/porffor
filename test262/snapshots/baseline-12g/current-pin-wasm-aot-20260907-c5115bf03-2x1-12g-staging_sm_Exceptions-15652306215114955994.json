@@ -1,0 +1,75 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15652306215114955994,
+  "run_kind": "matrix-filter-leaf",
+  "total": 4,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Exceptions/error-property-enumerability.js",
+      "path": "staging/sm/Exceptions/error-property-enumerability.js",
+      "duration_ms": 12661
+    },
+    {
+      "test_id": "strict-script:staging/sm/Exceptions/error-property-enumerability.js",
+      "path": "staging/sm/Exceptions/error-property-enumerability.js",
+      "duration_ms": 12460
+    },
+    {
+      "test_id": "strict-script:staging/sm/Exceptions/error-expando-reconfigure.js",
+      "path": "staging/sm/Exceptions/error-expando-reconfigure.js",
+      "duration_ms": 10076
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Exceptions/error-expando-reconfigure.js",
+      "path": "staging/sm/Exceptions/error-expando-reconfigure.js",
+      "duration_ms": 9986
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Exceptions/error-expando-reconfigure.js",
+    "strict-script:staging/sm/Exceptions/error-expando-reconfigure.js",
+    "sloppy-script:staging/sm/Exceptions/error-property-enumerability.js",
+    "strict-script:staging/sm/Exceptions/error-property-enumerability.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Exceptions"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

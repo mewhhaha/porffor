@@ -1,0 +1,123 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 784649680716015722,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Math/round/S15.8.2.15_A7.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A7.js",
+      "duration_ms": 10604
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/round/S15.8.2.15_A7.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A7.js",
+      "duration_ms": 10380
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/round/S15.8.2.15_A5.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A5.js",
+      "duration_ms": 8775
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/round/not-a-constructor.js",
+      "path": "built-ins/Math/round/not-a-constructor.js",
+      "duration_ms": 8564
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/round/not-a-constructor.js",
+      "path": "built-ins/Math/round/not-a-constructor.js",
+      "duration_ms": 8554
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/round/S15.8.2.15_A5.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A5.js",
+      "duration_ms": 8533
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/round/S15.8.2.15_A3.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A3.js",
+      "duration_ms": 8510
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/round/S15.8.2.15_A3.js",
+      "path": "built-ins/Math/round/S15.8.2.15_A3.js",
+      "duration_ms": 8500
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/round/length.js",
+      "path": "built-ins/Math/round/length.js",
+      "duration_ms": 8471
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/round/length.js",
+      "path": "built-ins/Math/round/length.js",
+      "duration_ms": 8420
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A1.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A1.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A2.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A2.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A3.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A3.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A4.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A4.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A5.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A5.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A6.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A6.js",
+    "sloppy-script:built-ins/Math/round/S15.8.2.15_A7.js",
+    "strict-script:built-ins/Math/round/S15.8.2.15_A7.js",
+    "sloppy-script:built-ins/Math/round/length.js",
+    "strict-script:built-ins/Math/round/length.js",
+    "sloppy-script:built-ins/Math/round/name.js",
+    "strict-script:built-ins/Math/round/name.js",
+    "sloppy-script:built-ins/Math/round/not-a-constructor.js",
+    "strict-script:built-ins/Math/round/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/round/prop-desc.js",
+    "strict-script:built-ins/Math/round/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "round"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

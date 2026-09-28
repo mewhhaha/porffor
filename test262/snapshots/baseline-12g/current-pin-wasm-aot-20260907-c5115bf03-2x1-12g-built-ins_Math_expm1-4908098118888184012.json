@@ -1,0 +1,111 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4908098118888184012,
+  "run_kind": "matrix-filter-leaf",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Math/expm1/length.js",
+      "path": "built-ins/Math/expm1/length.js",
+      "duration_ms": 8612
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/expm1/length.js",
+      "path": "built-ins/Math/expm1/length.js",
+      "duration_ms": 8564
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/expm1/expm1-specialVals.js",
+      "path": "built-ins/Math/expm1/expm1-specialVals.js",
+      "duration_ms": 8280
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/expm1/expm1-specialVals.js",
+      "path": "built-ins/Math/expm1/expm1-specialVals.js",
+      "duration_ms": 8250
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/expm1/name.js",
+      "path": "built-ins/Math/expm1/name.js",
+      "duration_ms": 8177
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/expm1/name.js",
+      "path": "built-ins/Math/expm1/name.js",
+      "duration_ms": 8164
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/expm1/prop-desc.js",
+      "path": "built-ins/Math/expm1/prop-desc.js",
+      "duration_ms": 7184
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/expm1/prop-desc.js",
+      "path": "built-ins/Math/expm1/prop-desc.js",
+      "duration_ms": 7163
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/expm1/not-a-constructor.js",
+      "path": "built-ins/Math/expm1/not-a-constructor.js",
+      "duration_ms": 6368
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/expm1/not-a-constructor.js",
+      "path": "built-ins/Math/expm1/not-a-constructor.js",
+      "duration_ms": 6360
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/expm1/expm1-specialVals.js",
+    "strict-script:built-ins/Math/expm1/expm1-specialVals.js",
+    "sloppy-script:built-ins/Math/expm1/length.js",
+    "strict-script:built-ins/Math/expm1/length.js",
+    "sloppy-script:built-ins/Math/expm1/name.js",
+    "strict-script:built-ins/Math/expm1/name.js",
+    "sloppy-script:built-ins/Math/expm1/not-a-constructor.js",
+    "strict-script:built-ins/Math/expm1/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/expm1/prop-desc.js",
+    "strict-script:built-ins/Math/expm1/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "expm1"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

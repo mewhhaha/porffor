@@ -1,0 +1,153 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1556410991985397706,
+  "run_kind": "matrix-filter-leaf",
+  "total": 52,
+  "passed": 52,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 52
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+      "path": "built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+      "duration_ms": 13677
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+      "path": "built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+      "duration_ms": 13670
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+      "path": "built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+      "duration_ms": 13027
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+      "path": "built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+      "duration_ms": 13013
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/new-instance.js",
+      "path": "built-ins/TypedArrayConstructors/of/new-instance.js",
+      "duration_ms": 12599
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+      "path": "built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+      "duration_ms": 12596
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/new-instance-from-zero.js",
+      "path": "built-ins/TypedArrayConstructors/of/new-instance-from-zero.js",
+      "duration_ms": 12596
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/of/new-instance.js",
+      "path": "built-ins/TypedArrayConstructors/of/new-instance.js",
+      "duration_ms": 12592
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+      "path": "built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+      "duration_ms": 12526
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/of/custom-ctor-returns-other-instance.js",
+      "path": "built-ins/TypedArrayConstructors/of/custom-ctor-returns-other-instance.js",
+      "duration_ms": 12448
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/argument-is-symbol-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/argument-is-symbol-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/argument-number-value-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/argument-number-value-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-does-not-instantiate-ta-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-does-not-instantiate-ta-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-returns-other-instance.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-returns-other-instance.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-returns-smaller-instance-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor-returns-smaller-instance-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/custom-ctor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/inherited.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/inherited.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/invoked-as-func.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/invoked-as-func.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-empty.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-using-custom-ctor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance-using-custom-ctor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/new-instance.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/BigInt/this-is-not-constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/BigInt/this-is-not-constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/argument-is-symbol-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/argument-number-value-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/custom-ctor-does-not-instantiate-ta-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/custom-ctor-does-not-instantiate-ta-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/custom-ctor-returns-other-instance.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/custom-ctor-returns-other-instance.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/custom-ctor-returns-smaller-instance-throws.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/custom-ctor-returns-smaller-instance-throws.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/custom-ctor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/custom-ctor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/inherited.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/inherited.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/invoked-as-func.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/invoked-as-func.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/nan-conversion.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/nan-conversion.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/new-instance-empty.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/new-instance-empty.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/new-instance-from-zero.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/new-instance-from-zero.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/new-instance-using-custom-ctor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/new-instance-using-custom-ctor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/new-instance.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/new-instance.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/of/this-is-not-constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/of/this-is-not-constructor.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArrayConstructors",
+    "of"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,152 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13120612956850296321,
+  "run_kind": "matrix-filter-leaf",
+  "total": 30,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+      "path": "built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+      "duration_ms": 14084
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+      "path": "built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+      "duration_ms": 13777
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/prop-desc.js",
+      "path": "built-ins/Promise/reject/prop-desc.js",
+      "duration_ms": 11808
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/capability-invocation.js",
+      "path": "built-ins/Promise/reject/capability-invocation.js",
+      "duration_ms": 11494
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/capability-executor-called-twice.js",
+      "path": "built-ins/Promise/reject/capability-executor-called-twice.js",
+      "duration_ms": 11438
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/capability-executor-called-twice.js",
+      "path": "built-ins/Promise/reject/capability-executor-called-twice.js",
+      "duration_ms": 11381
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/capability-executor-not-callable.js",
+      "path": "built-ins/Promise/reject/capability-executor-not-callable.js",
+      "duration_ms": 11202
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/capability-executor-not-callable.js",
+      "path": "built-ins/Promise/reject/capability-executor-not-callable.js",
+      "duration_ms": 11121
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/prop-desc.js",
+      "path": "built-ins/Promise/reject/prop-desc.js",
+      "duration_ms": 9712
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/capability-invocation-error.js",
+      "path": "built-ins/Promise/reject/capability-invocation-error.js",
+      "duration_ms": 9698
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Promise/reject/ctx-ctor.js",
+      "test_path": "built-ins/Promise/reject/ctx-ctor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: undefined(undefined)",
+      "detail_hash": 12683809348922847088,
+      "duration_ms": 8650
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/reject/ctx-ctor.js",
+      "test_path": "built-ins/Promise/reject/ctx-ctor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: undefined(undefined)",
+      "detail_hash": 12683809348922847088,
+      "duration_ms": 8634
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Promise/reject/S25.4.4.4_A1.1_T1.js",
+    "strict-script:built-ins/Promise/reject/S25.4.4.4_A1.1_T1.js",
+    "sloppy-script:built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+    "strict-script:built-ins/Promise/reject/S25.4.4.4_A2.1_T1.js",
+    "sloppy-script:built-ins/Promise/reject/S25.4.4.4_A3.1_T1.js",
+    "strict-script:built-ins/Promise/reject/S25.4.4.4_A3.1_T1.js",
+    "sloppy-script:built-ins/Promise/reject/capability-executor-called-twice.js",
+    "strict-script:built-ins/Promise/reject/capability-executor-called-twice.js",
+    "sloppy-script:built-ins/Promise/reject/capability-executor-not-callable.js",
+    "strict-script:built-ins/Promise/reject/capability-executor-not-callable.js",
+    "sloppy-script:built-ins/Promise/reject/capability-invocation-error.js",
+    "strict-script:built-ins/Promise/reject/capability-invocation-error.js",
+    "sloppy-script:built-ins/Promise/reject/capability-invocation.js",
+    "strict-script:built-ins/Promise/reject/capability-invocation.js",
+    "sloppy-script:built-ins/Promise/reject/ctx-ctor-throws.js",
+    "strict-script:built-ins/Promise/reject/ctx-ctor-throws.js",
+    "sloppy-script:built-ins/Promise/reject/ctx-ctor.js",
+    "strict-script:built-ins/Promise/reject/ctx-ctor.js",
+    "sloppy-script:built-ins/Promise/reject/ctx-non-ctor.js",
+    "strict-script:built-ins/Promise/reject/ctx-non-ctor.js",
+    "sloppy-script:built-ins/Promise/reject/ctx-non-object.js",
+    "strict-script:built-ins/Promise/reject/ctx-non-object.js",
+    "sloppy-script:built-ins/Promise/reject/length.js",
+    "strict-script:built-ins/Promise/reject/length.js",
+    "sloppy-script:built-ins/Promise/reject/name.js",
+    "strict-script:built-ins/Promise/reject/name.js",
+    "sloppy-script:built-ins/Promise/reject/not-a-constructor.js",
+    "strict-script:built-ins/Promise/reject/not-a-constructor.js",
+    "sloppy-script:built-ins/Promise/reject/prop-desc.js",
+    "strict-script:built-ins/Promise/reject/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Promise",
+    "reject"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,218 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10182929556609483123,
+  "run_kind": "matrix-filter-leaf",
+  "total": 76,
+  "passed": 72,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 72
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/member-expression-async-literal.js",
+      "path": "language/expressions/optional-chaining/member-expression-async-literal.js",
+      "duration_ms": 18087
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/member-expression-async-literal.js",
+      "path": "language/expressions/optional-chaining/member-expression-async-literal.js",
+      "duration_ms": 18070
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+      "path": "language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+      "duration_ms": 18009
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+      "path": "language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+      "duration_ms": 17775
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "path": "language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "duration_ms": 16906
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "path": "language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "duration_ms": 16854
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+      "path": "language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+      "duration_ms": 16781
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/optional-chain-async-square-brackets.js",
+      "path": "language/expressions/optional-chaining/optional-chain-async-square-brackets.js",
+      "duration_ms": 15868
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+      "path": "language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+      "duration_ms": 15688
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/call-expression.js",
+      "path": "language/expressions/optional-chaining/call-expression.js",
+      "duration_ms": 14982
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/eval-optional-call.js",
+      "test_path": "language/expressions/optional-chaining/eval-optional-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires a target-realm environment lowering seam",
+      "detail_hash": 8929380233042467074,
+      "duration_ms": 7415
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/eval-optional-call.js",
+      "test_path": "language/expressions/optional-chaining/eval-optional-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires a target-realm environment lowering seam",
+      "detail_hash": 8929380233042467074,
+      "duration_ms": 7255
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "test_path": "language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: undefined(undefined)",
+      "detail_hash": 12683809348922847088,
+      "duration_ms": 16854
+    },
+    {
+      "test_id": "strict-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "test_path": "language/expressions/optional-chaining/member-expression-async-identifier.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: undefined(undefined)",
+      "detail_hash": 12683809348922847088,
+      "duration_ms": 16906
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/optional-chaining/call-expression-super-no-base.js",
+    "strict-script:language/expressions/optional-chaining/call-expression-super-no-base.js",
+    "sloppy-script:language/expressions/optional-chaining/call-expression.js",
+    "strict-script:language/expressions/optional-chaining/call-expression.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string-esi.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string-esi.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-null-optchain-template-string-esi.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-null-optchain-template-string-esi.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-null-optchain-template-string.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-null-optchain-template-string.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-op-template-string-esi.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-op-template-string-esi.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-op-template-string.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-op-template-string.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-optchain-template-string-esi.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-optchain-template-string-esi.js",
+    "sloppy-script:language/expressions/optional-chaining/early-errors-tail-position-optchain-template-string.js",
+    "strict-script:language/expressions/optional-chaining/early-errors-tail-position-optchain-template-string.js",
+    "sloppy-script:language/expressions/optional-chaining/eval-optional-call.js",
+    "strict-script:language/expressions/optional-chaining/eval-optional-call.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-do.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-do.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-for-await-of.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-for-in.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-for-in.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-for-of-type-error.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-for-of-type-error.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-for.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-for.js",
+    "sloppy-script:language/expressions/optional-chaining/iteration-statement-while.js",
+    "strict-script:language/expressions/optional-chaining/iteration-statement-while.js",
+    "sloppy-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+    "strict-script:language/expressions/optional-chaining/member-expression-async-identifier.js",
+    "sloppy-script:language/expressions/optional-chaining/member-expression-async-literal.js",
+    "strict-script:language/expressions/optional-chaining/member-expression-async-literal.js",
+    "sloppy-script:language/expressions/optional-chaining/member-expression-async-this.js",
+    "strict-script:language/expressions/optional-chaining/member-expression-async-this.js",
+    "sloppy-script:language/expressions/optional-chaining/member-expression.js",
+    "strict-script:language/expressions/optional-chaining/member-expression.js",
+    "sloppy-script:language/expressions/optional-chaining/new-target-optional-call.js",
+    "strict-script:language/expressions/optional-chaining/new-target-optional-call.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-call-preserves-this.js",
+    "strict-script:language/expressions/optional-chaining/optional-call-preserves-this.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-async-optional-chain-square-brackets.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-async-square-brackets.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-async-square-brackets.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-expression-optional-expression.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-expression-optional-expression.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-prod-arguments.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-prod-arguments.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-prod-expression.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-prod-expression.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain-prod-identifiername.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain-prod-identifiername.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-chain.js",
+    "strict-script:language/expressions/optional-chaining/optional-chain.js",
+    "sloppy-script:language/expressions/optional-chaining/optional-expression.js",
+    "strict-script:language/expressions/optional-chaining/optional-expression.js",
+    "sloppy-script:language/expressions/optional-chaining/punctuator-decimal-lookahead.js",
+    "strict-script:language/expressions/optional-chaining/punctuator-decimal-lookahead.js",
+    "sloppy-script:language/expressions/optional-chaining/runtime-semantics-evaluation.js",
+    "strict-script:language/expressions/optional-chaining/runtime-semantics-evaluation.js",
+    "sloppy-script:language/expressions/optional-chaining/short-circuiting.js",
+    "strict-script:language/expressions/optional-chaining/short-circuiting.js",
+    "sloppy-script:language/expressions/optional-chaining/static-semantics-simple-assignment.js",
+    "strict-script:language/expressions/optional-chaining/static-semantics-simple-assignment.js",
+    "sloppy-script:language/expressions/optional-chaining/super-property-optional-call.js",
+    "strict-script:language/expressions/optional-chaining/super-property-optional-call.js",
+    "sloppy-script:language/expressions/optional-chaining/update-expression-postfix.js",
+    "strict-script:language/expressions/optional-chaining/update-expression-postfix.js",
+    "sloppy-script:language/expressions/optional-chaining/update-expression-prefix.js",
+    "strict-script:language/expressions/optional-chaining/update-expression-prefix.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "optional-chaining"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

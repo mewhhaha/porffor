@@ -1,0 +1,274 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12740469171994657819,
+  "run_kind": "matrix-filter-leaf",
+  "total": 72,
+  "passed": 62,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 10,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 62
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+      "path": "built-ins/RegExp/named-groups/non-unicode-match.js",
+      "duration_ms": 15659
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+      "path": "built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+      "duration_ms": 15485
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+      "path": "built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+      "duration_ms": 15444
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-match.js",
+      "path": "built-ins/RegExp/named-groups/duplicate-names-match.js",
+      "duration_ms": 15382
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/duplicate-names-match.js",
+      "path": "built-ins/RegExp/named-groups/duplicate-names-match.js",
+      "duration_ms": 15315
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/unicode-match.js",
+      "path": "built-ins/RegExp/named-groups/unicode-match.js",
+      "duration_ms": 13757
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+      "path": "built-ins/RegExp/named-groups/non-unicode-match.js",
+      "duration_ms": 13754
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/groups-object-subclass.js",
+      "path": "built-ins/RegExp/named-groups/groups-object-subclass.js",
+      "duration_ms": 13109
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/groups-object-subclass.js",
+      "path": "built-ins/RegExp/named-groups/groups-object-subclass.js",
+      "duration_ms": 13102
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/groups-object-unmatched.js",
+      "path": "built-ins/RegExp/named-groups/groups-object-unmatched.js",
+      "duration_ms": 13059
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/lookbehind.js",
+      "test_path": "built-ins/RegExp/named-groups/lookbehind.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (3789687 bytes, 117 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 34984016076406023,
+      "duration_ms": 10111
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/lookbehind.js",
+      "test_path": "built-ins/RegExp/named-groups/lookbehind.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (4459110 bytes, 117 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 13949411561046314414,
+      "duration_ms": 10739
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+      "test_path": "built-ins/RegExp/named-groups/non-unicode-match.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5368454 bytes, 123 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 4134524211525620378,
+      "duration_ms": 13754
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+      "test_path": "built-ins/RegExp/named-groups/non-unicode-match.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (6427487 bytes, 123 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 7707731304999502213,
+      "duration_ms": 15659
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/non-unicode-property-names.js",
+      "test_path": "built-ins/RegExp/named-groups/non-unicode-property-names.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1561104: RegExp.prototype.exec unsupported pattern)",
+      "detail_hash": 7329146270662904045,
+      "duration_ms": 12341
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/non-unicode-property-names.js",
+      "test_path": "built-ins/RegExp/named-groups/non-unicode-property-names.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1561120: RegExp.prototype.exec unsupported pattern)",
+      "detail_hash": 7329146270662904045,
+      "duration_ms": 12362
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/unicode-match.js",
+      "test_path": "built-ins/RegExp/named-groups/unicode-match.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5622692 bytes, 123 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 5027396740534417596,
+      "duration_ms": 12930
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/unicode-match.js",
+      "test_path": "built-ins/RegExp/named-groups/unicode-match.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (6741665 bytes, 123 locals); most locals: wasm[0]::function[220] (201781 bytes, 192 locals)",
+      "detail_hash": 9783407485443095603,
+      "duration_ms": 13757
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/named-groups/unicode-property-names.js",
+      "test_path": "built-ins/RegExp/named-groups/unicode-property-names.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1582096: RegExp.prototype.exec unsupported pattern)",
+      "detail_hash": 7329146270662904045,
+      "duration_ms": 12507
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/named-groups/unicode-property-names.js",
+      "test_path": "built-ins/RegExp/named-groups/unicode-property-names.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1582104: RegExp.prototype.exec unsupported pattern)",
+      "detail_hash": 7329146270662904045,
+      "duration_ms": 12695
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-exec.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-exec.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-group-property-enumeration-order.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-group-property-enumeration-order.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-match-indices.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-match-indices.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-match.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-match.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-matchall.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-matchall.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-replace.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-replace.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-replaceall.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-replaceall.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-search.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-search.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-split.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-split.js",
+    "sloppy-script:built-ins/RegExp/named-groups/duplicate-names-test.js",
+    "strict-script:built-ins/RegExp/named-groups/duplicate-names-test.js",
+    "sloppy-script:built-ins/RegExp/named-groups/functional-replace-global.js",
+    "strict-script:built-ins/RegExp/named-groups/functional-replace-global.js",
+    "sloppy-script:built-ins/RegExp/named-groups/functional-replace-non-global.js",
+    "strict-script:built-ins/RegExp/named-groups/functional-replace-non-global.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-object-subclass-sans.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-object-subclass-sans.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-object-subclass.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-object-subclass.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-object-undefined.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-object-undefined.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-object-unmatched.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-object-unmatched.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-object.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-object.js",
+    "sloppy-script:built-ins/RegExp/named-groups/groups-properties.js",
+    "strict-script:built-ins/RegExp/named-groups/groups-properties.js",
+    "sloppy-script:built-ins/RegExp/named-groups/lookbehind.js",
+    "strict-script:built-ins/RegExp/named-groups/lookbehind.js",
+    "sloppy-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+    "strict-script:built-ins/RegExp/named-groups/non-unicode-match.js",
+    "sloppy-script:built-ins/RegExp/named-groups/non-unicode-property-names-invalid.js",
+    "strict-script:built-ins/RegExp/named-groups/non-unicode-property-names-invalid.js",
+    "sloppy-script:built-ins/RegExp/named-groups/non-unicode-property-names-valid.js",
+    "strict-script:built-ins/RegExp/named-groups/non-unicode-property-names-valid.js",
+    "sloppy-script:built-ins/RegExp/named-groups/non-unicode-property-names.js",
+    "strict-script:built-ins/RegExp/named-groups/non-unicode-property-names.js",
+    "sloppy-script:built-ins/RegExp/named-groups/non-unicode-references.js",
+    "strict-script:built-ins/RegExp/named-groups/non-unicode-references.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-escaped.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-escaped.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-get.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-get.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-missing.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-missing.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-nocaptures.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-nocaptures.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-numbered.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-numbered.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-unclosed.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-unclosed.js",
+    "sloppy-script:built-ins/RegExp/named-groups/string-replace-undefined.js",
+    "strict-script:built-ins/RegExp/named-groups/string-replace-undefined.js",
+    "sloppy-script:built-ins/RegExp/named-groups/unicode-match.js",
+    "strict-script:built-ins/RegExp/named-groups/unicode-match.js",
+    "sloppy-script:built-ins/RegExp/named-groups/unicode-property-names-invalid.js",
+    "strict-script:built-ins/RegExp/named-groups/unicode-property-names-invalid.js",
+    "sloppy-script:built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+    "strict-script:built-ins/RegExp/named-groups/unicode-property-names-valid.js",
+    "sloppy-script:built-ins/RegExp/named-groups/unicode-property-names.js",
+    "strict-script:built-ins/RegExp/named-groups/unicode-property-names.js",
+    "sloppy-script:built-ins/RegExp/named-groups/unicode-references.js",
+    "strict-script:built-ins/RegExp/named-groups/unicode-references.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExp",
+    "named-groups"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,131 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14388370908973689760,
+  "run_kind": "matrix-filter-leaf",
+  "total": 30,
+  "passed": 30,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 30
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Atomics/and/bigint/bad-range.js",
+      "path": "built-ins/Atomics/and/bigint/bad-range.js",
+      "duration_ms": 16887
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/and/bigint/good-views.js",
+      "path": "built-ins/Atomics/and/bigint/good-views.js",
+      "duration_ms": 14991
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/and/good-views.js",
+      "path": "built-ins/Atomics/and/good-views.js",
+      "duration_ms": 14911
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/and/good-views.js",
+      "path": "built-ins/Atomics/and/good-views.js",
+      "duration_ms": 14689
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/and/non-views.js",
+      "path": "built-ins/Atomics/and/non-views.js",
+      "duration_ms": 14381
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/and/non-views.js",
+      "path": "built-ins/Atomics/and/non-views.js",
+      "duration_ms": 14371
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/and/bad-range.js",
+      "path": "built-ins/Atomics/and/bad-range.js",
+      "duration_ms": 14369
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/and/bad-range.js",
+      "path": "built-ins/Atomics/and/bad-range.js",
+      "duration_ms": 13569
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/and/bigint/bad-range.js",
+      "path": "built-ins/Atomics/and/bigint/bad-range.js",
+      "duration_ms": 12917
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/and/bigint/good-views.js",
+      "path": "built-ins/Atomics/and/bigint/good-views.js",
+      "duration_ms": 12786
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Atomics/and/bad-range.js",
+    "strict-script:built-ins/Atomics/and/bad-range.js",
+    "sloppy-script:built-ins/Atomics/and/bigint/bad-range.js",
+    "strict-script:built-ins/Atomics/and/bigint/bad-range.js",
+    "sloppy-script:built-ins/Atomics/and/bigint/good-views.js",
+    "strict-script:built-ins/Atomics/and/bigint/good-views.js",
+    "sloppy-script:built-ins/Atomics/and/bigint/non-shared-bufferdata.js",
+    "strict-script:built-ins/Atomics/and/bigint/non-shared-bufferdata.js",
+    "sloppy-script:built-ins/Atomics/and/descriptor.js",
+    "strict-script:built-ins/Atomics/and/descriptor.js",
+    "sloppy-script:built-ins/Atomics/and/expected-return-value.js",
+    "strict-script:built-ins/Atomics/and/expected-return-value.js",
+    "sloppy-script:built-ins/Atomics/and/good-views.js",
+    "strict-script:built-ins/Atomics/and/good-views.js",
+    "sloppy-script:built-ins/Atomics/and/length.js",
+    "strict-script:built-ins/Atomics/and/length.js",
+    "sloppy-script:built-ins/Atomics/and/name.js",
+    "strict-script:built-ins/Atomics/and/name.js",
+    "sloppy-script:built-ins/Atomics/and/non-shared-bufferdata.js",
+    "strict-script:built-ins/Atomics/and/non-shared-bufferdata.js",
+    "sloppy-script:built-ins/Atomics/and/non-shared-int-views-throws.js",
+    "strict-script:built-ins/Atomics/and/non-shared-int-views-throws.js",
+    "sloppy-script:built-ins/Atomics/and/non-views.js",
+    "strict-script:built-ins/Atomics/and/non-views.js",
+    "sloppy-script:built-ins/Atomics/and/not-a-constructor.js",
+    "strict-script:built-ins/Atomics/and/not-a-constructor.js",
+    "sloppy-script:built-ins/Atomics/and/validate-arraytype-before-index-coercion.js",
+    "strict-script:built-ins/Atomics/and/validate-arraytype-before-index-coercion.js",
+    "sloppy-script:built-ins/Atomics/and/validate-arraytype-before-value-coercion.js",
+    "strict-script:built-ins/Atomics/and/validate-arraytype-before-value-coercion.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Atomics",
+    "and"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

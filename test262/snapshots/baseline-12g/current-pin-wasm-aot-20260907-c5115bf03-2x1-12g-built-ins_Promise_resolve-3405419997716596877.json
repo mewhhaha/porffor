@@ -1,0 +1,182 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3405419997716596877,
+  "run_kind": "matrix-filter-leaf",
+  "total": 60,
+  "passed": 58,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 58
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+      "duration_ms": 13533
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+      "duration_ms": 13514
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+      "duration_ms": 12700
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/ctx-non-ctor.js",
+      "path": "built-ins/Promise/resolve/ctx-non-ctor.js",
+      "duration_ms": 12331
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/resolve/ctx-non-ctor.js",
+      "path": "built-ins/Promise/resolve/ctx-non-ctor.js",
+      "duration_ms": 12299
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/resolve-from-promise-capability.js",
+      "path": "built-ins/Promise/resolve/resolve-from-promise-capability.js",
+      "duration_ms": 12287
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+      "duration_ms": 12284
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+      "duration_ms": 12274
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/capability-invocation-error.js",
+      "path": "built-ins/Promise/resolve/capability-invocation-error.js",
+      "duration_ms": 12248
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+      "path": "built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+      "duration_ms": 12187
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Promise/resolve/arg-uniq-ctor.js",
+      "test_path": "built-ins/Promise/resolve/arg-uniq-ctor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1518928: Promise constructor property is not an object)",
+      "detail_hash": 416846614463753989,
+      "duration_ms": 8252
+    },
+    {
+      "test_id": "strict-script:built-ins/Promise/resolve/arg-uniq-ctor.js",
+      "test_path": "built-ins/Promise/resolve/arg-uniq-ctor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1518936: Promise constructor property is not an object)",
+      "detail_hash": 416846614463753989,
+      "duration_ms": 8995
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A1.1_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A1.1_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A2.1_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A2.1_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A2.2_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A2.2_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A2.3_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A3.1_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+    "strict-script:built-ins/Promise/resolve/S25.4.4.5_A4.1_T1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_1.js",
+    "strict-script:built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_1.js",
+    "sloppy-script:built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_2.js",
+    "strict-script:built-ins/Promise/resolve/S25.Promise_resolve_foreign_thenable_2.js",
+    "sloppy-script:built-ins/Promise/resolve/arg-non-thenable.js",
+    "strict-script:built-ins/Promise/resolve/arg-non-thenable.js",
+    "sloppy-script:built-ins/Promise/resolve/arg-poisoned-then.js",
+    "strict-script:built-ins/Promise/resolve/arg-poisoned-then.js",
+    "sloppy-script:built-ins/Promise/resolve/arg-uniq-ctor.js",
+    "strict-script:built-ins/Promise/resolve/arg-uniq-ctor.js",
+    "sloppy-script:built-ins/Promise/resolve/capability-executor-called-twice.js",
+    "strict-script:built-ins/Promise/resolve/capability-executor-called-twice.js",
+    "sloppy-script:built-ins/Promise/resolve/capability-executor-not-callable.js",
+    "strict-script:built-ins/Promise/resolve/capability-executor-not-callable.js",
+    "sloppy-script:built-ins/Promise/resolve/capability-invocation-error.js",
+    "strict-script:built-ins/Promise/resolve/capability-invocation-error.js",
+    "sloppy-script:built-ins/Promise/resolve/context-non-object-with-promise.js",
+    "strict-script:built-ins/Promise/resolve/context-non-object-with-promise.js",
+    "sloppy-script:built-ins/Promise/resolve/ctx-ctor-throws.js",
+    "strict-script:built-ins/Promise/resolve/ctx-ctor-throws.js",
+    "sloppy-script:built-ins/Promise/resolve/ctx-ctor.js",
+    "strict-script:built-ins/Promise/resolve/ctx-ctor.js",
+    "sloppy-script:built-ins/Promise/resolve/ctx-non-ctor.js",
+    "strict-script:built-ins/Promise/resolve/ctx-non-ctor.js",
+    "sloppy-script:built-ins/Promise/resolve/ctx-non-object.js",
+    "strict-script:built-ins/Promise/resolve/ctx-non-object.js",
+    "sloppy-script:built-ins/Promise/resolve/length.js",
+    "strict-script:built-ins/Promise/resolve/length.js",
+    "sloppy-script:built-ins/Promise/resolve/name.js",
+    "strict-script:built-ins/Promise/resolve/name.js",
+    "sloppy-script:built-ins/Promise/resolve/not-a-constructor.js",
+    "strict-script:built-ins/Promise/resolve/not-a-constructor.js",
+    "sloppy-script:built-ins/Promise/resolve/prop-desc.js",
+    "strict-script:built-ins/Promise/resolve/prop-desc.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-from-promise-capability.js",
+    "strict-script:built-ins/Promise/resolve/resolve-from-promise-capability.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-non-obj.js",
+    "strict-script:built-ins/Promise/resolve/resolve-non-obj.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-non-thenable.js",
+    "strict-script:built-ins/Promise/resolve/resolve-non-thenable.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-poisoned-then.js",
+    "strict-script:built-ins/Promise/resolve/resolve-poisoned-then.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-prms-cstm-then.js",
+    "strict-script:built-ins/Promise/resolve/resolve-prms-cstm-then.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-self.js",
+    "strict-script:built-ins/Promise/resolve/resolve-self.js",
+    "sloppy-script:built-ins/Promise/resolve/resolve-thenable.js",
+    "strict-script:built-ins/Promise/resolve/resolve-thenable.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Promise",
+    "resolve"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

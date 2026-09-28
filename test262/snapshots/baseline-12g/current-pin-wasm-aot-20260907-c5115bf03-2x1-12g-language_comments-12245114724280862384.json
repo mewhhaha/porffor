@@ -1,0 +1,332 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12245114724280862384,
+  "run_kind": "matrix-filter-leaf",
+  "total": 81,
+  "passed": 66,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 13,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 13,
+    "Success": 66
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/comments/S7.4_A2_T1.js",
+      "path": "language/comments/S7.4_A2_T1.js",
+      "duration_ms": 15289
+    },
+    {
+      "test_id": "strict-script:language/comments/S7.4_A1_T1.js",
+      "path": "language/comments/S7.4_A1_T1.js",
+      "duration_ms": 12626
+    },
+    {
+      "test_id": "sloppy-script:language/comments/S7.4_A1_T1.js",
+      "path": "language/comments/S7.4_A1_T1.js",
+      "duration_ms": 12612
+    },
+    {
+      "test_id": "sloppy-script:language/comments/S7.4_A2_T1.js",
+      "path": "language/comments/S7.4_A2_T1.js",
+      "duration_ms": 11690
+    },
+    {
+      "test_id": "strict-script:language/comments/hashbang/function-constructor.js",
+      "path": "language/comments/hashbang/function-constructor.js",
+      "duration_ms": 9066
+    },
+    {
+      "test_id": "sloppy-script:language/comments/S7.4_A4_T7.js",
+      "path": "language/comments/S7.4_A4_T7.js",
+      "duration_ms": 8925
+    },
+    {
+      "test_id": "strict-script:language/comments/mongolian-vowel-separator-single.js",
+      "path": "language/comments/mongolian-vowel-separator-single.js",
+      "duration_ms": 7928
+    },
+    {
+      "test_id": "sloppy-script:language/comments/mongolian-vowel-separator-single.js",
+      "path": "language/comments/mongolian-vowel-separator-single.js",
+      "duration_ms": 7859
+    },
+    {
+      "test_id": "strict-script:language/comments/S7.4_A1_T2.js",
+      "path": "language/comments/S7.4_A1_T2.js",
+      "duration_ms": 7687
+    },
+    {
+      "test_id": "sloppy-script:language/comments/hashbang/function-constructor.js",
+      "path": "language/comments/hashbang/function-constructor.js",
+      "duration_ms": 7657
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/comments/S7.4_A5.js",
+      "test_path": "language/comments/S7.4_A5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6320
+    },
+    {
+      "test_id": "strict-script:language/comments/S7.4_A5.js",
+      "test_path": "language/comments/S7.4_A5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6361
+    },
+    {
+      "test_id": "sloppy-script:language/comments/S7.4_A6.js",
+      "test_path": "language/comments/S7.4_A6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7416
+    },
+    {
+      "test_id": "strict-script:language/comments/S7.4_A6.js",
+      "test_path": "language/comments/S7.4_A6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7467
+    },
+    {
+      "test_id": "sloppy-script:language/comments/hashbang/eval-indirect.js",
+      "test_path": "language/comments/hashbang/eval-indirect.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires a target-realm environment lowering seam",
+      "detail_hash": 8929380233042467074,
+      "duration_ms": 5566
+    },
+    {
+      "test_id": "strict-script:language/comments/hashbang/eval-indirect.js",
+      "test_path": "language/comments/hashbang/eval-indirect.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (indirect eval) requires a target-realm environment lowering seam",
+      "detail_hash": 8929380233042467074,
+      "duration_ms": 5532
+    },
+    {
+      "test_id": "sloppy-script:language/comments/hashbang/eval.js",
+      "test_path": "language/comments/hashbang/eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5544
+    },
+    {
+      "test_id": "strict-script:language/comments/hashbang/eval.js",
+      "test_path": "language/comments/hashbang/eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5564
+    },
+    {
+      "test_id": "sloppy-script:language/comments/hashbang/function-constructor.js",
+      "test_path": "language/comments/hashbang/function-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1516840: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 7657
+    },
+    {
+      "test_id": "strict-script:language/comments/hashbang/function-constructor.js",
+      "test_path": "language/comments/hashbang/function-constructor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1516848: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 9066
+    },
+    {
+      "test_id": "raw-module:language/comments/hashbang/module.js",
+      "test_path": "language/comments/hashbang/module.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: no lowered script ir. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8184126009088080641,
+      "duration_ms": 171
+    },
+    {
+      "test_id": "sloppy-script:language/comments/hashbang/no-line-separator.js",
+      "test_path": "language/comments/hashbang/no-line-separator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5555
+    },
+    {
+      "test_id": "strict-script:language/comments/hashbang/no-line-separator.js",
+      "test_path": "language/comments/hashbang/no-line-separator.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5572
+    },
+    {
+      "test_id": "sloppy-script:language/comments/mongolian-vowel-separator-single-eval.js",
+      "test_path": "language/comments/mongolian-vowel-separator-single-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5574
+    },
+    {
+      "test_id": "strict-script:language/comments/mongolian-vowel-separator-single-eval.js",
+      "test_path": "language/comments/mongolian-vowel-separator-single-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5575
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/comments/S7.4_A1_T1.js",
+    "strict-script:language/comments/S7.4_A1_T1.js",
+    "sloppy-script:language/comments/S7.4_A1_T2.js",
+    "strict-script:language/comments/S7.4_A1_T2.js",
+    "sloppy-script:language/comments/S7.4_A2_T1.js",
+    "strict-script:language/comments/S7.4_A2_T1.js",
+    "sloppy-script:language/comments/S7.4_A2_T2.js",
+    "strict-script:language/comments/S7.4_A2_T2.js",
+    "sloppy-script:language/comments/S7.4_A3.js",
+    "strict-script:language/comments/S7.4_A3.js",
+    "sloppy-script:language/comments/S7.4_A4_T1.js",
+    "strict-script:language/comments/S7.4_A4_T1.js",
+    "sloppy-script:language/comments/S7.4_A4_T2.js",
+    "strict-script:language/comments/S7.4_A4_T2.js",
+    "sloppy-script:language/comments/S7.4_A4_T3.js",
+    "strict-script:language/comments/S7.4_A4_T3.js",
+    "sloppy-script:language/comments/S7.4_A4_T4.js",
+    "strict-script:language/comments/S7.4_A4_T4.js",
+    "sloppy-script:language/comments/S7.4_A4_T5.js",
+    "strict-script:language/comments/S7.4_A4_T5.js",
+    "sloppy-script:language/comments/S7.4_A4_T6.js",
+    "strict-script:language/comments/S7.4_A4_T6.js",
+    "sloppy-script:language/comments/S7.4_A4_T7.js",
+    "strict-script:language/comments/S7.4_A4_T7.js",
+    "sloppy-script:language/comments/S7.4_A5.js",
+    "strict-script:language/comments/S7.4_A5.js",
+    "sloppy-script:language/comments/S7.4_A6.js",
+    "strict-script:language/comments/S7.4_A6.js",
+    "raw-script:language/comments/hashbang/escaped-bang-041.js",
+    "raw-script:language/comments/hashbang/escaped-bang-u0021.js",
+    "raw-script:language/comments/hashbang/escaped-bang-u21.js",
+    "raw-script:language/comments/hashbang/escaped-bang-x21.js",
+    "raw-script:language/comments/hashbang/escaped-hash-043.js",
+    "raw-script:language/comments/hashbang/escaped-hash-u0023.js",
+    "raw-script:language/comments/hashbang/escaped-hash-u23.js",
+    "raw-script:language/comments/hashbang/escaped-hash-x23.js",
+    "raw-script:language/comments/hashbang/escaped-hashbang.js",
+    "sloppy-script:language/comments/hashbang/eval-indirect.js",
+    "strict-script:language/comments/hashbang/eval-indirect.js",
+    "sloppy-script:language/comments/hashbang/eval.js",
+    "strict-script:language/comments/hashbang/eval.js",
+    "sloppy-script:language/comments/hashbang/function-body.js",
+    "strict-script:language/comments/hashbang/function-body.js",
+    "sloppy-script:language/comments/hashbang/function-constructor.js",
+    "strict-script:language/comments/hashbang/function-constructor.js",
+    "raw-script:language/comments/hashbang/line-terminator-carriage-return.js",
+    "raw-script:language/comments/hashbang/line-terminator-line-separator.js",
+    "raw-script:language/comments/hashbang/line-terminator-paragraph-separator.js",
+    "raw-module:language/comments/hashbang/module.js",
+    "raw-script:language/comments/hashbang/multi-line-comment.js",
+    "sloppy-script:language/comments/hashbang/no-line-separator.js",
+    "strict-script:language/comments/hashbang/no-line-separator.js",
+    "raw-script:language/comments/hashbang/not-empty.js",
+    "raw-script:language/comments/hashbang/preceding-directive-prologue-sc.js",
+    "raw-script:language/comments/hashbang/preceding-directive-prologue.js",
+    "raw-script:language/comments/hashbang/preceding-empty-statement.js",
+    "raw-script:language/comments/hashbang/preceding-hashbang.js",
+    "raw-script:language/comments/hashbang/preceding-line-comment.js",
+    "raw-script:language/comments/hashbang/preceding-multi-line-comment.js",
+    "raw-script:language/comments/hashbang/preceding-whitespace.js",
+    "sloppy-script:language/comments/hashbang/statement-block.js",
+    "strict-script:language/comments/hashbang/statement-block.js",
+    "raw-script:language/comments/hashbang/use-strict.js",
+    "sloppy-script:language/comments/mongolian-vowel-separator-multi.js",
+    "strict-script:language/comments/mongolian-vowel-separator-multi.js",
+    "sloppy-script:language/comments/mongolian-vowel-separator-single-eval.js",
+    "strict-script:language/comments/mongolian-vowel-separator-single-eval.js",
+    "sloppy-script:language/comments/mongolian-vowel-separator-single.js",
+    "strict-script:language/comments/mongolian-vowel-separator-single.js",
+    "sloppy-script:language/comments/multi-line-asi-carriage-return.js",
+    "strict-script:language/comments/multi-line-asi-carriage-return.js",
+    "sloppy-script:language/comments/multi-line-asi-line-feed.js",
+    "strict-script:language/comments/multi-line-asi-line-feed.js",
+    "sloppy-script:language/comments/multi-line-asi-line-separator.js",
+    "strict-script:language/comments/multi-line-asi-line-separator.js",
+    "sloppy-script:language/comments/multi-line-asi-paragraph-separator.js",
+    "strict-script:language/comments/multi-line-asi-paragraph-separator.js",
+    "sloppy-script:language/comments/multi-line-html-close-extra.js",
+    "strict-script:language/comments/multi-line-html-close-extra.js",
+    "sloppy-script:language/comments/single-line-html-close-without-lt.js",
+    "strict-script:language/comments/single-line-html-close-without-lt.js"
+  ],
+  "matrix_path": [
+    "language",
+    "comments"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

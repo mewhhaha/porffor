@@ -1,0 +1,117 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 641485334952163313,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Date/parse/name.js",
+      "path": "built-ins/Date/parse/name.js",
+      "duration_ms": 10885
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/parse/not-a-constructor.js",
+      "path": "built-ins/Date/parse/not-a-constructor.js",
+      "duration_ms": 10848
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/parse/without-utc-offset.js",
+      "path": "built-ins/Date/parse/without-utc-offset.js",
+      "duration_ms": 10541
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/parse/zero.js",
+      "path": "built-ins/Date/parse/zero.js",
+      "duration_ms": 10481
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/parse/length.js",
+      "path": "built-ins/Date/parse/length.js",
+      "duration_ms": 10395
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/parse/without-utc-offset.js",
+      "path": "built-ins/Date/parse/without-utc-offset.js",
+      "duration_ms": 10126
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/parse/zero.js",
+      "path": "built-ins/Date/parse/zero.js",
+      "duration_ms": 9801
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/parse/time-value-maximum-range.js",
+      "path": "built-ins/Date/parse/time-value-maximum-range.js",
+      "duration_ms": 9488
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/parse/length.js",
+      "path": "built-ins/Date/parse/length.js",
+      "duration_ms": 9479
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/parse/time-value-maximum-range.js",
+      "path": "built-ins/Date/parse/time-value-maximum-range.js",
+      "duration_ms": 9250
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Date/parse/length.js",
+    "strict-script:built-ins/Date/parse/length.js",
+    "sloppy-script:built-ins/Date/parse/name.js",
+    "strict-script:built-ins/Date/parse/name.js",
+    "sloppy-script:built-ins/Date/parse/not-a-constructor.js",
+    "strict-script:built-ins/Date/parse/not-a-constructor.js",
+    "sloppy-script:built-ins/Date/parse/prop-desc.js",
+    "strict-script:built-ins/Date/parse/prop-desc.js",
+    "sloppy-script:built-ins/Date/parse/time-value-maximum-range.js",
+    "strict-script:built-ins/Date/parse/time-value-maximum-range.js",
+    "sloppy-script:built-ins/Date/parse/without-utc-offset.js",
+    "strict-script:built-ins/Date/parse/without-utc-offset.js",
+    "sloppy-script:built-ins/Date/parse/year-zero.js",
+    "strict-script:built-ins/Date/parse/year-zero.js",
+    "sloppy-script:built-ins/Date/parse/zero.js",
+    "strict-script:built-ins/Date/parse/zero.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Date",
+    "parse"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

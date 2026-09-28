@@ -1,0 +1,122 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2962843304682625971,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+      "path": "built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+      "duration_ms": 9325
+    },
+    {
+      "test_id": "strict-script:built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+      "path": "built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+      "duration_ms": 9294
+    },
+    {
+      "test_id": "strict-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+      "path": "built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+      "duration_ms": 8310
+    },
+    {
+      "test_id": "sloppy-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+      "path": "built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+      "duration_ms": 8309
+    },
+    {
+      "test_id": "strict-script:built-ins/MapIteratorPrototype/next/name.js",
+      "path": "built-ins/MapIteratorPrototype/next/name.js",
+      "duration_ms": 8188
+    },
+    {
+      "test_id": "sloppy-script:built-ins/MapIteratorPrototype/next/name.js",
+      "path": "built-ins/MapIteratorPrototype/next/name.js",
+      "duration_ms": 8038
+    },
+    {
+      "test_id": "sloppy-script:built-ins/MapIteratorPrototype/next/length.js",
+      "path": "built-ins/MapIteratorPrototype/next/length.js",
+      "duration_ms": 7858
+    },
+    {
+      "test_id": "strict-script:built-ins/MapIteratorPrototype/next/iteration.js",
+      "path": "built-ins/MapIteratorPrototype/next/iteration.js",
+      "duration_ms": 7795
+    },
+    {
+      "test_id": "strict-script:built-ins/MapIteratorPrototype/next/length.js",
+      "path": "built-ins/MapIteratorPrototype/next/length.js",
+      "duration_ms": 7778
+    },
+    {
+      "test_id": "sloppy-script:built-ins/MapIteratorPrototype/Symbol.toStringTag.js",
+      "path": "built-ins/MapIteratorPrototype/Symbol.toStringTag.js",
+      "duration_ms": 7746
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/MapIteratorPrototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/MapIteratorPrototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/does-not-have-mapiterator-internal-slots-map.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/does-not-have-mapiterator-internal-slots-map.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/does-not-have-mapiterator-internal-slots.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/does-not-have-mapiterator-internal-slots.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/iteration-mutable.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/iteration.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/iteration.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/length.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/length.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/name.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/name.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-entries.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-keys.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-keys.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-prototype-iterator.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-prototype-iterator.js",
+    "sloppy-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-values.js",
+    "strict-script:built-ins/MapIteratorPrototype/next/this-not-object-throw-values.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "MapIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

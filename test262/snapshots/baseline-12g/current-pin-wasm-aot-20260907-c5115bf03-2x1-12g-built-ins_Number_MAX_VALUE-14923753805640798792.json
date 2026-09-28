@@ -1,0 +1,87 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14923753805640798792,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+      "duration_ms": 14154
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+      "duration_ms": 14129
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+      "duration_ms": 8662
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+      "duration_ms": 8655
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js",
+      "duration_ms": 8394
+    },
+    {
+      "test_id": "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js",
+      "path": "built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js",
+      "duration_ms": 8380
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+    "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A2.js",
+    "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+    "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A3.js",
+    "sloppy-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js",
+    "strict-script:built-ins/Number/MAX_VALUE/S15.7.3.2_A4.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Number",
+    "MAX_VALUE"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,164 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10636424305370173439,
+  "run_kind": "matrix-filter-leaf",
+  "total": 42,
+  "passed": 40,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 40
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Object/entries/observable-operations.js",
+      "path": "built-ins/Object/entries/observable-operations.js",
+      "duration_ms": 12436
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/entries/observable-operations.js",
+      "path": "built-ins/Object/entries/observable-operations.js",
+      "duration_ms": 12416
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/inherited-properties-omitted.js",
+      "path": "built-ins/Object/entries/inherited-properties-omitted.js",
+      "duration_ms": 10798
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/entries/inherited-properties-omitted.js",
+      "path": "built-ins/Object/entries/inherited-properties-omitted.js",
+      "duration_ms": 10769
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/getter-removing-future-key.js",
+      "path": "built-ins/Object/entries/getter-removing-future-key.js",
+      "duration_ms": 10734
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/primitive-numbers.js",
+      "path": "built-ins/Object/entries/primitive-numbers.js",
+      "duration_ms": 9798
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/entries/primitive-numbers.js",
+      "path": "built-ins/Object/entries/primitive-numbers.js",
+      "duration_ms": 9788
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/order-after-define-property-with-function.js",
+      "path": "built-ins/Object/entries/order-after-define-property-with-function.js",
+      "duration_ms": 9729
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/entries/order-after-define-property-with-function.js",
+      "path": "built-ins/Object/entries/order-after-define-property-with-function.js",
+      "duration_ms": 9696
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/return-order.js",
+      "path": "built-ins/Object/entries/return-order.js",
+      "duration_ms": 9657
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Object/entries/tamper-with-global-object.js",
+      "test_path": "built-ins/Object/entries/tamper-with-global-object.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 4598
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/entries/tamper-with-global-object.js",
+      "test_path": "built-ins/Object/entries/tamper-with-global-object.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 4598
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Object/entries/exception-during-enumeration.js",
+    "strict-script:built-ins/Object/entries/exception-during-enumeration.js",
+    "sloppy-script:built-ins/Object/entries/exception-not-object-coercible.js",
+    "strict-script:built-ins/Object/entries/exception-not-object-coercible.js",
+    "sloppy-script:built-ins/Object/entries/function-length.js",
+    "strict-script:built-ins/Object/entries/function-length.js",
+    "sloppy-script:built-ins/Object/entries/function-name.js",
+    "strict-script:built-ins/Object/entries/function-name.js",
+    "sloppy-script:built-ins/Object/entries/function-property-descriptor.js",
+    "strict-script:built-ins/Object/entries/function-property-descriptor.js",
+    "sloppy-script:built-ins/Object/entries/getter-adding-key.js",
+    "strict-script:built-ins/Object/entries/getter-adding-key.js",
+    "sloppy-script:built-ins/Object/entries/getter-making-future-key-nonenumerable.js",
+    "strict-script:built-ins/Object/entries/getter-making-future-key-nonenumerable.js",
+    "sloppy-script:built-ins/Object/entries/getter-removing-future-key.js",
+    "strict-script:built-ins/Object/entries/getter-removing-future-key.js",
+    "sloppy-script:built-ins/Object/entries/inherited-properties-omitted.js",
+    "strict-script:built-ins/Object/entries/inherited-properties-omitted.js",
+    "sloppy-script:built-ins/Object/entries/not-a-constructor.js",
+    "strict-script:built-ins/Object/entries/not-a-constructor.js",
+    "sloppy-script:built-ins/Object/entries/observable-operations.js",
+    "strict-script:built-ins/Object/entries/observable-operations.js",
+    "sloppy-script:built-ins/Object/entries/order-after-define-property-with-function.js",
+    "strict-script:built-ins/Object/entries/order-after-define-property-with-function.js",
+    "sloppy-script:built-ins/Object/entries/order-after-define-property.js",
+    "strict-script:built-ins/Object/entries/order-after-define-property.js",
+    "sloppy-script:built-ins/Object/entries/primitive-booleans.js",
+    "strict-script:built-ins/Object/entries/primitive-booleans.js",
+    "sloppy-script:built-ins/Object/entries/primitive-numbers.js",
+    "strict-script:built-ins/Object/entries/primitive-numbers.js",
+    "sloppy-script:built-ins/Object/entries/primitive-strings.js",
+    "strict-script:built-ins/Object/entries/primitive-strings.js",
+    "sloppy-script:built-ins/Object/entries/primitive-symbols.js",
+    "strict-script:built-ins/Object/entries/primitive-symbols.js",
+    "sloppy-script:built-ins/Object/entries/return-order.js",
+    "strict-script:built-ins/Object/entries/return-order.js",
+    "sloppy-script:built-ins/Object/entries/symbols-omitted.js",
+    "strict-script:built-ins/Object/entries/symbols-omitted.js",
+    "sloppy-script:built-ins/Object/entries/tamper-with-global-object.js",
+    "strict-script:built-ins/Object/entries/tamper-with-global-object.js",
+    "sloppy-script:built-ins/Object/entries/tamper-with-object-keys.js",
+    "strict-script:built-ins/Object/entries/tamper-with-object-keys.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Object",
+    "entries"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

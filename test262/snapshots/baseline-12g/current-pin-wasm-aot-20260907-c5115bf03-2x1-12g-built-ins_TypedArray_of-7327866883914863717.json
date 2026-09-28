@@ -1,0 +1,117 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7327866883914863717,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 16,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 16
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/TypedArray/of/not-a-constructor.js",
+      "path": "built-ins/TypedArray/of/not-a-constructor.js",
+      "duration_ms": 14583
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/of/prop-desc.js",
+      "path": "built-ins/TypedArray/of/prop-desc.js",
+      "duration_ms": 14239
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/of/prop-desc.js",
+      "path": "built-ins/TypedArray/of/prop-desc.js",
+      "duration_ms": 13890
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/of/not-a-constructor.js",
+      "path": "built-ins/TypedArray/of/not-a-constructor.js",
+      "duration_ms": 13509
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/of/name.js",
+      "path": "built-ins/TypedArray/of/name.js",
+      "duration_ms": 12356
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/of/length.js",
+      "path": "built-ins/TypedArray/of/length.js",
+      "duration_ms": 12017
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/of/name.js",
+      "path": "built-ins/TypedArray/of/name.js",
+      "duration_ms": 11781
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/of/resized-with-out-of-bounds-and-in-bounds-indices.js",
+      "path": "built-ins/TypedArray/of/resized-with-out-of-bounds-and-in-bounds-indices.js",
+      "duration_ms": 11269
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/of/invoked-as-func.js",
+      "path": "built-ins/TypedArray/of/invoked-as-func.js",
+      "duration_ms": 11239
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/of/length.js",
+      "path": "built-ins/TypedArray/of/length.js",
+      "duration_ms": 11208
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArray/of/invoked-as-func.js",
+    "strict-script:built-ins/TypedArray/of/invoked-as-func.js",
+    "sloppy-script:built-ins/TypedArray/of/invoked-as-method.js",
+    "strict-script:built-ins/TypedArray/of/invoked-as-method.js",
+    "sloppy-script:built-ins/TypedArray/of/length.js",
+    "strict-script:built-ins/TypedArray/of/length.js",
+    "sloppy-script:built-ins/TypedArray/of/name.js",
+    "strict-script:built-ins/TypedArray/of/name.js",
+    "sloppy-script:built-ins/TypedArray/of/not-a-constructor.js",
+    "strict-script:built-ins/TypedArray/of/not-a-constructor.js",
+    "sloppy-script:built-ins/TypedArray/of/prop-desc.js",
+    "strict-script:built-ins/TypedArray/of/prop-desc.js",
+    "sloppy-script:built-ins/TypedArray/of/resized-with-out-of-bounds-and-in-bounds-indices.js",
+    "strict-script:built-ins/TypedArray/of/resized-with-out-of-bounds-and-in-bounds-indices.js",
+    "sloppy-script:built-ins/TypedArray/of/this-is-not-constructor.js",
+    "strict-script:built-ins/TypedArray/of/this-is-not-constructor.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArray",
+    "of"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

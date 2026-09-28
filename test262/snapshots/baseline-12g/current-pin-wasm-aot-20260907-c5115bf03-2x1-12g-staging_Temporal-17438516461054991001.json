@@ -1,0 +1,74 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17438516461054991001,
+  "run_kind": "matrix-filter-leaf",
+  "total": 4,
+  "passed": 4,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 4
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/Temporal/v8/calendar-day-of-week.js",
+      "path": "staging/Temporal/v8/calendar-day-of-week.js",
+      "duration_ms": 12149
+    },
+    {
+      "test_id": "strict-script:staging/Temporal/v8/calendar-day-of-week.js",
+      "path": "staging/Temporal/v8/calendar-day-of-week.js",
+      "duration_ms": 12148
+    },
+    {
+      "test_id": "sloppy-script:staging/Temporal/removed-methods.js",
+      "path": "staging/Temporal/removed-methods.js",
+      "duration_ms": 12107
+    },
+    {
+      "test_id": "strict-script:staging/Temporal/removed-methods.js",
+      "path": "staging/Temporal/removed-methods.js",
+      "duration_ms": 12107
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:staging/Temporal/removed-methods.js",
+    "strict-script:staging/Temporal/removed-methods.js",
+    "sloppy-script:staging/Temporal/v8/calendar-day-of-week.js",
+    "strict-script:staging/Temporal/v8/calendar-day-of-week.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "Temporal"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

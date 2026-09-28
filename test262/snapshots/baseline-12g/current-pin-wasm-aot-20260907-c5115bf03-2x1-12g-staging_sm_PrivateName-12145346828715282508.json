@@ -1,0 +1,274 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12145346828715282508,
+  "run_kind": "matrix-filter-leaf",
+  "total": 32,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 13,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 14,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/proxy-1.js",
+      "path": "staging/sm/PrivateName/proxy-1.js",
+      "duration_ms": 11537
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/proxy-1.js",
+      "path": "staging/sm/PrivateName/proxy-1.js",
+      "duration_ms": 11497
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/not-iterable.js",
+      "path": "staging/sm/PrivateName/not-iterable.js",
+      "duration_ms": 9944
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/not-iterable.js",
+      "path": "staging/sm/PrivateName/not-iterable.js",
+      "duration_ms": 9895
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/names.js",
+      "path": "staging/sm/PrivateName/names.js",
+      "duration_ms": 9241
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/names.js",
+      "path": "staging/sm/PrivateName/names.js",
+      "duration_ms": 9234
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+      "path": "staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+      "duration_ms": 9140
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/proxy-init-set.js",
+      "path": "staging/sm/PrivateName/proxy-init-set.js",
+      "duration_ms": 8749
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/proxy-init-set.js",
+      "path": "staging/sm/PrivateName/proxy-init-set.js",
+      "duration_ms": 8738
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+      "path": "staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+      "duration_ms": 8115
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/error-outside-class.js",
+      "test_path": "staging/sm/PrivateName/error-outside-class.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6012
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/error-outside-class.js",
+      "test_path": "staging/sm/PrivateName/error-outside-class.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5912
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/illegal-in-class-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-class-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6043
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/illegal-in-class-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-class-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6003
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/illegal-in-identifier-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-identifier-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6134
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/illegal-in-identifier-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-identifier-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6104
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/illegal-in-object-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-object-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6135
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/illegal-in-object-context.js",
+      "test_path": "staging/sm/PrivateName/illegal-in-object-context.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6186
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/lexical-presence.js",
+      "test_path": "staging/sm/PrivateName/lexical-presence.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6295
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/modify-non-extensible.js",
+      "test_path": "staging/sm/PrivateName/modify-non-extensible.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: private field update target",
+      "detail_hash": 521524579558539072,
+      "duration_ms": 4887
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/read-private-eval.js",
+      "test_path": "staging/sm/PrivateName/read-private-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4586
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/read-private-eval.js",
+      "test_path": "staging/sm/PrivateName/read-private-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4595
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/PrivateName/unicode-names.js",
+      "test_path": "staging/sm/PrivateName/unicode-names.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4437
+    },
+    {
+      "test_id": "strict-script:staging/sm/PrivateName/unicode-names.js",
+      "test_path": "staging/sm/PrivateName/unicode-names.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 4445
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/PrivateName/constructor-args.js",
+    "strict-script:staging/sm/PrivateName/constructor-args.js",
+    "sloppy-script:staging/sm/PrivateName/error-outside-class.js",
+    "strict-script:staging/sm/PrivateName/error-outside-class.js",
+    "sloppy-script:staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+    "strict-script:staging/sm/PrivateName/home-object-when-preceded-by-computed-key.js",
+    "sloppy-script:staging/sm/PrivateName/illegal-in-class-context.js",
+    "strict-script:staging/sm/PrivateName/illegal-in-class-context.js",
+    "sloppy-script:staging/sm/PrivateName/illegal-in-identifier-context.js",
+    "strict-script:staging/sm/PrivateName/illegal-in-identifier-context.js",
+    "sloppy-script:staging/sm/PrivateName/illegal-in-object-context.js",
+    "strict-script:staging/sm/PrivateName/illegal-in-object-context.js",
+    "sloppy-script:staging/sm/PrivateName/lexical-presence.js",
+    "sloppy-script:staging/sm/PrivateName/modify-non-extensible.js",
+    "sloppy-script:staging/sm/PrivateName/names.js",
+    "strict-script:staging/sm/PrivateName/names.js",
+    "sloppy-script:staging/sm/PrivateName/nested-class-in-computed-property-key.js",
+    "strict-script:staging/sm/PrivateName/nested-class-in-computed-property-key.js",
+    "sloppy-script:staging/sm/PrivateName/nested-class-name-used.js",
+    "strict-script:staging/sm/PrivateName/nested-class-name-used.js",
+    "sloppy-script:staging/sm/PrivateName/not-iterable.js",
+    "strict-script:staging/sm/PrivateName/not-iterable.js",
+    "sloppy-script:staging/sm/PrivateName/parse-utf8-non-ascii-identifier.js",
+    "strict-script:staging/sm/PrivateName/parse-utf8-non-ascii-identifier.js",
+    "sloppy-script:staging/sm/PrivateName/proxy-1.js",
+    "strict-script:staging/sm/PrivateName/proxy-1.js",
+    "sloppy-script:staging/sm/PrivateName/proxy-init-set.js",
+    "strict-script:staging/sm/PrivateName/proxy-init-set.js",
+    "sloppy-script:staging/sm/PrivateName/read-private-eval.js",
+    "strict-script:staging/sm/PrivateName/read-private-eval.js",
+    "sloppy-script:staging/sm/PrivateName/unicode-names.js",
+    "strict-script:staging/sm/PrivateName/unicode-names.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "PrivateName"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

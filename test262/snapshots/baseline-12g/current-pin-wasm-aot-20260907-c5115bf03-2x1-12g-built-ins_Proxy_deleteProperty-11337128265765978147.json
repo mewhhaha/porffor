@@ -1,0 +1,131 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11337128265765978147,
+  "run_kind": "matrix-filter-leaf",
+  "total": 30,
+  "passed": 30,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 30
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+      "duration_ms": 14042
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 13637
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 13617
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+      "duration_ms": 13327
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+      "duration_ms": 13263
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+      "duration_ms": 13224
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+      "path": "built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+      "duration_ms": 12823
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+      "path": "built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+      "duration_ms": 12802
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+      "duration_ms": 12685
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+      "path": "built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+      "duration_ms": 12552
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/deleteProperty/boolean-trap-result-boolean-false.js",
+    "strict-script:built-ins/Proxy/deleteProperty/boolean-trap-result-boolean-false.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/boolean-trap-result-boolean-true.js",
+    "strict-script:built-ins/Proxy/deleteProperty/boolean-trap-result-boolean-true.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/call-parameters.js",
+    "strict-script:built-ins/Proxy/deleteProperty/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/null-handler.js",
+    "strict-script:built-ins/Proxy/deleteProperty/null-handler.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/return-false-not-strict.js",
+    "strict-script:built-ins/Proxy/deleteProperty/return-false-strict.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/deleteProperty/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+    "strict-script:built-ins/Proxy/deleteProperty/targetdesc-is-configurable-target-is-not-extensible.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/targetdesc-is-not-configurable.js",
+    "strict-script:built-ins/Proxy/deleteProperty/targetdesc-is-not-configurable.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/targetdesc-is-undefined-return-true.js",
+    "strict-script:built-ins/Proxy/deleteProperty/targetdesc-is-undefined-return-true.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-undefined-not-strict.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-undefined-strict.js",
+    "sloppy-script:built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/deleteProperty/trap-is-undefined-target-is-proxy.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "deleteProperty"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

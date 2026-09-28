@@ -1,0 +1,155 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7221817187614287022,
+  "run_kind": "matrix-filter-leaf",
+  "total": 54,
+  "passed": 54,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 54
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/ownKeys/return-not-list-object-throws-realm.js",
+      "path": "built-ins/Proxy/ownKeys/return-not-list-object-throws-realm.js",
+      "duration_ms": 12125
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-array.js",
+      "path": "built-ins/Proxy/ownKeys/return-type-throws-array.js",
+      "duration_ms": 10961
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/ownKeys/return-type-throws-object.js",
+      "path": "built-ins/Proxy/ownKeys/return-type-throws-object.js",
+      "duration_ms": 10368
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-object.js",
+      "path": "built-ins/Proxy/ownKeys/return-type-throws-object.js",
+      "duration_ms": 10327
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/extensible-return-trap-result.js",
+      "path": "built-ins/Proxy/ownKeys/extensible-return-trap-result.js",
+      "duration_ms": 10187
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+      "path": "built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+      "duration_ms": 10087
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+      "path": "built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+      "duration_ms": 10069
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/return-not-list-object-throws.js",
+      "path": "built-ins/Proxy/ownKeys/return-not-list-object-throws.js",
+      "duration_ms": 10062
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-null.js",
+      "path": "built-ins/Proxy/ownKeys/return-type-throws-null.js",
+      "duration_ms": 9792
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/ownKeys/return-type-throws-null.js",
+      "path": "built-ins/Proxy/ownKeys/return-type-throws-null.js",
+      "duration_ms": 9773
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/ownKeys/call-parameters-object-getownpropertynames.js",
+    "strict-script:built-ins/Proxy/ownKeys/call-parameters-object-getownpropertynames.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/call-parameters-object-getownpropertysymbols.js",
+    "strict-script:built-ins/Proxy/ownKeys/call-parameters-object-getownpropertysymbols.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/call-parameters-object-keys.js",
+    "strict-script:built-ins/Proxy/ownKeys/call-parameters-object-keys.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/extensible-return-trap-result-absent-not-configurable-keys.js",
+    "strict-script:built-ins/Proxy/ownKeys/extensible-return-trap-result-absent-not-configurable-keys.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/extensible-return-trap-result.js",
+    "strict-script:built-ins/Proxy/ownKeys/extensible-return-trap-result.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/not-extensible-missing-keys-throws.js",
+    "strict-script:built-ins/Proxy/ownKeys/not-extensible-missing-keys-throws.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/not-extensible-new-keys-throws.js",
+    "strict-script:built-ins/Proxy/ownKeys/not-extensible-new-keys-throws.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/not-extensible-return-keys.js",
+    "strict-script:built-ins/Proxy/ownKeys/not-extensible-return-keys.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/null-handler.js",
+    "strict-script:built-ins/Proxy/ownKeys/null-handler.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-all-non-configurable-keys.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-all-non-configurable-keys.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-duplicate-entries-throws.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-duplicate-entries-throws.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-duplicate-symbol-entries-throws.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-duplicate-symbol-entries-throws.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-not-list-object-throws-realm.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-not-list-object-throws-realm.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-not-list-object-throws.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-not-list-object-throws.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-array.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-array.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-boolean.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-boolean.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-null.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-null.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-number.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-number.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-object.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-object.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/return-type-throws-undefined.js",
+    "strict-script:built-ins/Proxy/ownKeys/return-type-throws-undefined.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/ownKeys/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/ownKeys/trap-is-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "ownKeys"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

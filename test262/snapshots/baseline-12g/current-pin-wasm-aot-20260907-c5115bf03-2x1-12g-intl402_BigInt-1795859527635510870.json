@@ -1,0 +1,223 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1795859527635510870,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 10,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 10,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "duration_ms": 18379
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+      "duration_ms": 18341
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+      "duration_ms": 11078
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+      "duration_ms": 11010
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/builtin.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/builtin.js",
+      "duration_ms": 10888
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/builtin.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/builtin.js",
+      "duration_ms": 10866
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "duration_ms": 10378
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "duration_ms": 10338
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "duration_ms": 9966
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "path": "intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "duration_ms": 9896
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/de-DE.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/de-DE.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(88776655, 88.780.000) to be true)",
+      "detail_hash": 2128031584125988999,
+      "duration_ms": 7134
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/de-DE.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/de-DE.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(88776655, 88.780.000) to be true)",
+      "detail_hash": 2128031584125988999,
+      "duration_ms": 7171
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(12345, 12,345) to be true)",
+      "detail_hash": 14188193566457601831,
+      "duration_ms": 9896
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(12345, 12,345) to be true)",
+      "detail_hash": 14188193566457601831,
+      "duration_ms": 9966
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(88776655, 88,780,000) to be true)",
+      "detail_hash": 4467337957991965823,
+      "duration_ms": 10338
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/en-US.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(88776655, 88,780,000) to be true)",
+      "detail_hash": 4467337957991965823,
+      "duration_ms": 10378
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1536784: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 8723
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1536800: target is not a constructor)",
+      "detail_hash": 9360947489930069165,
+      "duration_ms": 8673
+    },
+    {
+      "test_id": "sloppy-script:intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1536224: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 8449
+    },
+    {
+      "test_id": "strict-script:intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "test_path": "intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1536240: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 8440
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/builtin.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/builtin.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/de-DE.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/de-DE.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/default-options-object-prototype.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/en-US.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/length.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/length.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/name.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/name.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/prop-desc.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/returns-same-results-as-NumberFormat.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/taint-Intl-NumberFormat.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/this-value-invalid.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/this-value-invalid.js",
+    "sloppy-script:intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js",
+    "strict-script:intl402/BigInt/prototype/toLocaleString/throws-same-exceptions-as-NumberFormat.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "BigInt"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

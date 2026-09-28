@@ -1,0 +1,143 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2785069102123643332,
+  "run_kind": "matrix-filter-leaf",
+  "total": 42,
+  "passed": 42,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 42
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 13073
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+      "duration_ms": 13062
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+      "duration_ms": 12812
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+      "duration_ms": 12804
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+      "duration_ms": 11835
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+      "duration_ms": 11825
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+      "duration_ms": 11814
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+      "duration_ms": 11786
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+      "duration_ms": 11544
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+      "path": "built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+      "duration_ms": 11443
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/null-handler.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/null-handler.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-target-is-not-extensible.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-target-is-not-extensible.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-targetdesc-is-not-configurable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-targetdesc-is-not-configurable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-targetdesc-is-undefined.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined-targetdesc-is-undefined.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-is-undefined.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined-realm.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/result-type-is-not-object-nor-undefined.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-invalid-descriptor.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-invalid-descriptor.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-not-writable-targetdesc-is-writable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-not-writable-targetdesc-is-writable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-targetdesc-is-configurable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-targetdesc-is-configurable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-targetdesc-is-undefined.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-is-not-configurable-targetdesc-is-undefined.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-configurable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-not-configurable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/resultdesc-return-not-configurable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-null-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/getOwnPropertyDescriptor/trap-is-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "getOwnPropertyDescriptor"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

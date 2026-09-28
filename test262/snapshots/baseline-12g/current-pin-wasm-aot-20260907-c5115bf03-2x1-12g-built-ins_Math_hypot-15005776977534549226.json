@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15005776977534549226,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 24,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 24
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+      "path": "built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+      "duration_ms": 10409
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+      "path": "built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+      "duration_ms": 10404
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/hypot/Math.hypot_Zero_2.js",
+      "path": "built-ins/Math/hypot/Math.hypot_Zero_2.js",
+      "duration_ms": 9709
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/hypot/Math.hypot_Zero_2.js",
+      "path": "built-ins/Math/hypot/Math.hypot_Zero_2.js",
+      "duration_ms": 9685
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/hypot/length.js",
+      "path": "built-ins/Math/hypot/length.js",
+      "duration_ms": 9336
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/hypot/length.js",
+      "path": "built-ins/Math/hypot/length.js",
+      "duration_ms": 9305
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/hypot/prop-desc.js",
+      "path": "built-ins/Math/hypot/prop-desc.js",
+      "duration_ms": 9255
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/hypot/prop-desc.js",
+      "path": "built-ins/Math/hypot/prop-desc.js",
+      "duration_ms": 9246
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/hypot/Math.hypot_NaN.js",
+      "path": "built-ins/Math/hypot/Math.hypot_NaN.js",
+      "duration_ms": 9228
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/hypot/Math.hypot_NaN.js",
+      "path": "built-ins/Math/hypot/Math.hypot_NaN.js",
+      "duration_ms": 9223
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_Infinity.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_Infinity.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_InfinityNaN.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_InfinityNaN.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_NaN.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_NaN.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_NegInfinity.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_NegInfinity.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_NoArgs.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_NoArgs.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_Success_2.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_Success_2.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_ToNumberErr.js",
+    "sloppy-script:built-ins/Math/hypot/Math.hypot_Zero_2.js",
+    "strict-script:built-ins/Math/hypot/Math.hypot_Zero_2.js",
+    "sloppy-script:built-ins/Math/hypot/length.js",
+    "strict-script:built-ins/Math/hypot/length.js",
+    "sloppy-script:built-ins/Math/hypot/name.js",
+    "strict-script:built-ins/Math/hypot/name.js",
+    "sloppy-script:built-ins/Math/hypot/not-a-constructor.js",
+    "strict-script:built-ins/Math/hypot/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/hypot/prop-desc.js",
+    "strict-script:built-ins/Math/hypot/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "hypot"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

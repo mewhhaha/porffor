@@ -1,0 +1,87 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16887245456299380929,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/DataView/getter-name.js",
+      "path": "staging/sm/DataView/getter-name.js",
+      "duration_ms": 12501
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/DataView/getter-name.js",
+      "path": "staging/sm/DataView/getter-name.js",
+      "duration_ms": 12499
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/DataView/get-set-index-range.js",
+      "path": "staging/sm/DataView/get-set-index-range.js",
+      "duration_ms": 12193
+    },
+    {
+      "test_id": "strict-script:staging/sm/DataView/get-set-index-range.js",
+      "path": "staging/sm/DataView/get-set-index-range.js",
+      "duration_ms": 12188
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/DataView/detach-after-construction.js",
+      "path": "staging/sm/DataView/detach-after-construction.js",
+      "duration_ms": 10932
+    },
+    {
+      "test_id": "strict-script:staging/sm/DataView/detach-after-construction.js",
+      "path": "staging/sm/DataView/detach-after-construction.js",
+      "duration_ms": 10922
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/DataView/detach-after-construction.js",
+    "strict-script:staging/sm/DataView/detach-after-construction.js",
+    "sloppy-script:staging/sm/DataView/get-set-index-range.js",
+    "strict-script:staging/sm/DataView/get-set-index-range.js",
+    "sloppy-script:staging/sm/DataView/getter-name.js",
+    "strict-script:staging/sm/DataView/getter-name.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "DataView"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

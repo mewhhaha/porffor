@@ -1,0 +1,123 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7276130457215883022,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+      "duration_ms": 14311
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+      "duration_ms": 14303
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+      "duration_ms": 13919
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+      "duration_ms": 13831
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+      "duration_ms": 10673
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+      "duration_ms": 10569
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+      "duration_ms": 10364
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+      "duration_ms": 10364
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArrayConstructors/Int32Array/proto.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/proto.js",
+      "duration_ms": 10276
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype.js",
+      "path": "built-ins/TypedArrayConstructors/Int32Array/prototype.js",
+      "duration_ms": 10138
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/BYTES_PER_ELEMENT.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/is-a-constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/is-a-constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/length.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/length.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/name.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/name.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/proto.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/proto.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/BYTES_PER_ELEMENT.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/constructor.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/not-typedarray-object.js",
+    "sloppy-script:built-ins/TypedArrayConstructors/Int32Array/prototype/proto.js",
+    "strict-script:built-ins/TypedArrayConstructors/Int32Array/prototype/proto.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArrayConstructors",
+    "Int32Array"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,136 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 8963736215198072949,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 14,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+      "duration_ms": 9479
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+      "duration_ms": 8924
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+      "duration_ms": 8855
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+      "duration_ms": 8847
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+      "duration_ms": 8589
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+      "duration_ms": 8523
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+      "path": "built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+      "duration_ms": 8364
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+      "duration_ms": 7820
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+      "path": "built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+      "duration_ms": 7616
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+      "path": "built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+      "duration_ms": 7488
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js",
+      "test_path": "built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js",
+      "test_path": "built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+    "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-number.js",
+    "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+    "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-string.js",
+    "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+    "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-symbol.js",
+    "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-true.js",
+    "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-true.js",
+    "sloppy-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+    "strict-script:built-ins/Object/defineProperties/property-description-must-be-an-object-not-undefined.js",
+    "sloppy-script:built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+    "strict-script:built-ins/Object/defineProperties/proxy-no-ownkeys-returned-keys-order.js",
+    "sloppy-script:built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js",
+    "strict-script:built-ins/Object/defineProperties/typedarray-backed-by-resizable-buffer.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Object",
+    "defineProperties"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,285 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13983918856437246101,
+  "run_kind": "matrix-filter-leaf",
+  "total": 33,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 15,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 12,
+    "Crash": 0,
+    "NotImplemented": 3,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/Reflect/defineProperty.js",
+      "path": "staging/sm/Reflect/defineProperty.js",
+      "duration_ms": 19181
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/defineProperty.js",
+      "path": "staging/sm/Reflect/defineProperty.js",
+      "duration_ms": 19080
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/deleteProperty.js",
+      "path": "staging/sm/Reflect/deleteProperty.js",
+      "duration_ms": 18906
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/deleteProperty.js",
+      "path": "staging/sm/Reflect/deleteProperty.js",
+      "duration_ms": 18805
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/set.js",
+      "path": "staging/sm/Reflect/set.js",
+      "duration_ms": 18347
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/set.js",
+      "path": "staging/sm/Reflect/set.js",
+      "duration_ms": 18347
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/apply.js",
+      "path": "staging/sm/Reflect/apply.js",
+      "duration_ms": 15909
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/construct.js",
+      "path": "staging/sm/Reflect/construct.js",
+      "duration_ms": 15598
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/propertyKeys.js",
+      "path": "staging/sm/Reflect/propertyKeys.js",
+      "duration_ms": 15598
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/propertyKeys.js",
+      "path": "staging/sm/Reflect/propertyKeys.js",
+      "duration_ms": 15588
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/apply.js",
+      "test_path": "staging/sm/Reflect/apply.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2335312: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 15909
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/construct.js",
+      "test_path": "staging/sm/Reflect/construct.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@3249152: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 15567
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/construct.js",
+      "test_path": "staging/sm/Reflect/construct.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@3249160: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 15598
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/defineProperty.js",
+      "test_path": "staging/sm/Reflect/defineProperty.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1953744: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 19080
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/defineProperty.js",
+      "test_path": "staging/sm/Reflect/defineProperty.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1953752: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 19181
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/get.js",
+      "test_path": "staging/sm/Reflect/get.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(undefined, 7) to be true)",
+      "detail_hash": 13350653396467360620,
+      "duration_ms": 9313
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/get.js",
+      "test_path": "staging/sm/Reflect/get.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(undefined, 7) to be true)",
+      "detail_hash": 13350653396467360620,
+      "duration_ms": 9312
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/getOwnPropertyDescriptor.js",
+      "test_path": "staging/sm/Reflect/getOwnPropertyDescriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1893848: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 11074
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/getOwnPropertyDescriptor.js",
+      "test_path": "staging/sm/Reflect/getOwnPropertyDescriptor.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1893856: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 11103
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/ownKeys.js",
+      "test_path": "staging/sm/Reflect/ownKeys.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to contain the same values at 32: max !== pow)",
+      "detail_hash": 15375607931621027336,
+      "duration_ms": 9656
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/ownKeys.js",
+      "test_path": "staging/sm/Reflect/ownKeys.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to contain the same values at 32: max !== pow)",
+      "detail_hash": 15375607931621027336,
+      "duration_ms": 9625
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/propertyKeys.js",
+      "test_path": "staging/sm/Reflect/propertyKeys.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1939640: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 15598
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/propertyKeys.js",
+      "test_path": "staging/sm/Reflect/propertyKeys.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1939648: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 15588
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Reflect/set.js",
+      "test_path": "staging/sm/Reflect/set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2212424: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 18347
+    },
+    {
+      "test_id": "strict-script:staging/sm/Reflect/set.js",
+      "test_path": "staging/sm/Reflect/set.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2212424: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 18347
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Reflect/apply.js",
+    "sloppy-script:staging/sm/Reflect/argumentsList.js",
+    "strict-script:staging/sm/Reflect/argumentsList.js",
+    "sloppy-script:staging/sm/Reflect/construct.js",
+    "strict-script:staging/sm/Reflect/construct.js",
+    "sloppy-script:staging/sm/Reflect/defineProperty.js",
+    "strict-script:staging/sm/Reflect/defineProperty.js",
+    "sloppy-script:staging/sm/Reflect/deleteProperty.js",
+    "strict-script:staging/sm/Reflect/deleteProperty.js",
+    "sloppy-script:staging/sm/Reflect/get.js",
+    "strict-script:staging/sm/Reflect/get.js",
+    "sloppy-script:staging/sm/Reflect/getOwnPropertyDescriptor.js",
+    "strict-script:staging/sm/Reflect/getOwnPropertyDescriptor.js",
+    "sloppy-script:staging/sm/Reflect/getPrototypeOf.js",
+    "strict-script:staging/sm/Reflect/getPrototypeOf.js",
+    "sloppy-script:staging/sm/Reflect/has.js",
+    "strict-script:staging/sm/Reflect/has.js",
+    "sloppy-script:staging/sm/Reflect/isExtensible.js",
+    "strict-script:staging/sm/Reflect/isExtensible.js",
+    "sloppy-script:staging/sm/Reflect/ownKeys.js",
+    "strict-script:staging/sm/Reflect/ownKeys.js",
+    "sloppy-script:staging/sm/Reflect/preventExtensions.js",
+    "strict-script:staging/sm/Reflect/preventExtensions.js",
+    "sloppy-script:staging/sm/Reflect/propertyKeys.js",
+    "strict-script:staging/sm/Reflect/propertyKeys.js",
+    "sloppy-script:staging/sm/Reflect/set.js",
+    "strict-script:staging/sm/Reflect/set.js",
+    "sloppy-script:staging/sm/Reflect/setPrototypeOf.js",
+    "strict-script:staging/sm/Reflect/setPrototypeOf.js",
+    "sloppy-script:staging/sm/Reflect/surfaces.js",
+    "strict-script:staging/sm/Reflect/surfaces.js",
+    "sloppy-script:staging/sm/Reflect/target.js",
+    "strict-script:staging/sm/Reflect/target.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Reflect"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

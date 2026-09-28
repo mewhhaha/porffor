@@ -1,0 +1,87 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9401865015907852399,
+  "run_kind": "matrix-filter-leaf",
+  "total": 6,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/literals/null/S7.8.1_A1_T2.js",
+      "path": "language/literals/null/S7.8.1_A1_T2.js",
+      "duration_ms": 9639
+    },
+    {
+      "test_id": "strict-script:language/literals/null/S7.8.1_A1_T2.js",
+      "path": "language/literals/null/S7.8.1_A1_T2.js",
+      "duration_ms": 9638
+    },
+    {
+      "test_id": "strict-script:language/literals/null/S7.8.1_A1_T1.js",
+      "path": "language/literals/null/S7.8.1_A1_T1.js",
+      "duration_ms": 8815
+    },
+    {
+      "test_id": "sloppy-script:language/literals/null/S7.8.1_A1_T1.js",
+      "path": "language/literals/null/S7.8.1_A1_T1.js",
+      "duration_ms": 8814
+    },
+    {
+      "test_id": "sloppy-script:language/literals/null/null-with-unicode.js",
+      "path": "language/literals/null/null-with-unicode.js",
+      "duration_ms": 92
+    },
+    {
+      "test_id": "strict-script:language/literals/null/null-with-unicode.js",
+      "path": "language/literals/null/null-with-unicode.js",
+      "duration_ms": 90
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/literals/null/S7.8.1_A1_T1.js",
+    "strict-script:language/literals/null/S7.8.1_A1_T1.js",
+    "sloppy-script:language/literals/null/S7.8.1_A1_T2.js",
+    "strict-script:language/literals/null/S7.8.1_A1_T2.js",
+    "sloppy-script:language/literals/null/null-with-unicode.js",
+    "strict-script:language/literals/null/null-with-unicode.js"
+  ],
+  "matrix_path": [
+    "language",
+    "literals",
+    "null"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

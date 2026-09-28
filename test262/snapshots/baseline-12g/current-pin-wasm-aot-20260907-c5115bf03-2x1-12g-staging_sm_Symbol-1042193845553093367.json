@@ -1,0 +1,318 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1042193845553093367,
+  "run_kind": "matrix-filter-leaf",
+  "total": 56,
+  "passed": 40,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 16,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 7,
+    "Crash": 2,
+    "NotImplemented": 7,
+    "Success": 40
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/property-reflection.js",
+      "path": "staging/sm/Symbol/property-reflection.js",
+      "duration_ms": 20035
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/toStringTag.js",
+      "path": "staging/sm/Symbol/toStringTag.js",
+      "duration_ms": 18415
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/toStringTag.js",
+      "path": "staging/sm/Symbol/toStringTag.js",
+      "duration_ms": 18307
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/property-basics.js",
+      "path": "staging/sm/Symbol/property-basics.js",
+      "duration_ms": 17205
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/property-basics.js",
+      "path": "staging/sm/Symbol/property-basics.js",
+      "duration_ms": 16373
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/surfaces.js",
+      "path": "staging/sm/Symbol/surfaces.js",
+      "duration_ms": 14723
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/surfaces.js",
+      "path": "staging/sm/Symbol/surfaces.js",
+      "duration_ms": 14721
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/well-known.js",
+      "path": "staging/sm/Symbol/well-known.js",
+      "duration_ms": 13091
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/well-known.js",
+      "path": "staging/sm/Symbol/well-known.js",
+      "duration_ms": 13090
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/toPrimitive.js",
+      "path": "staging/sm/Symbol/toPrimitive.js",
+      "duration_ms": 12856
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/comparisons.js",
+      "test_path": "staging/sm/Symbol/comparisons.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1515536: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 8212
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/comparisons.js",
+      "test_path": "staging/sm/Symbol/comparisons.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1515544: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 8775
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/conversions.js",
+      "test_path": "staging/sm/Symbol/conversions.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: Object primitive boxing",
+      "detail_hash": 15000755318526620765,
+      "duration_ms": 5408
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/enumeration.js",
+      "test_path": "staging/sm/Symbol/enumeration.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0:  0x903a5 - lila!lila::main\n\nCaused by:\n    wasm trap: out of bounds memory access",
+      "detail_hash": 18288229378478737906,
+      "duration_ms": 11557
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/enumeration.js",
+      "test_path": "staging/sm/Symbol/enumeration.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0:  0x93e99 - lila!lila::main\n\nCaused by:\n    wasm trap: out of bounds memory access",
+      "detail_hash": 18286607936238062717,
+      "duration_ms": 11521
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/for-in-order.js",
+      "test_path": "staging/sm/Symbol/for-in-order.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 7579
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/for-in-order.js",
+      "test_path": "staging/sm/Symbol/for-in-order.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 7483
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/property-basics.js",
+      "test_path": "staging/sm/Symbol/property-basics.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1913352: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 16373
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/property-basics.js",
+      "test_path": "staging/sm/Symbol/property-basics.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1913360: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 17205
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/property-reflection.js",
+      "test_path": "staging/sm/Symbol/property-reflection.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1959808: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 20035
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/realms.js",
+      "test_path": "staging/sm/Symbol/realms.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248576: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 8184
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/realms.js",
+      "test_path": "staging/sm/Symbol/realms.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248584: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 8220
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/species.js",
+      "test_path": "staging/sm/Symbol/species.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 8705
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/species.js",
+      "test_path": "staging/sm/Symbol/species.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 8742
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Symbol/toStringTag.js",
+      "test_path": "staging/sm/Symbol/toStringTag.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 18307
+    },
+    {
+      "test_id": "strict-script:staging/sm/Symbol/toStringTag.js",
+      "test_path": "staging/sm/Symbol/toStringTag.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 18415
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Symbol/as-base-value.js",
+    "sloppy-script:staging/sm/Symbol/comparisons.js",
+    "strict-script:staging/sm/Symbol/comparisons.js",
+    "sloppy-script:staging/sm/Symbol/constructor.js",
+    "strict-script:staging/sm/Symbol/constructor.js",
+    "sloppy-script:staging/sm/Symbol/conversions.js",
+    "sloppy-script:staging/sm/Symbol/enumeration-order.js",
+    "strict-script:staging/sm/Symbol/enumeration-order.js",
+    "sloppy-script:staging/sm/Symbol/enumeration.js",
+    "strict-script:staging/sm/Symbol/enumeration.js",
+    "sloppy-script:staging/sm/Symbol/equality.js",
+    "strict-script:staging/sm/Symbol/equality.js",
+    "sloppy-script:staging/sm/Symbol/errors.js",
+    "strict-script:staging/sm/Symbol/errors.js",
+    "sloppy-script:staging/sm/Symbol/for-in-order.js",
+    "strict-script:staging/sm/Symbol/for-in-order.js",
+    "sloppy-script:staging/sm/Symbol/for.js",
+    "strict-script:staging/sm/Symbol/for.js",
+    "sloppy-script:staging/sm/Symbol/json-stringify-keys.js",
+    "strict-script:staging/sm/Symbol/json-stringify-keys.js",
+    "sloppy-script:staging/sm/Symbol/json-stringify-values.js",
+    "strict-script:staging/sm/Symbol/json-stringify-values.js",
+    "sloppy-script:staging/sm/Symbol/keyFor.js",
+    "strict-script:staging/sm/Symbol/keyFor.js",
+    "sloppy-script:staging/sm/Symbol/property-accessor.js",
+    "strict-script:staging/sm/Symbol/property-accessor.js",
+    "sloppy-script:staging/sm/Symbol/property-basics.js",
+    "strict-script:staging/sm/Symbol/property-basics.js",
+    "sloppy-script:staging/sm/Symbol/property-inheritance.js",
+    "strict-script:staging/sm/Symbol/property-inheritance.js",
+    "sloppy-script:staging/sm/Symbol/property-nonwritable.js",
+    "sloppy-script:staging/sm/Symbol/property-reflection.js",
+    "sloppy-script:staging/sm/Symbol/realms.js",
+    "strict-script:staging/sm/Symbol/realms.js",
+    "sloppy-script:staging/sm/Symbol/species.js",
+    "strict-script:staging/sm/Symbol/species.js",
+    "sloppy-script:staging/sm/Symbol/surfaces.js",
+    "strict-script:staging/sm/Symbol/surfaces.js",
+    "sloppy-script:staging/sm/Symbol/symbol-object-not-unboxed-for-value-to-id.js",
+    "strict-script:staging/sm/Symbol/symbol-object-not-unboxed-for-value-to-id.js",
+    "sloppy-script:staging/sm/Symbol/toPrimitive-undefined-or-null.js",
+    "strict-script:staging/sm/Symbol/toPrimitive-undefined-or-null.js",
+    "sloppy-script:staging/sm/Symbol/toPrimitive.js",
+    "strict-script:staging/sm/Symbol/toPrimitive.js",
+    "sloppy-script:staging/sm/Symbol/toString.js",
+    "strict-script:staging/sm/Symbol/toString.js",
+    "sloppy-script:staging/sm/Symbol/toStringTag.js",
+    "strict-script:staging/sm/Symbol/toStringTag.js",
+    "sloppy-script:staging/sm/Symbol/typed-arrays.js",
+    "strict-script:staging/sm/Symbol/typed-arrays.js",
+    "sloppy-script:staging/sm/Symbol/typeof.js",
+    "strict-script:staging/sm/Symbol/typeof.js",
+    "sloppy-script:staging/sm/Symbol/valueOf.js",
+    "strict-script:staging/sm/Symbol/valueOf.js",
+    "sloppy-script:staging/sm/Symbol/well-known.js",
+    "strict-script:staging/sm/Symbol/well-known.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Symbol"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

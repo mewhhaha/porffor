@@ -1,0 +1,123 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9920553279933652724,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/String/fromCodePoint/argument-is-not-integer.js",
+      "path": "built-ins/String/fromCodePoint/argument-is-not-integer.js",
+      "duration_ms": 12287
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCodePoint/argument-is-not-integer.js",
+      "path": "built-ins/String/fromCodePoint/argument-is-not-integer.js",
+      "duration_ms": 11846
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCodePoint/argument-not-coercible.js",
+      "path": "built-ins/String/fromCodePoint/argument-not-coercible.js",
+      "duration_ms": 10990
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCodePoint/number-is-out-of-range.js",
+      "path": "built-ins/String/fromCodePoint/number-is-out-of-range.js",
+      "duration_ms": 10547
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCodePoint/number-is-out-of-range.js",
+      "path": "built-ins/String/fromCodePoint/number-is-out-of-range.js",
+      "duration_ms": 10538
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCodePoint/not-a-constructor.js",
+      "path": "built-ins/String/fromCodePoint/not-a-constructor.js",
+      "duration_ms": 10520
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCodePoint/not-a-constructor.js",
+      "path": "built-ins/String/fromCodePoint/not-a-constructor.js",
+      "duration_ms": 10519
+    },
+    {
+      "test_id": "strict-script:built-ins/String/fromCodePoint/argument-is-Symbol.js",
+      "path": "built-ins/String/fromCodePoint/argument-is-Symbol.js",
+      "duration_ms": 10047
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCodePoint/argument-is-Symbol.js",
+      "path": "built-ins/String/fromCodePoint/argument-is-Symbol.js",
+      "duration_ms": 9962
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/fromCodePoint/arguments-is-empty.js",
+      "path": "built-ins/String/fromCodePoint/arguments-is-empty.js",
+      "duration_ms": 9566
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/String/fromCodePoint/argument-is-Symbol.js",
+    "strict-script:built-ins/String/fromCodePoint/argument-is-Symbol.js",
+    "sloppy-script:built-ins/String/fromCodePoint/argument-is-not-integer.js",
+    "strict-script:built-ins/String/fromCodePoint/argument-is-not-integer.js",
+    "sloppy-script:built-ins/String/fromCodePoint/argument-not-coercible.js",
+    "strict-script:built-ins/String/fromCodePoint/argument-not-coercible.js",
+    "sloppy-script:built-ins/String/fromCodePoint/arguments-is-empty.js",
+    "strict-script:built-ins/String/fromCodePoint/arguments-is-empty.js",
+    "sloppy-script:built-ins/String/fromCodePoint/fromCodePoint.js",
+    "strict-script:built-ins/String/fromCodePoint/fromCodePoint.js",
+    "sloppy-script:built-ins/String/fromCodePoint/length.js",
+    "strict-script:built-ins/String/fromCodePoint/length.js",
+    "sloppy-script:built-ins/String/fromCodePoint/name.js",
+    "strict-script:built-ins/String/fromCodePoint/name.js",
+    "sloppy-script:built-ins/String/fromCodePoint/not-a-constructor.js",
+    "strict-script:built-ins/String/fromCodePoint/not-a-constructor.js",
+    "sloppy-script:built-ins/String/fromCodePoint/number-is-out-of-range.js",
+    "strict-script:built-ins/String/fromCodePoint/number-is-out-of-range.js",
+    "sloppy-script:built-ins/String/fromCodePoint/return-string-value.js",
+    "strict-script:built-ins/String/fromCodePoint/return-string-value.js",
+    "sloppy-script:built-ins/String/fromCodePoint/to-number-conversions.js",
+    "strict-script:built-ins/String/fromCodePoint/to-number-conversions.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "String",
+    "fromCodePoint"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

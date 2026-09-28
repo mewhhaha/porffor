@@ -1,0 +1,174 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3308572595702593895,
+  "run_kind": "matrix-filter-leaf",
+  "total": 32,
+  "passed": 28,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 28
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/built-in-exotic-objects-no-call.js",
+      "path": "language/expressions/typeof/built-in-exotic-objects-no-call.js",
+      "duration_ms": 12253
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/number.js",
+      "path": "language/expressions/typeof/number.js",
+      "duration_ms": 11322
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/built-in-exotic-objects-no-call.js",
+      "path": "language/expressions/typeof/built-in-exotic-objects-no-call.js",
+      "duration_ms": 11204
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/number.js",
+      "path": "language/expressions/typeof/number.js",
+      "duration_ms": 11130
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/get-value.js",
+      "path": "language/expressions/typeof/get-value.js",
+      "duration_ms": 10778
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/null.js",
+      "path": "language/expressions/typeof/null.js",
+      "duration_ms": 10639
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/null.js",
+      "path": "language/expressions/typeof/null.js",
+      "duration_ms": 10579
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/built-in-functions.js",
+      "path": "language/expressions/typeof/built-in-functions.js",
+      "duration_ms": 10564
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/string.js",
+      "path": "language/expressions/typeof/string.js",
+      "duration_ms": 10242
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/string.js",
+      "path": "language/expressions/typeof/string.js",
+      "duration_ms": 10199
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/native-call.js",
+      "test_path": "language/expressions/typeof/native-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5607
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/native-call.js",
+      "test_path": "language/expressions/typeof/native-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 5596
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/typeof/syntax.js",
+      "test_path": "language/expressions/typeof/syntax.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6188
+    },
+    {
+      "test_id": "strict-script:language/expressions/typeof/syntax.js",
+      "test_path": "language/expressions/typeof/syntax.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5576
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/typeof/bigint.js",
+    "strict-script:language/expressions/typeof/bigint.js",
+    "sloppy-script:language/expressions/typeof/boolean.js",
+    "strict-script:language/expressions/typeof/boolean.js",
+    "sloppy-script:language/expressions/typeof/built-in-exotic-objects-no-call.js",
+    "strict-script:language/expressions/typeof/built-in-exotic-objects-no-call.js",
+    "sloppy-script:language/expressions/typeof/built-in-functions.js",
+    "strict-script:language/expressions/typeof/built-in-functions.js",
+    "sloppy-script:language/expressions/typeof/built-in-ordinary-objects-no-call.js",
+    "strict-script:language/expressions/typeof/built-in-ordinary-objects-no-call.js",
+    "sloppy-script:language/expressions/typeof/get-value-ref-err.js",
+    "strict-script:language/expressions/typeof/get-value-ref-err.js",
+    "sloppy-script:language/expressions/typeof/get-value.js",
+    "strict-script:language/expressions/typeof/get-value.js",
+    "sloppy-script:language/expressions/typeof/native-call.js",
+    "strict-script:language/expressions/typeof/native-call.js",
+    "sloppy-script:language/expressions/typeof/null.js",
+    "strict-script:language/expressions/typeof/null.js",
+    "sloppy-script:language/expressions/typeof/number.js",
+    "strict-script:language/expressions/typeof/number.js",
+    "sloppy-script:language/expressions/typeof/proxy.js",
+    "strict-script:language/expressions/typeof/proxy.js",
+    "sloppy-script:language/expressions/typeof/string.js",
+    "strict-script:language/expressions/typeof/string.js",
+    "sloppy-script:language/expressions/typeof/symbol.js",
+    "strict-script:language/expressions/typeof/symbol.js",
+    "sloppy-script:language/expressions/typeof/syntax.js",
+    "strict-script:language/expressions/typeof/syntax.js",
+    "sloppy-script:language/expressions/typeof/undefined.js",
+    "strict-script:language/expressions/typeof/undefined.js",
+    "sloppy-script:language/expressions/typeof/unresolvable-reference.js",
+    "strict-script:language/expressions/typeof/unresolvable-reference.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "typeof"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

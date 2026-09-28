@@ -1,0 +1,124 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3112485675552205989,
+  "run_kind": "matrix-filter-leaf",
+  "total": 23,
+  "passed": 23,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 23
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/trap-is-undefined.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-undefined.js",
+      "duration_ms": 11500
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-undefined.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-undefined.js",
+      "duration_ms": 11496
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+      "duration_ms": 11395
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/return-is-abrupt.js",
+      "path": "built-ins/Proxy/preventExtensions/return-is-abrupt.js",
+      "duration_ms": 11038
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/trap-is-missing-target-is-proxy.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-missing-target-is-proxy.js",
+      "duration_ms": 10567
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/trap-is-null-target-is-proxy.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-null-target-is-proxy.js",
+      "duration_ms": 10548
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+      "duration_ms": 10446
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+      "duration_ms": 10426
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+      "path": "built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+      "duration_ms": 10307
+    },
+    {
+      "test_id": "strict-script:built-ins/Proxy/preventExtensions/return-false.js",
+      "path": "built-ins/Proxy/preventExtensions/return-false.js",
+      "duration_ms": 9444
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Proxy/preventExtensions/call-parameters.js",
+    "strict-script:built-ins/Proxy/preventExtensions/call-parameters.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/null-handler.js",
+    "strict-script:built-ins/Proxy/preventExtensions/null-handler.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/return-false.js",
+    "strict-script:built-ins/Proxy/preventExtensions/return-false.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/return-is-abrupt.js",
+    "strict-script:built-ins/Proxy/preventExtensions/return-is-abrupt.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/return-true-target-is-extensible.js",
+    "strict-script:built-ins/Proxy/preventExtensions/return-true-target-is-extensible.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/return-true-target-is-not-extensible.js",
+    "strict-script:built-ins/Proxy/preventExtensions/return-true-target-is-not-extensible.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-missing-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/preventExtensions/trap-is-missing-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+    "strict-script:built-ins/Proxy/preventExtensions/trap-is-not-callable-realm.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+    "strict-script:built-ins/Proxy/preventExtensions/trap-is-not-callable.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-null-target-is-proxy.js",
+    "strict-script:built-ins/Proxy/preventExtensions/trap-is-null-target-is-proxy.js",
+    "module:built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js",
+    "sloppy-script:built-ins/Proxy/preventExtensions/trap-is-undefined.js",
+    "strict-script:built-ins/Proxy/preventExtensions/trap-is-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Proxy",
+    "preventExtensions"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

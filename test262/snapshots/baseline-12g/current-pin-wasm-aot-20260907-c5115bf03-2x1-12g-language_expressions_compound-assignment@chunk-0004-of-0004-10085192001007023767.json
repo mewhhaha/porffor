@@ -1,0 +1,158 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10085192001007023767,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 36,
+  "passed": 34,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 34
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/sub-whitespace.js",
+      "path": "language/expressions/compound-assignment/sub-whitespace.js",
+      "duration_ms": 11019
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/srshift-whitespace.js",
+      "path": "language/expressions/compound-assignment/srshift-whitespace.js",
+      "duration_ms": 8826
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/sub-whitespace.js",
+      "path": "language/expressions/compound-assignment/sub-whitespace.js",
+      "duration_ms": 8578
+    },
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/mult-whitespace.js",
+      "path": "language/expressions/compound-assignment/mult-whitespace.js",
+      "duration_ms": 8422
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/mod-whitespace.js",
+      "path": "language/expressions/compound-assignment/mod-whitespace.js",
+      "duration_ms": 8414
+    },
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/mod-whitespace.js",
+      "path": "language/expressions/compound-assignment/mod-whitespace.js",
+      "duration_ms": 8403
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/mult-whitespace.js",
+      "path": "language/expressions/compound-assignment/mult-whitespace.js",
+      "duration_ms": 8401
+    },
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/urshift-whitespace.js",
+      "path": "language/expressions/compound-assignment/urshift-whitespace.js",
+      "duration_ms": 8213
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/or-whitespace.js",
+      "path": "language/expressions/compound-assignment/or-whitespace.js",
+      "duration_ms": 8212
+    },
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/or-whitespace.js",
+      "path": "language/expressions/compound-assignment/or-whitespace.js",
+      "duration_ms": 8140
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/compound-assignment/mod-whitespace.js",
+      "test_path": "language/expressions/compound-assignment/mod-whitespace.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(U+0009 (expression) Expected SameValue(0, 0) to be true)",
+      "detail_hash": 6249296641855026395,
+      "duration_ms": 8414
+    },
+    {
+      "test_id": "strict-script:language/expressions/compound-assignment/mod-whitespace.js",
+      "test_path": "language/expressions/compound-assignment/mod-whitespace.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(U+0009 (expression) Expected SameValue(0, 0) to be true)",
+      "detail_hash": 6249296641855026395,
+      "duration_ms": 8403
+    }
+  ],
+  "completed_test_ids": [
+    "strict-script:language/expressions/compound-assignment/mod-div-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/mod-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/mod-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/mod-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/mult-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/mult-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/mult-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/mult-non-simple.js",
+    "sloppy-script:language/expressions/compound-assignment/mult-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/mult-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/or-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/or-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/or-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/or-whitespace.js",
+    "sloppy-script:language/expressions/compound-assignment/right-shift-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/right-shift-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/srshift-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/srshift-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/srshift-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/srshift-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/sub-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/sub-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/sub-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/sub-whitespace.js",
+    "sloppy-script:language/expressions/compound-assignment/subtract-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/subtract-non-simple.js",
+    "sloppy-script:language/expressions/compound-assignment/u-right-shift-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/u-right-shift-non-simple.js",
+    "strict-script:language/expressions/compound-assignment/urshift-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/urshift-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/urshift-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/urshift-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/xor-arguments-strict.js",
+    "strict-script:language/expressions/compound-assignment/xor-eval-strict.js",
+    "sloppy-script:language/expressions/compound-assignment/xor-whitespace.js",
+    "strict-script:language/expressions/compound-assignment/xor-whitespace.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "compound-assignment"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

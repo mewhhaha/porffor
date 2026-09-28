@@ -1,0 +1,185 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5485982182518828846,
+  "run_kind": "matrix-filter-leaf",
+  "total": 13,
+  "passed": 6,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 3,
+    "Runtime": 2,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 5,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 6
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/fields/init-order.js",
+      "path": "staging/sm/fields/init-order.js",
+      "duration_ms": 9012
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/scopes.js",
+      "path": "staging/sm/fields/scopes.js",
+      "duration_ms": 8296
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/scopes.js",
+      "path": "staging/sm/fields/scopes.js",
+      "duration_ms": 8105
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/numeric-fields.js",
+      "path": "staging/sm/fields/numeric-fields.js",
+      "duration_ms": 7169
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/numeric-fields.js",
+      "path": "staging/sm/fields/numeric-fields.js",
+      "duration_ms": 7031
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/init-order.js",
+      "path": "staging/sm/fields/init-order.js",
+      "duration_ms": 6761
+    },
+    {
+      "test_id": "module:staging/sm/fields/await-identifier-module-3.js",
+      "path": "staging/sm/fields/await-identifier-module-3.js",
+      "duration_ms": 6091
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/bug1587574.js",
+      "path": "staging/sm/fields/bug1587574.js",
+      "duration_ms": 5843
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/bug1587574.js",
+      "path": "staging/sm/fields/bug1587574.js",
+      "duration_ms": 5681
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/await-identifier-script.js",
+      "path": "staging/sm/fields/await-identifier-script.js",
+      "duration_ms": 171
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:staging/sm/fields/await-identifier-module-3.js",
+      "test_path": "staging/sm/fields/await-identifier-module-3.js",
+      "kind": "Parser",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] negative test expected parse error but compile succeeded",
+      "detail_hash": 17926691867092393737,
+      "duration_ms": 6091
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/await-identifier-script.js",
+      "test_path": "staging/sm/fields/await-identifier-script.js",
+      "kind": "Parser",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] parse error: unexpected token ';', primary expression at line 116, col 14",
+      "detail_hash": 11388223746510300555,
+      "duration_ms": 171
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/await-identifier-script.js",
+      "test_path": "staging/sm/fields/await-identifier-script.js",
+      "kind": "Parser",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] parse error: unexpected token ';', primary expression at line 117, col 14",
+      "detail_hash": 4660750002151474674,
+      "duration_ms": 171
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/bug1587574.js",
+      "test_path": "staging/sm/fields/bug1587574.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5681
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/bug1587574.js",
+      "test_path": "staging/sm/fields/bug1587574.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5843
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/fields/numeric-fields.js",
+      "test_path": "staging/sm/fields/numeric-fields.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<class>, 128) to be true)",
+      "detail_hash": 2677746662646787031,
+      "duration_ms": 7169
+    },
+    {
+      "test_id": "strict-script:staging/sm/fields/numeric-fields.js",
+      "test_path": "staging/sm/fields/numeric-fields.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(<class>, 128) to be true)",
+      "detail_hash": 2677746662646787031,
+      "duration_ms": 7031
+    }
+  ],
+  "completed_test_ids": [
+    "module:staging/sm/fields/await-identifier-module-1.js",
+    "module:staging/sm/fields/await-identifier-module-2.js",
+    "module:staging/sm/fields/await-identifier-module-3.js",
+    "sloppy-script:staging/sm/fields/await-identifier-script.js",
+    "strict-script:staging/sm/fields/await-identifier-script.js",
+    "sloppy-script:staging/sm/fields/bug1587574.js",
+    "strict-script:staging/sm/fields/bug1587574.js",
+    "sloppy-script:staging/sm/fields/init-order.js",
+    "strict-script:staging/sm/fields/init-order.js",
+    "sloppy-script:staging/sm/fields/numeric-fields.js",
+    "strict-script:staging/sm/fields/numeric-fields.js",
+    "sloppy-script:staging/sm/fields/scopes.js",
+    "strict-script:staging/sm/fields/scopes.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "fields"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

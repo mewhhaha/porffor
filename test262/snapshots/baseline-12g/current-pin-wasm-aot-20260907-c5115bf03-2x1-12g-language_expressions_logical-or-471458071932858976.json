@@ -1,0 +1,156 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 471458071932858976,
+  "run_kind": "matrix-filter-leaf",
+  "total": 34,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T1.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.1_T1.js",
+      "duration_ms": 11730
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A2.4_T2.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.4_T2.js",
+      "duration_ms": 11129
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A2.4_T1.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.4_T1.js",
+      "duration_ms": 10908
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A4_T4.js",
+      "path": "language/expressions/logical-or/S11.11.2_A4_T4.js",
+      "duration_ms": 10798
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A3_T3.js",
+      "path": "language/expressions/logical-or/S11.11.2_A3_T3.js",
+      "duration_ms": 10555
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+      "duration_ms": 10454
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T3.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.1_T3.js",
+      "duration_ms": 10353
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+      "path": "language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+      "duration_ms": 10325
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A4_T1.js",
+      "path": "language/expressions/logical-or/S11.11.2_A4_T1.js",
+      "duration_ms": 10273
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A3_T4.js",
+      "path": "language/expressions/logical-or/S11.11.2_A3_T4.js",
+      "duration_ms": 10225
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/logical-or/S11.11.2_A1.js",
+      "test_path": "language/expressions/logical-or/S11.11.2_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6532
+    },
+    {
+      "test_id": "strict-script:language/expressions/logical-or/S11.11.2_A1.js",
+      "test_path": "language/expressions/logical-or/S11.11.2_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6600
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A1.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A1.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T1.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T1.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T2.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T3.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T3.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.1_T4.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.1_T4.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.4_T1.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.4_T1.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.4_T2.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A2.4_T2.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A2.4_T3.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A3_T1.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A3_T1.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A3_T2.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A3_T2.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A3_T3.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A3_T3.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A3_T4.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A3_T4.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A4_T1.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A4_T1.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A4_T2.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A4_T2.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A4_T3.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A4_T3.js",
+    "sloppy-script:language/expressions/logical-or/S11.11.2_A4_T4.js",
+    "strict-script:language/expressions/logical-or/S11.11.2_A4_T4.js",
+    "sloppy-script:language/expressions/logical-or/symbol-logical-or-evaluation.js",
+    "strict-script:language/expressions/logical-or/symbol-logical-or-evaluation.js",
+    "strict-script:language/expressions/logical-or/tco-right.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "logical-or"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

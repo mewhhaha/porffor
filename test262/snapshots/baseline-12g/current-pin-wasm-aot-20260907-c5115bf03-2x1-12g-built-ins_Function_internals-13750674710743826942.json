@@ -1,0 +1,178 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13750674710743826942,
+  "run_kind": "matrix-filter-leaf",
+  "total": 16,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+      "path": "built-ins/Function/internals/Call/class-ctor-realm.js",
+      "duration_ms": 10566
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+      "path": "built-ins/Function/internals/Call/class-ctor-realm.js",
+      "duration_ms": 10556
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+      "path": "built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+      "duration_ms": 9364
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "path": "built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "duration_ms": 8772
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+      "path": "built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+      "duration_ms": 8671
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+      "path": "built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+      "duration_ms": 8619
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+      "path": "built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+      "duration_ms": 8450
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/derived-return-val.js",
+      "path": "built-ins/Function/internals/Construct/derived-return-val.js",
+      "duration_ms": 8351
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "path": "built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "duration_ms": 8232
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Construct/derived-return-val.js",
+      "path": "built-ins/Function/internals/Construct/derived-return-val.js",
+      "duration_ms": 8199
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+      "test_path": "built-ins/Function/internals/Call/class-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248056: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10556
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+      "test_path": "built-ins/Function/internals/Call/class-ctor-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248064: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10566
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "test_path": "built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248408: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 7856
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "test_path": "built-ins/Function/internals/Construct/derived-return-val-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248416: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 8772
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "test_path": "built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248248: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 8102
+    },
+    {
+      "test_id": "strict-script:built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "test_path": "built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2248264: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 8232
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+    "strict-script:built-ins/Function/internals/Call/class-ctor-realm.js",
+    "sloppy-script:built-ins/Function/internals/Call/class-ctor.js",
+    "strict-script:built-ins/Function/internals/Call/class-ctor.js",
+    "sloppy-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+    "strict-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy-realm.js",
+    "sloppy-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+    "strict-script:built-ins/Function/internals/Construct/base-ctor-revoked-proxy.js",
+    "sloppy-script:built-ins/Function/internals/Construct/derived-return-val-realm.js",
+    "strict-script:built-ins/Function/internals/Construct/derived-return-val-realm.js",
+    "sloppy-script:built-ins/Function/internals/Construct/derived-return-val.js",
+    "strict-script:built-ins/Function/internals/Construct/derived-return-val.js",
+    "sloppy-script:built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+    "strict-script:built-ins/Function/internals/Construct/derived-this-uninitialized-realm.js",
+    "sloppy-script:built-ins/Function/internals/Construct/derived-this-uninitialized.js",
+    "strict-script:built-ins/Function/internals/Construct/derived-this-uninitialized.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Function",
+    "internals"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

@@ -1,0 +1,242 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 3930661498073776587,
+  "run_kind": "matrix-chunk-leaf",
+  "total": 100,
+  "passed": 96,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 96
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-member-computed-reference.js",
+      "path": "language/expressions/assignment/target-member-computed-reference.js",
+      "duration_ms": 15398
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-member-computed-reference.js",
+      "path": "language/expressions/assignment/target-member-computed-reference.js",
+      "duration_ms": 15378
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-member-computed-reference-null.js",
+      "path": "language/expressions/assignment/target-member-computed-reference-null.js",
+      "duration_ms": 14748
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-member-computed-reference-undefined.js",
+      "path": "language/expressions/assignment/target-member-computed-reference-undefined.js",
+      "duration_ms": 14715
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-member-computed-reference-null.js",
+      "path": "language/expressions/assignment/target-member-computed-reference-null.js",
+      "duration_ms": 14377
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-member-computed-reference-undefined.js",
+      "path": "language/expressions/assignment/target-member-computed-reference-undefined.js",
+      "duration_ms": 14071
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-super-computed-reference.js",
+      "path": "language/expressions/assignment/target-super-computed-reference.js",
+      "duration_ms": 13270
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-super-computed-reference.js",
+      "path": "language/expressions/assignment/target-super-computed-reference.js",
+      "duration_ms": 13261
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-member-identifier-reference-undefined.js",
+      "path": "language/expressions/assignment/target-member-identifier-reference-undefined.js",
+      "duration_ms": 12883
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-member-identifier-reference-undefined.js",
+      "path": "language/expressions/assignment/target-member-identifier-reference-undefined.js",
+      "duration_ms": 12822
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-super-computed-reference-null.js",
+      "test_path": "language/expressions/assignment/target-super-computed-reference-null.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(0, 1) to be true)",
+      "detail_hash": 6077642013761413157,
+      "duration_ms": 9349
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-super-computed-reference-null.js",
+      "test_path": "language/expressions/assignment/target-super-computed-reference-null.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(0, 1) to be true)",
+      "detail_hash": 6077642013761413157,
+      "duration_ms": 9368
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/assignment/target-super-identifier-reference-null.js",
+      "test_path": "language/expressions/assignment/target-super-identifier-reference-null.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(0, 1) to be true)",
+      "detail_hash": 6077642013761413157,
+      "duration_ms": 9568
+    },
+    {
+      "test_id": "strict-script:language/expressions/assignment/target-super-identifier-reference-null.js",
+      "test_path": "language/expressions/assignment/target-super-identifier-reference-null.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(0, 1) to be true)",
+      "detail_hash": 6077642013761413157,
+      "duration_ms": 9570
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-extends-escaped-ext.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-extends-escaped-ext.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-extends-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-extends-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-extends.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-extends.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-finally-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-finally-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-for-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-for-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-function-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-function-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-if-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-if-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-implements-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-implements-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-import-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-import-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-in-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-in-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-instanceof-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-instanceof-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-interface-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-interface-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-let-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-let-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-new-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-new-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-package-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-package-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-private-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-private-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-protected-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-protected-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-public-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-public-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-return-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-return-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-static-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-static-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-super-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-super-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-switch-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-switch-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-this-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-this-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-throw-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-throw-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-try-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-try-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-typeof-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-typeof-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-var-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-var-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-void-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-void-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-while-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-while-escaped.js",
+    "sloppy-script:language/expressions/assignment/member-expr-ident-name-with-escaped.js",
+    "strict-script:language/expressions/assignment/member-expr-ident-name-with-escaped.js",
+    "sloppy-script:language/expressions/assignment/non-simple-target.js",
+    "strict-script:language/expressions/assignment/non-simple-target.js",
+    "sloppy-script:language/expressions/assignment/target-assignment-inside-function.js",
+    "strict-script:language/expressions/assignment/target-assignment-inside-function.js",
+    "sloppy-script:language/expressions/assignment/target-assignment.js",
+    "strict-script:language/expressions/assignment/target-assignment.js",
+    "sloppy-script:language/expressions/assignment/target-boolean.js",
+    "strict-script:language/expressions/assignment/target-boolean.js",
+    "sloppy-script:language/expressions/assignment/target-cover-id.js",
+    "strict-script:language/expressions/assignment/target-cover-id.js",
+    "sloppy-script:language/expressions/assignment/target-cover-newtarget.js",
+    "strict-script:language/expressions/assignment/target-cover-newtarget.js",
+    "sloppy-script:language/expressions/assignment/target-cover-yieldexpr.js",
+    "strict-script:language/expressions/assignment/target-cover-yieldexpr.js",
+    "sloppy-script:language/expressions/assignment/target-member-computed-reference-null.js",
+    "strict-script:language/expressions/assignment/target-member-computed-reference-null.js",
+    "sloppy-script:language/expressions/assignment/target-member-computed-reference-undefined.js",
+    "strict-script:language/expressions/assignment/target-member-computed-reference-undefined.js",
+    "sloppy-script:language/expressions/assignment/target-member-computed-reference.js",
+    "strict-script:language/expressions/assignment/target-member-computed-reference.js",
+    "sloppy-script:language/expressions/assignment/target-member-identifier-reference-null.js",
+    "strict-script:language/expressions/assignment/target-member-identifier-reference-null.js",
+    "sloppy-script:language/expressions/assignment/target-member-identifier-reference-undefined.js",
+    "strict-script:language/expressions/assignment/target-member-identifier-reference-undefined.js",
+    "sloppy-script:language/expressions/assignment/target-newtarget.js",
+    "strict-script:language/expressions/assignment/target-newtarget.js",
+    "sloppy-script:language/expressions/assignment/target-null.js",
+    "strict-script:language/expressions/assignment/target-null.js",
+    "sloppy-script:language/expressions/assignment/target-number.js",
+    "strict-script:language/expressions/assignment/target-number.js",
+    "sloppy-script:language/expressions/assignment/target-string.js",
+    "strict-script:language/expressions/assignment/target-string.js",
+    "sloppy-script:language/expressions/assignment/target-super-computed-reference-null.js",
+    "strict-script:language/expressions/assignment/target-super-computed-reference-null.js",
+    "sloppy-script:language/expressions/assignment/target-super-computed-reference.js",
+    "strict-script:language/expressions/assignment/target-super-computed-reference.js",
+    "sloppy-script:language/expressions/assignment/target-super-identifier-reference-null.js",
+    "strict-script:language/expressions/assignment/target-super-identifier-reference-null.js",
+    "sloppy-script:language/expressions/assignment/white-space.js",
+    "strict-script:language/expressions/assignment/white-space.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "assignment"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

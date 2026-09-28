@@ -1,0 +1,699 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 7273757431399910381,
+  "run_kind": "matrix-filter-leaf",
+  "total": 77,
+  "passed": 25,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 17,
+    "Unsupported": 35,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 9,
+    "Crash": 2,
+    "NotImplemented": 41,
+    "Success": 25
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/string-literal-escape-sequences.js",
+      "path": "staging/sm/expressions/string-literal-escape-sequences.js",
+      "duration_ms": 42222
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/string-literal-escape-sequences.js",
+      "path": "staging/sm/expressions/string-literal-escape-sequences.js",
+      "duration_ms": 42091
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-done.js",
+      "path": "staging/sm/expressions/destructuring-array-done.js",
+      "duration_ms": 26618
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-done.js",
+      "path": "staging/sm/expressions/destructuring-array-done.js",
+      "duration_ms": 25822
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "path": "staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "duration_ms": 22253
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "path": "staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "duration_ms": 22012
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment.js",
+      "path": "staging/sm/expressions/short-circuit-compound-assignment.js",
+      "duration_ms": 20978
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/object-literal-__proto__.js",
+      "path": "staging/sm/expressions/object-literal-__proto__.js",
+      "duration_ms": 18602
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/object-literal-__proto__.js",
+      "path": "staging/sm/expressions/object-literal-__proto__.js",
+      "duration_ms": 16450
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/delete-constant-folded-and-or.js",
+      "path": "staging/sm/expressions/delete-constant-folded-and-or.js",
+      "duration_ms": 13496
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/11.1.5-01.js",
+      "test_path": "staging/sm/expressions/11.1.5-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 7169
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/11.1.5-01.js",
+      "test_path": "staging/sm/expressions/11.1.5-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 7059
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/ToPropertyKey-symbols.js",
+      "test_path": "staging/sm/expressions/ToPropertyKey-symbols.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1565712: Cannot convert a Symbol value to a string)",
+      "detail_hash": 556447370423596815,
+      "duration_ms": 10036
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/ToPropertyKey-symbols.js",
+      "test_path": "staging/sm/expressions/ToPropertyKey-symbols.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1565712: Cannot convert a Symbol value to a string)",
+      "detail_hash": 556447370423596815,
+      "duration_ms": 13184
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/binary-literals.js",
+      "test_path": "staging/sm/expressions/binary-literals.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6225
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/binary-literals.js",
+      "test_path": "staging/sm/expressions/binary-literals.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6204
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/computed-property-side-effects.js",
+      "test_path": "staging/sm/expressions/computed-property-side-effects.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1548464: unbound identifier)",
+      "detail_hash": 8433705345293547353,
+      "duration_ms": 12670
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/computed-property-side-effects.js",
+      "test_path": "staging/sm/expressions/computed-property-side-effects.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1548472: unbound identifier)",
+      "detail_hash": 8433705345293547353,
+      "duration_ms": 12962
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/delete-constant-folded-and-or.js",
+      "test_path": "staging/sm/expressions/delete-constant-folded-and-or.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(true, false) to be true)",
+      "detail_hash": 9209149662995185067,
+      "duration_ms": 13496
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+      "test_path": "staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 8862
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+      "test_path": "staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 8950
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-call.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6687
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-call.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-call.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6718
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-class.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-class.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-class.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-class.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6707
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-function-nested.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-function-nested.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6687
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-function-nested.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-function-nested.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-function.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6677
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-function.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6667
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-simple.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-simple.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6711
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-simple.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-simple.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6657
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-default-yield.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-yield.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6687
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-default-yield.js",
+      "test_path": "staging/sm/expressions/destructuring-array-default-yield.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6707
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-array-done.js",
+      "test_path": "staging/sm/expressions/destructuring-array-done.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: declared type of variable var116 doesn't match type of value v16779104",
+      "detail_hash": 10247145082279134777,
+      "duration_ms": 25822
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-array-done.js",
+      "test_path": "staging/sm/expressions/destructuring-array-done.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: declared type of variable var132 doesn't match type of value v16781154",
+      "detail_hash": 4074898975633575087,
+      "duration_ms": 26618
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "test_path": "staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1851056: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 22012
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "test_path": "staging/sm/expressions/destructuring-pattern-parenthesized.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1851064: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 22253
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+      "test_path": "staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5914
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+      "test_path": "staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 5964
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/named-accessor-function.js",
+      "test_path": "staging/sm/expressions/named-accessor-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4716
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/named-accessor-function.js",
+      "test_path": "staging/sm/expressions/named-accessor-function.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4786
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/nested-delete-name-in-evalcode.js",
+      "test_path": "staging/sm/expressions/nested-delete-name-in-evalcode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 11776
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/nullish-coalescing.js",
+      "test_path": "staging/sm/expressions/nullish-coalescing.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 10901
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/nullish-coalescing.js",
+      "test_path": "staging/sm/expressions/nullish-coalescing.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 11011
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/object-literal-__proto__.js",
+      "test_path": "staging/sm/expressions/object-literal-__proto__.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1543904: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 16450
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/object-literal-__proto__.js",
+      "test_path": "staging/sm/expressions/object-literal-__proto__.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1543920: dynamic Function constructor unsupported)",
+      "detail_hash": 342932744667426585,
+      "duration_ms": 18602
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/object-literal-accessor-arguments.js",
+      "test_path": "staging/sm/expressions/object-literal-accessor-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 8828
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/object-literal-accessor-arguments.js",
+      "test_path": "staging/sm/expressions/object-literal-accessor-arguments.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 8496
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/octal-literals.js",
+      "test_path": "staging/sm/expressions/octal-literals.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6184
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/octal-literals.js",
+      "test_path": "staging/sm/expressions/octal-literals.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6177
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/optional-chain-class-heritage.js",
+      "test_path": "staging/sm/expressions/optional-chain-class-heritage.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: class extends",
+      "detail_hash": 2645360333414561304,
+      "duration_ms": 5210
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/optional-chain-class-heritage.js",
+      "test_path": "staging/sm/expressions/optional-chain-class-heritage.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: class extends",
+      "detail_hash": 2645360333414561304,
+      "duration_ms": 5150
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/optional-chain-first-expression.js",
+      "test_path": "staging/sm/expressions/optional-chain-first-expression.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6445
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/optional-chain-first-expression.js",
+      "test_path": "staging/sm/expressions/optional-chain-first-expression.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires source compilation after AOT",
+      "detail_hash": 12534538884785833718,
+      "duration_ms": 6385
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/optional-chain.js",
+      "test_path": "staging/sm/expressions/optional-chain.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 11615
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/primitive-this-boxing-behavior.js",
+      "test_path": "staging/sm/expressions/primitive-this-boxing-behavior.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: property access on boolean target",
+      "detail_hash": 10021193353047708054,
+      "duration_ms": 4686
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/primitive-this-boxing-behavior.js",
+      "test_path": "staging/sm/expressions/primitive-this-boxing-behavior.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: property access on boolean target",
+      "detail_hash": 10021193353047708054,
+      "duration_ms": 4706
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+      "test_path": "staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(a, ) to be true)",
+      "detail_hash": 4268434862072380618,
+      "duration_ms": 7664
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+      "test_path": "staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(a, ) to be true)",
+      "detail_hash": 4268434862072380618,
+      "duration_ms": 7473
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment.js",
+      "test_path": "staging/sm/expressions/short-circuit-compound-assignment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 20978
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/expressions/string-literal-escape-sequences.js",
+      "test_path": "staging/sm/expressions/string-literal-escape-sequences.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 42222
+    },
+    {
+      "test_id": "strict-script:staging/sm/expressions/string-literal-escape-sequences.js",
+      "test_path": "staging/sm/expressions/string-literal-escape-sequences.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 42091
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/expressions/11.1.5-01.js",
+    "strict-script:staging/sm/expressions/11.1.5-01.js",
+    "sloppy-script:staging/sm/expressions/ToPropertyKey-symbols.js",
+    "strict-script:staging/sm/expressions/ToPropertyKey-symbols.js",
+    "sloppy-script:staging/sm/expressions/binary-literals.js",
+    "strict-script:staging/sm/expressions/binary-literals.js",
+    "sloppy-script:staging/sm/expressions/computed-property-side-effects.js",
+    "strict-script:staging/sm/expressions/computed-property-side-effects.js",
+    "sloppy-script:staging/sm/expressions/constant-folded-labeled-statement.js",
+    "strict-script:staging/sm/expressions/constant-folded-labeled-statement.js",
+    "sloppy-script:staging/sm/expressions/delete-constant-folded-and-or.js",
+    "sloppy-script:staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+    "strict-script:staging/sm/expressions/delete-name-parenthesized-early-error-strict-mode.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-call.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-call.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-class.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-class.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-function-nested.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-function-nested.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-function.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-function.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-simple.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-simple.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-default-yield.js",
+    "strict-script:staging/sm/expressions/destructuring-array-default-yield.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-done.js",
+    "strict-script:staging/sm/expressions/destructuring-array-done.js",
+    "sloppy-script:staging/sm/expressions/destructuring-array-lexical.js",
+    "strict-script:staging/sm/expressions/destructuring-array-lexical.js",
+    "sloppy-script:staging/sm/expressions/destructuring-object-__proto__-1.js",
+    "strict-script:staging/sm/expressions/destructuring-object-__proto__-1.js",
+    "sloppy-script:staging/sm/expressions/destructuring-object-__proto__-2.js",
+    "strict-script:staging/sm/expressions/destructuring-object-__proto__-2.js",
+    "sloppy-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+    "strict-script:staging/sm/expressions/destructuring-pattern-parenthesized.js",
+    "sloppy-script:staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+    "strict-script:staging/sm/expressions/exponentiation-unparenthesised-unary.js",
+    "sloppy-script:staging/sm/expressions/inNotObjectError.js",
+    "strict-script:staging/sm/expressions/inNotObjectError.js",
+    "sloppy-script:staging/sm/expressions/named-accessor-function.js",
+    "strict-script:staging/sm/expressions/named-accessor-function.js",
+    "sloppy-script:staging/sm/expressions/nested-delete-name-in-evalcode.js",
+    "sloppy-script:staging/sm/expressions/nullish-coalescing.js",
+    "strict-script:staging/sm/expressions/nullish-coalescing.js",
+    "sloppy-script:staging/sm/expressions/object-literal-__proto__.js",
+    "strict-script:staging/sm/expressions/object-literal-__proto__.js",
+    "sloppy-script:staging/sm/expressions/object-literal-accessor-arguments.js",
+    "strict-script:staging/sm/expressions/object-literal-accessor-arguments.js",
+    "sloppy-script:staging/sm/expressions/object-literal-accessor-property-name.js",
+    "strict-script:staging/sm/expressions/object-literal-accessor-property-name.js",
+    "sloppy-script:staging/sm/expressions/object-literal-computed-property-evaluation.js",
+    "strict-script:staging/sm/expressions/object-literal-computed-property-evaluation.js",
+    "sloppy-script:staging/sm/expressions/octal-literals.js",
+    "strict-script:staging/sm/expressions/octal-literals.js",
+    "sloppy-script:staging/sm/expressions/optional-chain-class-heritage.js",
+    "strict-script:staging/sm/expressions/optional-chain-class-heritage.js",
+    "module:staging/sm/expressions/optional-chain-first-expression-module.js",
+    "sloppy-script:staging/sm/expressions/optional-chain-first-expression.js",
+    "strict-script:staging/sm/expressions/optional-chain-first-expression.js",
+    "sloppy-script:staging/sm/expressions/optional-chain-super-elem.js",
+    "strict-script:staging/sm/expressions/optional-chain-super-elem.js",
+    "sloppy-script:staging/sm/expressions/optional-chain-tdz.js",
+    "strict-script:staging/sm/expressions/optional-chain-tdz.js",
+    "sloppy-script:staging/sm/expressions/optional-chain.js",
+    "sloppy-script:staging/sm/expressions/primitive-this-boxing-behavior.js",
+    "strict-script:staging/sm/expressions/primitive-this-boxing-behavior.js",
+    "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+    "strict-script:staging/sm/expressions/short-circuit-compound-assignment-anon-fns.js",
+    "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment-const.js",
+    "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment-property-key-evaluation.js",
+    "strict-script:staging/sm/expressions/short-circuit-compound-assignment-property-key-evaluation.js",
+    "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment-tdz.js",
+    "strict-script:staging/sm/expressions/short-circuit-compound-assignment-tdz.js",
+    "sloppy-script:staging/sm/expressions/short-circuit-compound-assignment.js",
+    "sloppy-script:staging/sm/expressions/string-literal-escape-sequences.js",
+    "strict-script:staging/sm/expressions/string-literal-escape-sequences.js",
+    "sloppy-script:staging/sm/expressions/tagged-template-constant-folding.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "expressions"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

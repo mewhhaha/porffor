@@ -1,0 +1,135 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11394125814640447257,
+  "run_kind": "matrix-filter-leaf",
+  "total": 13,
+  "passed": 11,
+  "counts_per_kind": {
+    "EarlyError": 1,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 1,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 11
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-empty.js",
+      "path": "language/module-code/import-attributes/import-attribute-empty.js",
+      "duration_ms": 171
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/early-dup-attribute-key-import-withbinding.js",
+      "path": "language/module-code/import-attributes/early-dup-attribute-key-import-withbinding.js",
+      "duration_ms": 81
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-value-string-single.js",
+      "path": "language/module-code/import-attributes/import-attribute-value-string-single.js",
+      "duration_ms": 80
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-value-string-double.js",
+      "path": "language/module-code/import-attributes/import-attribute-value-string-double.js",
+      "duration_ms": 72
+    },
+    {
+      "test_id": "raw-module:language/module-code/import-attributes/allow-nlt-before-with.js",
+      "path": "language/module-code/import-attributes/allow-nlt-before-with.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-key-string-double.js",
+      "path": "language/module-code/import-attributes/import-attribute-key-string-double.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-newlines.js",
+      "path": "language/module-code/import-attributes/import-attribute-newlines.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/early-dup-attribute-key-export.js",
+      "path": "language/module-code/import-attributes/early-dup-attribute-key-export.js",
+      "duration_ms": 70
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/early-dup-attribute-key-import-nobinding.js",
+      "path": "language/module-code/import-attributes/early-dup-attribute-key-import-nobinding.js",
+      "duration_ms": 70
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-key-identifiername.js",
+      "path": "language/module-code/import-attributes/import-attribute-key-identifiername.js",
+      "duration_ms": 70
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-empty.js",
+      "test_path": "language/module-code/import-attributes/import-attribute-empty.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: no lowered script ir. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 8184126009088080641,
+      "duration_ms": 171
+    },
+    {
+      "test_id": "module:language/module-code/import-attributes/import-attribute-newlines.js",
+      "test_path": "language/module-code/import-attributes/import-attribute-newlines.js",
+      "kind": "EarlyError",
+      "outcome": "Bug",
+      "origin": "boa-parser",
+      "detail": "[origin:boa-parser] negative test error mismatch: expected SyntaxError, got P_PARSE_MALFORMED SyntaxError parse error: expected token '{', got 'line terminator' in import attributes at line 150, col 1: parse error: expected token '{', got 'line terminator' in import attributes at line 150, col 1",
+      "detail_hash": 14692147534871117302,
+      "duration_ms": 71
+    }
+  ],
+  "completed_test_ids": [
+    "raw-module:language/module-code/import-attributes/allow-nlt-before-with.js",
+    "module:language/module-code/import-attributes/early-dup-attribute-key-export.js",
+    "module:language/module-code/import-attributes/early-dup-attribute-key-import-nobinding.js",
+    "module:language/module-code/import-attributes/early-dup-attribute-key-import-withbinding.js",
+    "module:language/module-code/import-attributes/import-attribute-empty.js",
+    "module:language/module-code/import-attributes/import-attribute-key-identifiername.js",
+    "module:language/module-code/import-attributes/import-attribute-key-string-double.js",
+    "module:language/module-code/import-attributes/import-attribute-key-string-single.js",
+    "module:language/module-code/import-attributes/import-attribute-many.js",
+    "module:language/module-code/import-attributes/import-attribute-newlines.js",
+    "module:language/module-code/import-attributes/import-attribute-trlng-comma.js",
+    "module:language/module-code/import-attributes/import-attribute-value-string-double.js",
+    "module:language/module-code/import-attributes/import-attribute-value-string-single.js"
+  ],
+  "matrix_path": [
+    "language",
+    "module-code",
+    "import-attributes"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

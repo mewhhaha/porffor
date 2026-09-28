@@ -1,0 +1,137 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15132605143106738551,
+  "run_kind": "matrix-filter-leaf",
+  "total": 36,
+  "passed": 36,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 36
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+      "duration_ms": 14796
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+      "duration_ms": 14784
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+      "duration_ms": 13509
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+      "duration_ms": 13489
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+      "duration_ms": 13005
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+      "duration_ms": 13003
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+      "duration_ms": 10383
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+      "duration_ms": 10066
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/primitive-numbers.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/primitive-numbers.js",
+      "duration_ms": 9779
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+      "path": "built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+      "duration_ms": 8797
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/exception-not-object-coercible.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/exception-not-object-coercible.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/function-length.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/function-length.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/function-name.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/function-name.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/function-property-descriptor.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/function-property-descriptor.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/inherited-properties-omitted.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/normal-object.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/normal-object.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/not-a-constructor.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/not-a-constructor.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/observable-operations.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/order-after-define-property.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/primitive-booleans.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/primitive-booleans.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/primitive-numbers.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/primitive-numbers.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/primitive-strings.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/primitive-strings.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/primitive-symbols.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/primitive-symbols.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/proxy-no-ownkeys-returned-keys-order.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/proxy-no-ownkeys-returned-keys-order.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/proxy-undefined-descriptor.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/symbols-included.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/symbols-included.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-global-object.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-object-keys.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptors/tamper-with-object-keys.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Object",
+    "getOwnPropertyDescriptors"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

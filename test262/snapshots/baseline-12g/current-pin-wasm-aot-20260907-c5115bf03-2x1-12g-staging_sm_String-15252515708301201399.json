@@ -1,0 +1,419 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15252515708301201399,
+  "run_kind": "matrix-filter-leaf",
+  "total": 94,
+  "passed": 72,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 18,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 10,
+    "Crash": 4,
+    "NotImplemented": 8,
+    "Success": 72
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/String/string-upper-lower-mapping.js",
+      "path": "staging/sm/String/string-upper-lower-mapping.js",
+      "duration_ms": 360196
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/string-upper-lower-mapping.js",
+      "path": "staging/sm/String/string-upper-lower-mapping.js",
+      "duration_ms": 360188
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/string-code-point-upper-lower-mapping.js",
+      "path": "staging/sm/String/string-code-point-upper-lower-mapping.js",
+      "duration_ms": 38562
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/string-code-point-upper-lower-mapping.js",
+      "path": "staging/sm/String/string-code-point-upper-lower-mapping.js",
+      "duration_ms": 38244
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/matchAll.js",
+      "path": "staging/sm/String/matchAll.js",
+      "duration_ms": 26864
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/matchAll.js",
+      "path": "staging/sm/String/matchAll.js",
+      "duration_ms": 26710
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/match-GetMethod.js",
+      "path": "staging/sm/String/match-GetMethod.js",
+      "duration_ms": 18402
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/match-GetMethod.js",
+      "path": "staging/sm/String/match-GetMethod.js",
+      "duration_ms": 18388
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/fromCodePoint.js",
+      "path": "staging/sm/String/fromCodePoint.js",
+      "duration_ms": 15970
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/fromCodePoint.js",
+      "path": "staging/sm/String/fromCodePoint.js",
+      "duration_ms": 15935
+    }
+  ],
+  "timeout_test_ids": [
+    "sloppy-script:staging/sm/String/string-upper-lower-mapping.js",
+    "strict-script:staging/sm/String/string-upper-lower-mapping.js"
+  ],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/String/IsRegExp.js",
+      "test_path": "staging/sm/String/IsRegExp.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 4716
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/IsRegExp.js",
+      "test_path": "staging/sm/String/IsRegExp.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 4607
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/defaultvalue.js",
+      "test_path": "staging/sm/String/defaultvalue.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 11467
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/defaultvalue.js",
+      "test_path": "staging/sm/String/defaultvalue.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 11381
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/internalUsage.js",
+      "test_path": "staging/sm/String/internalUsage.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 13960
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/internalUsage.js",
+      "test_path": "staging/sm/String/internalUsage.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(false, true) to be true)",
+      "detail_hash": 10204314871079245165,
+      "duration_ms": 13977
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/iterator_edge_cases.js",
+      "test_path": "staging/sm/String/iterator_edge_cases.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2347776: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 14768
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/iterator_edge_cases.js",
+      "test_path": "staging/sm/String/iterator_edge_cases.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2347784: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 14798
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/matchAll.js",
+      "test_path": "staging/sm/String/matchAll.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(Array Iterator, RegExp String Iterator) to be true)",
+      "detail_hash": 11116384888077208882,
+      "duration_ms": 26710
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/matchAll.js",
+      "test_path": "staging/sm/String/matchAll.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(Array Iterator, RegExp String Iterator) to be true)",
+      "detail_hash": 11116384888077208882,
+      "duration_ms": 26864
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/replace-math.js",
+      "test_path": "staging/sm/String/replace-math.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x4a8bc0 - lila!helper::heap_alloc\n    1: 0x3cbf70 - lila!builtin::RegExp.prototype[Symbol.replace]\n    2: 0x417336 - lila!builtin::String.prototype.replace\n    3: 0x4c0a0f - lila!helper::proxy_call\n    4:  0x80c3a - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 16360898395450730337,
+      "duration_ms": 11232
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/replace-math.js",
+      "test_path": "staging/sm/String/replace-math.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x4ab38c - lila!helper::heap_alloc\n    1: 0x3ce73c - lila!builtin::RegExp.prototype[Symbol.replace]\n    2: 0x419b02 - lila!builtin::String.prototype.replace\n    3: 0x4c31db - lila!helper::proxy_call\n    4:  0x8339e - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 6740253035414168866,
+      "duration_ms": 11262
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/replaceAll.js",
+      "test_path": "staging/sm/String/replaceAll.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasm string result is not valid UTF-8/WTF-8 at byte 20",
+      "detail_hash": 15537034967004284109,
+      "duration_ms": 15626
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/replaceAll.js",
+      "test_path": "staging/sm/String/replaceAll.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasm string result is not valid UTF-8/WTF-8 at byte 20",
+      "detail_hash": 15537034967004284109,
+      "duration_ms": 15636
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/split-01.js",
+      "test_path": "staging/sm/String/split-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 10901
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/split-01.js",
+      "test_path": "staging/sm/String/split-01.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected arrays to have the same length)",
+      "detail_hash": 12916796294796646729,
+      "duration_ms": 11011
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/split-xregexp.js",
+      "test_path": "staging/sm/String/split-xregexp.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4948
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/split-xregexp.js",
+      "test_path": "staging/sm/String/split-xregexp.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4968
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/string-upper-lower-mapping.js",
+      "test_path": "staging/sm/String/string-upper-lower-mapping.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360188ms",
+      "detail_hash": 9145427229552749995,
+      "duration_ms": 360188
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/string-upper-lower-mapping.js",
+      "test_path": "staging/sm/String/string-upper-lower-mapping.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] timeout exceeded after 360196ms",
+      "detail_hash": 4509909407797632998,
+      "duration_ms": 360196
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/String/unicode-braced.js",
+      "test_path": "staging/sm/String/unicode-braced.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6231
+    },
+    {
+      "test_id": "strict-script:staging/sm/String/unicode-braced.js",
+      "test_path": "staging/sm/String/unicode-braced.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6143
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/String/15.5.4.11-01.js",
+    "strict-script:staging/sm/String/15.5.4.11-01.js",
+    "sloppy-script:staging/sm/String/15.5.4.2.js",
+    "strict-script:staging/sm/String/15.5.4.2.js",
+    "sloppy-script:staging/sm/String/15.5.4.7.js",
+    "strict-script:staging/sm/String/15.5.4.7.js",
+    "sloppy-script:staging/sm/String/AdvanceStringIndex.js",
+    "strict-script:staging/sm/String/AdvanceStringIndex.js",
+    "sloppy-script:staging/sm/String/IsRegExp.js",
+    "strict-script:staging/sm/String/IsRegExp.js",
+    "sloppy-script:staging/sm/String/at.js",
+    "strict-script:staging/sm/String/at.js",
+    "sloppy-script:staging/sm/String/codePointAt.js",
+    "strict-script:staging/sm/String/codePointAt.js",
+    "sloppy-script:staging/sm/String/defaultvalue.js",
+    "strict-script:staging/sm/String/defaultvalue.js",
+    "sloppy-script:staging/sm/String/fromCodePoint.js",
+    "strict-script:staging/sm/String/fromCodePoint.js",
+    "sloppy-script:staging/sm/String/internalUsage.js",
+    "strict-script:staging/sm/String/internalUsage.js",
+    "sloppy-script:staging/sm/String/iterator_edge_cases.js",
+    "strict-script:staging/sm/String/iterator_edge_cases.js",
+    "sloppy-script:staging/sm/String/match-GetMethod.js",
+    "strict-script:staging/sm/String/match-GetMethod.js",
+    "sloppy-script:staging/sm/String/match-defines-match-elements.js",
+    "strict-script:staging/sm/String/match-defines-match-elements.js",
+    "sloppy-script:staging/sm/String/match-forward-lookahead.js",
+    "strict-script:staging/sm/String/match-forward-lookahead.js",
+    "sloppy-script:staging/sm/String/match-throws-nonwritable-lastIndex-global.js",
+    "strict-script:staging/sm/String/match-throws-nonwritable-lastIndex-global.js",
+    "sloppy-script:staging/sm/String/match-updates-global-lastIndex.js",
+    "strict-script:staging/sm/String/match-updates-global-lastIndex.js",
+    "sloppy-script:staging/sm/String/match.js",
+    "strict-script:staging/sm/String/match.js",
+    "sloppy-script:staging/sm/String/matchAll.js",
+    "strict-script:staging/sm/String/matchAll.js",
+    "sloppy-script:staging/sm/String/normalize-form-non-atom.js",
+    "strict-script:staging/sm/String/normalize-form-non-atom.js",
+    "sloppy-script:staging/sm/String/normalize-generic.js",
+    "strict-script:staging/sm/String/normalize-generic.js",
+    "sloppy-script:staging/sm/String/normalize-parameter.js",
+    "strict-script:staging/sm/String/normalize-parameter.js",
+    "sloppy-script:staging/sm/String/normalize-rope.js",
+    "strict-script:staging/sm/String/normalize-rope.js",
+    "sloppy-script:staging/sm/String/raw.js",
+    "strict-script:staging/sm/String/raw.js",
+    "sloppy-script:staging/sm/String/regress-369778.js",
+    "strict-script:staging/sm/String/regress-369778.js",
+    "sloppy-script:staging/sm/String/replace-GetMethod.js",
+    "strict-script:staging/sm/String/replace-GetMethod.js",
+    "sloppy-script:staging/sm/String/replace-bad-dollar-single-quote.js",
+    "strict-script:staging/sm/String/replace-bad-dollar-single-quote.js",
+    "sloppy-script:staging/sm/String/replace-flags.js",
+    "strict-script:staging/sm/String/replace-flags.js",
+    "sloppy-script:staging/sm/String/replace-math.js",
+    "strict-script:staging/sm/String/replace-math.js",
+    "sloppy-script:staging/sm/String/replace-throws-nonwritable-lastIndex-global.js",
+    "strict-script:staging/sm/String/replace-throws-nonwritable-lastIndex-global.js",
+    "sloppy-script:staging/sm/String/replace-updates-global-lastIndex.js",
+    "strict-script:staging/sm/String/replace-updates-global-lastIndex.js",
+    "sloppy-script:staging/sm/String/replace.js",
+    "strict-script:staging/sm/String/replace.js",
+    "sloppy-script:staging/sm/String/replaceAll.js",
+    "strict-script:staging/sm/String/replaceAll.js",
+    "sloppy-script:staging/sm/String/search-GetMethod.js",
+    "strict-script:staging/sm/String/search-GetMethod.js",
+    "sloppy-script:staging/sm/String/search.js",
+    "strict-script:staging/sm/String/search.js",
+    "sloppy-script:staging/sm/String/split-01.js",
+    "strict-script:staging/sm/String/split-01.js",
+    "sloppy-script:staging/sm/String/split-GetMethod.js",
+    "strict-script:staging/sm/String/split-GetMethod.js",
+    "sloppy-script:staging/sm/String/split-order.js",
+    "strict-script:staging/sm/String/split-order.js",
+    "sloppy-script:staging/sm/String/split-undefined-separator.js",
+    "strict-script:staging/sm/String/split-undefined-separator.js",
+    "sloppy-script:staging/sm/String/split-xregexp.js",
+    "strict-script:staging/sm/String/split-xregexp.js",
+    "sloppy-script:staging/sm/String/split.js",
+    "strict-script:staging/sm/String/split.js",
+    "sloppy-script:staging/sm/String/string-code-point-upper-lower-mapping.js",
+    "strict-script:staging/sm/String/string-code-point-upper-lower-mapping.js",
+    "sloppy-script:staging/sm/String/string-pad-start-end.js",
+    "strict-script:staging/sm/String/string-pad-start-end.js",
+    "sloppy-script:staging/sm/String/string-space-trim.js",
+    "strict-script:staging/sm/String/string-space-trim.js",
+    "sloppy-script:staging/sm/String/string-upper-lower-mapping.js",
+    "strict-script:staging/sm/String/string-upper-lower-mapping.js",
+    "sloppy-script:staging/sm/String/thisv-error.js",
+    "strict-script:staging/sm/String/thisv-error.js",
+    "sloppy-script:staging/sm/String/two-length-nonlatin-indexOf.js",
+    "strict-script:staging/sm/String/two-length-nonlatin-indexOf.js",
+    "sloppy-script:staging/sm/String/unicode-braced.js",
+    "strict-script:staging/sm/String/unicode-braced.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "String"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

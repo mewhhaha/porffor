@@ -1,0 +1,133 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 13065715723265162942,
+  "run_kind": "matrix-filter-leaf",
+  "total": 32,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/exchange/bigint/good-views.js",
+      "path": "built-ins/Atomics/exchange/bigint/good-views.js",
+      "duration_ms": 16560
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/exchange/bad-range.js",
+      "path": "built-ins/Atomics/exchange/bad-range.js",
+      "duration_ms": 16400
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/exchange/bad-range.js",
+      "path": "built-ins/Atomics/exchange/bad-range.js",
+      "duration_ms": 16320
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/exchange/bigint/bad-range.js",
+      "path": "built-ins/Atomics/exchange/bigint/bad-range.js",
+      "duration_ms": 16287
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/exchange/bigint/bad-range.js",
+      "path": "built-ins/Atomics/exchange/bigint/bad-range.js",
+      "duration_ms": 15808
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/exchange/good-views.js",
+      "path": "built-ins/Atomics/exchange/good-views.js",
+      "duration_ms": 15365
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/exchange/good-views.js",
+      "path": "built-ins/Atomics/exchange/good-views.js",
+      "duration_ms": 14873
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Atomics/exchange/non-views.js",
+      "path": "built-ins/Atomics/exchange/non-views.js",
+      "duration_ms": 13784
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/exchange/non-views.js",
+      "path": "built-ins/Atomics/exchange/non-views.js",
+      "duration_ms": 13553
+    },
+    {
+      "test_id": "strict-script:built-ins/Atomics/exchange/bigint/good-views.js",
+      "path": "built-ins/Atomics/exchange/bigint/good-views.js",
+      "duration_ms": 12336
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Atomics/exchange/bad-range.js",
+    "strict-script:built-ins/Atomics/exchange/bad-range.js",
+    "sloppy-script:built-ins/Atomics/exchange/bigint/bad-range.js",
+    "strict-script:built-ins/Atomics/exchange/bigint/bad-range.js",
+    "sloppy-script:built-ins/Atomics/exchange/bigint/good-views.js",
+    "strict-script:built-ins/Atomics/exchange/bigint/good-views.js",
+    "sloppy-script:built-ins/Atomics/exchange/bigint/non-shared-bufferdata.js",
+    "strict-script:built-ins/Atomics/exchange/bigint/non-shared-bufferdata.js",
+    "sloppy-script:built-ins/Atomics/exchange/descriptor.js",
+    "strict-script:built-ins/Atomics/exchange/descriptor.js",
+    "sloppy-script:built-ins/Atomics/exchange/expected-return-value.js",
+    "strict-script:built-ins/Atomics/exchange/expected-return-value.js",
+    "sloppy-script:built-ins/Atomics/exchange/good-views.js",
+    "strict-script:built-ins/Atomics/exchange/good-views.js",
+    "sloppy-script:built-ins/Atomics/exchange/length.js",
+    "strict-script:built-ins/Atomics/exchange/length.js",
+    "sloppy-script:built-ins/Atomics/exchange/name.js",
+    "strict-script:built-ins/Atomics/exchange/name.js",
+    "sloppy-script:built-ins/Atomics/exchange/non-shared-bufferdata.js",
+    "strict-script:built-ins/Atomics/exchange/non-shared-bufferdata.js",
+    "sloppy-script:built-ins/Atomics/exchange/non-shared-int-views-throws.js",
+    "strict-script:built-ins/Atomics/exchange/non-shared-int-views-throws.js",
+    "sloppy-script:built-ins/Atomics/exchange/non-views.js",
+    "strict-script:built-ins/Atomics/exchange/non-views.js",
+    "sloppy-script:built-ins/Atomics/exchange/nonshared-int-views.js",
+    "strict-script:built-ins/Atomics/exchange/nonshared-int-views.js",
+    "sloppy-script:built-ins/Atomics/exchange/not-a-constructor.js",
+    "strict-script:built-ins/Atomics/exchange/not-a-constructor.js",
+    "sloppy-script:built-ins/Atomics/exchange/validate-arraytype-before-index-coercion.js",
+    "strict-script:built-ins/Atomics/exchange/validate-arraytype-before-index-coercion.js",
+    "sloppy-script:built-ins/Atomics/exchange/validate-arraytype-before-value-coercion.js",
+    "strict-script:built-ins/Atomics/exchange/validate-arraytype-before-value-coercion.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Atomics",
+    "exchange"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

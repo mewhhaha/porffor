@@ -1,0 +1,231 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9223583891468882015,
+  "run_kind": "matrix-filter-leaf",
+  "total": 69,
+  "passed": 63,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 6,
+    "Success": 63
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/in/S8.12.6_A2_T2.js",
+      "path": "language/expressions/in/S8.12.6_A2_T2.js",
+      "duration_ms": 13993
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/S8.12.6_A2_T2.js",
+      "path": "language/expressions/in/S8.12.6_A2_T2.js",
+      "duration_ms": 13655
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/S8.12.6_A2_T1.js",
+      "path": "language/expressions/in/S8.12.6_A2_T1.js",
+      "duration_ms": 12757
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S8.12.6_A2_T1.js",
+      "path": "language/expressions/in/S8.12.6_A2_T1.js",
+      "duration_ms": 12727
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S11.8.7_A2.1_T3.js",
+      "path": "language/expressions/in/S11.8.7_A2.1_T3.js",
+      "duration_ms": 12426
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S11.8.7_A3.js",
+      "path": "language/expressions/in/S11.8.7_A3.js",
+      "duration_ms": 12413
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/S11.8.7_A2.4_T3.js",
+      "path": "language/expressions/in/S11.8.7_A2.4_T3.js",
+      "duration_ms": 12318
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S8.12.6_A3.js",
+      "path": "language/expressions/in/S8.12.6_A3.js",
+      "duration_ms": 11734
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S11.8.7_A4.js",
+      "path": "language/expressions/in/S11.8.7_A4.js",
+      "duration_ms": 11618
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/S11.8.7_A4.js",
+      "path": "language/expressions/in/S11.8.7_A4.js",
+      "duration_ms": 11601
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/in/S11.8.7_A1.js",
+      "test_path": "language/expressions/in/S11.8.7_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6541
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/S11.8.7_A1.js",
+      "test_path": "language/expressions/in/S11.8.7_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6662
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/private-field-rhs-yield-present.js",
+      "test_path": "language/expressions/in/private-field-rhs-yield-present.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: async or generator class element",
+      "detail_hash": 17070723299796990853,
+      "duration_ms": 4932
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/private-field-rhs-yield-present.js",
+      "test_path": "language/expressions/in/private-field-rhs-yield-present.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: async or generator class element",
+      "detail_hash": 17070723299796990853,
+      "duration_ms": 4828
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/in/rhs-yield-present.js",
+      "test_path": "language/expressions/in/rhs-yield-present.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a `return` operand containing a yield cannot be staged into a linear suspension plan",
+      "detail_hash": 5725009247076957997,
+      "duration_ms": 4850
+    },
+    {
+      "test_id": "strict-script:language/expressions/in/rhs-yield-present.js",
+      "test_path": "language/expressions/in/rhs-yield-present.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a `return` operand containing a yield cannot be staged into a linear suspension plan",
+      "detail_hash": 5725009247076957997,
+      "duration_ms": 4846
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/in/S11.8.7_A1.js",
+    "strict-script:language/expressions/in/S11.8.7_A1.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.1_T1.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.1_T1.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.1_T2.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.1_T2.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.1_T3.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.1_T3.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.4_T1.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.4_T1.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.4_T2.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.4_T2.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.4_T3.js",
+    "strict-script:language/expressions/in/S11.8.7_A2.4_T3.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A2.4_T4.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A3.js",
+    "strict-script:language/expressions/in/S11.8.7_A3.js",
+    "sloppy-script:language/expressions/in/S11.8.7_A4.js",
+    "strict-script:language/expressions/in/S11.8.7_A4.js",
+    "sloppy-script:language/expressions/in/S8.12.6_A1.js",
+    "strict-script:language/expressions/in/S8.12.6_A1.js",
+    "sloppy-script:language/expressions/in/S8.12.6_A2_T1.js",
+    "strict-script:language/expressions/in/S8.12.6_A2_T1.js",
+    "sloppy-script:language/expressions/in/S8.12.6_A2_T2.js",
+    "strict-script:language/expressions/in/S8.12.6_A2_T2.js",
+    "sloppy-script:language/expressions/in/S8.12.6_A3.js",
+    "strict-script:language/expressions/in/S8.12.6_A3.js",
+    "sloppy-script:language/expressions/in/private-field-in-nested.js",
+    "strict-script:language/expressions/in/private-field-in-nested.js",
+    "sloppy-script:language/expressions/in/private-field-in.js",
+    "strict-script:language/expressions/in/private-field-in.js",
+    "sloppy-script:language/expressions/in/private-field-invalid-assignment-reference.js",
+    "strict-script:language/expressions/in/private-field-invalid-assignment-reference.js",
+    "sloppy-script:language/expressions/in/private-field-invalid-assignment-target.js",
+    "strict-script:language/expressions/in/private-field-invalid-assignment-target.js",
+    "sloppy-script:language/expressions/in/private-field-invalid-identifier-complex.js",
+    "strict-script:language/expressions/in/private-field-invalid-identifier-complex.js",
+    "sloppy-script:language/expressions/in/private-field-invalid-identifier-simple.js",
+    "strict-script:language/expressions/in/private-field-invalid-identifier-simple.js",
+    "sloppy-script:language/expressions/in/private-field-invalid-rhs.js",
+    "strict-script:language/expressions/in/private-field-invalid-rhs.js",
+    "sloppy-script:language/expressions/in/private-field-presence-accessor-shadowed.js",
+    "strict-script:language/expressions/in/private-field-presence-accessor-shadowed.js",
+    "sloppy-script:language/expressions/in/private-field-presence-accessor.js",
+    "strict-script:language/expressions/in/private-field-presence-accessor.js",
+    "sloppy-script:language/expressions/in/private-field-presence-field-shadowed.js",
+    "strict-script:language/expressions/in/private-field-presence-field-shadowed.js",
+    "sloppy-script:language/expressions/in/private-field-presence-field.js",
+    "strict-script:language/expressions/in/private-field-presence-field.js",
+    "sloppy-script:language/expressions/in/private-field-presence-method-shadowed.js",
+    "strict-script:language/expressions/in/private-field-presence-method-shadowed.js",
+    "sloppy-script:language/expressions/in/private-field-presence-method.js",
+    "strict-script:language/expressions/in/private-field-presence-method.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-await-absent.js",
+    "strict-script:language/expressions/in/private-field-rhs-await-absent.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-await-present.js",
+    "strict-script:language/expressions/in/private-field-rhs-await-present.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-non-object.js",
+    "strict-script:language/expressions/in/private-field-rhs-non-object.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-unresolvable.js",
+    "strict-script:language/expressions/in/private-field-rhs-unresolvable.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-yield-absent.js",
+    "strict-script:language/expressions/in/private-field-rhs-yield-absent.js",
+    "sloppy-script:language/expressions/in/private-field-rhs-yield-present.js",
+    "strict-script:language/expressions/in/private-field-rhs-yield-present.js",
+    "sloppy-script:language/expressions/in/rhs-yield-absent-non-strict.js",
+    "strict-script:language/expressions/in/rhs-yield-absent-strict.js",
+    "sloppy-script:language/expressions/in/rhs-yield-present.js",
+    "strict-script:language/expressions/in/rhs-yield-present.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "in"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

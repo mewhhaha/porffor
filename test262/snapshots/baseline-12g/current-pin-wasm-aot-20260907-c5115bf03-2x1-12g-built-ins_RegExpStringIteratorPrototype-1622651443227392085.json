@@ -1,0 +1,155 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1622651443227392085,
+  "run_kind": "matrix-filter-leaf",
+  "total": 34,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+      "duration_ms": 15739
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+      "duration_ms": 15252
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+      "duration_ms": 15206
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+      "duration_ms": 14647
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/next-iteration.js",
+      "duration_ms": 13806
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+      "duration_ms": 13385
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js",
+      "duration_ms": 13385
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js",
+      "duration_ms": 13356
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+      "duration_ms": 13336
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/next/prop-desc.js",
+      "path": "built-ins/RegExpStringIteratorPrototype/next/prop-desc.js",
+      "duration_ms": 13217
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+      "test_path": "built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(Array Iterator, RegExp String Iterator) to be true)",
+      "detail_hash": 11116384888077208882,
+      "duration_ms": 12358
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+      "test_path": "built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(Array Iterator, RegExp String Iterator) to be true)",
+      "detail_hash": 11116384888077208882,
+      "duration_ms": 12228
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/Symbol.toStringTag.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/ancestry.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/ancestry.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-call-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-call-throws.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-get-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-get-throws.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-throws.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-tostring-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-tostring-throws.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-tostring.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-match-get-0-tostring.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec-not-callable.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/custom-regexpexec.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/length.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/length.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/name.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/name.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration-global.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/next-iteration.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/next-missing-internal-slots.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/next-missing-internal-slots.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/prop-desc.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/prop-desc.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/regexp-tolength-lastindex-throws.js",
+    "sloppy-script:built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js",
+    "strict-script:built-ins/RegExpStringIteratorPrototype/next/this-is-not-object-throws.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExpStringIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

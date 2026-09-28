@@ -1,0 +1,170 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 16127773838732837209,
+  "run_kind": "matrix-filter-leaf",
+  "total": 58,
+  "passed": 57,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 57
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+      "duration_ms": 14241
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T5.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A4_T5.js",
+      "duration_ms": 13587
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+      "duration_ms": 12408
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A5_T2.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A5_T2.js",
+      "duration_ms": 12104
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js",
+      "path": "language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js",
+      "duration_ms": 12033
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A5_T3.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A5_T3.js",
+      "duration_ms": 11844
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T3.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A4_T3.js",
+      "duration_ms": 11512
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T2.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A2.1_T2.js",
+      "duration_ms": 11422
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.2_T1.js",
+      "path": "language/expressions/prefix-decrement/S11.4.5_A2.2_T1.js",
+      "duration_ms": 11310
+    },
+    {
+      "test_id": "strict-script:language/expressions/prefix-decrement/whitespace.js",
+      "path": "language/expressions/prefix-decrement/whitespace.js",
+      "duration_ms": 11221
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue-.js",
+      "test_path": "language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue-.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: ReferenceError: wasm-aot completion: object(handle@1843128: unbound identifier in with scope)",
+      "detail_hash": 13119121151102932367,
+      "duration_ms": 10747
+    }
+  ],
+  "completed_test_ids": [
+    "strict-script:language/expressions/prefix-decrement/11.4.5-2-2gs.js",
+    "sloppy-script:language/expressions/prefix-decrement/11.4.5-2-3-s.js",
+    "strict-script:language/expressions/prefix-decrement/11.4.5-2-3-s.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T2.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.1_T2.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A2.2_T1.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A2.2_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A3_T1.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A3_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A3_T2.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A3_T2.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A3_T3.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A3_T3.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A3_T4.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A3_T4.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A3_T5.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A3_T5.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T1.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T2.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T2.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T3.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T3.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T4.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T4.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A4_T5.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A4_T5.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A5_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A5_T2.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A5_T3.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A6_T1.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A6_T1.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A6_T2.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A6_T2.js",
+    "sloppy-script:language/expressions/prefix-decrement/S11.4.5_A6_T3.js",
+    "strict-script:language/expressions/prefix-decrement/S11.4.5_A6_T3.js",
+    "sloppy-script:language/expressions/prefix-decrement/arguments-nostrict.js",
+    "strict-script:language/expressions/prefix-decrement/arguments.js",
+    "sloppy-script:language/expressions/prefix-decrement/bigint.js",
+    "strict-script:language/expressions/prefix-decrement/bigint.js",
+    "sloppy-script:language/expressions/prefix-decrement/eval-nostrict.js",
+    "strict-script:language/expressions/prefix-decrement/eval.js",
+    "sloppy-script:language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js",
+    "sloppy-script:language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue-.js",
+    "sloppy-script:language/expressions/prefix-decrement/target-cover-id.js",
+    "strict-script:language/expressions/prefix-decrement/target-cover-id.js",
+    "sloppy-script:language/expressions/prefix-decrement/target-cover-newtarget.js",
+    "strict-script:language/expressions/prefix-decrement/target-cover-newtarget.js",
+    "sloppy-script:language/expressions/prefix-decrement/target-cover-yieldexpr.js",
+    "strict-script:language/expressions/prefix-decrement/target-cover-yieldexpr.js",
+    "sloppy-script:language/expressions/prefix-decrement/target-newtarget.js",
+    "strict-script:language/expressions/prefix-decrement/target-newtarget.js",
+    "sloppy-script:language/expressions/prefix-decrement/this.js",
+    "strict-script:language/expressions/prefix-decrement/this.js",
+    "sloppy-script:language/expressions/prefix-decrement/whitespace.js",
+    "strict-script:language/expressions/prefix-decrement/whitespace.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "prefix-decrement"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

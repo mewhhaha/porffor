@@ -1,0 +1,113 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15877909275394183811,
+  "run_kind": "matrix-filter-leaf",
+  "total": 12,
+  "passed": 12,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/Date/now/15.9.4.4-0-3.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-3.js",
+      "duration_ms": 12794
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/now/15.9.4.4-0-3.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-3.js",
+      "duration_ms": 12751
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/now/15.9.4.4-0-2.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-2.js",
+      "duration_ms": 10498
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/now/not-a-constructor.js",
+      "path": "built-ins/Date/now/not-a-constructor.js",
+      "duration_ms": 9372
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/now/15.9.4.4-0-1.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-1.js",
+      "duration_ms": 9164
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/now/not-a-constructor.js",
+      "path": "built-ins/Date/now/not-a-constructor.js",
+      "duration_ms": 9129
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/now/name.js",
+      "path": "built-ins/Date/now/name.js",
+      "duration_ms": 9088
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Date/now/name.js",
+      "path": "built-ins/Date/now/name.js",
+      "duration_ms": 8890
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/now/15.9.4.4-0-1.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-1.js",
+      "duration_ms": 8712
+    },
+    {
+      "test_id": "strict-script:built-ins/Date/now/15.9.4.4-0-4.js",
+      "path": "built-ins/Date/now/15.9.4.4-0-4.js",
+      "duration_ms": 8408
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Date/now/15.9.4.4-0-1.js",
+    "strict-script:built-ins/Date/now/15.9.4.4-0-1.js",
+    "sloppy-script:built-ins/Date/now/15.9.4.4-0-2.js",
+    "strict-script:built-ins/Date/now/15.9.4.4-0-2.js",
+    "sloppy-script:built-ins/Date/now/15.9.4.4-0-3.js",
+    "strict-script:built-ins/Date/now/15.9.4.4-0-3.js",
+    "sloppy-script:built-ins/Date/now/15.9.4.4-0-4.js",
+    "strict-script:built-ins/Date/now/15.9.4.4-0-4.js",
+    "sloppy-script:built-ins/Date/now/name.js",
+    "strict-script:built-ins/Date/now/name.js",
+    "sloppy-script:built-ins/Date/now/not-a-constructor.js",
+    "strict-script:built-ins/Date/now/not-a-constructor.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Date",
+    "now"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

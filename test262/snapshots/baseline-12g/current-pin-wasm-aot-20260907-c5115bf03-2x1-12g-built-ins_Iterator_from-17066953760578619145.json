@@ -1,0 +1,160 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17066953760578619145,
+  "run_kind": "matrix-filter-leaf",
+  "total": 38,
+  "passed": 36,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 36
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/return-method-calls-base-return-method.js",
+      "path": "built-ins/Iterator/from/return-method-calls-base-return-method.js",
+      "duration_ms": 39227
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/return-method-calls-base-return-method.js",
+      "path": "built-ins/Iterator/from/return-method-calls-base-return-method.js",
+      "duration_ms": 39207
+    },
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/get-return-method-when-call-return.js",
+      "path": "built-ins/Iterator/from/get-return-method-when-call-return.js",
+      "duration_ms": 36267
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/get-return-method-when-call-return.js",
+      "path": "built-ins/Iterator/from/get-return-method-when-call-return.js",
+      "duration_ms": 36265
+    },
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+      "path": "built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+      "duration_ms": 35026
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+      "path": "built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+      "duration_ms": 34933
+    },
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/primitives.js",
+      "path": "built-ins/Iterator/from/primitives.js",
+      "duration_ms": 10304
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/primitives.js",
+      "path": "built-ins/Iterator/from/primitives.js",
+      "duration_ms": 10244
+    },
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/get-next-method-throws.js",
+      "path": "built-ins/Iterator/from/get-next-method-throws.js",
+      "duration_ms": 10185
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/get-next-method-throws.js",
+      "path": "built-ins/Iterator/from/get-next-method-throws.js",
+      "duration_ms": 10174
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/Iterator/from/get-next-method-only-once.js",
+      "test_path": "built-ins/Iterator/from/get-next-method-only-once.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(The value of `nextCalls` is 5 Expected SameValue(2, 5) to be true)",
+      "detail_hash": 12057663819068185069,
+      "duration_ms": 7617
+    },
+    {
+      "test_id": "strict-script:built-ins/Iterator/from/get-next-method-only-once.js",
+      "test_path": "built-ins/Iterator/from/get-next-method-only-once.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(The value of `nextCalls` is 5 Expected SameValue(2, 5) to be true)",
+      "detail_hash": 12057663819068185069,
+      "duration_ms": 7782
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Iterator/from/callable.js",
+    "strict-script:built-ins/Iterator/from/callable.js",
+    "sloppy-script:built-ins/Iterator/from/get-next-method-only-once.js",
+    "strict-script:built-ins/Iterator/from/get-next-method-only-once.js",
+    "sloppy-script:built-ins/Iterator/from/get-next-method-throws.js",
+    "strict-script:built-ins/Iterator/from/get-next-method-throws.js",
+    "sloppy-script:built-ins/Iterator/from/get-return-method-when-call-return.js",
+    "strict-script:built-ins/Iterator/from/get-return-method-when-call-return.js",
+    "sloppy-script:built-ins/Iterator/from/is-function.js",
+    "strict-script:built-ins/Iterator/from/is-function.js",
+    "sloppy-script:built-ins/Iterator/from/iterable-primitives.js",
+    "strict-script:built-ins/Iterator/from/iterable-primitives.js",
+    "sloppy-script:built-ins/Iterator/from/iterable-to-iterator-fallback.js",
+    "strict-script:built-ins/Iterator/from/iterable-to-iterator-fallback.js",
+    "sloppy-script:built-ins/Iterator/from/length.js",
+    "strict-script:built-ins/Iterator/from/length.js",
+    "sloppy-script:built-ins/Iterator/from/name.js",
+    "strict-script:built-ins/Iterator/from/name.js",
+    "sloppy-script:built-ins/Iterator/from/non-constructible.js",
+    "strict-script:built-ins/Iterator/from/non-constructible.js",
+    "sloppy-script:built-ins/Iterator/from/primitives.js",
+    "strict-script:built-ins/Iterator/from/primitives.js",
+    "sloppy-script:built-ins/Iterator/from/prop-desc.js",
+    "strict-script:built-ins/Iterator/from/prop-desc.js",
+    "sloppy-script:built-ins/Iterator/from/proto.js",
+    "strict-script:built-ins/Iterator/from/proto.js",
+    "sloppy-script:built-ins/Iterator/from/result-proto.js",
+    "strict-script:built-ins/Iterator/from/result-proto.js",
+    "sloppy-script:built-ins/Iterator/from/return-method-calls-base-return-method.js",
+    "strict-script:built-ins/Iterator/from/return-method-calls-base-return-method.js",
+    "sloppy-script:built-ins/Iterator/from/return-method-returns-iterator-result.js",
+    "strict-script:built-ins/Iterator/from/return-method-returns-iterator-result.js",
+    "sloppy-script:built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+    "strict-script:built-ins/Iterator/from/return-method-throws-for-invalid-this.js",
+    "sloppy-script:built-ins/Iterator/from/supports-iterable.js",
+    "strict-script:built-ins/Iterator/from/supports-iterable.js",
+    "sloppy-script:built-ins/Iterator/from/supports-iterator.js",
+    "strict-script:built-ins/Iterator/from/supports-iterator.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Iterator",
+    "from"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

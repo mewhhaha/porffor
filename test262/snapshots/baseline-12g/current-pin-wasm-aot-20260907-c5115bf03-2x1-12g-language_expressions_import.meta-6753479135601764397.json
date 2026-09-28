@@ -1,0 +1,219 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6753479135601764397,
+  "run_kind": "matrix-filter-leaf",
+  "total": 27,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 9,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 9,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:language/expressions/import.meta/distinct-for-each-module.js",
+      "path": "language/expressions/import.meta/distinct-for-each-module.js",
+      "duration_ms": 15008
+    },
+    {
+      "test_id": "module:language/expressions/import.meta/import-meta-is-an-ordinary-object.js",
+      "path": "language/expressions/import.meta/import-meta-is-an-ordinary-object.js",
+      "duration_ms": 11885
+    },
+    {
+      "test_id": "module:language/expressions/import.meta/same-object-returned.js",
+      "path": "language/expressions/import.meta/same-object-returned.js",
+      "duration_ms": 7838
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "path": "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "duration_ms": 7743
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "path": "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "duration_ms": 7539
+    },
+    {
+      "test_id": "module:language/expressions/import.meta/syntax/goal-module.js",
+      "path": "language/expressions/import.meta/syntax/goal-module.js",
+      "duration_ms": 6874
+    },
+    {
+      "test_id": "module:language/expressions/import.meta/syntax/goal-module-nested-function.js",
+      "path": "language/expressions/import.meta/syntax/goal-module-nested-function.js",
+      "duration_ms": 6682
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "path": "language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "duration_ms": 6498
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "path": "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "duration_ms": 6490
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "path": "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "duration_ms": 6489
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:language/expressions/import.meta/not-accessible-from-direct-eval.js",
+      "test_path": "language/expressions/import.meta/not-accessible-from-direct-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6439
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 820455555759327634,
+      "duration_ms": 6489
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 820455555759327634,
+      "duration_ms": 6490
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6467
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (AsyncGeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 16376472722102403245,
+      "duration_ms": 6498
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6476
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 6457
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 7539
+    },
+    {
+      "test_id": "strict-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "test_path": "language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 7743
+    }
+  ],
+  "completed_test_ids": [
+    "module:language/expressions/import.meta/distinct-for-each-module.js",
+    "module:language/expressions/import.meta/import-meta-is-an-ordinary-object.js",
+    "module:language/expressions/import.meta/not-accessible-from-direct-eval.js",
+    "module:language/expressions/import.meta/same-object-returned.js",
+    "module:language/expressions/import.meta/syntax/escape-sequence-import.js",
+    "module:language/expressions/import.meta/syntax/escape-sequence-meta.js",
+    "sloppy-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+    "strict-script:language/expressions/import.meta/syntax/goal-async-function-params-or-body.js",
+    "sloppy-script:language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+    "strict-script:language/expressions/import.meta/syntax/goal-async-generator-params-or-body.js",
+    "sloppy-script:language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+    "strict-script:language/expressions/import.meta/syntax/goal-function-params-or-body.js",
+    "sloppy-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+    "strict-script:language/expressions/import.meta/syntax/goal-generator-params-or-body.js",
+    "module:language/expressions/import.meta/syntax/goal-module-nested-function.js",
+    "module:language/expressions/import.meta/syntax/goal-module.js",
+    "sloppy-script:language/expressions/import.meta/syntax/goal-script.js",
+    "strict-script:language/expressions/import.meta/syntax/goal-script.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-array-destructuring-expr.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-array-rest-destructuring-expr.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-assignment-expr.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-for-await-of-loop.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-for-in-loop.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-for-of-loop.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-object-destructuring-expr.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-object-rest-destructuring-expr.js",
+    "module:language/expressions/import.meta/syntax/invalid-assignment-target-update-expr.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "import.meta"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

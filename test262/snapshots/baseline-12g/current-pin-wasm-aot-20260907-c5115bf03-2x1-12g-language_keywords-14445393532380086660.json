@@ -1,0 +1,150 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 14445393532380086660,
+  "run_kind": "matrix-filter-leaf",
+  "total": 50,
+  "passed": 50,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 50
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/keywords/ident-ref-do.js",
+      "path": "language/keywords/ident-ref-do.js",
+      "duration_ms": 80
+    },
+    {
+      "test_id": "sloppy-script:language/keywords/ident-ref-with.js",
+      "path": "language/keywords/ident-ref-with.js",
+      "duration_ms": 80
+    },
+    {
+      "test_id": "strict-script:language/keywords/ident-ref-with.js",
+      "path": "language/keywords/ident-ref-with.js",
+      "duration_ms": 75
+    },
+    {
+      "test_id": "sloppy-script:language/keywords/ident-ref-catch.js",
+      "path": "language/keywords/ident-ref-catch.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "strict-script:language/keywords/ident-ref-catch.js",
+      "path": "language/keywords/ident-ref-catch.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "sloppy-script:language/keywords/ident-ref-default.js",
+      "path": "language/keywords/ident-ref-default.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "strict-script:language/keywords/ident-ref-default.js",
+      "path": "language/keywords/ident-ref-default.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "sloppy-script:language/keywords/ident-ref-function.js",
+      "path": "language/keywords/ident-ref-function.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "strict-script:language/keywords/ident-ref-function.js",
+      "path": "language/keywords/ident-ref-function.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "sloppy-script:language/keywords/ident-ref-in.js",
+      "path": "language/keywords/ident-ref-in.js",
+      "duration_ms": 71
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/keywords/ident-ref-break.js",
+    "strict-script:language/keywords/ident-ref-break.js",
+    "sloppy-script:language/keywords/ident-ref-case.js",
+    "strict-script:language/keywords/ident-ref-case.js",
+    "sloppy-script:language/keywords/ident-ref-catch.js",
+    "strict-script:language/keywords/ident-ref-catch.js",
+    "sloppy-script:language/keywords/ident-ref-continue.js",
+    "strict-script:language/keywords/ident-ref-continue.js",
+    "sloppy-script:language/keywords/ident-ref-default.js",
+    "strict-script:language/keywords/ident-ref-default.js",
+    "sloppy-script:language/keywords/ident-ref-delete.js",
+    "strict-script:language/keywords/ident-ref-delete.js",
+    "sloppy-script:language/keywords/ident-ref-do.js",
+    "strict-script:language/keywords/ident-ref-do.js",
+    "sloppy-script:language/keywords/ident-ref-else.js",
+    "strict-script:language/keywords/ident-ref-else.js",
+    "sloppy-script:language/keywords/ident-ref-finally.js",
+    "strict-script:language/keywords/ident-ref-finally.js",
+    "sloppy-script:language/keywords/ident-ref-for.js",
+    "strict-script:language/keywords/ident-ref-for.js",
+    "sloppy-script:language/keywords/ident-ref-function.js",
+    "strict-script:language/keywords/ident-ref-function.js",
+    "sloppy-script:language/keywords/ident-ref-if.js",
+    "strict-script:language/keywords/ident-ref-if.js",
+    "sloppy-script:language/keywords/ident-ref-in.js",
+    "strict-script:language/keywords/ident-ref-in.js",
+    "sloppy-script:language/keywords/ident-ref-instanceof.js",
+    "strict-script:language/keywords/ident-ref-instanceof.js",
+    "sloppy-script:language/keywords/ident-ref-new.js",
+    "strict-script:language/keywords/ident-ref-new.js",
+    "sloppy-script:language/keywords/ident-ref-return.js",
+    "strict-script:language/keywords/ident-ref-return.js",
+    "sloppy-script:language/keywords/ident-ref-switch.js",
+    "strict-script:language/keywords/ident-ref-switch.js",
+    "sloppy-script:language/keywords/ident-ref-this.js",
+    "strict-script:language/keywords/ident-ref-this.js",
+    "sloppy-script:language/keywords/ident-ref-throw.js",
+    "strict-script:language/keywords/ident-ref-throw.js",
+    "sloppy-script:language/keywords/ident-ref-try.js",
+    "strict-script:language/keywords/ident-ref-try.js",
+    "sloppy-script:language/keywords/ident-ref-typeof.js",
+    "strict-script:language/keywords/ident-ref-typeof.js",
+    "sloppy-script:language/keywords/ident-ref-var.js",
+    "strict-script:language/keywords/ident-ref-var.js",
+    "sloppy-script:language/keywords/ident-ref-void.js",
+    "strict-script:language/keywords/ident-ref-void.js",
+    "sloppy-script:language/keywords/ident-ref-while.js",
+    "strict-script:language/keywords/ident-ref-while.js",
+    "sloppy-script:language/keywords/ident-ref-with.js",
+    "strict-script:language/keywords/ident-ref-with.js"
+  ],
+  "matrix_path": [
+    "language",
+    "keywords"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

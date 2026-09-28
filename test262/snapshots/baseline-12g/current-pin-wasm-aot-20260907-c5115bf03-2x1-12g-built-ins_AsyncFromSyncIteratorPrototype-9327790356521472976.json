@@ -1,0 +1,277 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9327790356521472976,
+  "run_kind": "matrix-filter-leaf",
+  "total": 76,
+  "passed": 66,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 10,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 6,
+    "NotImplemented": 0,
+    "Success": 66
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "duration_ms": 21723
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "duration_ms": 21300
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+      "duration_ms": 19730
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+      "duration_ms": 19708
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+      "duration_ms": 19437
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+      "duration_ms": 19379
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+      "duration_ms": 19113
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+      "duration_ms": 19113
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+      "duration_ms": 18954
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+      "path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+      "duration_ms": 18904
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:TypeError: Cannot read properties of null or undefined",
+      "detail_hash": 8807257773811725619,
+      "duration_ms": 18069
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:TypeError: Cannot read properties of null or undefined",
+      "detail_hash": 8807257773811725619,
+      "duration_ms": 18066
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:TypeError: value is not callable",
+      "detail_hash": 17233577674163406738,
+      "duration_ms": 17160
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] Test262:AsyncTestFailure:TypeError: value is not callable",
+      "detail_hash": 17233577674163406738,
+      "duration_ms": 17661
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1a8ebd - lila!js::iter#f12\n    1: 0x107622 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 7191521979496569370,
+      "duration_ms": 16608
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1aeb64 - lila!js::iter#f12\n    1: 0x10aa9a - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 12221770119282669731,
+      "duration_ms": 17651
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1ad2df - lila!js::iter#f11\n    1: 0x10b71c - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 6522888492234812329,
+      "duration_ms": 17793
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1b2ff2 - lila!js::iter#f11\n    1: 0x10eb95 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 12467446862389943029,
+      "duration_ms": 18539
+    },
+    {
+      "test_id": "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1b5e13 - lila!js::asyncg#f11\n    1: 0x1106d3 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 7389930181762162710,
+      "duration_ms": 21300
+    },
+    {
+      "test_id": "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "test_path": "built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x1bbb55 - lila!js::asyncg#f11\n    1: 0x113b4c - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 12164098684258349041,
+      "duration_ms": 21723
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/absent-value-not-passed.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/absent-value-not-passed.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-iterator-next-rejected-promise-close.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/for-await-next-rejected-promise-close.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-done.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-done.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-value.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-value.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-poisoned-wrapper.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-prototype.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-prototype.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-rejected.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-rejected.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-unwrap-promise.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/iterator-result-unwrap-promise.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/next-result-poisoned-wrapper.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/return-promise.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/return-promise.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/yield-iterator-next-rejected-promise-close.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/next/yield-next-rejected-promise-close.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/absent-value-not-passed.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/absent-value-not-passed.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-poisoned-done.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-poisoned-done.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-poisoned-value.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-poisoned-value.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-unwrap-promise.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result-unwrap-promise.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/iterator-result.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/poisoned-get-return.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/poisoned-get-return.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/poisoned-return.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/poisoned-return.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/result-object-error.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/result-object-error.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-null.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-undefined.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/return/return-undefined.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-poisoned-done.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-poisoned-done.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-poisoned-value.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-poisoned-value.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-rejected-promise-close.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-unwrap-promise.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result-unwrap-promise.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/iterator-result.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/poisoned-get-throw.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/poisoned-get-throw.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/poisoned-throw.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/poisoned-throw.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/result-object-error.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/result-object-error.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-null.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-result-poisoned-wrapper.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-get-return-undefined.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-poisoned-return.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-not-object.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined-return-object.js",
+    "sloppy-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js",
+    "strict-script:built-ins/AsyncFromSyncIteratorPrototype/throw/throw-undefined.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "AsyncFromSyncIteratorPrototype"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

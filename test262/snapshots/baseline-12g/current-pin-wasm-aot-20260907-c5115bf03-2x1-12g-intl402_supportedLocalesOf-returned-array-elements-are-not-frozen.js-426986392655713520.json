@@ -1,0 +1,83 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 426986392655713520,
+  "run_kind": "matrix-filter-leaf",
+  "total": 2,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "path": "intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "duration_ms": 21012
+    },
+    {
+      "test_id": "sloppy-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "path": "intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "duration_ms": 20991
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "test_path": "intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@5714568: target is not a constructor (Testing with Collator.))",
+      "detail_hash": 16727195469281691208,
+      "duration_ms": 20991
+    },
+    {
+      "test_id": "strict-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "test_path": "intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@5714576: target is not a constructor (Testing with Collator.))",
+      "detail_hash": 16727195469281691208,
+      "duration_ms": 21012
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js",
+    "strict-script:intl402/supportedLocalesOf-returned-array-elements-are-not-frozen.js"
+  ],
+  "matrix_path": [
+    "intl402",
+    "supportedLocalesOf-returned-array-elements-are-not-frozen.js"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

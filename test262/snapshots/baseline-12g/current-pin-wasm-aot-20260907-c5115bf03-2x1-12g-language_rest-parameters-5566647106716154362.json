@@ -1,0 +1,122 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5566647106716154362,
+  "run_kind": "matrix-filter-leaf",
+  "total": 22,
+  "passed": 22,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 22
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/rest-parameters/rest-index.js",
+      "path": "language/rest-parameters/rest-index.js",
+      "duration_ms": 13566
+    },
+    {
+      "test_id": "sloppy-script:language/rest-parameters/rest-index.js",
+      "path": "language/rest-parameters/rest-index.js",
+      "duration_ms": 13496
+    },
+    {
+      "test_id": "sloppy-script:language/rest-parameters/arrow-function.js",
+      "path": "language/rest-parameters/arrow-function.js",
+      "duration_ms": 12826
+    },
+    {
+      "test_id": "strict-script:language/rest-parameters/arrow-function.js",
+      "path": "language/rest-parameters/arrow-function.js",
+      "duration_ms": 12703
+    },
+    {
+      "test_id": "strict-script:language/rest-parameters/object-pattern.js",
+      "path": "language/rest-parameters/object-pattern.js",
+      "duration_ms": 10119
+    },
+    {
+      "test_id": "sloppy-script:language/rest-parameters/object-pattern.js",
+      "path": "language/rest-parameters/object-pattern.js",
+      "duration_ms": 10098
+    },
+    {
+      "test_id": "sloppy-script:language/rest-parameters/expected-argument-count.js",
+      "path": "language/rest-parameters/expected-argument-count.js",
+      "duration_ms": 9604
+    },
+    {
+      "test_id": "strict-script:language/rest-parameters/expected-argument-count.js",
+      "path": "language/rest-parameters/expected-argument-count.js",
+      "duration_ms": 9577
+    },
+    {
+      "test_id": "strict-script:language/rest-parameters/no-alias-arguments.js",
+      "path": "language/rest-parameters/no-alias-arguments.js",
+      "duration_ms": 7557
+    },
+    {
+      "test_id": "sloppy-script:language/rest-parameters/no-alias-arguments.js",
+      "path": "language/rest-parameters/no-alias-arguments.js",
+      "duration_ms": 7547
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:language/rest-parameters/array-pattern.js",
+    "strict-script:language/rest-parameters/array-pattern.js",
+    "sloppy-script:language/rest-parameters/arrow-function.js",
+    "strict-script:language/rest-parameters/arrow-function.js",
+    "sloppy-script:language/rest-parameters/expected-argument-count.js",
+    "strict-script:language/rest-parameters/expected-argument-count.js",
+    "sloppy-script:language/rest-parameters/no-alias-arguments.js",
+    "strict-script:language/rest-parameters/no-alias-arguments.js",
+    "sloppy-script:language/rest-parameters/object-pattern.js",
+    "strict-script:language/rest-parameters/object-pattern.js",
+    "sloppy-script:language/rest-parameters/position-invalid.js",
+    "strict-script:language/rest-parameters/position-invalid.js",
+    "sloppy-script:language/rest-parameters/rest-index.js",
+    "strict-script:language/rest-parameters/rest-index.js",
+    "sloppy-script:language/rest-parameters/rest-parameters-apply.js",
+    "strict-script:language/rest-parameters/rest-parameters-apply.js",
+    "sloppy-script:language/rest-parameters/rest-parameters-call.js",
+    "strict-script:language/rest-parameters/rest-parameters-call.js",
+    "sloppy-script:language/rest-parameters/rest-parameters-produce-an-array.js",
+    "strict-script:language/rest-parameters/rest-parameters-produce-an-array.js",
+    "sloppy-script:language/rest-parameters/with-new-target.js",
+    "strict-script:language/rest-parameters/with-new-target.js"
+  ],
+  "matrix_path": [
+    "language",
+    "rest-parameters"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

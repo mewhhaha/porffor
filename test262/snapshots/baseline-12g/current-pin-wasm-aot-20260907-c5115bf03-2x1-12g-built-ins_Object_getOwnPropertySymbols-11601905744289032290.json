@@ -1,0 +1,125 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11601905744289032290,
+  "run_kind": "matrix-filter-leaf",
+  "total": 24,
+  "passed": 24,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 24
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/name.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/name.js",
+      "duration_ms": 9990
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertySymbols/name.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/name.js",
+      "duration_ms": 9692
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+      "duration_ms": 9417
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+      "duration_ms": 9094
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+      "duration_ms": 8680
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+      "duration_ms": 8511
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/order-after-define-property.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/order-after-define-property.js",
+      "duration_ms": 8231
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+      "duration_ms": 8198
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+      "duration_ms": 8108
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-valid.js",
+      "path": "built-ins/Object/getOwnPropertySymbols/non-object-argument-valid.js",
+      "duration_ms": 8054
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/length.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/length.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/name.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/name.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-invalid.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-valid.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/non-object-argument-valid.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/not-a-constructor.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/not-a-constructor.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/object-contains-symbol-property-with-description.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/object-contains-symbol-property-with-description.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/object-contains-symbol-property-without-description.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/object-contains-symbol-property-without-description.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/order-after-define-property.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/order-after-define-property.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-absent-not-configurable-string-key.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-absent-not-configurable-string-key.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-duplicate-string-entry.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-absent-string-key.js",
+    "sloppy-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-extra-string-key.js",
+    "strict-script:built-ins/Object/getOwnPropertySymbols/proxy-invariant-not-extensible-extra-string-key.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Object",
+    "getOwnPropertySymbols"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

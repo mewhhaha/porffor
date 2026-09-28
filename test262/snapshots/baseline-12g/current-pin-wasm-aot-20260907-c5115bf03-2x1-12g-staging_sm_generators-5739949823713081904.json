@@ -1,0 +1,363 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5739949823713081904,
+  "run_kind": "matrix-filter-leaf",
+  "total": 51,
+  "passed": 30,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 15,
+    "Unsupported": 6,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 7,
+    "Crash": 2,
+    "NotImplemented": 12,
+    "Success": 30
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/generators/iteration.js",
+      "path": "staging/sm/generators/iteration.js",
+      "duration_ms": 145588
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-2.js",
+      "path": "staging/sm/generators/delegating-yield-2.js",
+      "duration_ms": 20826
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/objects.js",
+      "path": "staging/sm/generators/objects.js",
+      "duration_ms": 20744
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/delegating-yield-2.js",
+      "path": "staging/sm/generators/delegating-yield-2.js",
+      "duration_ms": 19186
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/objects.js",
+      "path": "staging/sm/generators/objects.js",
+      "duration_ms": 18804
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-1.js",
+      "path": "staging/sm/generators/delegating-yield-1.js",
+      "duration_ms": 17110
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-11.js",
+      "path": "staging/sm/generators/delegating-yield-11.js",
+      "duration_ms": 16714
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/delegating-yield-5.js",
+      "path": "staging/sm/generators/delegating-yield-5.js",
+      "duration_ms": 16623
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-5.js",
+      "path": "staging/sm/generators/delegating-yield-5.js",
+      "duration_ms": 16189
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/delegating-yield-6.js",
+      "path": "staging/sm/generators/delegating-yield-6.js",
+      "duration_ms": 15742
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/generators/create-function-parse-before-getprototype.js",
+      "test_path": "staging/sm/generators/create-function-parse-before-getprototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1518880: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 10607
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/create-function-parse-before-getprototype.js",
+      "test_path": "staging/sm/generators/create-function-parse-before-getprototype.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1518896: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 11084
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/delegating-yield-8.js",
+      "test_path": "staging/sm/generators/delegating-yield-8.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a loop body whose yield is nested inside another statement (an `if`, a block or a `try`), or which yields more than once, has no linear suspension plan",
+      "detail_hash": 5146394491123822003,
+      "duration_ms": 7271
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-8.js",
+      "test_path": "staging/sm/generators/delegating-yield-8.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a loop body whose yield is nested inside another statement (an `if`, a block or a `try`), or which yields more than once, has no linear suspension plan",
+      "detail_hash": 5146394491123822003,
+      "duration_ms": 7029
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/delegating-yield-9.js",
+      "test_path": "staging/sm/generators/delegating-yield-9.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904552: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 14813
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/delegating-yield-9.js",
+      "test_path": "staging/sm/generators/delegating-yield-9.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1904560: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 15336
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/gen-with-call-obj.js",
+      "test_path": "staging/sm/generators/gen-with-call-obj.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+      "detail_hash": 3366044000637110293,
+      "duration_ms": 6787
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/gen-with-call-obj.js",
+      "test_path": "staging/sm/generators/gen-with-call-obj.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(gc requires a real collector in wasm-aot)",
+      "detail_hash": 3366044000637110293,
+      "duration_ms": 8819
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/iteration.js",
+      "test_path": "staging/sm/generators/iteration.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 145588
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/regress-366941.js",
+      "test_path": "staging/sm/generators/regress-366941.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a yield inside a statement kind with no resumable lowering (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear suspension plan",
+      "detail_hash": 9511203685933367653,
+      "duration_ms": 4978
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/regress-366941.js",
+      "test_path": "staging/sm/generators/regress-366941.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a yield inside a statement kind with no resumable lowering (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear suspension plan",
+      "detail_hash": 9511203685933367653,
+      "duration_ms": 4917
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/return-finally.js",
+      "test_path": "staging/sm/generators/return-finally.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: branch target label is not open at this point: its frame was closed or belongs to another body",
+      "detail_hash": 13304071803752953324,
+      "duration_ms": 11132
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/return-finally.js",
+      "test_path": "staging/sm/generators/return-finally.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "local-harness",
+      "detail": "[origin:local-harness] worker panic: branch target label is not open at this point: its frame was closed or belongs to another body",
+      "detail_hash": 13304071803752953324,
+      "duration_ms": 11243
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/runtime.js",
+      "test_path": "staging/sm/generators/runtime.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6336
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/runtime.js",
+      "test_path": "staging/sm/generators/runtime.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (GeneratorFunction) requires a target-realm environment lowering seam",
+      "detail_hash": 4692909656157135813,
+      "duration_ms": 6435
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/syntax.js",
+      "test_path": "staging/sm/generators/syntax.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `Function constructor dynamic code generation` (Function) requires a target-realm environment lowering seam",
+      "detail_hash": 10597009483274665267,
+      "duration_ms": 10478
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/yield-error.js",
+      "test_path": "staging/sm/generators/yield-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5893
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/yield-error.js",
+      "test_path": "staging/sm/generators/yield-error.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5954
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/generators/yield-iterator-close.js",
+      "test_path": "staging/sm/generators/yield-iterator-close.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a yield inside a statement kind with no resumable lowering (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear suspension plan",
+      "detail_hash": 9511203685933367653,
+      "duration_ms": 6174
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/yield-iterator-close.js",
+      "test_path": "staging/sm/generators/yield-iterator-close.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: generator body: a yield inside a statement kind with no resumable lowering (`switch`, a label, `do`-`while`, `for`-`in`, `for`-`of`) has no linear suspension plan",
+      "detail_hash": 9511203685933367653,
+      "duration_ms": 6186
+    },
+    {
+      "test_id": "strict-script:staging/sm/generators/yield-star-iterator-close.js",
+      "test_path": "staging/sm/generators/yield-star-iterator-close.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1604312: assert.throws received the wrong error constructor)",
+      "detail_hash": 10262627103792290595,
+      "duration_ms": 11483
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/generators/create-function-parse-before-getprototype.js",
+    "strict-script:staging/sm/generators/create-function-parse-before-getprototype.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-1.js",
+    "strict-script:staging/sm/generators/delegating-yield-1.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-10.js",
+    "strict-script:staging/sm/generators/delegating-yield-10.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-11.js",
+    "strict-script:staging/sm/generators/delegating-yield-11.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-12.js",
+    "strict-script:staging/sm/generators/delegating-yield-12.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-2.js",
+    "strict-script:staging/sm/generators/delegating-yield-2.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-3.js",
+    "strict-script:staging/sm/generators/delegating-yield-3.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-4.js",
+    "strict-script:staging/sm/generators/delegating-yield-4.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-5.js",
+    "strict-script:staging/sm/generators/delegating-yield-5.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-6.js",
+    "strict-script:staging/sm/generators/delegating-yield-6.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-7.js",
+    "strict-script:staging/sm/generators/delegating-yield-7.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-8.js",
+    "strict-script:staging/sm/generators/delegating-yield-8.js",
+    "sloppy-script:staging/sm/generators/delegating-yield-9.js",
+    "strict-script:staging/sm/generators/delegating-yield-9.js",
+    "sloppy-script:staging/sm/generators/gen-with-call-obj.js",
+    "strict-script:staging/sm/generators/gen-with-call-obj.js",
+    "sloppy-script:staging/sm/generators/iteration.js",
+    "sloppy-script:staging/sm/generators/iterator-next-non-object.js",
+    "strict-script:staging/sm/generators/iterator-next-non-object.js",
+    "sloppy-script:staging/sm/generators/objects.js",
+    "strict-script:staging/sm/generators/objects.js",
+    "sloppy-script:staging/sm/generators/regress-366941.js",
+    "strict-script:staging/sm/generators/regress-366941.js",
+    "sloppy-script:staging/sm/generators/return-finally.js",
+    "strict-script:staging/sm/generators/return-finally.js",
+    "sloppy-script:staging/sm/generators/runtime.js",
+    "strict-script:staging/sm/generators/runtime.js",
+    "sloppy-script:staging/sm/generators/syntax.js",
+    "sloppy-script:staging/sm/generators/yield-error.js",
+    "strict-script:staging/sm/generators/yield-error.js",
+    "sloppy-script:staging/sm/generators/yield-iterator-close.js",
+    "strict-script:staging/sm/generators/yield-iterator-close.js",
+    "sloppy-script:staging/sm/generators/yield-non-regexp.js",
+    "sloppy-script:staging/sm/generators/yield-star-iterator-close.js",
+    "strict-script:staging/sm/generators/yield-star-iterator-close.js",
+    "sloppy-script:staging/sm/generators/yield-star-iterator-primitive.js",
+    "strict-script:staging/sm/generators/yield-star-iterator-primitive.js",
+    "sloppy-script:staging/sm/generators/yield-star-throw-htmldda.js",
+    "strict-script:staging/sm/generators/yield-star-throw-htmldda.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "generators"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

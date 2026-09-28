@@ -1,0 +1,300 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12223947897239496144,
+  "run_kind": "matrix-filter-leaf",
+  "total": 78,
+  "passed": 66,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 10,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 6,
+    "Crash": 2,
+    "NotImplemented": 4,
+    "Success": 66
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/stringify.js",
+      "path": "staging/sm/JSON/stringify.js",
+      "duration_ms": 27203
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/stringify.js",
+      "path": "staging/sm/JSON/stringify.js",
+      "duration_ms": 27193
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse-syntax-errors-03.js",
+      "path": "staging/sm/JSON/parse-syntax-errors-03.js",
+      "duration_ms": 21507
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse-syntax-errors-03.js",
+      "path": "staging/sm/JSON/parse-syntax-errors-03.js",
+      "duration_ms": 21494
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse-syntax-errors-02.js",
+      "path": "staging/sm/JSON/parse-syntax-errors-02.js",
+      "duration_ms": 20834
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse-syntax-errors-02.js",
+      "path": "staging/sm/JSON/parse-syntax-errors-02.js",
+      "duration_ms": 20720
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse-number-syntax.js",
+      "path": "staging/sm/JSON/parse-number-syntax.js",
+      "duration_ms": 18876
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse-number-syntax.js",
+      "path": "staging/sm/JSON/parse-number-syntax.js",
+      "duration_ms": 18780
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse.js",
+      "path": "staging/sm/JSON/parse.js",
+      "duration_ms": 18645
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse.js",
+      "path": "staging/sm/JSON/parse.js",
+      "duration_ms": 18244
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse-reviver-array-delete.js",
+      "test_path": "staging/sm/JSON/parse-reviver-array-delete.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x6cc36b - lila!helper::value_to_primitive_default\n    1: 0x27ff8c - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 17124756382993334128,
+      "duration_ms": 15569
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse-reviver-array-delete.js",
+      "test_path": "staging/sm/JSON/parse-reviver-array-delete.js",
+      "kind": "Runtime",
+      "outcome": "Crash",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime execution trapped: error while executing at wasm backtrace:\n    0: 0x6f064a - lila!helper::value_to_primitive_default\n    1: 0x2826f0 - lila!lila::main\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed",
+      "detail_hash": 18287375778716744665,
+      "duration_ms": 15603
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/parse-with-source.js",
+      "test_path": "staging/sm/JSON/parse-with-source.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@3012608: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 17607
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/parse-with-source.js",
+      "test_path": "staging/sm/JSON/parse-with-source.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@3012624: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 17618
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/regress-459293.js",
+      "test_path": "staging/sm/JSON/regress-459293.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4807
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/regress-459293.js",
+      "test_path": "staging/sm/JSON/regress-459293.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4396
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/stringify-replacer-array-hijinks.js",
+      "test_path": "staging/sm/JSON/stringify-replacer-array-hijinks.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue({\"0\":{\"1\":{\"3\":{\"3\":3}},\"3\":3},\"3\":3}, {\"0\":{\"1\":{}}}) to be true)",
+      "detail_hash": 18106385941405736489,
+      "duration_ms": 10351
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/stringify-replacer-array-hijinks.js",
+      "test_path": "staging/sm/JSON/stringify-replacer-array-hijinks.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue({\"0\":{\"1\":{\"3\":{\"3\":3}},\"3\":3},\"3\":3}, {\"0\":{\"1\":{}}}) to be true)",
+      "detail_hash": 18106385941405736489,
+      "duration_ms": 10373
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+      "test_path": "staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue({\"0\":\"hi\"}, {\"0\":\"hi\",\"1\":\"n-nao\",\"2\":\"run away!\",\"3\":\"bye\"}) to be true)",
+      "detail_hash": 402179618752780578,
+      "duration_ms": 8357
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+      "test_path": "staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue({\"0\":\"hi\"}, {\"0\":\"hi\",\"1\":\"n-nao\",\"2\":\"run away!\",\"3\":\"bye\"}) to be true)",
+      "detail_hash": 402179618752780578,
+      "duration_ms": 8399
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/JSON/stringify-special-escapes.js",
+      "test_path": "staging/sm/JSON/stringify-special-escapes.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5971700 bytes, 115 locals); most locals: wasm[0]::function[25] (184878 bytes, 158 locals)",
+      "detail_hash": 8715214862040780353,
+      "duration_ms": 11496
+    },
+    {
+      "test_id": "strict-script:staging/sm/JSON/stringify-special-escapes.js",
+      "test_path": "staging/sm/JSON/stringify-special-escapes.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] wasmtime module validation failed: Compilation error: Code for function is too large; largest emitted function: wasm[0]::function[2] (5981783 bytes, 115 locals); most locals: wasm[0]::function[25] (184878 bytes, 158 locals)",
+      "detail_hash": 6999966452681532948,
+      "duration_ms": 11284
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/JSON/cyclic-stringify-unrelated.js",
+    "strict-script:staging/sm/JSON/cyclic-stringify-unrelated.js",
+    "sloppy-script:staging/sm/JSON/cyclic-stringify.js",
+    "strict-script:staging/sm/JSON/cyclic-stringify.js",
+    "sloppy-script:staging/sm/JSON/parse-arguments.js",
+    "strict-script:staging/sm/JSON/parse-arguments.js",
+    "sloppy-script:staging/sm/JSON/parse-crockford-01.js",
+    "strict-script:staging/sm/JSON/parse-crockford-01.js",
+    "sloppy-script:staging/sm/JSON/parse-mega-huge-array.js",
+    "strict-script:staging/sm/JSON/parse-mega-huge-array.js",
+    "sloppy-script:staging/sm/JSON/parse-number-syntax.js",
+    "strict-script:staging/sm/JSON/parse-number-syntax.js",
+    "sloppy-script:staging/sm/JSON/parse-octal-syntax-error.js",
+    "strict-script:staging/sm/JSON/parse-octal-syntax-error.js",
+    "sloppy-script:staging/sm/JSON/parse-primitives.js",
+    "strict-script:staging/sm/JSON/parse-primitives.js",
+    "sloppy-script:staging/sm/JSON/parse-reviver-array-delete.js",
+    "strict-script:staging/sm/JSON/parse-reviver-array-delete.js",
+    "sloppy-script:staging/sm/JSON/parse-reviver.js",
+    "strict-script:staging/sm/JSON/parse-reviver.js",
+    "sloppy-script:staging/sm/JSON/parse-syntax-errors-01.js",
+    "strict-script:staging/sm/JSON/parse-syntax-errors-01.js",
+    "sloppy-script:staging/sm/JSON/parse-syntax-errors-02.js",
+    "strict-script:staging/sm/JSON/parse-syntax-errors-02.js",
+    "sloppy-script:staging/sm/JSON/parse-syntax-errors-03.js",
+    "strict-script:staging/sm/JSON/parse-syntax-errors-03.js",
+    "sloppy-script:staging/sm/JSON/parse-with-source.js",
+    "strict-script:staging/sm/JSON/parse-with-source.js",
+    "sloppy-script:staging/sm/JSON/parse.js",
+    "strict-script:staging/sm/JSON/parse.js",
+    "sloppy-script:staging/sm/JSON/regress-459293.js",
+    "strict-script:staging/sm/JSON/regress-459293.js",
+    "sloppy-script:staging/sm/JSON/small-codepoints.js",
+    "strict-script:staging/sm/JSON/small-codepoints.js",
+    "sloppy-script:staging/sm/JSON/stringify-boxed-primitives.js",
+    "strict-script:staging/sm/JSON/stringify-boxed-primitives.js",
+    "sloppy-script:staging/sm/JSON/stringify-call-replacer-once.js",
+    "strict-script:staging/sm/JSON/stringify-call-replacer-once.js",
+    "sloppy-script:staging/sm/JSON/stringify-call-toJSON-once.js",
+    "strict-script:staging/sm/JSON/stringify-call-toJSON-once.js",
+    "sloppy-script:staging/sm/JSON/stringify-dropping-elements.js",
+    "strict-script:staging/sm/JSON/stringify-dropping-elements.js",
+    "sloppy-script:staging/sm/JSON/stringify-gap.js",
+    "strict-script:staging/sm/JSON/stringify-gap.js",
+    "sloppy-script:staging/sm/JSON/stringify-ignore-noncallable-toJSON.js",
+    "strict-script:staging/sm/JSON/stringify-ignore-noncallable-toJSON.js",
+    "sloppy-script:staging/sm/JSON/stringify-large-replacer-array.js",
+    "strict-script:staging/sm/JSON/stringify-large-replacer-array.js",
+    "sloppy-script:staging/sm/JSON/stringify-missing-arguments.js",
+    "strict-script:staging/sm/JSON/stringify-missing-arguments.js",
+    "sloppy-script:staging/sm/JSON/stringify-nonarray-noncallable-replacer.js",
+    "strict-script:staging/sm/JSON/stringify-nonarray-noncallable-replacer.js",
+    "sloppy-script:staging/sm/JSON/stringify-primitives.js",
+    "strict-script:staging/sm/JSON/stringify-primitives.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-boxed-elements.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-boxed-elements.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-duplicated-element.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-duplicated-element.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-edgecase-jsid-elements.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-edgecase-jsid-elements.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-hijinks.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-hijinks.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-skipped-element.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-skipped-element.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer-with-array-indexes.js",
+    "strict-script:staging/sm/JSON/stringify-replacer-with-array-indexes.js",
+    "sloppy-script:staging/sm/JSON/stringify-replacer.js",
+    "strict-script:staging/sm/JSON/stringify-replacer.js",
+    "sloppy-script:staging/sm/JSON/stringify-special-escapes.js",
+    "strict-script:staging/sm/JSON/stringify-special-escapes.js",
+    "sloppy-script:staging/sm/JSON/stringify-toJSON-arguments.js",
+    "strict-script:staging/sm/JSON/stringify-toJSON-arguments.js",
+    "sloppy-script:staging/sm/JSON/stringify.js",
+    "strict-script:staging/sm/JSON/stringify.js",
+    "sloppy-script:staging/sm/JSON/trailing-comma.js",
+    "strict-script:staging/sm/JSON/trailing-comma.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "JSON"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

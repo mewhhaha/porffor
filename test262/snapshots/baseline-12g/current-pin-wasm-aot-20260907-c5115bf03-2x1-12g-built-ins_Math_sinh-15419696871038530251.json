@@ -1,0 +1,111 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15419696871038530251,
+  "run_kind": "matrix-filter-leaf",
+  "total": 10,
+  "passed": 10,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 10
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/sinh/length.js",
+      "path": "built-ins/Math/sinh/length.js",
+      "duration_ms": 14340
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/sinh/name.js",
+      "path": "built-ins/Math/sinh/name.js",
+      "duration_ms": 14338
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/sinh/length.js",
+      "path": "built-ins/Math/sinh/length.js",
+      "duration_ms": 14311
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/sinh/name.js",
+      "path": "built-ins/Math/sinh/name.js",
+      "duration_ms": 14257
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/sinh/sinh-specialVals.js",
+      "path": "built-ins/Math/sinh/sinh-specialVals.js",
+      "duration_ms": 13270
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/sinh/prop-desc.js",
+      "path": "built-ins/Math/sinh/prop-desc.js",
+      "duration_ms": 12523
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/sinh/not-a-constructor.js",
+      "path": "built-ins/Math/sinh/not-a-constructor.js",
+      "duration_ms": 12384
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/sinh/prop-desc.js",
+      "path": "built-ins/Math/sinh/prop-desc.js",
+      "duration_ms": 12322
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/sinh/sinh-specialVals.js",
+      "path": "built-ins/Math/sinh/sinh-specialVals.js",
+      "duration_ms": 12144
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/sinh/not-a-constructor.js",
+      "path": "built-ins/Math/sinh/not-a-constructor.js",
+      "duration_ms": 11008
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/sinh/length.js",
+    "strict-script:built-ins/Math/sinh/length.js",
+    "sloppy-script:built-ins/Math/sinh/name.js",
+    "strict-script:built-ins/Math/sinh/name.js",
+    "sloppy-script:built-ins/Math/sinh/not-a-constructor.js",
+    "strict-script:built-ins/Math/sinh/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/sinh/prop-desc.js",
+    "strict-script:built-ins/Math/sinh/prop-desc.js",
+    "sloppy-script:built-ins/Math/sinh/sinh-specialVals.js",
+    "strict-script:built-ins/Math/sinh/sinh-specialVals.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "sinh"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

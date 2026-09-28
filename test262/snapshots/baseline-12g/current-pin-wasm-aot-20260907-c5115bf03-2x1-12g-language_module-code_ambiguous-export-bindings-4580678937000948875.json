@@ -1,0 +1,146 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4580678937000948875,
+  "run_kind": "matrix-filter-leaf",
+  "total": 9,
+  "passed": 5,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 3,
+    "Crash": 0,
+    "NotImplemented": 1,
+    "Success": 5
+  },
+  "slowest_tests": [
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js",
+      "path": "language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js",
+      "duration_ms": 6890
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js",
+      "path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js",
+      "duration_ms": 5483
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js",
+      "path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js",
+      "duration_ms": 163
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/omitted-from-namespace.js",
+      "path": "language/module-code/ambiguous-export-bindings/omitted-from-namespace.js",
+      "duration_ms": 160
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js",
+      "path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js",
+      "duration_ms": 150
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/error-import-named.js",
+      "path": "language/module-code/ambiguous-export-bindings/error-import-named.js",
+      "duration_ms": 80
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/error-import-named-as.js",
+      "path": "language/module-code/ambiguous-export-bindings/error-import-named-as.js",
+      "duration_ms": 71
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/error-export-from-named-as.js",
+      "path": "language/module-code/ambiguous-export-bindings/error-export-from-named-as.js",
+      "duration_ms": 70
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/error-export-from-named.js",
+      "path": "language/module-code/ambiguous-export-bindings/error-export-from-named.js",
+      "duration_ms": 70
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js",
+      "test_path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] ambiguous export name: foo",
+      "detail_hash": 11515815186366048283,
+      "duration_ms": 163
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js",
+      "test_path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: wasm-aot completion: string(Expected SameValue(undefined, object) to be true)",
+      "detail_hash": 7785017625359646393,
+      "duration_ms": 5483
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js",
+      "test_path": "language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] ambiguous export name: foo",
+      "detail_hash": 11515815186366048283,
+      "duration_ms": 150
+    },
+    {
+      "test_id": "module:language/module-code/ambiguous-export-bindings/omitted-from-namespace.js",
+      "test_path": "language/module-code/ambiguous-export-bindings/omitted-from-namespace.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot: modules /home/mewhhaha/src/porffor/test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/omitted-from-namespace-1_FIXTURE.js and /home/mewhhaha/src/porffor/test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/omitted-from-namespace-2_FIXTURE.js both declare top-level `both`",
+      "detail_hash": 6954607082588469722,
+      "duration_ms": 160
+    }
+  ],
+  "completed_test_ids": [
+    "module:language/module-code/ambiguous-export-bindings/error-export-from-named-as.js",
+    "module:language/module-code/ambiguous-export-bindings/error-export-from-named.js",
+    "module:language/module-code/ambiguous-export-bindings/error-import-named-as.js",
+    "module:language/module-code/ambiguous-export-bindings/error-import-named.js",
+    "module:language/module-code/ambiguous-export-bindings/import-and-export-propagates-binding.js",
+    "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from-and-import-star-as-and-export.js",
+    "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-export-star-as-from.js",
+    "module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-star-as-and-export.js",
+    "module:language/module-code/ambiguous-export-bindings/omitted-from-namespace.js"
+  ],
+  "matrix_path": [
+    "language",
+    "module-code",
+    "ambiguous-export-bindings"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

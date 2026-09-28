@@ -1,0 +1,121 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 4938432434473035788,
+  "run_kind": "matrix-filter-leaf",
+  "total": 20,
+  "passed": 20,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 20
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/max/S15.8.2.11_A2.js",
+      "path": "built-ins/Math/max/S15.8.2.11_A2.js",
+      "duration_ms": 11771
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/S15.8.2.11_A2.js",
+      "path": "built-ins/Math/max/S15.8.2.11_A2.js",
+      "duration_ms": 10181
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/S15.8.2.11_A4.js",
+      "path": "built-ins/Math/max/S15.8.2.11_A4.js",
+      "duration_ms": 8894
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/max/15.8.2.11-1.js",
+      "path": "built-ins/Math/max/15.8.2.11-1.js",
+      "duration_ms": 8533
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/15.8.2.11-1.js",
+      "path": "built-ins/Math/max/15.8.2.11-1.js",
+      "duration_ms": 8512
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/max/Math.max_each-element-coerced.js",
+      "path": "built-ins/Math/max/Math.max_each-element-coerced.js",
+      "duration_ms": 7957
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/name.js",
+      "path": "built-ins/Math/max/name.js",
+      "duration_ms": 7309
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/zeros.js",
+      "path": "built-ins/Math/max/zeros.js",
+      "duration_ms": 7305
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/max/zeros.js",
+      "path": "built-ins/Math/max/zeros.js",
+      "duration_ms": 7305
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/max/Math.max_each-element-coerced.js",
+      "path": "built-ins/Math/max/Math.max_each-element-coerced.js",
+      "duration_ms": 7244
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/max/15.8.2.11-1.js",
+    "strict-script:built-ins/Math/max/15.8.2.11-1.js",
+    "sloppy-script:built-ins/Math/max/Math.max_each-element-coerced.js",
+    "strict-script:built-ins/Math/max/Math.max_each-element-coerced.js",
+    "sloppy-script:built-ins/Math/max/S15.8.2.11_A1.js",
+    "strict-script:built-ins/Math/max/S15.8.2.11_A1.js",
+    "sloppy-script:built-ins/Math/max/S15.8.2.11_A2.js",
+    "strict-script:built-ins/Math/max/S15.8.2.11_A2.js",
+    "sloppy-script:built-ins/Math/max/S15.8.2.11_A4.js",
+    "strict-script:built-ins/Math/max/S15.8.2.11_A4.js",
+    "sloppy-script:built-ins/Math/max/length.js",
+    "strict-script:built-ins/Math/max/length.js",
+    "sloppy-script:built-ins/Math/max/name.js",
+    "strict-script:built-ins/Math/max/name.js",
+    "sloppy-script:built-ins/Math/max/not-a-constructor.js",
+    "strict-script:built-ins/Math/max/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/max/prop-desc.js",
+    "strict-script:built-ins/Math/max/prop-desc.js",
+    "sloppy-script:built-ins/Math/max/zeros.js",
+    "strict-script:built-ins/Math/max/zeros.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "max"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

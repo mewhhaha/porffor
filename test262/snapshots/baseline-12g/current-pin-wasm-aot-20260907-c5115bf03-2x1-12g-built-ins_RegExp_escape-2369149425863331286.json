@@ -1,0 +1,141 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2369149425863331286,
+  "run_kind": "matrix-filter-leaf",
+  "total": 40,
+  "passed": 40,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 40
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/initial-char-escape.js",
+      "path": "built-ins/RegExp/escape/initial-char-escape.js",
+      "duration_ms": 18824
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/escape/initial-char-escape.js",
+      "path": "built-ins/RegExp/escape/initial-char-escape.js",
+      "duration_ms": 18674
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/cross-realm.js",
+      "path": "built-ins/RegExp/escape/cross-realm.js",
+      "duration_ms": 13743
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/escape/cross-realm.js",
+      "path": "built-ins/RegExp/escape/cross-realm.js",
+      "duration_ms": 13259
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/escaped-surrogates.js",
+      "path": "built-ins/RegExp/escape/escaped-surrogates.js",
+      "duration_ms": 12691
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/escape/not-escaped.js",
+      "path": "built-ins/RegExp/escape/not-escaped.js",
+      "duration_ms": 12646
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/not-escaped.js",
+      "path": "built-ins/RegExp/escape/not-escaped.js",
+      "duration_ms": 12646
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+      "path": "built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+      "duration_ms": 12593
+    },
+    {
+      "test_id": "sloppy-script:built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+      "path": "built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+      "duration_ms": 12501
+    },
+    {
+      "test_id": "strict-script:built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+      "path": "built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+      "duration_ms": 12437
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/RegExp/escape/cross-realm.js",
+    "strict-script:built-ins/RegExp/escape/cross-realm.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-control-characters.js",
+    "strict-script:built-ins/RegExp/escape/escaped-control-characters.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-lineterminator.js",
+    "strict-script:built-ins/RegExp/escape/escaped-lineterminator.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-otherpunctuators.js",
+    "strict-script:built-ins/RegExp/escape/escaped-otherpunctuators.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-solidus-character-mixed.js",
+    "strict-script:built-ins/RegExp/escape/escaped-solidus-character-mixed.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+    "strict-script:built-ins/RegExp/escape/escaped-solidus-character-simple.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-surrogates.js",
+    "strict-script:built-ins/RegExp/escape/escaped-surrogates.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-syntax-characters-mixed.js",
+    "strict-script:built-ins/RegExp/escape/escaped-syntax-characters-mixed.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-syntax-characters-simple.js",
+    "strict-script:built-ins/RegExp/escape/escaped-syntax-characters-simple.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+    "strict-script:built-ins/RegExp/escape/escaped-utf16encodecodepoint.js",
+    "sloppy-script:built-ins/RegExp/escape/escaped-whitespace.js",
+    "strict-script:built-ins/RegExp/escape/escaped-whitespace.js",
+    "sloppy-script:built-ins/RegExp/escape/initial-char-escape.js",
+    "strict-script:built-ins/RegExp/escape/initial-char-escape.js",
+    "sloppy-script:built-ins/RegExp/escape/is-function.js",
+    "strict-script:built-ins/RegExp/escape/is-function.js",
+    "sloppy-script:built-ins/RegExp/escape/length.js",
+    "strict-script:built-ins/RegExp/escape/length.js",
+    "sloppy-script:built-ins/RegExp/escape/name.js",
+    "strict-script:built-ins/RegExp/escape/name.js",
+    "sloppy-script:built-ins/RegExp/escape/non-string-inputs.js",
+    "strict-script:built-ins/RegExp/escape/non-string-inputs.js",
+    "sloppy-script:built-ins/RegExp/escape/not-a-constructor.js",
+    "strict-script:built-ins/RegExp/escape/not-a-constructor.js",
+    "sloppy-script:built-ins/RegExp/escape/not-escaped-underscore.js",
+    "strict-script:built-ins/RegExp/escape/not-escaped-underscore.js",
+    "sloppy-script:built-ins/RegExp/escape/not-escaped.js",
+    "strict-script:built-ins/RegExp/escape/not-escaped.js",
+    "sloppy-script:built-ins/RegExp/escape/prop-desc.js",
+    "strict-script:built-ins/RegExp/escape/prop-desc.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "RegExp",
+    "escape"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

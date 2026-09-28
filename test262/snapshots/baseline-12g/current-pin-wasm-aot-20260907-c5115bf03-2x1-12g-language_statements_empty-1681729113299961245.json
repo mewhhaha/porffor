@@ -1,0 +1,96 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 1681729113299961245,
+  "run_kind": "matrix-filter-leaf",
+  "total": 4,
+  "passed": 2,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 2
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/statements/empty/S12.3_A1.js",
+      "path": "language/statements/empty/S12.3_A1.js",
+      "duration_ms": 6133
+    },
+    {
+      "test_id": "sloppy-script:language/statements/empty/S12.3_A1.js",
+      "path": "language/statements/empty/S12.3_A1.js",
+      "duration_ms": 6124
+    },
+    {
+      "test_id": "sloppy-script:language/statements/empty/cptn-value.js",
+      "path": "language/statements/empty/cptn-value.js",
+      "duration_ms": 4988
+    },
+    {
+      "test_id": "strict-script:language/statements/empty/cptn-value.js",
+      "path": "language/statements/empty/cptn-value.js",
+      "duration_ms": 4977
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/statements/empty/cptn-value.js",
+      "test_path": "language/statements/empty/cptn-value.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4988
+    },
+    {
+      "test_id": "strict-script:language/statements/empty/cptn-value.js",
+      "test_path": "language/statements/empty/cptn-value.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 4977
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/statements/empty/S12.3_A1.js",
+    "strict-script:language/statements/empty/S12.3_A1.js",
+    "sloppy-script:language/statements/empty/cptn-value.js",
+    "strict-script:language/statements/empty/cptn-value.js"
+  ],
+  "matrix_path": [
+    "language",
+    "statements",
+    "empty"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

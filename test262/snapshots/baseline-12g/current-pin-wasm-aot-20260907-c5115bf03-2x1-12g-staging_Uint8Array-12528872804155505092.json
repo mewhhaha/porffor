@@ -1,0 +1,83 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 12528872804155505092,
+  "run_kind": "matrix-filter-leaf",
+  "total": 2,
+  "passed": 0,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 2,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 2,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 0
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/Uint8Array/fromBase64/invalid-options.js",
+      "path": "staging/Uint8Array/fromBase64/invalid-options.js",
+      "duration_ms": 8722
+    },
+    {
+      "test_id": "sloppy-script:staging/Uint8Array/fromBase64/invalid-options.js",
+      "path": "staging/Uint8Array/fromBase64/invalid-options.js",
+      "duration_ms": 8690
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/Uint8Array/fromBase64/invalid-options.js",
+      "test_path": "staging/Uint8Array/fromBase64/invalid-options.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1511112: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 8690
+    },
+    {
+      "test_id": "strict-script:staging/Uint8Array/fromBase64/invalid-options.js",
+      "test_path": "staging/Uint8Array/fromBase64/invalid-options.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1511120: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 8722
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/Uint8Array/fromBase64/invalid-options.js",
+    "strict-script:staging/Uint8Array/fromBase64/invalid-options.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "Uint8Array"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

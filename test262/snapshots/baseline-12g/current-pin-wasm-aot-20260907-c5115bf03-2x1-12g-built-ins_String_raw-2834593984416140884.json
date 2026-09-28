@@ -1,0 +1,161 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 2834593984416140884,
+  "run_kind": "matrix-filter-leaf",
+  "total": 60,
+  "passed": 60,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 60
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/String/raw/template-raw-not-object-throws.js",
+      "path": "built-ins/String/raw/template-raw-not-object-throws.js",
+      "duration_ms": 12050
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/template-raw-not-object-throws.js",
+      "path": "built-ins/String/raw/template-raw-not-object-throws.js",
+      "duration_ms": 12036
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-not-defined.js",
+      "path": "built-ins/String/raw/return-empty-string-if-length-is-not-defined.js",
+      "duration_ms": 10325
+    },
+    {
+      "test_id": "strict-script:built-ins/String/raw/nextkey-is-symbol-throws.js",
+      "path": "built-ins/String/raw/nextkey-is-symbol-throws.js",
+      "duration_ms": 10272
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/nextkey-is-symbol-throws.js",
+      "path": "built-ins/String/raw/nextkey-is-symbol-throws.js",
+      "duration_ms": 10242
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+      "path": "built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+      "duration_ms": 9871
+    },
+    {
+      "test_id": "strict-script:built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+      "path": "built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+      "duration_ms": 9690
+    },
+    {
+      "test_id": "strict-script:built-ins/String/raw/template-not-object-throws.js",
+      "path": "built-ins/String/raw/template-not-object-throws.js",
+      "duration_ms": 9629
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/template-not-object-throws.js",
+      "path": "built-ins/String/raw/template-not-object-throws.js",
+      "duration_ms": 9598
+    },
+    {
+      "test_id": "sloppy-script:built-ins/String/raw/substitutions-are-appended-on-same-index.js",
+      "path": "built-ins/String/raw/substitutions-are-appended-on-same-index.js",
+      "duration_ms": 9577
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/String/raw/length.js",
+    "strict-script:built-ins/String/raw/length.js",
+    "sloppy-script:built-ins/String/raw/name.js",
+    "strict-script:built-ins/String/raw/name.js",
+    "sloppy-script:built-ins/String/raw/nextkey-is-symbol-throws.js",
+    "strict-script:built-ins/String/raw/nextkey-is-symbol-throws.js",
+    "sloppy-script:built-ins/String/raw/not-a-constructor.js",
+    "strict-script:built-ins/String/raw/not-a-constructor.js",
+    "sloppy-script:built-ins/String/raw/raw.js",
+    "strict-script:built-ins/String/raw/raw.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-from-empty-array-length.js",
+    "strict-script:built-ins/String/raw/return-empty-string-from-empty-array-length.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-negative-infinity.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-negative-infinity.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-not-defined.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-not-defined.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-undefined.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-undefined.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-zero-NaN.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-zero-NaN.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-zero-boolean.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-zero-boolean.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-zero-null.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-zero-null.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-number.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-number.js",
+    "sloppy-script:built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-string.js",
+    "strict-script:built-ins/String/raw/return-empty-string-if-length-is-zero-or-less-string.js",
+    "sloppy-script:built-ins/String/raw/return-the-string-value-from-template.js",
+    "strict-script:built-ins/String/raw/return-the-string-value-from-template.js",
+    "sloppy-script:built-ins/String/raw/return-the-string-value.js",
+    "strict-script:built-ins/String/raw/return-the-string-value.js",
+    "sloppy-script:built-ins/String/raw/returns-abrupt-from-next-key-toString.js",
+    "strict-script:built-ins/String/raw/returns-abrupt-from-next-key-toString.js",
+    "sloppy-script:built-ins/String/raw/returns-abrupt-from-next-key.js",
+    "strict-script:built-ins/String/raw/returns-abrupt-from-next-key.js",
+    "sloppy-script:built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+    "strict-script:built-ins/String/raw/returns-abrupt-from-substitution-symbol.js",
+    "sloppy-script:built-ins/String/raw/returns-abrupt-from-substitution.js",
+    "strict-script:built-ins/String/raw/returns-abrupt-from-substitution.js",
+    "sloppy-script:built-ins/String/raw/special-characters.js",
+    "strict-script:built-ins/String/raw/special-characters.js",
+    "sloppy-script:built-ins/String/raw/substitutions-are-appended-on-same-index.js",
+    "strict-script:built-ins/String/raw/substitutions-are-appended-on-same-index.js",
+    "sloppy-script:built-ins/String/raw/substitutions-are-limited-to-template-raw-length.js",
+    "strict-script:built-ins/String/raw/substitutions-are-limited-to-template-raw-length.js",
+    "sloppy-script:built-ins/String/raw/template-length-is-symbol-throws.js",
+    "strict-script:built-ins/String/raw/template-length-is-symbol-throws.js",
+    "sloppy-script:built-ins/String/raw/template-length-throws.js",
+    "strict-script:built-ins/String/raw/template-length-throws.js",
+    "sloppy-script:built-ins/String/raw/template-not-object-throws.js",
+    "strict-script:built-ins/String/raw/template-not-object-throws.js",
+    "sloppy-script:built-ins/String/raw/template-raw-not-object-throws.js",
+    "strict-script:built-ins/String/raw/template-raw-not-object-throws.js",
+    "sloppy-script:built-ins/String/raw/template-raw-throws.js",
+    "strict-script:built-ins/String/raw/template-raw-throws.js",
+    "sloppy-script:built-ins/String/raw/template-substitutions-are-appended-on-same-index.js",
+    "strict-script:built-ins/String/raw/template-substitutions-are-appended-on-same-index.js",
+    "sloppy-script:built-ins/String/raw/zero-literal-segments.js",
+    "strict-script:built-ins/String/raw/zero-literal-segments.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "String",
+    "raw"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

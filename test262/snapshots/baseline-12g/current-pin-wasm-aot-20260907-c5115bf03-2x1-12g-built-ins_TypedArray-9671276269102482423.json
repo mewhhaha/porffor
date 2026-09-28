@@ -1,0 +1,219 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 9671276269102482423,
+  "run_kind": "matrix-filter-leaf",
+  "total": 18,
+  "passed": 8,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 10,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 10,
+    "Success": 8
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/invoked.js",
+      "path": "built-ins/TypedArray/invoked.js",
+      "duration_ms": 11622
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/invoked.js",
+      "path": "built-ins/TypedArray/invoked.js",
+      "duration_ms": 11613
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/prototype.js",
+      "path": "built-ins/TypedArray/prototype.js",
+      "duration_ms": 11439
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/prototype.js",
+      "path": "built-ins/TypedArray/prototype.js",
+      "duration_ms": 11438
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/length.js",
+      "path": "built-ins/TypedArray/length.js",
+      "duration_ms": 10482
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/length.js",
+      "path": "built-ins/TypedArray/length.js",
+      "duration_ms": 10374
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/name.js",
+      "path": "built-ins/TypedArray/name.js",
+      "duration_ms": 10341
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/name.js",
+      "path": "built-ins/TypedArray/name.js",
+      "duration_ms": 10241
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "path": "built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "path": "built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "duration_ms": 0
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/out-of-bounds-get-and-set.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-get-and-set.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/out-of-bounds-get-and-set.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-get-and-set.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/out-of-bounds-has.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-has.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/out-of-bounds-has.js",
+      "test_path": "built-ins/TypedArray/out-of-bounds-has.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+      "test_path": "built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+      "test_path": "built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "sloppy-script:built-ins/TypedArray/resizable-buffer-length-tracking-2.js",
+      "test_path": "built-ins/TypedArray/resizable-buffer-length-tracking-2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    },
+    {
+      "test_id": "strict-script:built-ins/TypedArray/resizable-buffer-length-tracking-2.js",
+      "test_path": "built-ins/TypedArray/resizable-buffer-length-tracking-2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `resizable-arraybuffer` is not implemented. Product invariant: compile JavaScript directly to Wasm; do not ship interpreter-in-Wasm.",
+      "detail_hash": 9701772426270021803,
+      "duration_ms": 0
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/TypedArray/invoked.js",
+    "strict-script:built-ins/TypedArray/invoked.js",
+    "sloppy-script:built-ins/TypedArray/length.js",
+    "strict-script:built-ins/TypedArray/length.js",
+    "sloppy-script:built-ins/TypedArray/name.js",
+    "strict-script:built-ins/TypedArray/name.js",
+    "sloppy-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+    "strict-script:built-ins/TypedArray/out-of-bounds-behaves-like-detached.js",
+    "sloppy-script:built-ins/TypedArray/out-of-bounds-get-and-set.js",
+    "strict-script:built-ins/TypedArray/out-of-bounds-get-and-set.js",
+    "sloppy-script:built-ins/TypedArray/out-of-bounds-has.js",
+    "strict-script:built-ins/TypedArray/out-of-bounds-has.js",
+    "sloppy-script:built-ins/TypedArray/prototype.js",
+    "strict-script:built-ins/TypedArray/prototype.js",
+    "sloppy-script:built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+    "strict-script:built-ins/TypedArray/resizable-buffer-length-tracking-1.js",
+    "sloppy-script:built-ins/TypedArray/resizable-buffer-length-tracking-2.js",
+    "strict-script:built-ins/TypedArray/resizable-buffer-length-tracking-2.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "TypedArray"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

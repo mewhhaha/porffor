@@ -1,0 +1,231 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 15741199798055844742,
+  "run_kind": "matrix-filter-leaf",
+  "total": 89,
+  "passed": 85,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 85
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/division/order-of-evaluation.js",
+      "path": "language/expressions/division/order-of-evaluation.js",
+      "duration_ms": 21155
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/order-of-evaluation.js",
+      "path": "language/expressions/division/order-of-evaluation.js",
+      "duration_ms": 21155
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/bigint-errors.js",
+      "path": "language/expressions/division/bigint-errors.js",
+      "duration_ms": 13647
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/division/bigint-errors.js",
+      "path": "language/expressions/division/bigint-errors.js",
+      "duration_ms": 13625
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/S11.5.2_A3_T1.5.js",
+      "path": "language/expressions/division/S11.5.2_A3_T1.5.js",
+      "duration_ms": 13409
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/division/S11.5.2_A2.1_T1.js",
+      "path": "language/expressions/division/S11.5.2_A2.1_T1.js",
+      "duration_ms": 13366
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/S11.5.2_A2.1_T1.js",
+      "path": "language/expressions/division/S11.5.2_A2.1_T1.js",
+      "duration_ms": 13016
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/S11.5.2_A4_T9.js",
+      "path": "language/expressions/division/S11.5.2_A4_T9.js",
+      "duration_ms": 12754
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/division/S11.5.2_A4_T9.js",
+      "path": "language/expressions/division/S11.5.2_A4_T9.js",
+      "duration_ms": 12742
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/S11.5.2_A3_T2.1.js",
+      "path": "language/expressions/division/S11.5.2_A3_T2.1.js",
+      "duration_ms": 12730
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/division/S11.5.2_A1.js",
+      "test_path": "language/expressions/division/S11.5.2_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6711
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/S11.5.2_A1.js",
+      "test_path": "language/expressions/division/S11.5.2_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6723
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/division/no-magic-asi-from-block-eval.js",
+      "test_path": "language/expressions/division/no-magic-asi-from-block-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5555
+    },
+    {
+      "test_id": "strict-script:language/expressions/division/no-magic-asi-from-block-eval.js",
+      "test_path": "language/expressions/division/no-magic-asi-from-block-eval.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 5585
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/division/S11.5.2_A1.js",
+    "strict-script:language/expressions/division/S11.5.2_A1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.1_T1.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.1_T1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.1_T2.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.1_T2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.1_T3.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.1_T3.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.2_T1.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.2_T1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.3_T1.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.3_T1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.4_T1.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.4_T1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.4_T2.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.4_T2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.4_T3.js",
+    "strict-script:language/expressions/division/S11.5.2_A2.4_T3.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A2.4_T4.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T1.1.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T1.1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T1.2.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T1.2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T1.3.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T1.3.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T1.4.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T1.4.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T1.5.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T1.5.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.1.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.2.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.3.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.3.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.4.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.4.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.5.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.5.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.6.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.6.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.7.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.7.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.8.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.8.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A3_T2.9.js",
+    "strict-script:language/expressions/division/S11.5.2_A3_T2.9.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T1.1.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T1.1.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T1.2.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T1.2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T10.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T10.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T2.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T2.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T3.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T3.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T4.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T4.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T5.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T5.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T6.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T6.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T7.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T7.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T8.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T8.js",
+    "sloppy-script:language/expressions/division/S11.5.2_A4_T9.js",
+    "strict-script:language/expressions/division/S11.5.2_A4_T9.js",
+    "sloppy-script:language/expressions/division/bigint-and-number.js",
+    "strict-script:language/expressions/division/bigint-and-number.js",
+    "sloppy-script:language/expressions/division/bigint-arithmetic.js",
+    "strict-script:language/expressions/division/bigint-arithmetic.js",
+    "sloppy-script:language/expressions/division/bigint-complex-infinity.js",
+    "strict-script:language/expressions/division/bigint-complex-infinity.js",
+    "sloppy-script:language/expressions/division/bigint-errors.js",
+    "strict-script:language/expressions/division/bigint-errors.js",
+    "sloppy-script:language/expressions/division/bigint-toprimitive.js",
+    "strict-script:language/expressions/division/bigint-toprimitive.js",
+    "sloppy-script:language/expressions/division/bigint-wrapped-values.js",
+    "strict-script:language/expressions/division/bigint-wrapped-values.js",
+    "sloppy-script:language/expressions/division/line-terminator.js",
+    "strict-script:language/expressions/division/line-terminator.js",
+    "sloppy-script:language/expressions/division/no-magic-asi-from-block-eval.js",
+    "strict-script:language/expressions/division/no-magic-asi-from-block-eval.js",
+    "sloppy-script:language/expressions/division/no-magic-asi.js",
+    "strict-script:language/expressions/division/no-magic-asi.js",
+    "sloppy-script:language/expressions/division/order-of-evaluation.js",
+    "strict-script:language/expressions/division/order-of-evaluation.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "division"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

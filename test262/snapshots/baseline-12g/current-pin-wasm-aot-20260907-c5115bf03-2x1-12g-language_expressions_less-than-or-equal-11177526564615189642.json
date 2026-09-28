@@ -1,0 +1,255 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 11177526564615189642,
+  "run_kind": "matrix-filter-leaf",
+  "total": 93,
+  "passed": 87,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 4,
+    "Unsupported": 2,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 87
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T2.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A2.4_T2.js",
+      "duration_ms": 12278
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.6.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.6.js",
+      "duration_ms": 12277
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.7.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A4.7.js",
+      "duration_ms": 12169
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T2.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A2.1_T2.js",
+      "duration_ms": 11165
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.2.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.2.js",
+      "duration_ms": 10920
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T1.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A2.1_T1.js",
+      "duration_ms": 10908
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+      "duration_ms": 10679
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+      "duration_ms": 10638
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.4.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A4.4.js",
+      "duration_ms": 10554
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.1.js",
+      "path": "language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.1.js",
+      "duration_ms": 10497
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A1.js",
+      "test_path": "language/expressions/less-than-or-equal/S11.8.3_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6673
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/S11.8.3_A1.js",
+      "test_path": "language/expressions/less-than-or-equal/S11.8.3_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6599
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+      "test_path": "language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1509464: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 8080
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+      "test_path": "language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1509472: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 8171
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/less-than-or-equal/bigint-and-string.js",
+      "test_path": "language/expressions/less-than-or-equal/bigint-and-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1509696: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 9795
+    },
+    {
+      "test_id": "strict-script:language/expressions/less-than-or-equal/bigint-and-string.js",
+      "test_path": "language/expressions/less-than-or-equal/bigint-and-string.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1509704: Cannot convert BigInt to number)",
+      "detail_hash": 4436285823572878913,
+      "duration_ms": 9785
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/less-than-or-equal/11.8.3-1.js",
+    "strict-script:language/expressions/less-than-or-equal/11.8.3-1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/11.8.3-2.js",
+    "strict-script:language/expressions/less-than-or-equal/11.8.3-2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/11.8.3-3.js",
+    "strict-script:language/expressions/less-than-or-equal/11.8.3-3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/11.8.3-4.js",
+    "strict-script:language/expressions/less-than-or-equal/11.8.3-4.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T3.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.1_T3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.2_T1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.2_T1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.3_T1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.3_T1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T3.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A2.4_T4.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.3.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T1.3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.3.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.4.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.4.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.5.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.5.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.6.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.6.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.7.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.7.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.8.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.8.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.9.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.1_T2.9.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A3.2_T1.2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.10.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.10.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.11.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.11.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.12_T1.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.12_T1.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.12_T2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.12_T2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.2.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.2.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.3.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.3.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.4.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.4.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.5.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.5.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.6.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.6.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.7.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.7.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.8.js",
+    "sloppy-script:language/expressions/less-than-or-equal/S11.8.3_A4.9.js",
+    "strict-script:language/expressions/less-than-or-equal/S11.8.3_A4.9.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-bigint.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-bigint.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-incomparable-string.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-non-finite.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-non-finite.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-number-extremes.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-number-extremes.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-number.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-number.js",
+    "sloppy-script:language/expressions/less-than-or-equal/bigint-and-string.js",
+    "strict-script:language/expressions/less-than-or-equal/bigint-and-string.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "less-than-or-equal"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

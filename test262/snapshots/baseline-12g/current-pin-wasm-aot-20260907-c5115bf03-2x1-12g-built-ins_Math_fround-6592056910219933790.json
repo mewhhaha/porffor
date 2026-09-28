@@ -1,0 +1,119 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6592056910219933790,
+  "run_kind": "matrix-filter-leaf",
+  "total": 18,
+  "passed": 18,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 18
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:built-ins/Math/fround/ties.js",
+      "path": "built-ins/Math/fround/ties.js",
+      "duration_ms": 11412
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/fround/ties.js",
+      "path": "built-ins/Math/fround/ties.js",
+      "duration_ms": 11381
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/fround/value-convertion.js",
+      "path": "built-ins/Math/fround/value-convertion.js",
+      "duration_ms": 9833
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/fround/value-convertion.js",
+      "path": "built-ins/Math/fround/value-convertion.js",
+      "duration_ms": 9810
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/fround/Math.fround_NaN.js",
+      "path": "built-ins/Math/fround/Math.fround_NaN.js",
+      "duration_ms": 9124
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/fround/Math.fround_NaN.js",
+      "path": "built-ins/Math/fround/Math.fround_NaN.js",
+      "duration_ms": 9083
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/fround/Math.fround_Zero.js",
+      "path": "built-ins/Math/fround/Math.fround_Zero.js",
+      "duration_ms": 8848
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/fround/Math.fround_Zero.js",
+      "path": "built-ins/Math/fround/Math.fround_Zero.js",
+      "duration_ms": 8805
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Math/fround/Math.fround_Infinity.js",
+      "path": "built-ins/Math/fround/Math.fround_Infinity.js",
+      "duration_ms": 8735
+    },
+    {
+      "test_id": "strict-script:built-ins/Math/fround/prop-desc.js",
+      "path": "built-ins/Math/fround/prop-desc.js",
+      "duration_ms": 8706
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [],
+  "completed_test_ids": [
+    "sloppy-script:built-ins/Math/fround/Math.fround_Infinity.js",
+    "strict-script:built-ins/Math/fround/Math.fround_Infinity.js",
+    "sloppy-script:built-ins/Math/fround/Math.fround_NaN.js",
+    "strict-script:built-ins/Math/fround/Math.fround_NaN.js",
+    "sloppy-script:built-ins/Math/fround/Math.fround_Zero.js",
+    "strict-script:built-ins/Math/fround/Math.fround_Zero.js",
+    "sloppy-script:built-ins/Math/fround/length.js",
+    "strict-script:built-ins/Math/fround/length.js",
+    "sloppy-script:built-ins/Math/fround/name.js",
+    "strict-script:built-ins/Math/fround/name.js",
+    "sloppy-script:built-ins/Math/fround/not-a-constructor.js",
+    "strict-script:built-ins/Math/fround/not-a-constructor.js",
+    "sloppy-script:built-ins/Math/fround/prop-desc.js",
+    "strict-script:built-ins/Math/fround/prop-desc.js",
+    "sloppy-script:built-ins/Math/fround/ties.js",
+    "strict-script:built-ins/Math/fround/ties.js",
+    "sloppy-script:built-ins/Math/fround/value-convertion.js",
+    "strict-script:built-ins/Math/fround/value-convertion.js"
+  ],
+  "matrix_path": [
+    "built-ins",
+    "Math",
+    "fround"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

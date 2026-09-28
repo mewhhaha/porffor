@@ -1,0 +1,201 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 10967072673990416757,
+  "run_kind": "matrix-filter-leaf",
+  "total": 59,
+  "passed": 55,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 4,
+    "Success": 55
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T3.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A2.4_T3.js",
+      "duration_ms": 12541
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+      "duration_ms": 12426
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-number.js",
+      "path": "language/expressions/strict-does-not-equals/bigint-and-number.js",
+      "duration_ms": 12082
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+      "path": "language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+      "duration_ms": 12080
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/bigint-and-number.js",
+      "path": "language/expressions/strict-does-not-equals/bigint-and-number.js",
+      "duration_ms": 12062
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+      "path": "language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+      "duration_ms": 12060
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A4.1_T2.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A4.1_T2.js",
+      "duration_ms": 11391
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+      "duration_ms": 10892
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+      "duration_ms": 10857
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+      "path": "language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+      "duration_ms": 10715
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+      "test_path": "language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6500
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+      "test_path": "language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6602
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+      "test_path": "language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6712
+    },
+    {
+      "test_id": "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+      "test_path": "language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 8841
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T3.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.1_T3.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T3.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T3.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A2.4_T4.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A3.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A3.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A4.1_T1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A4.1_T1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A4.1_T2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A4.1_T2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A4.2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A4.2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A4.3.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A4.3.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A5.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A5.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A6.1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A6.2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A6.2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A7.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A7.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T1.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T1.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T2.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T2.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T3.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T3.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T4.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T4.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+    "strict-script:language/expressions/strict-does-not-equals/S11.9.5_A8_T5.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-bigint.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-bigint.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-boolean.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-boolean.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-incomparable-primitive.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-incomparable-primitive.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-non-finite.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-non-finite.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-number-extremes.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-number.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-number.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-object.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-object.js",
+    "sloppy-script:language/expressions/strict-does-not-equals/bigint-and-string.js",
+    "strict-script:language/expressions/strict-does-not-equals/bigint-and-string.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "strict-does-not-equals"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

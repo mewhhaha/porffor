@@ -1,0 +1,244 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 5198657368586015608,
+  "run_kind": "matrix-filter-leaf",
+  "total": 42,
+  "passed": 32,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 4,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 10,
+    "Success": 32
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T9.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T9.js",
+      "duration_ms": 17522
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A4_T9.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T9.js",
+      "duration_ms": 17470
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "duration_ms": 14791
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A4_T4.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T4.js",
+      "duration_ms": 13803
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T4.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T4.js",
+      "duration_ms": 13751
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S8.12.3_A1.js",
+      "path": "language/expressions/property-accessors/S8.12.3_A1.js",
+      "duration_ms": 13387
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S8.12.3_A1.js",
+      "path": "language/expressions/property-accessors/S8.12.3_A1.js",
+      "duration_ms": 13378
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "duration_ms": 12558
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A4_T3.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A4_T3.js",
+      "duration_ms": 12438
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A2.js",
+      "path": "language/expressions/property-accessors/S11.2.1_A2.js",
+      "duration_ms": 11973
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A1.1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A1.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6522
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A1.1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A1.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6770
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A1.2.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A1.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6742
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A1.2.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A1.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6570
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T1.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic boolean property",
+      "detail_hash": 11110523451626189012,
+      "duration_ms": 6893
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A3_T1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T1.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic boolean property",
+      "detail_hash": 11110523451626189012,
+      "duration_ms": 6714
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T2.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T2.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic number property",
+      "detail_hash": 1595830910295630106,
+      "duration_ms": 6751
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A3_T2.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T2.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic number property",
+      "detail_hash": 1595830910295630106,
+      "duration_ms": 6719
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T3.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T3.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 6742
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A3_T3.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A3_T3.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic string property",
+      "detail_hash": 3873315819547737358,
+      "duration_ms": 6640
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A1.1.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A1.1.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A1.2.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A1.2.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A2.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A2.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T1.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A3_T1.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T2.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A3_T2.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T3.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A3_T3.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T4.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A3_T4.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A3_T5.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A3_T5.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T2.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T2.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T3.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T3.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T4.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T4.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T5.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T5.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T6.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T6.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T7.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T7.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T8.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T8.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T9.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T9.js",
+    "sloppy-script:language/expressions/property-accessors/S8.12.3_A1.js",
+    "strict-script:language/expressions/property-accessors/S8.12.3_A1.js",
+    "sloppy-script:language/expressions/property-accessors/S8.12.3_A2.js",
+    "strict-script:language/expressions/property-accessors/S8.12.3_A2.js",
+    "sloppy-script:language/expressions/property-accessors/S8.12.3_A3.js",
+    "strict-script:language/expressions/property-accessors/S8.12.3_A3.js",
+    "sloppy-script:language/expressions/property-accessors/non-identifier-name.js",
+    "strict-script:language/expressions/property-accessors/non-identifier-name.js"
+  ],
+  "matrix_path": [
+    "language",
+    "expressions",
+    "property-accessors"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

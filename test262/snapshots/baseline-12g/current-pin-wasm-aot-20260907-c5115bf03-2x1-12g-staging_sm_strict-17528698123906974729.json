@@ -1,0 +1,957 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 17528698123906974729,
+  "run_kind": "matrix-filter-leaf",
+  "total": 95,
+  "passed": 19,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 1,
+    "Unsupported": 75,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 0,
+    "Crash": 0,
+    "NotImplemented": 76,
+    "Success": 19
+  },
+  "slowest_tests": [
+    {
+      "test_id": "sloppy-script:staging/sm/strict/this-for-function-expression-recursion.js",
+      "path": "staging/sm/strict/this-for-function-expression-recursion.js",
+      "duration_ms": 15003
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/regress-599159.js",
+      "path": "staging/sm/strict/regress-599159.js",
+      "duration_ms": 11463
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/regress-599159.js",
+      "path": "staging/sm/strict/regress-599159.js",
+      "duration_ms": 11311
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.3.4.5.js",
+      "path": "staging/sm/strict/15.3.4.5.js",
+      "duration_ms": 11124
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/primitive-this-getter.js",
+      "path": "staging/sm/strict/primitive-this-getter.js",
+      "duration_ms": 10819
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/primitive-this-getter.js",
+      "path": "staging/sm/strict/primitive-this-getter.js",
+      "duration_ms": 10768
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/primitive-assignment.js",
+      "path": "staging/sm/strict/primitive-assignment.js",
+      "duration_ms": 10569
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.5.1.js",
+      "path": "staging/sm/strict/15.4.5.1.js",
+      "duration_ms": 9978
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/assign-to-callee-name.js",
+      "path": "staging/sm/strict/assign-to-callee-name.js",
+      "duration_ms": 8879
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/unbrand-this.js",
+      "path": "staging/sm/strict/unbrand-this.js",
+      "duration_ms": 8600
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "sloppy-script:staging/sm/strict/10.4.2.js",
+      "test_path": "staging/sm/strict/10.4.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6133
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/10.4.2.js",
+      "test_path": "staging/sm/strict/10.4.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6214
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/10.4.3.js",
+      "test_path": "staging/sm/strict/10.4.3.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: indirect call: dynamic boolean property",
+      "detail_hash": 11110523451626189012,
+      "duration_ms": 6656
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/10.6.js",
+      "test_path": "staging/sm/strict/10.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6495
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/10.6.js",
+      "test_path": "staging/sm/strict/10.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6415
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.1.5.js",
+      "test_path": "staging/sm/strict/11.1.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6133
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.1.5.js",
+      "test_path": "staging/sm/strict/11.1.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6254
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.13.1.js",
+      "test_path": "staging/sm/strict/11.13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6094
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.13.1.js",
+      "test_path": "staging/sm/strict/11.13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6133
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.13.2.js",
+      "test_path": "staging/sm/strict/11.13.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6134
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.13.2.js",
+      "test_path": "staging/sm/strict/11.13.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6073
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.3.1.js",
+      "test_path": "staging/sm/strict/11.3.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6123
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.3.1.js",
+      "test_path": "staging/sm/strict/11.3.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6103
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.3.2.js",
+      "test_path": "staging/sm/strict/11.3.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6164
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.3.2.js",
+      "test_path": "staging/sm/strict/11.3.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6114
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.4.1.js",
+      "test_path": "staging/sm/strict/11.4.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6084
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.4.1.js",
+      "test_path": "staging/sm/strict/11.4.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6074
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.4.4.js",
+      "test_path": "staging/sm/strict/11.4.4.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6144
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.4.4.js",
+      "test_path": "staging/sm/strict/11.4.4.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6118
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/11.4.5.js",
+      "test_path": "staging/sm/strict/11.4.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6296
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/11.4.5.js",
+      "test_path": "staging/sm/strict/11.4.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6319
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/12.10.1.js",
+      "test_path": "staging/sm/strict/12.10.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6189
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/12.10.1.js",
+      "test_path": "staging/sm/strict/12.10.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6104
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/12.14.1.js",
+      "test_path": "staging/sm/strict/12.14.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6174
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/12.14.1.js",
+      "test_path": "staging/sm/strict/12.14.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6264
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/12.2.1-01.js",
+      "test_path": "staging/sm/strict/12.2.1-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6103
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/12.2.1-01.js",
+      "test_path": "staging/sm/strict/12.2.1-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6224
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/12.2.1.js",
+      "test_path": "staging/sm/strict/12.2.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6073
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/12.2.1.js",
+      "test_path": "staging/sm/strict/12.2.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6113
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/13.1.js",
+      "test_path": "staging/sm/strict/13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6103
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/13.1.js",
+      "test_path": "staging/sm/strict/13.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6123
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.10.7.js",
+      "test_path": "staging/sm/strict/15.10.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6063
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.10.7.js",
+      "test_path": "staging/sm/strict/15.10.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5962
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.3.5.1.js",
+      "test_path": "staging/sm/strict/15.3.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5953
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.3.5.1.js",
+      "test_path": "staging/sm/strict/15.3.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5993
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.3.5.2.js",
+      "test_path": "staging/sm/strict/15.3.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6005
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.3.5.2.js",
+      "test_path": "staging/sm/strict/15.3.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6024
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.11.js",
+      "test_path": "staging/sm/strict/15.4.4.11.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5982
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.11.js",
+      "test_path": "staging/sm/strict/15.4.4.11.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6195
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.12.js",
+      "test_path": "staging/sm/strict/15.4.4.12.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6054
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.12.js",
+      "test_path": "staging/sm/strict/15.4.4.12.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5984
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.13.js",
+      "test_path": "staging/sm/strict/15.4.4.13.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6277
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.13.js",
+      "test_path": "staging/sm/strict/15.4.4.13.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6218
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.6.js",
+      "test_path": "staging/sm/strict/15.4.4.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6241
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.6.js",
+      "test_path": "staging/sm/strict/15.4.4.6.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5922
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.8.js",
+      "test_path": "staging/sm/strict/15.4.4.8.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6073
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.8.js",
+      "test_path": "staging/sm/strict/15.4.4.8.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5953
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.4.4.9.js",
+      "test_path": "staging/sm/strict/15.4.4.9.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6114
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.4.4.9.js",
+      "test_path": "staging/sm/strict/15.4.4.9.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5868
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.5.5.1.js",
+      "test_path": "staging/sm/strict/15.5.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6322
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.5.5.1.js",
+      "test_path": "staging/sm/strict/15.5.5.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6105
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/15.5.5.2.js",
+      "test_path": "staging/sm/strict/15.5.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6164
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/15.5.5.2.js",
+      "test_path": "staging/sm/strict/15.5.5.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6116
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/8.12.5.js",
+      "test_path": "staging/sm/strict/8.12.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6046
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/8.12.5.js",
+      "test_path": "staging/sm/strict/8.12.5.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 5976
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/8.12.7-2.js",
+      "test_path": "staging/sm/strict/8.12.7-2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6318
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/8.12.7-2.js",
+      "test_path": "staging/sm/strict/8.12.7-2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6673
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/8.12.7.js",
+      "test_path": "staging/sm/strict/8.12.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6837
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/8.12.7.js",
+      "test_path": "staging/sm/strict/8.12.7.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6013
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/8.7.2.js",
+      "test_path": "staging/sm/strict/8.7.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6245
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/8.7.2.js",
+      "test_path": "staging/sm/strict/8.7.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6234
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/B.1.1.js",
+      "test_path": "staging/sm/strict/B.1.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6174
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/B.1.1.js",
+      "test_path": "staging/sm/strict/B.1.1.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6114
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/B.1.2.js",
+      "test_path": "staging/sm/strict/B.1.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6254
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/B.1.2.js",
+      "test_path": "staging/sm/strict/B.1.2.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6044
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/deprecated-octal-noctal-tokens.js",
+      "test_path": "staging/sm/strict/deprecated-octal-noctal-tokens.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7008
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/deprecated-octal-noctal-tokens.js",
+      "test_path": "staging/sm/strict/deprecated-octal-noctal-tokens.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6898
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/directive-prologue-01.js",
+      "test_path": "staging/sm/strict/directive-prologue-01.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires a caller-environment lowering seam",
+      "detail_hash": 5314359381891900871,
+      "duration_ms": 6013
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/eval-variable-environment.js",
+      "test_path": "staging/sm/strict/eval-variable-environment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6013
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/eval-variable-environment.js",
+      "test_path": "staging/sm/strict/eval-variable-environment.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6013
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+      "test_path": "staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4566
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+      "test_path": "staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 4575
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/regress-532254.js",
+      "test_path": "staging/sm/strict/regress-532254.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6686
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/regress-532254.js",
+      "test_path": "staging/sm/strict/regress-532254.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 7501
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/strict/strict-function-statements.js",
+      "test_path": "staging/sm/strict/strict-function-statements.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6093
+    },
+    {
+      "test_id": "strict-script:staging/sm/strict/strict-function-statements.js",
+      "test_path": "staging/sm/strict/strict-function-statements.js",
+      "kind": "Unsupported",
+      "outcome": "NotImplemented",
+      "origin": "unknown",
+      "detail": "[origin:unknown] unsupported in lila wasm-aot first slice: feature `eval dynamic source evaluation` (direct eval) requires source compilation after AOT",
+      "detail_hash": 265339439924840392,
+      "duration_ms": 6084
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/strict/10.4.2.js",
+    "strict-script:staging/sm/strict/10.4.2.js",
+    "sloppy-script:staging/sm/strict/10.4.3.js",
+    "sloppy-script:staging/sm/strict/10.6.js",
+    "strict-script:staging/sm/strict/10.6.js",
+    "sloppy-script:staging/sm/strict/11.1.5.js",
+    "strict-script:staging/sm/strict/11.1.5.js",
+    "sloppy-script:staging/sm/strict/11.13.1.js",
+    "strict-script:staging/sm/strict/11.13.1.js",
+    "sloppy-script:staging/sm/strict/11.13.2.js",
+    "strict-script:staging/sm/strict/11.13.2.js",
+    "sloppy-script:staging/sm/strict/11.3.1.js",
+    "strict-script:staging/sm/strict/11.3.1.js",
+    "sloppy-script:staging/sm/strict/11.3.2.js",
+    "strict-script:staging/sm/strict/11.3.2.js",
+    "sloppy-script:staging/sm/strict/11.4.1.js",
+    "strict-script:staging/sm/strict/11.4.1.js",
+    "sloppy-script:staging/sm/strict/11.4.4.js",
+    "strict-script:staging/sm/strict/11.4.4.js",
+    "sloppy-script:staging/sm/strict/11.4.5.js",
+    "strict-script:staging/sm/strict/11.4.5.js",
+    "sloppy-script:staging/sm/strict/12.10.1.js",
+    "strict-script:staging/sm/strict/12.10.1.js",
+    "sloppy-script:staging/sm/strict/12.14.1.js",
+    "strict-script:staging/sm/strict/12.14.1.js",
+    "sloppy-script:staging/sm/strict/12.2.1-01.js",
+    "strict-script:staging/sm/strict/12.2.1-01.js",
+    "sloppy-script:staging/sm/strict/12.2.1.js",
+    "strict-script:staging/sm/strict/12.2.1.js",
+    "sloppy-script:staging/sm/strict/13.1.js",
+    "strict-script:staging/sm/strict/13.1.js",
+    "sloppy-script:staging/sm/strict/15.10.7.js",
+    "strict-script:staging/sm/strict/15.10.7.js",
+    "sloppy-script:staging/sm/strict/15.3.4.5.js",
+    "sloppy-script:staging/sm/strict/15.3.5.1.js",
+    "strict-script:staging/sm/strict/15.3.5.1.js",
+    "sloppy-script:staging/sm/strict/15.3.5.2.js",
+    "strict-script:staging/sm/strict/15.3.5.2.js",
+    "sloppy-script:staging/sm/strict/15.4.4.11.js",
+    "strict-script:staging/sm/strict/15.4.4.11.js",
+    "sloppy-script:staging/sm/strict/15.4.4.12.js",
+    "strict-script:staging/sm/strict/15.4.4.12.js",
+    "sloppy-script:staging/sm/strict/15.4.4.13.js",
+    "strict-script:staging/sm/strict/15.4.4.13.js",
+    "sloppy-script:staging/sm/strict/15.4.4.6.js",
+    "strict-script:staging/sm/strict/15.4.4.6.js",
+    "sloppy-script:staging/sm/strict/15.4.4.8.js",
+    "strict-script:staging/sm/strict/15.4.4.8.js",
+    "sloppy-script:staging/sm/strict/15.4.4.9.js",
+    "strict-script:staging/sm/strict/15.4.4.9.js",
+    "sloppy-script:staging/sm/strict/15.4.5.1.js",
+    "sloppy-script:staging/sm/strict/15.5.5.1.js",
+    "strict-script:staging/sm/strict/15.5.5.1.js",
+    "sloppy-script:staging/sm/strict/15.5.5.2.js",
+    "strict-script:staging/sm/strict/15.5.5.2.js",
+    "sloppy-script:staging/sm/strict/8.12.5.js",
+    "strict-script:staging/sm/strict/8.12.5.js",
+    "sloppy-script:staging/sm/strict/8.12.7-2.js",
+    "strict-script:staging/sm/strict/8.12.7-2.js",
+    "sloppy-script:staging/sm/strict/8.12.7.js",
+    "strict-script:staging/sm/strict/8.12.7.js",
+    "sloppy-script:staging/sm/strict/8.7.2-01.js",
+    "strict-script:staging/sm/strict/8.7.2-01.js",
+    "sloppy-script:staging/sm/strict/8.7.2.js",
+    "strict-script:staging/sm/strict/8.7.2.js",
+    "sloppy-script:staging/sm/strict/B.1.1.js",
+    "strict-script:staging/sm/strict/B.1.1.js",
+    "sloppy-script:staging/sm/strict/B.1.2.js",
+    "strict-script:staging/sm/strict/B.1.2.js",
+    "sloppy-script:staging/sm/strict/assign-to-callee-name.js",
+    "sloppy-script:staging/sm/strict/deprecated-octal-noctal-tokens.js",
+    "strict-script:staging/sm/strict/deprecated-octal-noctal-tokens.js",
+    "sloppy-script:staging/sm/strict/directive-prologue-01.js",
+    "sloppy-script:staging/sm/strict/eval-variable-environment.js",
+    "strict-script:staging/sm/strict/eval-variable-environment.js",
+    "sloppy-script:staging/sm/strict/primitive-assignment.js",
+    "sloppy-script:staging/sm/strict/primitive-this-getter.js",
+    "strict-script:staging/sm/strict/primitive-this-getter.js",
+    "sloppy-script:staging/sm/strict/primitive-this-no-writeback.js",
+    "strict-script:staging/sm/strict/primitive-this-no-writeback.js",
+    "sloppy-script:staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+    "strict-script:staging/sm/strict/rebind-eval-should-fail-in-strict-mode.js",
+    "sloppy-script:staging/sm/strict/regress-532041.js",
+    "strict-script:staging/sm/strict/regress-532041.js",
+    "sloppy-script:staging/sm/strict/regress-532254.js",
+    "strict-script:staging/sm/strict/regress-532254.js",
+    "sloppy-script:staging/sm/strict/regress-599159.js",
+    "strict-script:staging/sm/strict/regress-599159.js",
+    "sloppy-script:staging/sm/strict/strict-function-statements.js",
+    "strict-script:staging/sm/strict/strict-function-statements.js",
+    "sloppy-script:staging/sm/strict/strict-this-is-not-truthy.js",
+    "strict-script:staging/sm/strict/strict-this-is-not-truthy.js",
+    "sloppy-script:staging/sm/strict/this-for-function-expression-recursion.js",
+    "sloppy-script:staging/sm/strict/unbrand-this.js",
+    "strict-script:staging/sm/strict/unbrand-this.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "strict"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}

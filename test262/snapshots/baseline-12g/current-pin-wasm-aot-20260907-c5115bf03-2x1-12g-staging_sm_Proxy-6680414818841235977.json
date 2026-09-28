@@ -1,0 +1,205 @@
+{
+  "snapshot_version": 7,
+  "producer": "lila",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+  },
+  "manifest_hash": 6680414818841235977,
+  "run_kind": "matrix-filter-leaf",
+  "total": 43,
+  "passed": 37,
+  "counts_per_kind": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 6,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "counts_per_outcome": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 2,
+    "Success": 37
+  },
+  "slowest_tests": [
+    {
+      "test_id": "strict-script:staging/sm/Proxy/getPrototypeOf.js",
+      "path": "staging/sm/Proxy/getPrototypeOf.js",
+      "duration_ms": 23400
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/getPrototypeOf.js",
+      "path": "staging/sm/Proxy/getPrototypeOf.js",
+      "duration_ms": 22947
+    },
+    {
+      "test_id": "strict-script:staging/sm/Proxy/setPrototypeOf.js",
+      "path": "staging/sm/Proxy/setPrototypeOf.js",
+      "duration_ms": 22870
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/setPrototypeOf.js",
+      "path": "staging/sm/Proxy/setPrototypeOf.js",
+      "duration_ms": 22867
+    },
+    {
+      "test_id": "strict-script:staging/sm/Proxy/ownkeys-linear.js",
+      "path": "staging/sm/Proxy/ownkeys-linear.js",
+      "duration_ms": 18802
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/ownkeys-linear.js",
+      "path": "staging/sm/Proxy/ownkeys-linear.js",
+      "duration_ms": 18164
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/regress-bug1062349.js",
+      "path": "staging/sm/Proxy/regress-bug1062349.js",
+      "duration_ms": 16455
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/regress-bug1037770.js",
+      "path": "staging/sm/Proxy/regress-bug1037770.js",
+      "duration_ms": 13761
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/revoke-as-side-effect.js",
+      "path": "staging/sm/Proxy/revoke-as-side-effect.js",
+      "duration_ms": 12401
+    },
+    {
+      "test_id": "strict-script:staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "path": "staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "duration_ms": 10615
+    }
+  ],
+  "timeout_test_ids": [],
+  "failures": [
+    {
+      "test_id": "strict-script:staging/sm/Proxy/proxy-no-receiver-overwrite.js",
+      "test_path": "staging/sm/Proxy/proxy-no-receiver-overwrite.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@1543984: assert.throws expected an error object)",
+      "detail_hash": 2620852127486236371,
+      "duration_ms": 9344
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/proxy-with-revoked-arguments.js",
+      "test_path": "staging/sm/Proxy/proxy-with-revoked-arguments.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2274608: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10366
+    },
+    {
+      "test_id": "strict-script:staging/sm/Proxy/proxy-with-revoked-arguments.js",
+      "test_path": "staging/sm/Proxy/proxy-with-revoked-arguments.js",
+      "kind": "Runtime",
+      "outcome": "NotImplemented",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@2274624: dynamic eval unsupported)",
+      "detail_hash": 3841738372759445712,
+      "duration_ms": 10495
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/regress-bug1062349.js",
+      "test_path": "staging/sm/Proxy/regress-bug1062349.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "boa-runtime",
+      "detail": "[origin:boa-runtime] uncaught throw: TypeError: wasm-aot completion: object(handle@1983392: value is not callable)",
+      "detail_hash": 14248920739342870354,
+      "duration_ms": 16455
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "test_path": "staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@2057392: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 10610
+    },
+    {
+      "test_id": "strict-script:staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "test_path": "staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Error: wasm-aot completion: object(handle@2057400: assert.throws expected a throw)",
+      "detail_hash": 11803082366871529555,
+      "duration_ms": 10615
+    }
+  ],
+  "completed_test_ids": [
+    "sloppy-script:staging/sm/Proxy/define-writable-as-non-writable.js",
+    "strict-script:staging/sm/Proxy/define-writable-as-non-writable.js",
+    "sloppy-script:staging/sm/Proxy/delete-non-extensible.js",
+    "strict-script:staging/sm/Proxy/delete-non-extensible.js",
+    "sloppy-script:staging/sm/Proxy/getPrototypeOf.js",
+    "strict-script:staging/sm/Proxy/getPrototypeOf.js",
+    "sloppy-script:staging/sm/Proxy/global-receiver.js",
+    "strict-script:staging/sm/Proxy/global-receiver.js",
+    "sloppy-script:staging/sm/Proxy/hasInstance.js",
+    "strict-script:staging/sm/Proxy/hasInstance.js",
+    "sloppy-script:staging/sm/Proxy/json-stringify-replacer-array-revocable-proxy.js",
+    "strict-script:staging/sm/Proxy/json-stringify-replacer-array-revocable-proxy.js",
+    "sloppy-script:staging/sm/Proxy/ownkeys-allowed-types.js",
+    "strict-script:staging/sm/Proxy/ownkeys-allowed-types.js",
+    "sloppy-script:staging/sm/Proxy/ownkeys-linear.js",
+    "strict-script:staging/sm/Proxy/ownkeys-linear.js",
+    "sloppy-script:staging/sm/Proxy/ownkeys-trap-duplicates.js",
+    "strict-script:staging/sm/Proxy/ownkeys-trap-duplicates.js",
+    "sloppy-script:staging/sm/Proxy/proxy-__proto__.js",
+    "strict-script:staging/sm/Proxy/proxy-__proto__.js",
+    "sloppy-script:staging/sm/Proxy/proxy-constructNonObject.js",
+    "strict-script:staging/sm/Proxy/proxy-constructNonObject.js",
+    "strict-script:staging/sm/Proxy/proxy-no-receiver-overwrite.js",
+    "sloppy-script:staging/sm/Proxy/proxy-proto-lazy-props.js",
+    "sloppy-script:staging/sm/Proxy/proxy-with-revoked-arguments.js",
+    "strict-script:staging/sm/Proxy/proxy-with-revoked-arguments.js",
+    "sloppy-script:staging/sm/Proxy/regress-bug1037770.js",
+    "sloppy-script:staging/sm/Proxy/regress-bug1062349.js",
+    "sloppy-script:staging/sm/Proxy/regress-bug950407.js",
+    "strict-script:staging/sm/Proxy/regress-bug950407.js",
+    "sloppy-script:staging/sm/Proxy/report-writable-as-non-writable.js",
+    "strict-script:staging/sm/Proxy/report-writable-as-non-writable.js",
+    "sloppy-script:staging/sm/Proxy/revocable-proxy-prototype.js",
+    "strict-script:staging/sm/Proxy/revocable-proxy-prototype.js",
+    "sloppy-script:staging/sm/Proxy/revoke-as-side-effect.js",
+    "sloppy-script:staging/sm/Proxy/revoke-no-name.js",
+    "strict-script:staging/sm/Proxy/revoke-no-name.js",
+    "sloppy-script:staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+    "strict-script:staging/sm/Proxy/revoked-get-function-realm-typeerror.js",
+    "sloppy-script:staging/sm/Proxy/setPrototypeOf.js",
+    "strict-script:staging/sm/Proxy/setPrototypeOf.js",
+    "sloppy-script:staging/sm/Proxy/trap-null.js",
+    "strict-script:staging/sm/Proxy/trap-null.js"
+  ],
+  "matrix_path": [
+    "staging",
+    "sm",
+    "Proxy"
+  ],
+  "completed_nodes": [],
+  "aggregate_counts_so_far": {
+    "EarlyError": 0,
+    "HostHarness": 0,
+    "Lowering": 0,
+    "Parser": 0,
+    "Runtime": 0,
+    "Unsupported": 0,
+    "WasmBackend": 0
+  },
+  "aggregate_entries": []
+}
