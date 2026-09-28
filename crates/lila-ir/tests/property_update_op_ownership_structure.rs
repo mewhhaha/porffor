@@ -5,7 +5,6 @@ const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
 const ASSIGNMENT_SOURCE: &str = include_str!("../src/lowering/assignment.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/property-reference-update-operation.md");
-const TASK: &str = include_str!("../../../tasks/08-environments-control-flow.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -449,10 +448,8 @@ fn the_single_consumer_couples_reachability_operation_and_write() {
 }
 
 #[test]
-fn contract_and_t08_record_the_one_shot_property_update_operation() {
+fn contract_records_the_one_shot_property_update_operation() {
     assert!(CONTRACT.contains("PropertyUpdateOp::{Arithmetic, Bitwise, Logical}"));
     assert!(CONTRACT.contains("nine to eight"));
     assert!(CONTRACT.contains("property_update_op_ownership_structure"));
-    assert!(TASK.contains("PropertyUpdateOp::{Arithmetic, Bitwise, Logical}"));
-    assert!(TASK.contains("property_update_op_ownership_structure"));
 }

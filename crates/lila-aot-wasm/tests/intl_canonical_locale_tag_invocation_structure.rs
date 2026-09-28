@@ -12,7 +12,6 @@ const FIXTURE: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/intl-canonical-locale-tag-invocation-authority.md"
 );
-const TASK: &str = include_str!("../../../tasks/23-intl402.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -343,14 +342,13 @@ fn every_producer_constructs_all_roles_and_each_consumer_projects_once() {
 }
 
 #[test]
-fn contract_task_and_public_fixture_own_the_authority() {
+fn contract_and_public_fixture_own_the_authority() {
     for marker in [
         "canonical locale tag invocation authority",
         "transpose tag, language, script, region, base-name, and validity roles",
         "intl_canonical_locale_tag_invocation_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
     assert_eq!(
         CLI_SOURCE

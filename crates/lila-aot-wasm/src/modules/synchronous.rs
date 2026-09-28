@@ -344,6 +344,9 @@ impl FunctionBuilder<'_> {
                         table,
                         function,
                     );
+                    let empty_argv = self.reserve_arg_vector_local();
+                    crate::gc_types::arg_vector::emit_null(function);
+                    function.instruction(&Instruction::LocalSet(empty_argv.index()));
                     self.emit_allocate_async_activation(
                         callee.payload,
                         env,
@@ -351,13 +354,14 @@ impl FunctionBuilder<'_> {
                         zero,
                         undefined,
                         zero,
-                        zero,
+                        empty_argv,
                         AsyncModuleEntryMode::Allocate,
                         record,
                         promise,
                         promise_record,
                         function,
                     )?;
+                    self.release_arg_vector_local(empty_argv);
                     self.store_i64_local_at_offset(
                         target,
                         MODULE_ACTIVATION_OFFSET,

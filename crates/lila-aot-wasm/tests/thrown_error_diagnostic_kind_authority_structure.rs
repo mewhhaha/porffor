@@ -2,7 +2,6 @@ const PARENT_ERRORS_SOURCE: &str = include_str!("../src/builtins/errors.rs");
 const ERRORS_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/thrown-error-diagnostic-kind-authority.md");
-const TASK: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -138,9 +137,9 @@ fn diagnostic_publication_follows_object_creation_and_precedes_throw_completion(
 }
 
 #[test]
-fn contract_and_task_record_the_authority_and_non_claim() {
+fn contract_records_the_authority_and_non_claim() {
     let normalized_contract = normalized(CONTRACT);
-    let normalized_task = normalized(TASK);
+
     for evidence in [
         "NativeErrorKind",
         "published diagnostic name",
@@ -152,10 +151,6 @@ fn contract_and_task_record_the_authority_and_non_claim() {
         assert!(
             normalized_contract.contains(&normalized_evidence),
             "contract evidence `{evidence}`"
-        );
-        assert!(
-            normalized_task.contains(&normalized_evidence),
-            "task evidence `{evidence}`"
         );
     }
 }

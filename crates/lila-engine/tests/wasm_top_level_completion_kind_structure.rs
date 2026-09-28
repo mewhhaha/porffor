@@ -4,7 +4,6 @@ use std::path::Path;
 const ENGINE_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/wasm-top-level-completion-kind.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -336,7 +335,7 @@ fn each_completion_consumer_owns_its_normal_and_throw_consequence() {
         1
     );
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         let evidence = compact(evidence);
         assert!(evidence.contains("WasmTopLevelCompletionKind"));
         assert!(evidence.contains("threeexhaustiveconsumers"));

@@ -2,7 +2,6 @@ const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/typed-array-search-kind.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -83,7 +82,7 @@ fn typed_array_search_kind_has_no_equality_projection() {
         );
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("capability-free `TypedArraySearchKind`"));
     }
 }

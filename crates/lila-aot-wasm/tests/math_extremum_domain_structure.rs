@@ -171,7 +171,7 @@ fn math_extremum_producers_and_reduction_order_are_exact() {
             .count(),
         1
     );
-    assert_eq!(emitter.matches("emit_array_read(").count(), 1);
+    assert_eq!(emitter.matches("emit_arg_vector_read(").count(), 1);
     assert_eq!(emitter.matches("emit_value_to_number_payload(").count(), 1);
     assert_eq!(
         emitter
@@ -217,10 +217,14 @@ fn math_extremum_producers_and_reduction_order_are_exact() {
     );
 
     assert_before(emitter, "extremum.identity()", "Instruction::Loop");
-    assert_before(emitter, "Instruction::BrIf(1)", "self.emit_array_read(");
     assert_before(
         emitter,
-        "self.emit_array_read(",
+        "Instruction::BrIf(1)",
+        "self.emit_arg_vector_read(",
+    );
+    assert_before(
+        emitter,
+        "self.emit_arg_vector_read(",
         "self.emit_value_to_number_payload(",
     );
     assert_before(

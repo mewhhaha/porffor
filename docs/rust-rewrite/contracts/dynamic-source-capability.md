@@ -432,7 +432,7 @@ invariant failures remain errors, and neither can become a fake SyntaxError.
 
 Native prepared-source targets include `aot_prepared_dynamic_function`,
 `aot_prepared_script`, `aot_direct_eval`, `aot_direct_eval_environment`,
-`aot_direct_eval_call_identity` and `aot_direct_eval_escaped_arrows`. Their results
-belong to the coordinated repair checkpoint and
-[repair notes](../observed-later-failure-repairs.md). This contract does not
+`aot_direct_eval_call_identity` and `aot_direct_eval_escaped_arrows`. Current
+failing executions and cause evidence belong in the
+[failure backlog](../../../tasks/README.md). This contract does not
 publish new Test262 counts or claim arbitrary runtime compilation.

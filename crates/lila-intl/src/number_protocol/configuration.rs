@@ -77,6 +77,13 @@ impl NumberFormatOptions {
     }
 }
 
+pub(crate) fn decode_number_options_words(
+    words: [u64; NUMBER_CONFIGURATION_WORDS],
+    active_style: &str,
+) -> Result<NumberFormatOptions, NumberWireError> {
+    EncodedNumberOptions(words).decode(active_style)
+}
+
 impl NumberWireWriter {
     pub(super) fn configuration(
         &mut self,

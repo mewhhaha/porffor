@@ -1,0 +1,6 @@
+sloppy-script:staging/explicit-resource-management/await-using-in-for-in-statement.js
+sloppy-script:staging/explicit-resource-management/await-using-in-for-of-statement.js
+sloppy-script:staging/explicit-resource-management/await-using-in-for-statement.js
+strict-script:staging/explicit-resource-management/await-using-in-for-in-statement.js
+strict-script:staging/explicit-resource-management/await-using-in-for-of-statement.js
+strict-script:staging/explicit-resource-management/await-using-in-for-statement.js

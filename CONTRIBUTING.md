@@ -11,16 +11,17 @@ surface or an oracle. Do not reintroduce a JavaScript compiler/runtime, npm or
 JSR packaging, or a source evaluator inside emitted Wasm.
 
 Before starting, read [AGENTS.md](AGENTS.md), the
-[implementation task index](tasks/README.md), and the task file that owns the
-area you intend to change.
+[failure backlog](tasks/README.md), and the task for the failure you intend to
+address. The [documentation index](docs/rust-rewrite/README.md) links the live
+architecture and contracts.
 
 ## Setup
 
-Install a current stable Rust toolchain with Cargo, clone the canonical
-repository, and build the CLI:
+Use the Rust toolchain pinned in `rust-toolchain.toml`, clone the repository,
+and build the CLI:
 
 ```sh
-git clone https://github.com/mewhhaha/porffor.git
+git clone https://github.com/mewhhaha/porffor.git lila
 cd lila
 ./scripts/dev.sh build
 ```
@@ -69,10 +70,13 @@ an emitted artifact.
 
 ## Choosing and owning work
 
-Every non-trivial change should have an owner in `tasks/`. Start with a
-reproducible failure or missing invariant, identify the smallest coherent
-feature batch, and coordinate edits to shared IR, lowering, object-operation,
-and Wasm backend files.
+Start with a reproducible failure or missing invariant, identify the smallest
+coherent feature batch, and coordinate edits to shared IR, lowering,
+object-operation, and Wasm backend files. Current `Fxxx` tasks in `tasks/` carry
+exact failing execution identities, source ownership, cause confidence, and
+validation steps. The `T00`–`T29` identifiers retained in compiler reports and
+the CLI ledger are [ownership domains](docs/rust-rewrite/conformance-ownership.md),
+not the active task queue.
 
 Prefer compiler-enforced invariants over repeated runtime checks:
 
@@ -154,7 +158,7 @@ fixtures near the owning crate over broad duplicate coverage.
 
 Report:
 
-- the owning task ID;
+- the `Fxxx` task ID when addressing a registered conformance failure;
 - the exact baseline command and result;
 - the semantic invariant added or corrected;
 - the exact post-change commands and results;

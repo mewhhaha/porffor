@@ -1,0 +1,14 @@
+[package]
+name = "lila-plural-rules-data-gen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+icu_plurals = { version = "=2.0.0", default-features = false, features = ["datagen", "experimental"] }
+icu_provider = { version = "=2.0.0", default-features = false, features = ["export"] }
+icu_provider_blob = { version = "=2.0.0", default-features = false, features = ["alloc"] }
+icu_provider_export = { version = "=2.0.0", default-features = false, features = ["blob_exporter", "rayon"] }
+icu_provider_source = { version = "=2.0.0", default-features = false, features = ["networking", "experimental"] }

@@ -229,11 +229,7 @@ impl FormatContext<'_> {
                 let left = remaining - usize::from(widths.primary);
                 let width = usize::from(widths.secondary);
                 let first = left % width;
-                if first == 0 {
-                    width
-                } else {
-                    first
-                }
+                if first == 0 { width } else { first }
             };
             result.push(
                 NumberPartKind::Integer,

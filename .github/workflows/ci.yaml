@@ -20,6 +20,7 @@ jobs:
 
       - name: Check repository contracts
         run: |
+          python3 -m unittest discover -s scripts/tests -p test_failure_backlog.py -v
           ./scripts/check-task-plan.sh
           ./scripts/tests/check-readme-status-artifacts.sh
           ./scripts/tests/audit-test262-shortcut-scanner.sh

@@ -4,7 +4,6 @@ use std::path::Path;
 const PLAIN_DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-calendar-carrier-privacy.md");
-const TASK: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -170,7 +169,7 @@ fn calendar_carrier_has_one_recursive_owner_and_frozen_evidence() {
         2
     );
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `TemporalCalendarCarrier`"));
         assert!(
             evidence.contains("1726881c45223f008814169edef8a3066c23b8733d86714d63570535ba3dd831")

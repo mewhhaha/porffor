@@ -6504,19 +6504,35 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlNumberFormatConstructor => (
+            StandardBuiltinId::IntlCollatorCompareFunction => (
+                ValueKind::Number,
+                KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IntlNumberFormatConstructor
+            | StandardBuiltinId::IntlCollatorConstructor
+            | StandardBuiltinId::IntlPluralRulesConstructor
+            | StandardBuiltinId::IntlRelativeTimeFormatConstructor => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
                 Self::fresh_constructed_instance_info(),
             ),
-            StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => (
+            StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions
+            | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions => (
                 ValueKind::Object,
                 KindSet::from_kind(ValueKind::Object),
                 None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlCollatorSupportedLocalesOf
+            | StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => (
                 ValueKind::Array,
@@ -6524,14 +6540,18 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => (
+            StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlCollatorPrototypeCompareGetter => (
                 ValueKind::Function,
                 KindSet::from_kind(ValueKind::Function),
                 None,
                 ValueInfo::undefined(),
             ),
             StandardBuiltinId::IntlNumberFormatBoundFormat
-            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => (
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelect
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelectRange
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat => (
                 ValueKind::String,
                 KindSet::from_kind(ValueKind::String),
                 None,

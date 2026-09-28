@@ -3,7 +3,6 @@ const FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_proxy_del
 const CLI_REGISTRATION: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-delete-traversal.md");
-const TASK: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 macro_rules! witness {
     ($path:literal) => {
@@ -198,7 +197,6 @@ fn focused_fixture_crosses_six_nullish_proxy_targets_in_order() {
         .contains("fn run_wasm_backend_succeeds_for_supported_proxy_delete_property_fixture()"));
     assert!(CLI_REGISTRATION.contains("fixture_path(\"wasm_proxy_delete_property.js\")"));
     assert!(CONTRACT.contains("six nullish forwarding handlers"));
-    assert!(TASK.contains("six nullish forwarding handlers"));
 }
 
 #[test]

@@ -8,8 +8,6 @@ const NUMBER_FIXTURE: &str =
 const NUMERICS_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/language_numerics.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/number-builtin-policy-domains.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T20: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -119,7 +117,7 @@ fn number_builtin_domains_are_exact_and_capability_free() {
 
     assert!(NUMBER_SOURCE.contains("enum NumberBuiltin {"));
     assert!(!NUMBER_SOURCE.contains("pub(super) enum NumberBuiltin"));
-    for evidence in [CONTRACT, T02, T20] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `NumberBuiltin`"));
         assert!(evidence.contains("fixed Number entries"));
         assert!(evidence.contains("source-equivalent"));

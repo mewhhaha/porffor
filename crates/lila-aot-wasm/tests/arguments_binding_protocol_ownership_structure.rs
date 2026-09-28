@@ -5,7 +5,6 @@ const ARGUMENTS_SOURCE: &str = include_str!("../src/arguments_protocol.rs");
 const ENVIRONMENTS_SOURCE: &str = include_str!("../src/environments.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/function-arguments-binding-ownership.md");
-const TASK: &str = include_str!("../../../tasks/08-environments-control-flow.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -248,7 +247,7 @@ fn binding_authority_is_one_private_non_cloneable_closed_lifecycle() {
     );
     assert_eq!(
         authority,
-        "pub(crate)structArgumentsBindingProtocol(Option<PresentArgumentsObjectProtocol>);"
+        "pub(crate)structArgumentsBindingProtocol(Option<ArgumentsBindingAction>);"
     );
     assert_eq!(
         count_identifier_in_rust_sources(
@@ -314,12 +313,15 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
         &binding,
         &[
             "self.function_arguments_protocol.take_for_binding()?",
-            "arguments_protocol.into_present()",
-            "initialize_arguments_binding(arguments_storage,arguments_protocol,function)?",
+            "arguments_protocol.into_present_action()",
+            "ArgumentsBindingAction::Materialize(arguments_protocol)",
+            "initialize_arguments_binding(arguments_storage,arguments_protocol,function,)?",
+            "ArgumentsBindingAction::ElideUnobserved",
+            "initialize_binding_undefined(arguments_storage,function)",
         ],
     );
     assert_eq!(exact_identifier_count(&binding, "take_for_binding"), 1);
-    assert_eq!(exact_identifier_count(&binding, "into_present"), 1);
+    assert_eq!(exact_identifier_count(&binding, "into_present_action"), 1);
     assert_eq!(
         exact_identifier_count(&binding, "initialize_arguments_binding"),
         1
@@ -352,7 +354,7 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
         4
     );
     assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "into_present"),
+        count_identifier_in_rust_sources(&source_root, "into_present_action"),
         3
     );
     assert_eq!(
@@ -362,24 +364,17 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
 }
 
 #[test]
-fn ownership_contract_and_task_record_the_verification_boundary() {
+fn ownership_contract_records_the_verification_boundary() {
     for marker in [
         "Pending(Absent)  -> BoundAbsent",
         "Pending(Present) -> BoundPresent",
         "`present()` projection",
         "A second call is a compiler-invariant error",
-        "source-equivalent compiler ownership closure",
+        "Eager materialization, deferral or proven elision",
     ] {
         assert!(
             CONTRACT.contains(marker),
             "missing contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "function arguments binding protocol",
-        "arguments_binding_protocol_ownership_structure",
-        "source-equivalent T08 ownership closure",
-    ] {
-        assert!(TASK.contains(marker), "missing task marker `{marker}`");
     }
 }

@@ -2461,7 +2461,7 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
                 function.instruction(&Instruction::LocalGet(self.result_local));
-                self.release_temp_local(argv_local);
+                self.release_arg_vector_local(argv_local);
                 self.release_temp_local(argc_local);
                 self.release_temp_local(new_target_tag_local);
                 self.release_temp_local(new_target_payload_local);
@@ -3148,7 +3148,7 @@ impl<'a> FunctionBuilder<'a> {
                         function,
                     )?;
                     self.set_completion_kind(CompletionKind::Normal, function);
-                    self.release_temp_local(argv_local);
+                    self.release_arg_vector_local(argv_local);
                     self.release_temp_local(argc_local);
 
                     function.instruction(&Instruction::I64Const(0));
@@ -3927,7 +3927,7 @@ impl<'a> FunctionBuilder<'a> {
                     tag_local,
                     function,
                 )?;
-                self.release_temp_local(argv_local);
+                self.release_arg_vector_local(argv_local);
                 self.release_temp_local(argc_local);
                 self.release_temp_local(new_target_tag_local);
                 self.release_temp_local(new_target_payload_local);

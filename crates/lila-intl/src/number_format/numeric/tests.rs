@@ -13,16 +13,20 @@ fn configuration_domains_validate_bounds_and_active_style_fields() {
     assert!(FractionDigitCount::new(101).is_err());
     assert!(SignificantDigitCount::new(0).is_err());
     assert!(SignificantDigitCount::new(22).is_err());
-    assert!(FractionDigitRange::new(
-        FractionDigitCount::new(2).unwrap(),
-        FractionDigitCount::new(1).unwrap()
-    )
-    .is_err());
-    assert!(SignificantDigitRange::new(
-        SignificantDigitCount::new(2).unwrap(),
-        SignificantDigitCount::new(1).unwrap()
-    )
-    .is_err());
+    assert!(
+        FractionDigitRange::new(
+            FractionDigitCount::new(2).unwrap(),
+            FractionDigitCount::new(1).unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        SignificantDigitRange::new(
+            SignificantDigitCount::new(2).unwrap(),
+            SignificantDigitCount::new(1).unwrap()
+        )
+        .is_err()
+    );
     assert_eq!(CurrencyCode::parse("zzz").unwrap().ascii(), *b"ZZZ");
     for code in ["US", "USDD", "12X", "\u{212a}RW"] {
         assert!(CurrencyCode::parse(code).is_err());

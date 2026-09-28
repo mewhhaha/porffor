@@ -11,6 +11,7 @@ mod configuration;
 mod domains;
 mod messages;
 mod primitives;
+pub(crate) use configuration::decode_number_options_words;
 pub use domains::{NumberConfigurationWord, NumberNumericKind, NumberPrecisionKind};
 use primitives::{NumberWireReader, NumberWireWriter};
 

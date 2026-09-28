@@ -5,7 +5,6 @@ const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const STRING: &str = include_str!("../src/builtins/string.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/string-symbol-hook-operation.md");
-const TASK: &str = include_str!("../../../tasks/18-strings-unicode.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -111,7 +110,10 @@ fn symbol_hook_emitter_uses_six_borrowed_exhaustive_policy_matches() {
         "StringSymbolHookOperation::Replace|StringSymbolHookOperation::ReplaceAll=>{\"Symbol.replace\"}",
         "StringSymbolHookOperation::Search=>\"Symbol.search\"",
     ] {
-        assert!(normalized.contains(projection), "symbol projection `{projection}`");
+        assert!(
+            normalized.contains(projection),
+            "symbol projection `{projection}`"
+        );
     }
     assert_eq!(
         normalized
@@ -208,7 +210,10 @@ fn private_fallback_matches_all_five_operations_to_their_exact_algorithms() {
         "StringSymbolHookOperation::ReplaceAll=>{self.emit_string_replace_literal_all_occurrences_from_string_locals(",
         "StringSymbolHookOperation::Search=>{self.emit_string_search_regexp_fallback_from_string_locals(",
     ] {
-        assert!(normalized.contains(semantic), "fallback semantic `{semantic}`");
+        assert!(
+            normalized.contains(semantic),
+            "fallback semantic `{semantic}`"
+        );
     }
     for forbidden in [
         "StringSymbolHookOperation::Split",
@@ -288,8 +293,8 @@ fn standard_dispatch_names_five_operations_and_routes_split_directly() {
 }
 
 #[test]
-fn contract_and_task_record_the_private_dispatcher_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_private_dispatcher_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("Batch AY"));
         assert!(evidence.contains("five fixed String symbol-hook entries"));
         assert!(evidence.contains("source-equivalent"));

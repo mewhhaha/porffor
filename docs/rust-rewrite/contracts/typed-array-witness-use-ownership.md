@@ -1,8 +1,8 @@
 # TypedArray witness-use ownership
 
 Status: normative for the AOT TypedArray buffer-witness use boundary.
-Current owner inventory refreshed on 2026-09-14. See the
-[codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.
+Current owner inventory refreshed on 2026-09-14. Current failing executions and replay evidence are tracked in the
+[failure backlog](../../../tasks/README.md).
 
 ## Semantic boundary
 

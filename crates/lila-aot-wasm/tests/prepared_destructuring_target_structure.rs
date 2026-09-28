@@ -8,7 +8,6 @@ const PRIVATE_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_private_destructuring_reference_order.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/prepared-destructuring-target.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -275,7 +274,7 @@ fn focused_evidence_covers_direct_property_nested_and_private_writes() {
     }
     assert!(PRIVATE_FIXTURE.contains("({ value: this.#value } = source)"));
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("PreparedDestructuringTarget"));
         assert!(evidence.contains("must-use"));
         assert!(evidence.contains("seven-variant"));

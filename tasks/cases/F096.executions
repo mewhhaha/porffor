@@ -1,0 +1,2 @@
+sloppy-script:built-ins/RegExp/quantifier-integer-limit.js
+strict-script:built-ins/RegExp/quantifier-integer-limit.js

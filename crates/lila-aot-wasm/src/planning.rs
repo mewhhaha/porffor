@@ -1999,7 +1999,7 @@ mod tests {
 /// `require_standard_builtin` does not recurse through its own match, so a
 /// caller that needs the formatter must seed every id itself rather than
 /// relying on one id dragging in the rest.
-const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 41] = [
+const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 56] = [
     StandardBuiltinId::IntlGetCanonicalLocales,
     StandardBuiltinId::IntlSupportedValuesOf,
     StandardBuiltinId::IntlLocaleConstructor,
@@ -2041,6 +2041,21 @@ const INTL_NAMESPACE_ROOTS: [StandardBuiltinId; 41] = [
     StandardBuiltinId::IntlNumberFormatPrototypeFormatRange,
     StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts,
     StandardBuiltinId::IntlNumberFormatBoundFormat,
+    StandardBuiltinId::IntlCollatorConstructor,
+    StandardBuiltinId::IntlCollatorSupportedLocalesOf,
+    StandardBuiltinId::IntlCollatorPrototypeResolvedOptions,
+    StandardBuiltinId::IntlCollatorPrototypeCompareGetter,
+    StandardBuiltinId::IntlCollatorCompareFunction,
+    StandardBuiltinId::IntlPluralRulesConstructor,
+    StandardBuiltinId::IntlPluralRulesSupportedLocalesOf,
+    StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions,
+    StandardBuiltinId::IntlPluralRulesPrototypeSelect,
+    StandardBuiltinId::IntlPluralRulesPrototypeSelectRange,
+    StandardBuiltinId::IntlRelativeTimeFormatConstructor,
+    StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf,
+    StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions,
+    StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat,
+    StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts,
 ];
 
 /// `INTL_NAMESPACE_CONSTRUCTORS` ⊆ [`INTL_NAMESPACE_ROOTS`], checked by the
@@ -2629,6 +2644,17 @@ impl RuntimeBootstrapPlan {
         if builtin == StandardBuiltinId::ObjectAssign {
             self.require_standard_builtin(StandardBuiltinId::ReflectSet);
         }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ObjectGetOwnPropertyNames
+                | StandardBuiltinId::ObjectGetOwnPropertySymbols
+                | StandardBuiltinId::ReflectOwnKeys
+        ) {
+            // Proxy OwnPropertyKeys observes every target through the canonical
+            // internal-method owners, including nested Proxies and exotics.
+            self.require_standard_builtin(StandardBuiltinId::ReflectOwnKeys);
+            self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
+        }
         if builtin == StandardBuiltinId::ObjectHasOwn {
             self.require_standard_builtin(StandardBuiltinId::ReflectGetOwnPropertyDescriptor);
         }
@@ -2857,7 +2883,22 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts
-            | StandardBuiltinId::IntlNumberFormatBoundFormat => {
+            | StandardBuiltinId::IntlNumberFormatBoundFormat
+            | StandardBuiltinId::IntlCollatorConstructor
+            | StandardBuiltinId::IntlCollatorSupportedLocalesOf
+            | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions
+            | StandardBuiltinId::IntlCollatorPrototypeCompareGetter
+            | StandardBuiltinId::IntlCollatorCompareFunction
+            | StandardBuiltinId::IntlPluralRulesConstructor
+            | StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+            | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelect
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelectRange
+            | StandardBuiltinId::IntlRelativeTimeFormatConstructor
+            | StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts => {
                 // This or-pattern and `INTL_NAMESPACE_ROOTS` are two spellings
                 // of the same set, and only one of them can be a `match`
                 // pattern. The assertion pins the direction the types cannot:
@@ -6783,6 +6824,7 @@ pub(crate) struct AgentCallImportFunctionIndex(u32);
 pub(crate) struct IntlCallImportFunctionIndex(u32);
 pub(crate) struct RandomF64ImportFunctionIndex(u32);
 pub(crate) struct RejectDynamicSourceImportFunctionIndex(u32);
+pub(crate) struct GcImportFunctionIndex(u32);
 
 macro_rules! host_import_function_index_role {
     ($role:ident) => {
@@ -6803,6 +6845,7 @@ host_import_function_index_role!(AgentCallImportFunctionIndex);
 host_import_function_index_role!(IntlCallImportFunctionIndex);
 host_import_function_index_role!(RandomF64ImportFunctionIndex);
 host_import_function_index_role!(RejectDynamicSourceImportFunctionIndex);
+host_import_function_index_role!(GcImportFunctionIndex);
 
 #[must_use]
 pub(crate) struct HostImportFunctionIndices {
@@ -6815,6 +6858,7 @@ pub(crate) struct HostImportFunctionIndices {
     intl_call: Option<IntlCallImportFunctionIndex>,
     random_f64: Option<RandomF64ImportFunctionIndex>,
     reject_dynamic_source: RejectDynamicSourceImportFunctionIndex,
+    gc: Option<GcImportFunctionIndex>,
 }
 
 impl HostImportFunctionIndices {
@@ -6829,6 +6873,7 @@ impl HostImportFunctionIndices {
         intl_call: Option<IntlCallImportFunctionIndex>,
         random_f64: Option<RandomF64ImportFunctionIndex>,
         reject_dynamic_source: RejectDynamicSourceImportFunctionIndex,
+        gc: Option<GcImportFunctionIndex>,
     ) -> Self {
         Self {
             number_pow,
@@ -6840,6 +6885,7 @@ impl HostImportFunctionIndices {
             intl_call,
             random_f64,
             reject_dynamic_source,
+            gc,
         }
     }
 }
@@ -6970,6 +7016,13 @@ impl FunctionMetaRegistry {
 
     pub(crate) fn reject_dynamic_source_import_function_index(&self) -> u32 {
         self.host_import_function_indices.reject_dynamic_source.0
+    }
+
+    pub(crate) fn gc_import_function_index(&self) -> Option<u32> {
+        self.host_import_function_indices
+            .gc
+            .as_ref()
+            .map(|index| index.0)
     }
 
     /// Set the recording-suppression flag, returning the previous value so the
@@ -7940,6 +7993,19 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         // take (startDate, endDate), so their `length` is 2, not 1.
         StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts => 2,
+        StandardBuiltinId::IntlCollatorConstructor | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions | StandardBuiltinId::IntlCollatorPrototypeCompareGetter => 0,
+        StandardBuiltinId::IntlCollatorSupportedLocalesOf => 1,
+        StandardBuiltinId::IntlCollatorCompareFunction => 2,
+        StandardBuiltinId::IntlPluralRulesConstructor
+        | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions => 0,
+        StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+        | StandardBuiltinId::IntlPluralRulesPrototypeSelect => 1,
+        StandardBuiltinId::IntlPluralRulesPrototypeSelectRange => 2,
+        StandardBuiltinId::IntlRelativeTimeFormatConstructor
+        | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions => 0,
+        StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf => 1,
+        StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat
+        | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts => 2,
         StandardBuiltinId::IntlNumberFormatConstructor
         | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => 0,
@@ -8163,10 +8229,6 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
         HostBuiltinId::AgentMonotonicNow => 0,
         HostBuiltinId::AgentLeaving => 0,
     }
-}
-
-pub(crate) fn function_param_types() -> Vec<ValType> {
-    std::iter::repeat_n(ValType::I64, JS_FUNCTION_PARAM_COUNT).collect()
 }
 
 /// A singleton Number fact only owns the payload when emission cannot obtain

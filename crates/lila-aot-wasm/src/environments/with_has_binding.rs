@@ -23,7 +23,10 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Const(0));
         self.emit_outlined_object_read_realm_argument(function);
         function.instruction(&Instruction::Call(helper));
-        self.store_call_results(payload_local, tag_local, function);
+        self.store_call_results(
+            crate::objects::TaggedLocals::new(payload_local, tag_local),
+            function,
+        );
         self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         function.instruction(&Instruction::LocalGet(payload_local));
         function.instruction(&Instruction::LocalSet(present_local));
@@ -45,10 +48,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }

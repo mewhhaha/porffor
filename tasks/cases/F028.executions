@@ -1,0 +1,16 @@
+sloppy-script:language/statements/class/subclass/builtin-objects/Function/instance-length.js
+sloppy-script:language/statements/class/subclass/builtin-objects/Function/instance-name.js
+sloppy-script:language/statements/class/subclass/builtin-objects/Function/regular-subclassing.js
+sloppy-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-length.js
+sloppy-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-name.js
+sloppy-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-prototype.js
+sloppy-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/regular-subclassing.js
+sloppy-script:staging/sm/class/boundFunctionSubclassing.js
+strict-script:language/statements/class/subclass/builtin-objects/Function/instance-length.js
+strict-script:language/statements/class/subclass/builtin-objects/Function/instance-name.js
+strict-script:language/statements/class/subclass/builtin-objects/Function/regular-subclassing.js
+strict-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-length.js
+strict-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-name.js
+strict-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-prototype.js
+strict-script:language/statements/class/subclass/builtin-objects/GeneratorFunction/regular-subclassing.js
+strict-script:staging/sm/class/boundFunctionSubclassing.js

@@ -1,17 +1,17 @@
 use super::*;
 
-pub(super) struct NfNumericLocals {
-    pub(super) kind: u32,
-    pub(super) bytes: u32,
+pub(in crate::builtins) struct NfNumericLocals {
+    pub(in crate::builtins) kind: u32,
+    pub(in crate::builtins) bytes: u32,
 }
 impl NfNumericLocals {
-    pub(super) fn reserve(builder: &mut FunctionBuilder<'_>) -> Self {
+    pub(in crate::builtins) fn reserve(builder: &mut FunctionBuilder<'_>) -> Self {
         Self {
             kind: builder.reserve_temp_local(),
             bytes: builder.reserve_temp_local(),
         }
     }
-    pub(super) fn release(self, builder: &mut FunctionBuilder<'_>) {
+    pub(in crate::builtins) fn release(self, builder: &mut FunctionBuilder<'_>) {
         builder.release_temp_local(self.bytes);
         builder.release_temp_local(self.kind);
     }
@@ -121,7 +121,7 @@ impl FunctionBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_nf_observe_numeric(
+    pub(in crate::builtins) fn emit_nf_observe_numeric(
         &mut self,
         input: TaggedLocals,
         output: &NfNumericLocals,

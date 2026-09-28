@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/class/superPropDestructuring.js
+sloppy-script:staging/sm/expressions/destructuring-pattern-parenthesized.js
+strict-script:staging/sm/class/superPropDestructuring.js
+strict-script:staging/sm/expressions/destructuring-pattern-parenthesized.js

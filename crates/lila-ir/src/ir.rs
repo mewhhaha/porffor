@@ -13,6 +13,7 @@ use crate::{
     NumericUpdateOp, NumericUpdateValueKind, PreparedDynamicFunction, RegExpProgram,
     RelationalBinaryOp, ResumableArrayPatternProtocol, SpecOperationIr, SpreadArgumentProtocol,
     StandardBuiltinId, ToPrimitiveHint, UnaryBitwiseOp, UpdateReturnMode, GLOBAL_THIS_NAME,
+    LEXICAL_ARGUMENTS_NAME,
 };
 use crate::{
     ImportPhaseIr, ModuleEntryEvaluationIr, ModuleGraphIr, ModuleUnitId, PreparedScript,
@@ -3965,6 +3966,97 @@ pub struct DerivedConstructorActivationIr {
     pub active_function_binding: String,
 }
 
+/// Proof that a function's implicit `arguments` binding cannot be read by
+/// source code or a nested closure. The private state prevents synthetic IR
+/// producers from claiming the proof without the source reference analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OwnArgumentsUse(OwnArgumentsUseState);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnArgumentsUseState {
+    MayObserve,
+    ProvenUnobserved,
+}
+
+impl OwnArgumentsUse {
+    #[must_use]
+    pub const fn conservative() -> Self {
+        Self(OwnArgumentsUseState::MayObserve)
+    }
+
+    pub(crate) fn from_source_analysis(
+        references: Option<&BTreeMap<String, String>>,
+        owned_env_bindings: &[OwnedEnvBindingIr],
+        eval_environment: Option<&crate::EvalEnvironmentRoleIr>,
+    ) -> Self {
+        let Some(references) = references else {
+            return Self::conservative();
+        };
+        if references.iter().any(|(storage_name, source_name)| {
+            storage_name == LEXICAL_ARGUMENTS_NAME
+                || storage_name == "arguments"
+                || source_name == "arguments"
+        }) || owned_env_bindings
+            .iter()
+            .any(|binding| binding.name == LEXICAL_ARGUMENTS_NAME || binding.name == "arguments")
+            || eval_environment.is_some()
+        {
+            return Self::conservative();
+        }
+        Self(OwnArgumentsUseState::ProvenUnobserved)
+    }
+
+    #[must_use]
+    pub const fn is_proven_unobserved(self) -> bool {
+        matches!(self.0, OwnArgumentsUseState::ProvenUnobserved)
+    }
+}
+
+#[cfg(test)]
+mod own_arguments_use_tests {
+    use super::*;
+
+    #[test]
+    fn only_complete_source_analysis_proves_an_implicit_binding_unobserved() {
+        let empty = BTreeMap::new();
+        assert!(
+            OwnArgumentsUse::from_source_analysis(Some(&empty), &[], None).is_proven_unobserved()
+        );
+        assert!(!OwnArgumentsUse::from_source_analysis(None, &[], None).is_proven_unobserved());
+
+        for references in [
+            BTreeMap::from([(LEXICAL_ARGUMENTS_NAME.to_string(), "arguments".to_string())]),
+            BTreeMap::from([("arguments".to_string(), "arguments".to_string())]),
+            BTreeMap::from([("alias".to_string(), "arguments".to_string())]),
+        ] {
+            assert!(
+                !OwnArgumentsUse::from_source_analysis(Some(&references), &[], None)
+                    .is_proven_unobserved()
+            );
+        }
+
+        for name in [LEXICAL_ARGUMENTS_NAME, "arguments"] {
+            let owned = [OwnedEnvBindingIr {
+                name: name.to_string(),
+                slot: 0,
+            }];
+            assert!(
+                !OwnArgumentsUse::from_source_analysis(Some(&empty), &owned, None)
+                    .is_proven_unobserved()
+            );
+        }
+
+        let eval = crate::EvalEnvironmentRoleIr::Declarative {
+            kind: crate::EvalDeclarativeEnvironmentKindIr::Variable,
+            bindings: Vec::new(),
+        };
+        assert!(
+            !OwnArgumentsUse::from_source_analysis(Some(&empty), &[], Some(&eval))
+                .is_proven_unobserved()
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionIr {
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
@@ -3975,6 +4067,9 @@ pub struct FunctionIr {
     pub generator_plan: Option<GeneratorPlanIr>,
     pub resumable_plan: Option<ResumablePlanIr>,
     pub strict: bool,
+    /// Whether source references, captured storage, or eval can observe this
+    /// function's implicit `arguments` binding.
+    pub own_arguments_use: OwnArgumentsUse,
     pub class_element_execution_kind: ClassElementExecutionKind,
     pub class_heritage_kind: ClassHeritageKind,
     pub is_static_class_member: bool,

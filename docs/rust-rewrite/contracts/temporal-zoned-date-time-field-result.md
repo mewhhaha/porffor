@@ -98,9 +98,9 @@ The 2026-09-10 repair batch adds nine accessors, so its emitted behavior is no
 longer source-equivalent to the historical checkpoint. The new
 `aot_temporal_zoned_date_time_surface` native target covers local-date calendar
 values, ISO week-year boundaries, Boolean/Undefined result tags, accessor
-metadata and brand rejection. All six tests pass through Wasmtime in the
-[2026-09-10 batch checkpoint](../temporal-baseline-follow-up.md), independently
-of the historical evidence above.
+metadata and brand rejection. Run that target when changing this boundary.
+Current failures and replay evidence belong in the
+[failure backlog](../../../tasks/README.md).
 
 The ownership invariant does not supply time-zone data, add another calendar,
 prove general Temporal conformance or make result-variant selection a Rust type

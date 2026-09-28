@@ -6,7 +6,6 @@ const CLI_FIXTURE: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/created-realm-data-view-publication-lifecycle.md"
 );
-const TASK: &str = include_str!("../../../tasks/17-typedarrays-binary-data-atomics.md");
 
 fn bounded_source<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -250,7 +249,7 @@ fn created_realm_data_view_plan_has_one_move_only_publication_lifecycle() {
     );
 
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "one move-only publication lifecycle",
         "twenty-six publication rows",
@@ -260,7 +259,6 @@ fn created_realm_data_view_plan_has_one_move_only_publication_lifecycle() {
             contract_words.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T17 marker: {marker}");
     }
 }
 

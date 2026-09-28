@@ -5,8 +5,6 @@ const BOOLEAN_SOURCE: &str = include_str!("../src/builtins/boolean.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/boolean-prototype-operation.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T24: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -68,7 +66,7 @@ fn boolean_domains_have_exact_rows_without_derived_policy_capabilities() {
     assert_eq!(count_in_rust_sources(&src, "BooleanPrototypeOperation"), 6);
     assert_eq!(count_in_rust_sources(&src, "BooleanBuiltin"), 8);
 
-    for evidence in [CONTRACT, T02, T24] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `BooleanBuiltin`"));
         assert!(evidence.contains("fixed Boolean entries"));
         assert!(evidence.contains("source-equivalent"));

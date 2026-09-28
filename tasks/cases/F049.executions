@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/class/fields-static-class-name-binding.js
+sloppy-script:staging/sm/class/superPropChains.js
+strict-script:staging/sm/class/fields-static-class-name-binding.js
+strict-script:staging/sm/class/superPropChains.js

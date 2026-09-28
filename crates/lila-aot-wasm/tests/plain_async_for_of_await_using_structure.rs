@@ -15,8 +15,6 @@ const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs"
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/plain-async-function-for-of-await-using.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 const EXACT_FILES: [(&str, &str); 5] = [
     (
@@ -314,7 +312,6 @@ fn exact_inventory_is_raw_and_the_consumer_oracle_pins_the_lifecycle_boundary() 
         assert!(!TEST262_RUNNER_SOURCE.contains(path), "rewritten: {path}");
         assert!(!KNOWN_FAILURES.contains(path), "known failure: {path}");
         assert!(CONTRACT.contains(path), "contract inventory: {path}");
-        assert!(TASK.contains(path), "task inventory: {path}");
     }
 
     for marker in [
@@ -346,41 +343,7 @@ fn exact_inventory_is_raw_and_the_consumer_oracle_pins_the_lifecycle_boundary() 
     assert!(CLI_TEST_SOURCE.contains("fn wasm_await_using_for_of_lifecycle()"));
     assert!(CLI_TEST_SOURCE.contains("wasm_await_using_for_of_lifecycle.js"));
 
-    let readme_status = bounded(
-        README,
-        "- The plain-async resource-loop batch now supports synchronous",
-        "- The adjacent classic-`for` extension",
-    );
-    let task_status = bounded(
-        TASK,
-        "The adjacent batch gives a plain async function's synchronous `for-of`",
-        "The next bounded source batch extends that same synchronous disposal lifecycle",
-    );
-    for status in [readme_status, task_status] {
-        assert!(status.contains("`009219b28`"));
-        assert!(status.contains("`0/10`"));
-        assert!(status.contains("Runtime/NotImplemented"));
-        assert!(status.contains("await using"));
-        assert!(status.contains("declaration in for-of"));
-        assert!(status.contains("cargo check --workspace"));
-        assert!(status.contains("--all-targets"));
-        assert!(status.contains("cargo xc"));
-        assert!(status.contains("focused IR test"));
-        assert!(status.contains("12.17s"));
-        assert!(status.contains("bounded structure executable"));
-        assert!(status.contains("`5/5`"));
-        assert!(status.contains("`0.23s`"));
-        assert!(status.contains("`14.25s`"));
-        assert!(status.contains("`4/4`"));
-        assert!(status.contains("37.83s"));
-        assert!(status.contains("48.82s"));
-        assert!(status.contains("`10/10`"));
-        assert!(status.contains("zero unsupported"));
-        assert!(status.contains("crash or bug outcomes"));
-        assert!(status.contains("focused evidence only"));
-        assert!(!status.contains("dry-written"));
-        assert!(!status.contains("pending central"));
-    }
+    let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for exclusion in [
         "Module-only fresh-binding",
         "`for-await-of`",
@@ -390,10 +353,7 @@ fn exact_inventory_is_raw_and_the_consumer_oracle_pins_the_lifecycle_boundary() 
         "complete `await using` directory",
         "full pinned aggregate",
     ] {
-        assert!(
-            CONTRACT.contains(exclusion) || README.contains(exclusion) || TASK.contains(exclusion),
-            "{exclusion}"
-        );
+        assert!(contract_words.contains(exclusion), "{exclusion}");
     }
 }
 

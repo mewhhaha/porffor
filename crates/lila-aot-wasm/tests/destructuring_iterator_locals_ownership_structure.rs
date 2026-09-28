@@ -4,7 +4,6 @@ use std::path::Path;
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/destructuring-iterator-locals-ownership.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -140,7 +139,7 @@ fn ownership_contract_and_recursive_source_census_remain_closed() {
         count_in_rust_sources(&source_root, "DestructuringIteratorLocals"),
         8
     );
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("DestructuringIteratorLocals"));
         assert!(evidence.contains("capability-free"));
         assert!(evidence.contains("borrow"));

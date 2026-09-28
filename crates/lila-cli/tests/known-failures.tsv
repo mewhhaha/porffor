@@ -53,7 +53,7 @@
 #               nothing at all.
 #   state       fail | hang | ignored | unfilled. Closed set, parsed into an
 #               enum; anything else is a hard parse error.
-#   owner_task  T<NN>, backed by a real `tasks/<NN>-*.md`. Checked.
+#   owner_task  T<NN> domain in docs/rust-rewrite/conformance-ownership.md. Checked.
 #   reason      Why this outcome is expected. No tabs.
 #   evidence    A path, or a path plus a symbol. Deliberately NOT a line number:
 #               line numbers rot silently and this ledger already lost one file

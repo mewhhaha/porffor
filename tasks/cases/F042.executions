@@ -1,0 +1,7 @@
+sloppy-script:language/global-code/script-decl-lex-deletion.js
+sloppy-script:language/global-code/script-decl-lex-lex.js
+sloppy-script:language/global-code/script-decl-lex.js
+sloppy-script:language/global-code/script-decl-var-collision.js
+strict-script:language/global-code/script-decl-lex-lex.js
+strict-script:language/global-code/script-decl-lex.js
+strict-script:language/global-code/script-decl-var-collision.js

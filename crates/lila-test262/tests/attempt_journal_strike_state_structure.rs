@@ -1,7 +1,6 @@
 const SOURCE: &str = include_str!("../src/attempt_journal.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-attempt-journal-strike-state.md");
-const TASK: &str = include_str!("../../../tasks/03-conformance-harness-integrity.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -82,7 +81,7 @@ fn typed_strikes_keep_the_existing_numeric_json_shape() {
 }
 
 #[test]
-fn contract_and_task_record_the_strike_state_boundary() {
+fn contract_records_the_strike_state_boundary() {
     for phrase in [
         "`AttemptJournalFile.strikes` stores `CaseStrikes`",
         "wire-only `StrikeEntries` retains raw `u32` counts",
@@ -93,5 +92,4 @@ fn contract_and_task_record_the_strike_state_boundary() {
             "missing contract phrase `{phrase}`"
         );
     }
-    assert!(TASK.contains("Runtime attempt-journal strikes are non-zero by construction"));
 }

@@ -49,19 +49,40 @@ fn function_names(bytes: &[u8]) -> BTreeMap<u32, String> {
     names
 }
 
+/// Resolve the real call boundary rather than the relocated semantic body.
+fn guarded_function_index(names: &BTreeMap<u32, String>, name: &str) -> u32 {
+    let body = *names
+        .iter()
+        .find(|(_, value)| value.as_str() == name)
+        .unwrap()
+        .0;
+    let wrapper_name = format!("stack_guard::wrapper::{name}");
+    let entry = *names
+        .iter()
+        .find(|(_, value)| **value == wrapper_name)
+        .unwrap()
+        .0;
+    assert_ne!(entry, body, "fixture calls must retain the entry guard");
+    entry
+}
+
 /// Stop a copied main immediately before its one entry Evaluate call. The
 /// original trusted IR and emitted artifact retain the mandatory entry owner;
 /// private tests can inspect allocation and instantiation without executing source.
 fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
-    let evaluate = *function_names(bytes)
+    let names = function_names(bytes);
+    let evaluate = guarded_function_index(&names, "helper::module_evaluate");
+    // The exported main is the stack-guard wrapper. Pause its relocated body
+    // so the real entry guard still runs when the fixture calls main.
+    let main = *names
         .iter()
-        .find(|(_, name)| name.as_str() == "helper::module_evaluate")
+        .find(|(_, name)| name.as_str() == "lila::main")
         .unwrap()
         .0;
     let mut types = Vec::new();
     let mut function_types = Vec::new();
     let mut imported = 0;
-    let mut main = None;
+    let mut exported_main = None;
     for payload in WasmParser::new(0).parse_all(bytes) {
         match payload.unwrap() {
             WasmPayload::TypeSection(groups) => {
@@ -87,14 +108,18 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
                     let export = export.unwrap();
                     if export.name == "main" {
                         assert_eq!(export.kind, wasmparser::ExternalKind::Func);
-                        assert!(main.replace(export.index).is_none());
+                        assert!(exported_main.replace(export.index).is_none());
                     }
                 }
             }
             _ => {}
         }
     }
-    let main = main.unwrap();
+    let exported_main = exported_main.unwrap();
+    assert_ne!(main, exported_main, "pause the guarded body, not its wrapper");
+    let wrapper_type = types[function_types[exported_main as usize] as usize].unwrap_func();
+    assert!(wrapper_type.params().is_empty());
+    assert_eq!(wrapper_type.results(), &[wasmparser::ValType::I64]);
     let main_type = types[function_types[main as usize] as usize].unwrap_func();
     assert!(main_type.params().is_empty());
     assert_eq!(main_type.results(), &[wasmparser::ValType::I64]);
@@ -195,11 +220,7 @@ fn with_private_exports(bytes: &[u8]) -> Vec<u8> {
         ("test_module_execute", "helper::module_execute"),
         ("test_module_ready", "helper::module_ready"),
     ] {
-        let index = *names
-            .iter()
-            .find(|(_, name)| name.as_str() == helper)
-            .unwrap()
-            .0;
+        let index = guarded_function_index(&names, helper);
         exports.push((export, 0, index));
     }
     let mut rewritten = bytes[..8].to_vec();
@@ -250,6 +271,7 @@ struct ModuleStore {
 struct ModuleFixture {
     engine: WasmtimeEngine,
     module: WasmtimeModule,
+    bytes: Vec<u8>,
 }
 impl ModuleFixture {
     fn new() -> Self {
@@ -274,8 +296,8 @@ impl ModuleFixture {
         let paused = paused_before_entry_evaluation(&original.bytes);
         let bytes = with_private_exports(&paused);
         let engine = shared_wasm_engine().unwrap();
-        let module = WasmtimeModule::new(&engine, bytes).unwrap();
-        Self { engine, module }
+        let module = WasmtimeModule::new(&engine, &bytes).unwrap();
+        Self { engine, module, bytes }
     }
     fn instantiate(&self) -> PrivateModule {
         let mut store = WasmtimeStore::new(
@@ -292,7 +314,10 @@ impl ModuleFixture {
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::<ModuleStore>::new(&self.engine);
+        stack_guard_host::register(&mut linker, &self.module, &self.bytes).unwrap();
         for import in self.module.imports() {
+            if import.module() == WASM_HOST_IMPORT_NAMESPACE
+                && import.name() == stack_guard_host::IMPORT_NAME { continue; }
             match import.ty() {
                 WasmtimeExternType::Func(signature) => {
                     let is_print = import.name() == WASM_HOST_IMPORT_PRINT_LINE_UTF8;

@@ -9,7 +9,6 @@ const ABRUPT_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_array_destructuring_iterator_abrupt.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-destructuring-iterator-step-kind.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -315,7 +314,7 @@ fn contract_and_existing_cli_witnesses_pin_both_step_kinds() {
     assert!(CONTRACT.contains("DestructuringIteratorStepKind"));
     assert!(CONTRACT
         .contains("cargo test -p lila-aot-wasm --test destructuring_iterator_step_kind_structure"));
-    assert!(TASK.contains("DestructuringIteratorStepKind"));
+
     for test_name in [
         "fn run_wasm_backend_uses_iterators_for_array_destructuring()",
         "fn run_wasm_backend_preserves_array_destructuring_iterator_abrupt_completions()",

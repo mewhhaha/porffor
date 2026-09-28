@@ -19,8 +19,8 @@ use lila_ir::ToPrimitiveHint;
 
 use crate::module::{
     ARRAY_ALLOC_TYPE_INDEX, FUNCTION_OBJECT_ALLOC_TYPE_INDEX, HEAP_ALLOC_TYPE_INDEX,
-    JS_FUNCTION_TYPE_INDEX, OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX,
-    OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX, PLAIN_OBJECT_ALLOC_TYPE_INDEX,
+    OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX, OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX,
+    PLAIN_OBJECT_ALLOC_TYPE_INDEX,
 };
 
 /// How a failed RegExp matcher result becomes a JavaScript throw.
@@ -404,15 +404,35 @@ pub(crate) enum RuntimeHelperId {
     /// bootstrap-only `%Array.prototype%` define arm — so one global
     /// identifier read (ReferenceError plus TDZ error) cost 4,100 bytes there.
     RuntimeErrorObject = 50,
+    /// Materializes a pending mapped Arguments object without invoking source code.
+    MaterializeLegacyArguments = 51,
     /// Only helper whose emission is conditional today. Keep conditional
     /// helpers last; `conditional_helpers_are_last` is a compile-time check.
-    JsonStringifyValue = 51,
+    JsonStringifyValue = 52,
+}
+
+/// Whether entering a runtime helper needs a catchable stack-budget check.
+/// This is semantic, not an ABI property: several seven-i64 helpers return
+/// status/value tuples rather than a JS completion, so manufacturing a
+/// RangeError tuple for them would corrupt their caller's result protocol.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StackGuardPolicy {
+    /// The helper can re-enter JavaScript or returns a JS completion that its
+    /// callers preserve, so a guard refusal becomes the ordinary Throw tuple.
+    GuardedThrowCompletion,
+    /// The helper has a bounded, statically acyclic call graph and must retain
+    /// its private/pure result protocol. The host validates its full helper
+    /// path and reserves that path before any guarded entry.
+    BoundedNoGuard,
+    /// The error constructor used by guard rejection. This helper must remain
+    /// callable after budget denial and cannot call JavaScript.
+    ErrorConstruction,
 }
 
 impl RuntimeHelperId {
     /// Every helper, in emission order. Asserted below to be exactly the
     /// declaration order, so `ALL[i] as u32 == i`.
-    pub(crate) const ALL: [Self; 52] = [
+    pub(crate) const ALL: [Self; 53] = [
         Self::HeapAlloc,
         Self::ObjectAppendDataProperty,
         Self::ObjectAppendAccessorProperty,
@@ -464,6 +484,7 @@ impl RuntimeHelperId {
         Self::ModuleRejected,
         Self::ModuleDeferredImport,
         Self::RuntimeErrorObject,
+        Self::MaterializeLegacyArguments,
         Self::JsonStringifyValue,
     ];
 
@@ -511,8 +532,6 @@ impl RuntimeHelperId {
             }
             Self::ObjectRead
             | Self::ObjectWrite
-            | Self::ProxyCall
-            | Self::ProxyConstruct
             | Self::StringEquality
             | Self::NumberToString
             | Self::StringToNumber
@@ -525,13 +544,10 @@ impl RuntimeHelperId {
             | Self::ObjectReadProxy
             | Self::RegExpMatcher
             | Self::RegExpCompiler
-            | Self::FunctionCall
             | Self::DynamicPropertyRead
             | Self::OrdinarySetDataOnReceiver
             | Self::OrdinarySetDataOnReceiverWithFallback
             | Self::ArrayWrite
-            | Self::OrdinarySet
-            | Self::OrdinarySetWithoutReceiverFallback
             | Self::DecimalToBinary64
             | Self::BigIntArithmetic
             | Self::TemporalCalendarIsoDateProbe
@@ -562,7 +578,80 @@ impl RuntimeHelperId {
             // 0=prototype payload, 1=name payload, 2=message payload; see the
             // variant for the full private ABI.
             | Self::RuntimeErrorObject
-            | Self::JsonStringifyValue => JS_FUNCTION_TYPE_INDEX,
+            | Self::JsonStringifyValue => crate::abi::CallAbi::Raw.type_index(),
+            Self::OrdinarySet | Self::OrdinarySetWithoutReceiverFallback | Self::MaterializeLegacyArguments => {
+                crate::abi::CallAbi::Js.type_index()
+            }
+            Self::FunctionCall | Self::ProxyCall | Self::ProxyConstruct => {
+                crate::abi::CallAbi::Dispatch.type_index()
+            }
+        }
+    }
+
+    /// Stack checking policy for every helper, independent of its Wasm
+    /// signature. Keep this exhaustive: adding a helper requires deciding
+    /// whether its completion tuple is safe for a guard RangeError and proving
+    /// its unguarded path acyclic when it remains bounded.
+    pub(crate) const fn stack_guard_policy(self) -> StackGuardPolicy {
+        use RuntimeHelperId as H;
+        use StackGuardPolicy::{
+            BoundedNoGuard as Bounded, ErrorConstruction, GuardedThrowCompletion as Guarded,
+        };
+
+        match self {
+            H::RuntimeErrorObject => ErrorConstruction,
+            H::HeapAlloc
+            | H::ObjectAppendDataProperty
+            | H::ObjectAppendAccessorProperty
+            | H::FunctionObjectAlloc
+            | H::PlainObjectAlloc
+            | H::ArrayAlloc
+            | H::ObjectDefineData
+            | H::StringEquality
+            | H::NumberToString
+            | H::StringToNumber
+            | H::RegExpMatcher
+            | H::DecimalToBinary64
+            | H::BigIntArithmetic
+            | H::RegExpCompiler
+            | H::ArrayAppendPresentIndex
+            | H::MaterializeLegacyArguments => Bounded,
+            H::ObjectRead
+            | H::ObjectWrite
+            | H::ProxyCall
+            | H::ProxyConstruct
+            | H::ValueToString
+            | H::ValueToNumber
+            | H::ValueToNumeric
+            | H::ObjectGetPrototypeOf
+            | H::ObjectIsExtensible
+            | H::ObjectPreventExtensions
+            | H::ObjectReadProxy
+            | H::FunctionCall
+            | H::DynamicPropertyRead
+            | H::OrdinarySetDataOnReceiver
+            | H::OrdinarySetDataOnReceiverWithFallback
+            | H::ArrayWrite
+            | H::OrdinarySet
+            | H::OrdinarySetWithoutReceiverFallback
+            | H::TemporalCalendarIsoDateProbe
+            | H::TemporalCalendarIdentifier
+            | H::IndexedElementRead
+            | H::IndexedElementWrite
+            | H::ValueToPrimitiveDefault
+            | H::ValueToPrimitiveNumber
+            | H::ValueToPrimitiveString
+            | H::ValueToPropertyKey
+            | H::ObjectHasProperty
+            | H::WithEnvironmentHasBinding
+            | H::ModuleEvaluate
+            | H::ModuleReady
+            | H::ModuleGather
+            | H::ModuleExecute
+            | H::ModuleFulfilled
+            | H::ModuleRejected
+            | H::ModuleDeferredImport
+            | H::JsonStringifyValue => Guarded,
         }
     }
 
@@ -622,7 +711,8 @@ impl RuntimeHelperId {
             | Self::ModuleRejected
             | Self::ModuleDeferredImport
             | Self::WithEnvironmentHasBinding
-            | Self::RuntimeErrorObject => true,
+            | Self::RuntimeErrorObject
+            | Self::MaterializeLegacyArguments => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
         }
     }
@@ -691,6 +781,7 @@ impl RuntimeHelperId {
             Self::ModuleRejected => "module_rejected",
             Self::ModuleDeferredImport => "module_deferred_import",
             Self::RuntimeErrorObject => "runtime_error_object",
+            Self::MaterializeLegacyArguments => "materialize_legacy_arguments",
             Self::JsonStringifyValue => "json_stringify_value",
         }
     }
@@ -814,7 +905,7 @@ mod tests {
 
     #[test]
     fn emitted_count_matches_the_counted_truth() {
-        // 51 reserved helpers include the seven graph-owned module operations;
+        // 52 reserved helpers include the seven graph-owned module operations;
         // JSON.stringify adds the only optional helper.
         let without_json = RuntimeHelperId::ALL
             .iter()
@@ -828,8 +919,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(without_json, 51);
-        assert_eq!(with_json, 52);
+        assert_eq!(without_json, 52);
+        assert_eq!(with_json, 53);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in
@@ -867,33 +958,23 @@ mod tests {
 
     /// Only `FunctionBuilder::begin_helper_body` may build a helper body.
     ///
-    /// A `FunctionBuilder` body is a `Function` with one `i64` local per
-    /// `local_count()`. Exactly three places in the crate build one:
-    /// `FunctionBuilder::compile` (user functions), `compile_builtin`
-    /// (standard/host builtin bodies), and `begin_helper_body` — and only the
-    /// last is a helper. `begin_helper_body` is what derives, from the
-    /// [`RuntimeHelperId`] it is handed, the clearing of that helper's own
-    /// inline seam.
+    /// The private `new_body` factory preserves the typed completion locals.
+    /// Exactly three paths may use it: `FunctionBuilder::compile` (source
+    /// functions), `compile_builtin` (standard/host builtin bodies), and
+    /// `begin_helper_body`. The last derives the clearing of a helper's own
+    /// inline seam from its `RuntimeHelperId`.
     ///
-    /// Nothing in the type system can forbid a fourth site: `Function` is
-    /// `code_sink::Function` and anyone in the crate may construct one. But the
-    /// failure mode
-    /// of a new `compile_x_helper` that copies the constructor instead of
-    /// calling `begin_helper_body` is invisible to every cheap check — the
-    /// helper's body reaches its own seam and emits `call $itself`, which
-    /// type-checks in Rust, encodes to valid Wasm, links, and validates,
-    /// diverging only when a case that reaches it is executed under the full
-    /// suite. So the ban is enforced here instead, at rung 1 rather than at
-    /// rung 5.
+    /// Privacy prevents another emitter module from calling the factory.
+    /// Within `emit.rs`, an additional helper constructor could still bypass
+    /// seam clearing and emit a recursive call to itself. Keep the structural
+    /// check on the three admitted factory call sites so that error is caught
+    /// before a full conformance run reaches the helper.
     ///
     /// The needle is assembled at run time rather than written out, so that
     /// this file does not match itself.
     #[test]
     fn only_three_places_build_a_function_builder_body() {
-        let needle = format!(
-            "Function::new_with_locals_types(std::iter::repeat_n({},{}))",
-            "ValType::I64", "self.local_count()"
-        );
+        let needle = format!("self.{}()", "new_body");
         let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut sites: Vec<String> = Vec::new();
         let mut pending = vec![source_root.clone()];

@@ -4,8 +4,6 @@ const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/temporal-zoned-date-time-direction-dispatch.md"
 );
-const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T22: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -193,11 +191,5 @@ fn zoned_date_time_dispatch_contract_records_exact_witnesses_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [TASK_T02, TASK_T22] {
-        assert!(task.contains("temporal-zoned-date-time-direction-dispatch.md"));
-        assert!(task.contains("82f3f206759543894d9ec36a278938c4a17e3f0db2602df13f9c9e7c1f1756a0"));
-        assert!(task.contains("3/3"));
-        assert!(task.contains("no new Temporal behavior"));
     }
 }

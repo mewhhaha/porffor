@@ -6,7 +6,6 @@ const PROMISE_FINALLY_COMPLETION: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/promise-resolve-realm-authority-ownership.md"
 );
-const TASK: &str = include_str!("../../../tasks/14-promises-jobs-async.md");
 
 fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
     let bytes = source.as_bytes();
@@ -327,7 +326,7 @@ fn producer_routes_preserve_await_generator_finally_and_try_ownership() {
 }
 
 #[test]
-fn contract_and_task_record_move_only_ownership_without_a_conformance_claim() {
+fn contract_records_move_only_ownership_without_a_conformance_claim() {
     for marker in [
         "implements no cloning, copying, debugging",
         "equality or default capability",
@@ -337,14 +336,5 @@ fn contract_and_task_record_move_only_ownership_without_a_conformance_claim() {
         "remain deferred to the shared batch",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-    }
-    for marker in [
-        "complete PromiseResolve Realm-context lifecycle",
-        "`4/5/1`",
-        "three factories",
-        "zero import/re-export paths",
-        "Semantic goldens were not",
-    ] {
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
 }

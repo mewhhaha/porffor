@@ -141,3 +141,111 @@ fn islamic_civil_uses_icu_eras_and_retains_localized_ah_names() {
     assert_eq!(era("en-u-ca-islamic-civil", 2025), "AH");
     assert_eq!(era("ar-u-ca-islamic-civil", 2025), "هـ");
 }
+
+#[test]
+fn era_boundaries_cover_every_supported_calendar() {
+    let selection = DateTimeStyleSelection::Components(DateTimeComponents {
+        era: Some(DateTimeTextWidth::Long),
+        year: Some(DateTimeNumericWidth::Numeric),
+        ..Default::default()
+    });
+    let era = |calendar, year| {
+        format(
+            request(&format!("en-u-ca-{calendar}"), selection.clone()),
+            date(year, 6, 15),
+        )
+        .parts
+        .into_iter()
+        .find(|part| part.kind == DateTimePartKind::Era)
+        .expect("era calendar must produce the requested era")
+        .value
+    };
+    for (calendar, years) in [
+        ("gregory", &[-100, 2025][..]),
+        ("islamic-tbla", &[600, 2025][..]),
+        ("islamic-umalqura", &[600, 2025][..]),
+        ("japanese", &[-100, 1850, 1880, 1920, 1930, 1990, 2025][..]),
+    ] {
+        let values: std::collections::BTreeSet<_> =
+            years.iter().map(|year| era(calendar, *year)).collect();
+        assert_eq!(values.len(), years.len(), "{calendar}");
+        assert!(values.iter().all(|value| !value.is_empty()));
+    }
+    for (calendar, before) in [("coptic", 250), ("ethioaa", -5550), ("hebrew", -3800)] {
+        assert_eq!(era(calendar, before), era(calendar, 2025), "{calendar}");
+    }
+    assert_eq!(era("ethiopic", -6000), era("ethiopic", 0));
+    assert_ne!(era("ethiopic", 0), era("ethiopic", 2025));
+}
+
+#[test]
+fn hebrew_leap_month_names_distinguish_adar_one_and_two() {
+    let selection = DateTimeStyleSelection::Components(DateTimeComponents {
+        month: Some(DateTimeMonthWidth::Long),
+        ..Default::default()
+    });
+    let month = |year, month, day| {
+        format(
+            request("en-u-ca-hebrew", selection.clone()),
+            date(year, month, day),
+        )
+        .parts
+        .into_iter()
+        .find(|part| part.kind == DateTimePartKind::Month)
+        .unwrap()
+        .value
+    };
+    assert_eq!(month(2024, 2, 15), "Adar I");
+    assert_eq!(month(2024, 3, 15), "Adar II");
+    assert_eq!(month(2023, 3, 1), "Adar");
+}
+
+#[test]
+fn japanese_first_era_year_uses_the_pinned_year_numbering_rule() {
+    let selection = DateTimeStyleSelection::Styles(
+        DateTimeStyles::new(Some(DateTimeStyle::Full), None).unwrap(),
+    );
+    let first = format(
+        request("ja-u-ca-japanese", selection.clone()),
+        date(2019, 5, 1),
+    );
+    let second = format(request("ja-u-ca-japanese", selection), date(2020, 5, 1));
+    assert!(first
+        .parts
+        .iter()
+        .any(|part| part.kind == DateTimePartKind::Year && part.value == "元"));
+    assert!(second
+        .parts
+        .iter()
+        .any(|part| part.kind == DateTimePartKind::Year && part.value == "2"));
+}
+
+#[test]
+fn japanese_era_switch_uses_the_gregorian_adoption_boundary() {
+    let selection = DateTimeStyleSelection::Components(DateTimeComponents {
+        era: Some(DateTimeTextWidth::Long),
+        year: Some(DateTimeNumericWidth::Numeric),
+        ..Default::default()
+    });
+    let parts = |year, month, day| {
+        format(
+            request("en-u-ca-japanese", selection.clone()),
+            date(year, month, day),
+        )
+        .parts
+    };
+    let before = parts(1872, 12, 31);
+    assert!(before
+        .iter()
+        .any(|p| p.kind == DateTimePartKind::Era && p.value == "CE"));
+    assert!(before
+        .iter()
+        .any(|p| p.kind == DateTimePartKind::Year && p.value == "1872"));
+    let after = parts(1873, 1, 1);
+    assert!(after
+        .iter()
+        .any(|p| p.kind == DateTimePartKind::Era && p.value == "Meiji"));
+    assert!(after
+        .iter()
+        .any(|p| p.kind == DateTimePartKind::Year && p.value == "6"));
+}

@@ -14,7 +14,6 @@ const RECORD_SOURCE: &str = include_str!("../src/modules/record.rs");
 const GRAPH_TESTS_SOURCE: &str = include_str!("../src/modules/graph_tests.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/module-request-identity.md");
-const TASK: &str = include_str!("../../../tasks/12-modules-linking-loading.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -201,6 +200,4 @@ fn behavior_and_contract_witnesses_keep_attributed_reexports_load_bearing() {
         .contains("an_attributed_reexport_uses_the_matching_public_host_resolution_row"));
     assert!(CONTRACT.contains("Attributed re-export retention"));
     assert!(CONTRACT.contains("private-field `ReExportRequest`"));
-    assert!(TASK.contains("Attributed re-export requests retain"));
-    assert!(TASK.contains("`ReExportRequest`"));
 }

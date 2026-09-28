@@ -67,18 +67,21 @@ per-iteration slot set from the dedicated initializer case.
 
 ## Explicit nonclaims
 
-This batch does not admit async generators, plain generators, ordinary
-functions, modules or dynamic source, binding patterns, `for-of` or
-`for-await-of` heads, `await using` outside a classic-for initializer, or any
-source `await`/`yield` in the initializer, test, update, or body. It also does
+Async generators, ordinary functions and plain generator owners, modules,
+dynamic source, binding patterns, `for-of` or `for-await-of` heads,
+`await using` outside a classic-for initializer, and source suspension
+(`await`/`yield`) in the initializer, test, update, or body are outside this
+capability domain. It also does
 not admit an outer `continue`, an enclosing-loop shape that can dynamically
 re-enter the async-disposable loop, or any other repeated/nonlinear execution
 of the same classic-for IR node within one activation: its finalizer-state plan
-is one-shot. Outer control through an enclosing labelled block, including an
-outer `break`, is also excluded. Direct label chains whose target is the
+is one-shot. An outer labelled-block exit, including an outer `break`, is also
+excluded: its target is outside the resource-loop node. Direct label chains whose target is the
 async-disposable `StatementIr::For` remain admitted. Nor does this batch add
 asynchronous resource support to synchronous `using` heads. Those forms keep
-explicit diagnostics rather than entering this capability domain.
+explicit diagnostics rather than entering this capability domain. These
+focused witnesses do not establish the complete `await using` directory or a
+full pinned aggregate.
 
 ## Focused verification
 

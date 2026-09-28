@@ -3,6 +3,7 @@ use super::global_environment::{
     GLOBAL_LEXICAL_ENTRY_SIZE, GLOBAL_LEXICAL_KEY_OFFSET, GLOBAL_LEXICAL_MUTABLE_OFFSET,
 };
 use super::*;
+use crate::abi::PreparedScriptParameter;
 use lila_ir::{GlobalLexicalBindingModeIr, PreparedScriptKind, PreparedScriptUnit};
 
 #[derive(Clone, Copy)]
@@ -36,7 +37,11 @@ impl FunctionBuilder<'_> {
             return if unit.strict {
                 Ok(())
             } else {
-                self.emit_instantiate_direct_eval_declarations(unit, 7, function)
+                self.emit_instantiate_direct_eval_declarations(
+                    unit,
+                    PreparedScriptParameter::VariableEnvironment.index(),
+                    function,
+                )
             };
         }
         if !unit.has_global_variable_environment() {

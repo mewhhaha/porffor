@@ -2768,7 +2768,10 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::Call(helper));
-                self.store_call_results(helper_payload_local, helper_tag_local, function);
+                self.store_call_results(
+                    TaggedLocals::new(helper_payload_local, helper_tag_local),
+                    function,
+                );
                 self.emit_propagate_throw_from_locals_if_needed(
                     helper_payload_local,
                     helper_tag_local,
@@ -6952,7 +6955,7 @@ impl<'a> FunctionBuilder<'a> {
         let flatten_tag_local = self.reserve_temp_local();
         let insert_index_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
@@ -7198,7 +7201,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pre_evaluated_arg_vector(
-            &[(zero_local, number_tag_local)],
+            &[TaggedLocals::new(zero_local, number_tag_local)],
             argc_local,
             argv_local,
             function,
@@ -7813,7 +7816,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Normal, function);
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(insert_index_local);
         self.release_temp_local(flatten_tag_local);
@@ -8449,7 +8452,7 @@ impl<'a> FunctionBuilder<'a> {
         let index_number_payload_local = self.reserve_temp_local();
         let key_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let array_constructor_table_index = self
             .functions
             .get(&StandardBuiltinId::ArrayConstructor.function_id())
@@ -8637,7 +8640,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_pre_evaluated_arg_vector(
-            &[(zero_local, number_tag_local)],
+            &[TaggedLocals::new(zero_local, number_tag_local)],
             argc_local,
             argv_local,
             function,
@@ -8686,8 +8689,8 @@ impl<'a> FunctionBuilder<'a> {
         let saved_out_index_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalGet(out_index_local));
         function.instruction(&Instruction::LocalSet(saved_out_index_local));
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             arg_index_local,
             item_payload_local,
             item_tag_local,
@@ -9008,7 +9011,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.set_completion_kind(CompletionKind::Normal, function);
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(key_local);
         self.release_temp_local(index_number_payload_local);
@@ -9077,7 +9080,7 @@ impl<'a> FunctionBuilder<'a> {
         let index_payload_local = self.reserve_temp_local();
         let number_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         // ToObject and LengthOfArrayLike precede IsCallable and ArraySpeciesCreate.
         // In particular, a TypedArray's observable length property is not its
@@ -9168,9 +9171,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_payload_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, number_tag_local),
-                (this_payload_local, this_tag_local),
+                TaggedLocals::new(element_payload_local, element_tag_local),
+                TaggedLocals::new(index_payload_local, number_tag_local),
+                TaggedLocals::new(this_payload_local, this_tag_local),
             ],
             argc_local,
             argv_local,
@@ -9310,7 +9313,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(number_tag_local);
         self.release_temp_local(index_payload_local);
@@ -9476,7 +9479,7 @@ impl<'a> FunctionBuilder<'a> {
         let count_payload_local = self.reserve_temp_local();
         let number_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let target_buffer_payload_local = self.reserve_temp_local();
@@ -9713,7 +9716,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(number_tag_local));
         self.emit_pre_evaluated_arg_vector(
-            &[(count_payload_local, number_tag_local)],
+            &[TaggedLocals::new(count_payload_local, number_tag_local)],
             argc_local,
             argv_local,
             function,
@@ -9918,7 +9921,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(target_buffer_payload_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_payload_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(number_tag_local);
         self.release_temp_local(count_payload_local);
@@ -9982,7 +9985,7 @@ impl<'a> FunctionBuilder<'a> {
         let length_payload_local = self.reserve_temp_local();
         let length_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let target_element_kind_local = self.reserve_temp_local();
@@ -10192,7 +10195,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(length_tag_local));
         self.emit_pre_evaluated_arg_vector(
-            &[(length_payload_local, length_tag_local)],
+            &[TaggedLocals::new(length_payload_local, length_tag_local)],
             argc_local,
             argv_local,
             function,
@@ -10307,7 +10310,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(target_element_kind_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_payload_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(length_tag_local);
         self.release_temp_local(length_payload_local);
@@ -10376,7 +10379,7 @@ impl<'a> FunctionBuilder<'a> {
         let selected_length_payload_local = self.reserve_temp_local();
         let number_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let target_element_kind_local = self.reserve_temp_local();
@@ -10657,7 +10660,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         function.instruction(&Instruction::LocalSet(selected_length_payload_local));
         self.emit_pre_evaluated_arg_vector(
-            &[(selected_length_payload_local, number_tag_local)],
+            &[TaggedLocals::new(
+                selected_length_payload_local,
+                number_tag_local,
+            )],
             argc_local,
             argv_local,
             function,
@@ -10745,7 +10751,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(target_element_kind_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_payload_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(number_tag_local);
         self.release_temp_local(selected_length_payload_local);
@@ -10840,7 +10846,7 @@ impl<'a> FunctionBuilder<'a> {
         let callback_result_payload_local = self.reserve_temp_local();
         let callback_result_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(receiver_brand_local));
@@ -10958,9 +10964,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_tag_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, index_tag_local),
-                (receiver_payload_local, receiver_tag_local),
+                TaggedLocals::new(element_payload_local, element_tag_local),
+                TaggedLocals::new(index_payload_local, index_tag_local),
+                TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             ],
             argc_local,
             argv_local,
@@ -11020,7 +11026,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callback_result_tag_local);
         self.release_temp_local(callback_result_payload_local);
@@ -11107,7 +11113,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(receiver_tag_local);
         self.release_temp_local(receiver_payload_local);
@@ -11444,7 +11450,7 @@ impl<'a> FunctionBuilder<'a> {
         let realm_local = self.reserve_temp_local();
         let prototype_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         function.instruction(&Instruction::LocalGet(receiver_payload_local));
         function.instruction(&Instruction::LocalSet(current_payload_local));
@@ -11687,7 +11693,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(number_tag_local));
         self.emit_pre_evaluated_arg_vector(
-            &[(length_payload_local, number_tag_local)],
+            &[TaggedLocals::new(length_payload_local, number_tag_local)],
             argc_local,
             argv_local,
             function,
@@ -11710,7 +11716,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(prototype_local);
         self.release_temp_local(realm_local);
@@ -13581,8 +13587,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             argument_index_local,
             element_payload_local,
             element_tag_local,
@@ -15016,8 +15022,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(self.argc_param_local()));
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             argument_index_local,
             element_payload_local,
             element_tag_local,
@@ -17221,7 +17227,7 @@ impl<'a> FunctionBuilder<'a> {
         let method_payload_local = self.reserve_temp_local();
         let method_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         self.emit_value_to_current_function_realm_object_locals(
             receiver_payload_local,
@@ -17267,7 +17273,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         function.instruction(&Instruction::End);
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(method_tag_local);
         self.release_temp_local(method_payload_local);
@@ -17885,7 +17891,7 @@ impl<'a> FunctionBuilder<'a> {
         let typed_stored_byte_length_local = self.reserve_temp_local();
         let typed_bytes_per_element_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let typed_view = TypedArrayViewLocals::new(
             receiver_payload_local,
             typed_buffer_payload_local,
@@ -18236,10 +18242,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_tag_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (accumulator_payload_local, accumulator_tag_local),
-                (element_payload_local, element_tag_local),
-                (index_payload_local, index_tag_local),
-                (receiver_payload_local, receiver_tag_local),
+                TaggedLocals::new(accumulator_payload_local, accumulator_tag_local),
+                TaggedLocals::new(element_payload_local, element_tag_local),
+                TaggedLocals::new(index_payload_local, index_tag_local),
+                TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             ],
             argc_local,
             argv_local,
@@ -18271,7 +18277,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(accumulator_tag_local));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(typed_bytes_per_element_local);
         self.release_temp_local(typed_stored_byte_length_local);
@@ -18581,7 +18587,7 @@ impl<'a> FunctionBuilder<'a> {
         let callback_payload_local = self.reserve_temp_local();
         let callback_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let typed_receiver_local = self.reserve_temp_local();
         let typed_brand_local = self.reserve_temp_local();
         let typed_buffer_payload_local = self.reserve_temp_local();
@@ -18929,9 +18935,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_tag_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, index_tag_local),
-                (receiver_payload_local, receiver_tag_local),
+                TaggedLocals::new(element_payload_local, element_tag_local),
+                TaggedLocals::new(index_payload_local, index_tag_local),
+                TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             ],
             argc_local,
             argv_local,
@@ -18975,7 +18981,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(typed_buffer_payload_local);
         self.release_temp_local(typed_brand_local);
         self.release_temp_local(typed_receiver_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callback_tag_local);
         self.release_temp_local(callback_payload_local);

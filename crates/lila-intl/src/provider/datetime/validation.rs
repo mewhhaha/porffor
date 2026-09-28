@@ -10,7 +10,7 @@ impl Profile {
     pub(super) fn validate_names(&self) -> Result<(), DateTimeFormatError> {
         for locale in &self.locales {
             for data in CalendarData::ALL {
-                validate_calendar(locale, &locale.calendars[data.index()], data.years())?;
+                validate_calendar(locale, &locale.calendars[data.index()], data)?;
             }
         }
         Ok(())
@@ -20,8 +20,9 @@ impl Profile {
 fn validate_calendar(
     locale: &Locale,
     calendar: &Calendar,
-    years: YearKind,
+    data: CalendarData,
 ) -> Result<(), DateTimeFormatError> {
+    let years = data.years();
     let cyclic = match years {
         YearKind::Eras(_) => false,
         YearKind::Cyclic => true,
@@ -46,8 +47,11 @@ fn validate_calendar(
             }
         }
         for context in [NameContext::Format, NameContext::Standalone] {
-            for month in 1..=12 {
+            for month in 1..=data.months() {
                 names.get(NameKey::Month(context, width, month))?;
+            }
+            if data == CalendarData::Hebrew {
+                names.get(NameKey::HebrewLeapMonth(context, width))?;
             }
             for weekday in 0..=6 {
                 names.get(NameKey::Weekday(context, width, weekday))?;

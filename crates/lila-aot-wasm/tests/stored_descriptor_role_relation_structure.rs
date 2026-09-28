@@ -7,7 +7,6 @@ const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
 const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/stored-descriptor-role-relation.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -311,13 +310,12 @@ fn all_three_producers_label_every_stored_descriptor_role() {
 }
 
 #[test]
-fn contract_and_task_record_the_role_relation() {
+fn contract_records_the_role_relation() {
     for marker in [
         "stored descriptor role relation",
         "cannot transpose data, getter, and setter locals",
         "stored_descriptor_role_relation_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
 }

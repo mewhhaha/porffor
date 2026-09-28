@@ -12,7 +12,6 @@ const TYPED_ARRAY_SORT_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_typedarray_prototype_sort.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-sort-dispatch-owner.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -257,8 +256,8 @@ fn sort_dispatch_runtime_controls_cover_override_and_strict_typed_array_paths() 
 }
 
 #[test]
-fn task_and_contract_record_the_closed_sort_dispatch() {
-    for evidence in [TASK, CONTRACT] {
+fn contract_records_the_closed_sort_dispatch() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("SortMethodDispatch"));
         assert!(evidence.contains("TypedArrayCanonical"));
         assert!(evidence.contains("GenericGetCall"));

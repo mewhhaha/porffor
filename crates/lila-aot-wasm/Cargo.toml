@@ -12,10 +12,10 @@ lila-ir = { path = "../lila-ir" }
 lila-intl = { path = "../lila-intl" }
 lila-runtime = { path = "../lila-runtime" }
 wasm-encoder = "0.245.1"
+wasmparser = "0.245.1"
 
 [dev-dependencies]
 lila-front = { path = "../lila-front" }
-wasmparser = "0.245.1"
 
 [lib]
 path = "src/lib.rs"

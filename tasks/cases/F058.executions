@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/RegExp/character-class-escape-s.js
+sloppy-script:staging/sm/RegExp/unicode-character-class-escape.js
+strict-script:staging/sm/RegExp/character-class-escape-s.js
+strict-script:staging/sm/RegExp/unicode-character-class-escape.js

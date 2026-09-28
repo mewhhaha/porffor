@@ -131,7 +131,10 @@ pub const TEMPORAL_DURATION_NAME: &str = "Duration";
 pub const INTL_NAME: &str = "Intl";
 pub const INTL_LOCALE_NAME: &str = "Locale";
 pub const INTL_DATE_TIME_FORMAT_NAME: &str = "DateTimeFormat";
+pub const INTL_COLLATOR_NAME: &str = "Collator";
 pub const INTL_NUMBER_FORMAT_NAME: &str = "NumberFormat";
+pub const INTL_PLURAL_RULES_NAME: &str = "PluralRules";
+pub const INTL_RELATIVE_TIME_FORMAT_NAME: &str = "RelativeTimeFormat";
 
 /// The `Intl` namespace object's constructor-valued members, in **installation
 /// order** — `Object.getOwnPropertyNames(Intl)` reports this order, so it is
@@ -151,6 +154,10 @@ pub const INTL_NUMBER_FORMAT_NAME: &str = "NumberFormat";
 /// directly by their own code on both sides.
 pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     (
+        INTL_COLLATOR_NAME,
+        StandardBuiltinId::IntlCollatorConstructor,
+    ),
+    (
         INTL_DATE_TIME_FORMAT_NAME,
         StandardBuiltinId::IntlDateTimeFormatConstructor,
     ),
@@ -158,6 +165,14 @@ pub const INTL_NAMESPACE_CONSTRUCTORS: &[(&str, StandardBuiltinId)] = &[
     (
         INTL_NUMBER_FORMAT_NAME,
         StandardBuiltinId::IntlNumberFormatConstructor,
+    ),
+    (
+        INTL_PLURAL_RULES_NAME,
+        StandardBuiltinId::IntlPluralRulesConstructor,
+    ),
+    (
+        INTL_RELATIVE_TIME_FORMAT_NAME,
+        StandardBuiltinId::IntlRelativeTimeFormatConstructor,
     ),
 ];
 
@@ -1679,3 +1694,30 @@ pub const LILA_YIELD_STAR_GENERATOR_SLOT: &str = "$LilaYieldStarGenerator";
 pub const LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT: &str = "$LilaYieldStarReturnNonObject";
 pub const LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT: &str = "$LilaYieldStarThrowNonObject";
 pub const DATE_VALUE_SLOT: &str = "$DateValue";
+
+pub const BUILTIN_INTL_COLLATOR_FUNCTION_ID: &str = "$builtin.Intl.Collator";
+pub const BUILTIN_INTL_COLLATOR_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.supportedLocalesOf";
+pub const BUILTIN_INTL_COLLATOR_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.prototype.resolvedOptions";
+pub const BUILTIN_INTL_COLLATOR_PROTOTYPE_COMPARE_GETTER_FUNCTION_ID: &str =
+    "$builtin.Intl.Collator.prototype.compare.get";
+pub const BUILTIN_INTL_COLLATOR_COMPARE_FUNCTION_ID: &str = "$builtin.Intl.Collator.compare";
+pub const BUILTIN_INTL_PLURAL_RULES_FUNCTION_ID: &str = "$builtin.Intl.PluralRules";
+pub const BUILTIN_INTL_PLURAL_RULES_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.supportedLocalesOf";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.resolvedOptions";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.select";
+pub const BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_RANGE_FUNCTION_ID: &str =
+    "$builtin.Intl.PluralRules.prototype.selectRange";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_FUNCTION_ID: &str = "$builtin.Intl.RelativeTimeFormat";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.supportedLocalesOf";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.resolvedOptions";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.format";
+pub const BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID: &str =
+    "$builtin.Intl.RelativeTimeFormat.prototype.formatToParts";

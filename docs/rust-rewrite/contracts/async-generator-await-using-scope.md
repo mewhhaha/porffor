@@ -23,11 +23,12 @@ represent the body. It covers the direct `@@asyncDispose` protocol and the
 `@@dispose` fallback, and permits `yield` and `await` after acquisition while
 the scope remains live.
 
-`await using` in classic-`for` and `for-of` resource heads, modules, dynamic
-source, binding patterns, explicit `await` or `yield` inside a resource
-initializer, and nonlinear async-generator forms rejected by the existing
-suspension plan remain nonclaims. Plain async-function behavior remains owned
-by the retained plain-async contract.
+Classic-`for` and `for-of` resource heads, modules, dynamic source, binding
+patterns, suspension inside a resource initializer, and nonlinear
+async-generator forms rejected by the existing suspension plan are outside
+this contract's evidence scope. Plain async-function behavior remains owned by
+the retained plain-async contract. These witnesses do not establish the
+complete `await using` directory or a full pinned aggregate.
 
 ## Normative lifetime
 

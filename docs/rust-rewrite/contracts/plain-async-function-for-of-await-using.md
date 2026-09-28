@@ -118,6 +118,10 @@ The five-file/ten-execution cohort above is the complete publication claim;
 larger await-using inventories remain regression evidence until measured on the
 same committed product.
 
+Module-only fresh-binding behavior is outside this function-owned witness.
+The focused regressions do not establish the complete `await using` directory
+or a full pinned aggregate.
+
 ## Verification ladder
 
 After the full producer/backend/evidence batch is assembled:

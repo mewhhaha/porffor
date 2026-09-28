@@ -45,8 +45,6 @@ const PATTERN_CONTRACT: &str = include_str!(
 const LEXICAL_PATTERN_CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/plain-async-synchronous-for-of-lexical-pattern-heads.md"
 );
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -1007,22 +1005,22 @@ fn runtime_oracles_cover_acquisition_close_errors_strings_and_fresh_bindings() {
         assert!(ITERATOR_CLI_TESTS.contains(fixture), "CLI test: {fixture}");
     }
     assert!(FUNCTION_CLI_TESTS.contains("wasm_async_for_of_closure_capture.js"));
-    for source in [CONTRACT, README, TASK] {
+    for source in [CONTRACT] {
         assert!(source.contains("AsyncFunctionForOfIteratorPlanIr"));
         assert!(source.contains("19/19"));
         assert!(source.contains("18/18"));
         assert!(source.contains("4/4"));
     }
-    for source in [MEMBER_CONTRACT, README, TASK] {
+    for source in [MEMBER_CONTRACT] {
         assert!(source.contains("member-reference heads"));
         assert!(source.contains("wasm_plain_async_sync_for_of_member_heads.js"));
     }
-    for source in [PATTERN_CONTRACT, README, TASK] {
+    for source in [PATTERN_CONTRACT] {
         assert!(source.contains("assignment patterns and `var` binding patterns"));
         assert!(source.contains("wasm_plain_async_sync_for_of_nonlexical_pattern_heads.js"));
     }
     assert!(LEXICAL_PATTERN_CONTRACT.contains("public storage enum has exactly those three cases"));
-    for source in [LEXICAL_PATTERN_CONTRACT, README, TASK] {
+    for source in [LEXICAL_PATTERN_CONTRACT] {
         for marker in [
             "wasm_plain_async_sync_for_of_lexical_pattern_heads.js",
             "27/27",

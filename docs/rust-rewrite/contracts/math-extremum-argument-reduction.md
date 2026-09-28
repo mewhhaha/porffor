@@ -91,7 +91,7 @@ or a static materialization.
 - `crates/lila-cli/tests/cli/language_numerics.rs`
 - `scripts/check-module-boundaries.sh`
 - this contract
-- `tasks/20-number-bigint-math-json.md`
+- `docs/rust-rewrite/conformance-ownership.md`
 
 The dedicated structure regression pins the exact private two-row domain,
 capability set, recursive source ownership, two producers, both exhaustive

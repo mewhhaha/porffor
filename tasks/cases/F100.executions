@@ -1,0 +1,2 @@
+sloppy-script:staging/sm/String/replaceAll.js
+strict-script:staging/sm/String/replaceAll.js

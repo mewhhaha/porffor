@@ -23,6 +23,13 @@ pub enum DateTimeCalendar {
     Roc,
     Dangi,
     IslamicCivil,
+    Coptic,
+    Ethioaa,
+    Ethiopic,
+    Hebrew,
+    IslamicTabular,
+    IslamicUmmAlQura,
+    Japanese,
 }
 
 impl DateTimeCalendar {
@@ -37,6 +44,13 @@ impl DateTimeCalendar {
             Self::Roc => "roc",
             Self::Dangi => "dangi",
             Self::IslamicCivil => "islamic-civil",
+            Self::Coptic => "coptic",
+            Self::Ethioaa => "ethioaa",
+            Self::Ethiopic => "ethiopic",
+            Self::Hebrew => "hebrew",
+            Self::IslamicTabular => "islamic-tbla",
+            Self::IslamicUmmAlQura => "islamic-umalqura",
+            Self::Japanese => "japanese",
         }
     }
     pub(crate) fn parse(value: &str) -> Option<Self> {
@@ -50,6 +64,13 @@ impl DateTimeCalendar {
             "roc" => Some(Self::Roc),
             "dangi" => Some(Self::Dangi),
             "islamic-civil" | "islamicc" => Some(Self::IslamicCivil),
+            "coptic" => Some(Self::Coptic),
+            "ethioaa" | "ethiopic-amete-alem" => Some(Self::Ethioaa),
+            "ethiopic" => Some(Self::Ethiopic),
+            "hebrew" => Some(Self::Hebrew),
+            "islamic-tbla" => Some(Self::IslamicTabular),
+            "islamic-umalqura" => Some(Self::IslamicUmmAlQura),
+            "japanese" => Some(Self::Japanese),
             _ => None,
         }
     }

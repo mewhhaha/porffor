@@ -85,8 +85,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
 
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             source_index_local,
             source_arg_payload_local,
             source_arg_tag_local,

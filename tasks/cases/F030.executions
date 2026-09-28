@@ -1,0 +1,14 @@
+sloppy-script:language/literals/regexp/u-null-character-escape.js
+sloppy-script:staging/sm/RegExp/unicode-braced.js
+sloppy-script:staging/sm/RegExp/unicode-class-braced.js
+sloppy-script:staging/sm/RegExp/unicode-class-lead-trail.js
+sloppy-script:staging/sm/RegExp/unicode-class-raw.js
+sloppy-script:staging/sm/RegExp/unicode-lead-trail.js
+sloppy-script:staging/sm/RegExp/unicode-raw.js
+strict-script:language/literals/regexp/u-null-character-escape.js
+strict-script:staging/sm/RegExp/unicode-braced.js
+strict-script:staging/sm/RegExp/unicode-class-braced.js
+strict-script:staging/sm/RegExp/unicode-class-lead-trail.js
+strict-script:staging/sm/RegExp/unicode-class-raw.js
+strict-script:staging/sm/RegExp/unicode-lead-trail.js
+strict-script:staging/sm/RegExp/unicode-raw.js

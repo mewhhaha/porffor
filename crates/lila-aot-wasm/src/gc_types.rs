@@ -3,10 +3,9 @@
 //! This module owns the typed schema and the final raw Wasm-GC encoding
 //! boundary. Registration borrows the central module sections, while function
 //! emission receives only opaque lifecycle operations. T05's object-model
-//! cutover must be atomic: until that cutover, JavaScript objects remain on the
-//! existing linear-memory path. These types let the emitter describe the
-//! replacement without representing a GC reference as an integer or confusing
-//! a linear-memory address with one.
+//! semantic-object cutover must be atomic: until that cutover, JavaScript
+//! objects remain on the existing linear-memory path. The private argument
+//! vector below is only call transport; it has no JavaScript identity.
 
 #![allow(
     dead_code,
@@ -21,6 +20,169 @@ use wasm_encoder::{
 };
 
 use crate::Function;
+
+/// Internal call transport, separate from the observable JavaScript object
+/// layout. The flat cells are `[tag, payload]` for each argument. No GC
+/// reference is converted to a scalar address or persisted in linear memory.
+#[deny(dead_code)]
+pub(crate) mod arg_vector {
+    use super::*;
+    use crate::objects::TaggedLocals;
+
+    #[derive(Clone, Copy)]
+    enum RuntimeArgVector {}
+
+    impl sealed::Sealed for RuntimeArgVector {}
+    impl GcHeapType for RuntimeArgVector {}
+
+    const TYPE: GcTypeIndex<RuntimeArgVector> = GcTypeIndex::new(1);
+
+    pub(crate) const fn ref_type() -> ValType {
+        ValType::Ref(RefType {
+            nullable: true,
+            heap_type: HeapType::Concrete(TYPE.raw()),
+        })
+    }
+
+    pub(crate) fn register(types: &mut TypeSection) {
+        assert_eq!(types.len(), TYPE.raw(), "argument-vector GC type moved");
+        types.ty().array(&StorageType::Val(ValType::I64), true);
+    }
+
+    /// Leaves a non-null vector reference on the Wasm stack.
+    pub(crate) fn emit_new_fixed(function: &mut Function, args: &[TaggedLocals]) {
+        for arg in args {
+            function.instruction(&Instruction::LocalGet(arg.tag));
+            function.instruction(&Instruction::LocalGet(arg.payload));
+        }
+        let array_size = u32::try_from(args.len())
+            .expect("argument vector length exceeds u32")
+            .checked_mul(2)
+            .expect("argument vector cell count exceeds u32");
+        function.instruction(&Instruction::ArrayNewFixed {
+            array_type_index: TYPE.raw(),
+            array_size,
+        });
+    }
+
+    /// Consumes an i32 cell count and leaves a zero-filled vector reference.
+    pub(crate) fn emit_new_default(function: &mut Function) {
+        function.instruction(&Instruction::ArrayNewDefault(TYPE.raw()));
+    }
+
+    pub(crate) fn emit_null(function: &mut Function) {
+        function.instruction(&Instruction::RefNull(HeapType::Concrete(TYPE.raw())));
+    }
+
+    /// Consumes a vector reference and an i32 cell index; leaves an i64 cell.
+    pub(crate) fn emit_get(function: &mut Function) {
+        function.instruction(&Instruction::ArrayGet(TYPE.raw()));
+    }
+
+    /// Consumes a vector reference, i32 cell index, and i64 cell value.
+    pub(crate) fn emit_set(function: &mut Function) {
+        function.instruction(&Instruction::ArraySet(TYPE.raw()));
+    }
+
+    /// Consumes a vector reference; leaves its i32 cell count.
+    pub(crate) fn emit_len(function: &mut Function) {
+        function.instruction(&Instruction::ArrayLen);
+    }
+}
+
+/// Unobservable invocation state. References stay in native GC fields and
+/// locals; the scalar cells retain the current semantic value representation.
+#[deny(dead_code)]
+pub(crate) mod legacy_arguments {
+    use super::*;
+
+    const TYPE_INDEX: u32 = 22;
+    pub(crate) const GLOBAL_INDEX: u32 = 156;
+
+    #[derive(Clone, Copy)]
+    pub(crate) struct FrameLocal(u32);
+    impl FrameLocal {
+        pub(crate) const fn new(index: u32) -> Self {
+            Self(index)
+        }
+        pub(crate) const fn index(self) -> u32 {
+            self.0
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    pub(crate) enum Field {
+        Parent,
+        Arguments,
+        Mapping,
+        Callee,
+        Environment,
+        Context,
+        Materialized,
+    }
+    impl Field {
+        const ALL: [Self; 7] = [
+            Self::Parent,
+            Self::Arguments,
+            Self::Mapping,
+            Self::Callee,
+            Self::Environment,
+            Self::Context,
+            Self::Materialized,
+        ];
+        const fn storage(self) -> ValType {
+            match self {
+                Self::Parent => ref_type(),
+                Self::Arguments | Self::Mapping => arg_vector::ref_type(),
+                Self::Callee | Self::Environment | Self::Context | Self::Materialized => {
+                    ValType::I64
+                }
+            }
+        }
+    }
+    pub(crate) const fn ref_type() -> ValType {
+        ValType::Ref(RefType {
+            nullable: true,
+            heap_type: HeapType::Concrete(TYPE_INDEX),
+        })
+    }
+    pub(crate) fn register(types: &mut TypeSection) {
+        assert_eq!(types.len(), TYPE_INDEX);
+        types.ty().struct_(Field::ALL.map(|field| FieldType {
+            element_type: StorageType::Val(field.storage()),
+            mutable: matches!(field, Field::Materialized),
+        }));
+    }
+    pub(crate) fn append_global(globals: &mut GlobalSection) {
+        assert_eq!(globals.len(), GLOBAL_INDEX);
+        globals.global(
+            GlobalType {
+                val_type: ref_type(),
+                mutable: true,
+                shared: false,
+            },
+            &ConstExpr::ref_null(HeapType::Concrete(TYPE_INDEX)),
+        );
+    }
+    pub(crate) fn emit_new(function: &mut Function) {
+        function.instruction(&Instruction::StructNew(TYPE_INDEX));
+    }
+    pub(crate) fn emit_get(function: &mut Function, local: FrameLocal, field: Field) {
+        function.instruction(&Instruction::LocalGet(local.index()));
+        function.instruction(&Instruction::StructGet {
+            struct_type_index: TYPE_INDEX,
+            field_index: field as u32,
+        });
+    }
+    pub(crate) fn emit_materialized_set(function: &mut Function, local: FrameLocal, value: u32) {
+        function.instruction(&Instruction::LocalGet(local.index()));
+        function.instruction(&Instruction::LocalGet(value));
+        function.instruction(&Instruction::StructSet {
+            struct_type_index: TYPE_INDEX,
+            field_index: Field::Materialized as u32,
+        });
+    }
+}
 
 mod sealed {
     pub trait Sealed {}
@@ -301,7 +463,7 @@ where
     }
 }
 
-/// The first GC type in the migration: a capability/ABI witness only.
+/// A capability/ABI witness for the future semantic-object migration.
 ///
 /// It carries no JavaScript object and therefore does not create a second live
 /// object model while the linear heap is still active.
@@ -372,9 +534,8 @@ impl RuntimeGcAnchorHolderSchema {
 /// The runtime-visible GC portion of the module's central type registry.
 ///
 /// Registration and global-section finalization are the only operations
-/// exposed to module assembly. Raw type indices and field ordinals never leave
-/// this module, so a caller cannot guess an index or pair a field with a
-/// different owner before encoding. Finalizing the complete scalar global
+/// exposed to module assembly for these rooted semantic-layout witnesses.
+/// Raw type indices and field ordinals never leave this module. Finalizing the complete scalar global
 /// section derives and appends the sole typed root, then keeps its construction
 /// and extraction private.
 #[derive(Debug, PartialEq, Eq)]

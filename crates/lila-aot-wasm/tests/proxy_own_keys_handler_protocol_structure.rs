@@ -12,7 +12,6 @@ const HANDLER_PROTOCOL_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_proxy_own_keys_handler_protocol.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-own-keys-result-ownership.md");
-const TASK: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn quoted_literal_end(source: &str, quote_start: usize) -> Option<usize> {
     let bytes = source.as_bytes();
@@ -491,14 +490,13 @@ fn own_keys_trap_roles_are_distinct_non_copy_and_closed_over_product_sources() {
 }
 
 #[test]
-fn contract_and_t11_own_the_result_authority() {
+fn contract_owns_the_result_authority() {
     for marker in [
         "ProxyOwnKeysTrapLocals",
         "ProxyOwnKeysTrapResultLocals",
         "proxy_own_keys_handler_protocol_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
     assert!(CONTRACT.contains("transposing them compiled"));
 }

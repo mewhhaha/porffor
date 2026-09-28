@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/JSON/stringify-replacer-array-hijinks.js
+sloppy-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js
+strict-script:staging/sm/JSON/stringify-replacer-array-hijinks.js
+strict-script:staging/sm/JSON/stringify-replacer-array-trailing-holes.js

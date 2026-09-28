@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 const OWNER_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-execution-identity.md");
-const TASK: &str = include_str!("../../../tasks/26-zero-failure-conformance-closure.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -505,10 +504,8 @@ fn all_six_deliveries_and_both_constructor_rows_are_exact() {
 }
 
 #[test]
-fn contract_and_t26_record_the_one_shot_case_set_policy() {
+fn contract_records_the_one_shot_case_set_policy() {
     assert!(CONTRACT.contains("CaseSetRequirement::{UniqueSubset, Exact}"));
     assert!(CONTRACT.contains("18 to 17 source mentions"));
     assert!(CONTRACT.contains("case_set_requirement_structure"));
-    assert!(TASK.contains("CaseSetRequirement::{UniqueSubset, Exact}"));
-    assert!(TASK.contains("case_set_requirement_structure"));
 }

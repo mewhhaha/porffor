@@ -4,7 +4,6 @@ const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
 const INTRINSIC_METHOD_SOURCE: &str = include_str!("../src/lowering/intrinsic_method.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-source-capability.md");
-const TASK: &str = include_str!("../../../tasks/13-dynamic-source-evaluation.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -233,9 +232,9 @@ fn rejected_forwarding_returns_before_target_observation_or_emission() {
 }
 
 #[test]
-fn contract_and_t13_keep_the_forwarding_slice_and_remaining_debt_explicit() {
+fn contract_keeps_the_forwarding_slice_and_remaining_debt_explicit() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "spread-free intrinsic `Function.prototype.call` forwarding",
         "closed, must-use `DynamicSourceCallAdmission`",
@@ -244,6 +243,5 @@ fn contract_and_t13_keep_the_forwarding_slice_and_remaining_debt_explicit() {
         "it does not imply unrestricted forwarding support",
     ] {
         assert!(contract_words.contains(marker), "contract: {marker}");
-        assert!(task_words.contains(marker), "T13: {marker}");
     }
 }

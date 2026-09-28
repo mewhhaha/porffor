@@ -3,7 +3,6 @@ const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const OWNER: &str = include_str!("../src/heap_temporal_duration_layout.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-duration-heap-slot-authority.md");
-const TASK: &str = include_str!("../../../tasks/05-values-heap-gc.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -151,7 +150,7 @@ fn temporal_duration_layout_has_one_private_owner() {
     assert!(!LIB_SOURCE.contains("pub mod heap_temporal_duration_layout;"));
     assert!(!HEAP_SOURCE.contains("record: \"temporal-duration-record\""));
     assert!(!HEAP_SOURCE.contains("HEAP_TEMPORAL_DURATION_RECORD_LAYOUT: &[HeapLayoutSlot]",));
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("TemporalDurationHeapSlot"));
         assert!(evidence.contains("passive metadata migration"));
         assert!(evidence.contains("no new Temporal behavior"));

@@ -78,9 +78,9 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
         concat!(
             "enumFunctionModuleState<'a>{Main(&'aFinalizedModuleGlobals,PromiseRejectionPolicy),",
             "PreparedScript(&'aPreparedScriptUnit),Internal,}",
-            "implFunctionModuleState<'_>{constfnparameter_count(&self)->usize{matchself{",
-            "Self::Main(_,_)=>0,Self::Internal=>JS_FUNCTION_PARAM_COUNT,",
-            "Self::PreparedScript(_)=>PREPARED_SCRIPT_PARAM_COUNT,}}",
+            "implFunctionModuleState<'_>{fnparameter_count(&self)->usize{matchself{",
+            "Self::Main(_,_)=>0,Self::Internal=>CallAbi::Js.parameter_count(),",
+            "Self::PreparedScript(_)=>CallAbi::PreparedScript.parameter_count(),}}",
             "constfnreturn_abi(&self)->ReturnAbi{matchself{",
             "Self::Main(_,_)=>ReturnAbi::MainExport,",
             "Self::Internal|Self::PreparedScript(_)=>ReturnAbi::MultiValue,}}}"
@@ -309,13 +309,15 @@ fn prepared_script_context_projections_keep_their_closed_role_policy() {
             "context.derived_constructor_owner()}}}",
             "pub(crate)fndirect_eval_execution_context_local(&self)->Option<u32>{",
             "matchself.module_state{FunctionModuleState::PreparedScript(unit)",
-            "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{Some(9)}",
+            "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{",
+            "Some(PreparedScriptParameter::DirectEvalContext.index())}",
             "FunctionModuleState::Main(_,_)|FunctionModuleState::Internal|",
             "FunctionModuleState::PreparedScript(_)=>{",
             "self.captured_direct_eval_execution_context_local}}}",
             "pub(crate)fndirect_eval_private_environment_param_local(&self)->Option<u32>{",
             "matchself.module_state{FunctionModuleState::PreparedScript(unit)",
-            "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{Some(8)}",
+            "ifmatches!(&unit.kind,PreparedScriptKind::DirectEval(_))=>{",
+            "Some(PreparedScriptParameter::PrivateEnvironment.index())}",
             "FunctionModuleState::Main(_,_)|FunctionModuleState::Internal|",
             "FunctionModuleState::PreparedScript(_)=>None,}}"
         )

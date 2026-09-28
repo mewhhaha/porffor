@@ -170,7 +170,8 @@ impl<'a> FunctionBuilder<'a> {
                 let this_arg_payload_local = self.reserve_temp_local();
                 let this_arg_tag_local = self.reserve_temp_local();
                 let argc_local = self.reserve_temp_local();
-                let argv_local = self.reserve_temp_local();
+                let argv_array_local = self.reserve_temp_local();
+                let argv_local = self.reserve_arg_vector_local();
 
                 self.emit_builtin_arg_to_locals(
                     0,
@@ -190,7 +191,8 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
                 function.instruction(&Instruction::LocalSet(argc_local));
                 self.emit_rest_array_payload(1, function)?;
-                function.instruction(&Instruction::LocalSet(argv_local));
+                function.instruction(&Instruction::LocalSet(argv_array_local));
+                self.emit_arg_vector_from_array(argv_array_local, argv_local, function);
 
                 self.emit_prepare_legacy_tail_call(function);
                 self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
@@ -205,7 +207,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
 
-                self.release_temp_local(argv_local);
+                self.release_arg_vector_local(argv_local);
+                self.release_temp_local(argv_array_local);
                 self.release_temp_local(argc_local);
                 self.release_temp_local(this_arg_tag_local);
                 self.release_temp_local(this_arg_payload_local);
@@ -218,7 +221,8 @@ impl<'a> FunctionBuilder<'a> {
                 let apply_args_payload_local = self.reserve_temp_local();
                 let apply_args_tag_local = self.reserve_temp_local();
                 let argc_local = self.reserve_temp_local();
-                let argv_local = self.reserve_temp_local();
+                let argv_array_local = self.reserve_temp_local();
+                let argv_local = self.reserve_arg_vector_local();
 
                 self.emit_builtin_arg_to_locals(
                     0,
@@ -253,22 +257,23 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::If(BlockType::Empty));
                 function.instruction(&Instruction::I64Const(0));
                 function.instruction(&Instruction::LocalSet(argc_local));
-                self.emit_alloc_array_payload_with_length(argc_local, argv_local, function)?;
+                self.emit_alloc_array_payload_with_length(argc_local, argv_array_local, function)?;
                 function.instruction(&Instruction::Else);
                 self.emit_array_like_snapshot_payload(
                     apply_args_payload_local,
                     apply_args_tag_local,
-                    argv_local,
+                    argv_array_local,
                     "Function.prototype.apply argument list must be array-like",
                     function,
                 )?;
                 function.instruction(&Instruction::End);
                 self.load_i64_to_local_from_offset(
-                    argv_local,
+                    argv_array_local,
                     HEAP_LEN_OFFSET,
                     argc_local,
                     function,
                 );
+                self.emit_arg_vector_from_array(argv_array_local, argv_local, function);
 
                 self.emit_prepare_legacy_tail_call(function);
                 self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
@@ -283,7 +288,8 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
 
-                self.release_temp_local(argv_local);
+                self.release_arg_vector_local(argv_local);
+                self.release_temp_local(argv_array_local);
                 self.release_temp_local(argc_local);
                 self.release_temp_local(apply_args_tag_local);
                 self.release_temp_local(apply_args_payload_local);
@@ -432,7 +438,7 @@ impl<'a> FunctionBuilder<'a> {
                 let bound_args_payload_local = self.reserve_temp_local();
                 let self_payload_local = self.reserve_temp_local();
                 let self_tag_local = self.reserve_temp_local();
-                let merged_argv_local = self.reserve_temp_local();
+                let merged_argv_local = self.reserve_arg_vector_local();
                 let merged_argc_local = self.reserve_temp_local();
                 let forwarded_new_target_payload_local = self.reserve_temp_local();
                 let forwarded_new_target_tag_local = self.reserve_temp_local();
@@ -451,16 +457,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self_tag_local));
                 self.emit_concat_argv_payloads(
                     bound_args_payload_local,
-                    self.argv_param_local(),
+                    self.arg_vector_param_local(),
                     merged_argv_local,
                     function,
                 )?;
-                self.load_i64_to_local_from_offset(
-                    merged_argv_local,
-                    HEAP_LEN_OFFSET,
-                    merged_argc_local,
-                    function,
-                );
+                self.emit_arg_vector_len_to_local(merged_argv_local, merged_argc_local, function);
                 self.compile_new_target_to_locals(
                     forwarded_new_target_payload_local,
                     forwarded_new_target_tag_local,
@@ -511,7 +512,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(forwarded_new_target_tag_local);
                 self.release_temp_local(forwarded_new_target_payload_local);
                 self.release_temp_local(merged_argc_local);
-                self.release_temp_local(merged_argv_local);
+                self.release_arg_vector_local(merged_argv_local);
                 self.release_temp_local(self_tag_local);
                 self.release_temp_local(self_payload_local);
                 self.release_temp_local(bound_args_payload_local);

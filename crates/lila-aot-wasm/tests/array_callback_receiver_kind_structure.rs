@@ -2,8 +2,6 @@ const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-callback-receiver-kind.md");
-const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T16: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -94,7 +92,7 @@ fn callback_receiver_kind_is_a_capability_free_two_variant_authority() {
             "callback receiver semantics must not collapse to `{forbidden}`"
         );
     }
-    for evidence in [CONTRACT, TASK_T02, TASK_T16] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("capability-free `ArrayCallbackReceiverKind`"));
         assert!(
             evidence.contains("c073b0a9449fae68b12f82e43fc0bf7dc52a0a0bc98b1a6eb2bf6d5b0bce3ea1")

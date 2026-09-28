@@ -712,6 +712,322 @@
           "skeleton": "Ehms"
         },
         {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "coptic",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
           "index": 29,
           "pattern": {
             "numbering_overrides": [],
@@ -797,6 +1113,638 @@
         }
       ],
       "calendar": "dangi",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "ethiopic",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "ethiopic-amete-alem",
       "locale": "en",
       "styles": [
         {
@@ -1505,6 +2453,322 @@
           "skeleton": "hms"
         }
       ],
+      "calendar": "hebrew",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
       "calendar": "indian",
       "locale": "en",
       "styles": [
@@ -1822,6 +3086,954 @@
         }
       ],
       "calendar": "islamic-civil",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "islamic-tbla",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "islamic-umalqura",
+      "locale": "en",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "japanese",
       "locale": "en",
       "styles": [
         {
@@ -3317,6 +5529,322 @@
           "skeleton": "Ehms"
         },
         {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "coptic",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
           "index": 29,
           "pattern": {
             "numbering_overrides": [],
@@ -3402,6 +5930,638 @@
         }
       ],
       "calendar": "dangi",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "ethiopic",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "ethiopic-amete-alem",
       "locale": "en-US",
       "styles": [
         {
@@ -4110,6 +7270,322 @@
           "skeleton": "hms"
         }
       ],
+      "calendar": "hebrew",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
       "calendar": "indian",
       "locale": "en-US",
       "styles": [
@@ -4427,6 +7903,954 @@
         }
       ],
       "calendar": "islamic-civil",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "islamic-tbla",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "islamic-umalqura",
+      "locale": "en-US",
+      "styles": [
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a zzzz",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 4
+              }
+            ]
+          },
+          "style": "full"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a z",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "z",
+                "width": 1
+              }
+            ]
+          },
+          "style": "long"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "medium"
+        },
+        {
+          "field": "time",
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "style": "short"
+        }
+      ]
+    },
+    {
+      "available": [
+        {
+          "index": 9,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehm"
+        },
+        {
+          "index": 10,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "E h:mm:ss a",
+            "tokens": [
+              {
+                "field": "E",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "Ehms"
+        },
+        {
+          "index": 27,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "h"
+        },
+        {
+          "index": 28,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hm"
+        },
+        {
+          "index": 29,
+          "pattern": {
+            "numbering_overrides": [],
+            "source": "h:mm:ss a",
+            "tokens": [
+              {
+                "field": "h",
+                "width": 1
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "m",
+                "width": 2
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "s",
+                "width": 2
+              },
+              {
+                "literal": " "
+              },
+              {
+                "field": "a",
+                "width": 1
+              }
+            ]
+          },
+          "skeleton": "hms"
+        }
+      ],
+      "calendar": "japanese",
       "locale": "en-US",
       "styles": [
         {

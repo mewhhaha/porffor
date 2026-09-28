@@ -2,7 +2,7 @@
 
 use super::options::{LocaleMatcher, NumberFormatOptions};
 use super::partition_resource::{
-    owned_text, NumberFormatKernelError, NumberPartitionResourceError, PartitionLimits,
+    NumberFormatKernelError, NumberPartitionResourceError, PartitionLimits, owned_text,
 };
 use super::profiles::NumberProfiles;
 use crate::CanonicalLocaleId;

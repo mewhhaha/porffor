@@ -1,4 +1,5 @@
 use super::*;
+use crate::abi::{JsCallParameter, PreparedScriptParameter};
 
 #[must_use = "prepared Script execution must restore the caller's realm before returning"]
 struct PreparedScriptRealmExecution {
@@ -36,17 +37,12 @@ impl FunctionBuilder<'_> {
             .get(&id.function_id())
             .expect("Module prelude has a compiled Script thunk")
             .wasm_index;
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::LocalGet(global_object_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        self.emit_undefined_new_target(function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::LocalGet(environment_local));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::Call(wasm_index));
-        self.store_call_results(self.result_local, self.result_tag_local, function);
+        self.emit_prepared_script_thunk_call(
+            environment_local,
+            global_object_local,
+            wasm_index,
+            function,
+        );
         self.release_temp_local(global_object_local);
         self.release_temp_local(environment_local);
         self.release_temp_local(realm_local);
@@ -109,20 +105,12 @@ impl FunctionBuilder<'_> {
                         .functions
                         .get(&unit.id.function_id())
                         .expect("executable prepared Script has a Wasm thunk");
-                    function.instruction(&Instruction::LocalGet(execution.environment_local));
-                    function.instruction(&Instruction::LocalGet(execution.global_object_local));
-                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-                    self.emit_undefined_new_target(function);
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Const(0));
-                    // Script thunks extend the ordinary seven-parameter call
-                    // prefix with explicit variable/private environments and
-                    // an absent direct-eval execution context.
-                    function.instruction(&Instruction::LocalGet(execution.environment_local));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::Call(meta.wasm_index));
-                    self.store_call_results(self.result_local, self.result_tag_local, function);
+                    self.emit_prepared_script_thunk_call(
+                        execution.environment_local,
+                        execution.global_object_local,
+                        meta.wasm_index,
+                        function,
+                    );
                 }
             }
             self.emit_restore_prepared_script_realm(execution, function);
@@ -131,6 +119,54 @@ impl FunctionBuilder<'_> {
         }
         self.release_temp_local(expected_source_local);
         Ok(())
+    }
+
+    /// Both module preludes and prepared dispatch use the schema's complete
+    /// parameter order. Extending either prefix forces this match to account
+    /// for the new slot before the compiler can emit a mismatched call.
+    fn emit_prepared_script_thunk_call(
+        &self,
+        environment_local: u32,
+        global_object_local: u32,
+        wasm_index: u32,
+        function: &mut Function,
+    ) {
+        for slot in JsCallParameter::ALL {
+            match slot {
+                JsCallParameter::Environment => {
+                    function.instruction(&Instruction::LocalGet(environment_local));
+                }
+                JsCallParameter::ThisPayload => {
+                    function.instruction(&Instruction::LocalGet(global_object_local));
+                }
+                JsCallParameter::ThisTag => {
+                    function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+                }
+                JsCallParameter::NewTargetPayload | JsCallParameter::Argc => {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+                JsCallParameter::Argv => crate::gc_types::arg_vector::emit_null(function),
+                JsCallParameter::NewTargetTag => {
+                    function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+                }
+            }
+        }
+        for slot in PreparedScriptParameter::ALL {
+            match slot {
+                PreparedScriptParameter::VariableEnvironment => {
+                    function.instruction(&Instruction::LocalGet(environment_local));
+                }
+                PreparedScriptParameter::PrivateEnvironment
+                | PreparedScriptParameter::DirectEvalContext => {
+                    function.instruction(&Instruction::I64Const(0));
+                }
+            }
+        }
+        function.instruction(&Instruction::Call(wasm_index));
+        self.store_call_results(
+            crate::objects::TaggedLocals::new(self.result_local, self.result_tag_local),
+            function,
+        );
     }
 
     fn emit_enter_prepared_script_realm(

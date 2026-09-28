@@ -53,8 +53,8 @@ cargo test --release --locked -j2 -p lila-ir --test number_remainder
 cargo test --release --locked -j2 -p lila-engine --test aot_number_remainder
 ```
 
-Current verification is recorded in the
-[September repair notes](../observed-later-failure-repairs.md). The earlier
+Current failing executions and replay evidence are recorded in the
+[failure backlog](../../../tasks/README.md). The earlier
 operation-table ownership change was byte-equivalent; the subsequent tagged
 conversion repair intentionally changes execution behavior for mixed numeric
 operands and object coercion.

@@ -28,6 +28,15 @@ ICU_ERA_CODES = {
     "persian": {0: "ap"},
     "roc": {0: "broc", 1: "roc"},
     "islamic-civil": {0: "ah", 1: "bh"},
+    "coptic": {0: "am"},
+    "ethiopic-amete-alem": {0: "aa"},
+    "ethiopic": {0: "aa", 1: "am"},
+    "hebrew": {0: "am"},
+    "islamic-tbla": {0: "ah", 1: "bh"},
+    "islamic-umalqura": {0: "ah", 1: "bh"},
+    # Modern ICU4X returns Gregorian BCE/CE before Meiji; CLDR's historical
+    # Japanese era inventory ends at Reiwa (236), so reserve two checked keys.
+    "japanese": {237: "bce", 238: "ce"},
 }
 
 

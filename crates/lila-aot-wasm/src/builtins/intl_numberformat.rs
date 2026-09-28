@@ -10,7 +10,7 @@ use lila_intl::{NumberConfigurationWord as NfWord, NumberNumericKind, NumberPrec
 
 mod construction_lifecycle;
 mod initialization;
-mod numeric_input;
+pub(in crate::builtins) mod numeric_input;
 mod options;
 mod pool;
 pub(crate) use pool::intl_number_format_pool_strings;
@@ -19,6 +19,7 @@ mod primitive_locale;
 mod provider_wire;
 mod render;
 mod resolved;
+pub(crate) use digits::emit_plural_rules_digit_options;
 mod validation;
 
 const NF_RECEIVER_ERROR: &str = "Intl.NumberFormat method requires a NumberFormat receiver";
@@ -58,21 +59,21 @@ pub(crate) enum NfFormatMode {
     Parts,
 }
 
-struct NfOptionsLocals {
+pub(crate) struct NfOptionsLocals {
     words: [u32; lila_intl::NUMBER_CONFIGURATION_WORDS],
     style_text: u32,
 }
 impl NfOptionsLocals {
-    fn reserve(builder: &mut FunctionBuilder<'_>) -> Self {
+    pub(crate) fn reserve(builder: &mut FunctionBuilder<'_>) -> Self {
         Self {
             words: core::array::from_fn(|_| builder.reserve_temp_local()),
             style_text: builder.reserve_temp_local(),
         }
     }
-    fn word(&self, word: NfWord) -> u32 {
+    pub(crate) fn word(&self, word: NfWord) -> u32 {
         self.words[word.index()]
     }
-    fn release(self, builder: &mut FunctionBuilder<'_>) {
+    pub(crate) fn release(self, builder: &mut FunctionBuilder<'_>) {
         builder.release_temp_local(self.style_text);
         for local in self.words.into_iter().rev() {
             builder.release_temp_local(local);

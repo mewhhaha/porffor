@@ -10,7 +10,7 @@ impl<'a> FunctionBuilder<'a> {
         let callback_payload_local = self.reserve_temp_local();
         let callback_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let callback_env_local = self.reserve_temp_local();
         let callback_table_index_local = self.reserve_temp_local();
         let callback_flags_local = self.reserve_temp_local();
@@ -63,7 +63,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_default_this(function);
         self.emit_undefined_new_target(function);
         function.instruction(&Instruction::LocalGet(argc_local));
-        function.instruction(&Instruction::LocalGet(argv_local));
+        function.instruction(&Instruction::LocalGet(argv_local.index()));
         function.instruction(&Instruction::LocalGet(callback_table_index_local));
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::CallIndirect {
@@ -71,8 +71,7 @@ impl<'a> FunctionBuilder<'a> {
             table_index: 0,
         });
         self.store_call_results_to(
-            call_payload_local,
-            call_tag_local,
+            crate::objects::TaggedLocals::new(call_payload_local, call_tag_local),
             call_completion_local,
             call_aux_local,
             function,
@@ -262,7 +261,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(callback_flags_local);
         self.release_temp_local(callback_table_index_local);
         self.release_temp_local(callback_env_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callback_tag_local);
         self.release_temp_local(callback_payload_local);

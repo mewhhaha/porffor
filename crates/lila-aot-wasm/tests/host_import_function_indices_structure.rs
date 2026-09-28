@@ -5,9 +5,8 @@ const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/host-import-function-indices-authority.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
-const ROLES: [(&str, &str, &str, &str); 8] = [
+const ROLES: [(&str, &str, &str, &str); 9] = [
     (
         "NumberPowImportFunctionIndex",
         "number_pow",
@@ -55,6 +54,12 @@ const ROLES: [(&str, &str, &str, &str); 8] = [
         "random_f64",
         "random_f64_import_function_index",
         "random_f64_import_function_index",
+    ),
+    (
+        "GcImportFunctionIndex",
+        "gc",
+        "gc_import_function_index",
+        "gc_import_function_index",
     ),
 ];
 
@@ -394,7 +399,10 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
             "{getter} projection"
         );
     }
-    assert_eq!(getters.normalized.matches("map(|index|index.0)").count(), 8);
+    assert_eq!(
+        getters.normalized.matches("map(|index|index.0)").count(),
+        ROLES.len()
+    );
     assert_eq!(
         getters
             .normalized
@@ -412,14 +420,12 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
 }
 
 #[test]
-fn contract_and_t02_own_the_authority() {
+fn contract_owns_the_authority() {
     for marker in [
         "HostImportFunctionIndices",
         "host_import_function_indices_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
     assert!(CONTRACT.contains("Transposing two values compiled"));
-    assert!(TASK.contains("transpose two raw `Option<u32>` positions"));
 }

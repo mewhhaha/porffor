@@ -1,0 +1,7 @@
+module:language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-source-and-export.js
+module:language/module-code/source-phase-import/reexport-source-binding-named-import.js
+module:language/module-code/source-phase-import/reexport-source-binding-namespace-get.js
+sloppy-script:staging/source-phase-imports/import-source-source-text-module.js
+sloppy-script:staging/source-phase-imports/module-source-prototype-chain.js
+strict-script:staging/source-phase-imports/import-source-source-text-module.js
+strict-script:staging/source-phase-imports/module-source-prototype-chain.js

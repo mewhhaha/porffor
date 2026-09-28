@@ -4,7 +4,7 @@ const REFLECT_BUILTINS_SOURCE: &str = include_str!("../src/builtins/reflect.rs")
 const MODULE_BOUNDARY_SOURCE: &str = include_str!("../../../scripts/check-module-boundaries.sh");
 const CONTRACT_SOURCE: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-set-prototype-of-handler-protocol.md");
-const TASK_SOURCE: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
+
 const CLI_OBJECT_SOURCE: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const HANDLER_PROTOCOL_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_proxy_set_prototype_of_handler_protocol.js");
@@ -361,13 +361,6 @@ fn module_boundary_and_written_contract_pin_the_typed_acquisition() {
             CONTRACT_SOURCE.contains(marker),
             "contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "Proxy `[[SetPrototypeOf]]` handler acquisition",
-        "proxy_set_prototype_of_handler_protocol_structure",
-        "wasm_proxy_set_prototype_of_handler_protocol.js",
-    ] {
-        assert!(TASK_SOURCE.contains(marker), "T11 marker `{marker}`");
     }
 }
 

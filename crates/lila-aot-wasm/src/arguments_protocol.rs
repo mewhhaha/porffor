@@ -1,5 +1,6 @@
 use lila_ir::{FunctionFlavor, FunctionIr, StatementIr};
 
+use crate::functions::LegacyActivationMode;
 use crate::{EmitError, MappedSlot};
 
 /// Whether this invocation owns an arguments object, and the only legal
@@ -16,16 +17,27 @@ enum FunctionArgumentsState {
 
 enum FunctionArgumentsKind {
     Absent,
-    Present(PresentArgumentsObjectProtocol),
+    Present(ArgumentsBindingAction),
+}
+
+pub(crate) enum ArgumentsBindingAction {
+    Materialize(PresentArgumentsObjectProtocol),
+    /// Binding is unobserved, but legacy reflection can request the object.
+    DeferMapped(MappedArgumentsPlan),
+    /// Source analysis proved that no binding read is reachable, and this
+    /// function has no observable legacy `.arguments` data property.
+    ElideUnobserved,
 }
 
 pub(crate) enum PresentArgumentsObjectProtocol {
     Unmapped(UnmappedArgumentsPlan),
     Mapped(MappedArgumentsPlan),
+    /// Validated mapping words captured in the private native GC frame.
+    MappedFromFrame(crate::abi::ArgVectorLocal),
 }
 
 #[must_use = "the function arguments binding protocol must be consumed"]
-pub(crate) struct ArgumentsBindingProtocol(Option<PresentArgumentsObjectProtocol>);
+pub(crate) struct ArgumentsBindingProtocol(Option<ArgumentsBindingAction>);
 
 pub(crate) struct UnmappedArgumentsPlan {
     _private: (),
@@ -56,30 +68,43 @@ impl FunctionArgumentsProtocol {
 
     pub(crate) const fn strict_internal_callable() -> Self {
         Self(FunctionArgumentsState::Pending(
-            FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Unmapped(
-                UnmappedArgumentsPlan { _private: () },
+            FunctionArgumentsKind::Present(ArgumentsBindingAction::Materialize(
+                PresentArgumentsObjectProtocol::Unmapped(UnmappedArgumentsPlan { _private: () }),
             )),
         ))
     }
 
     pub(crate) fn for_user_function(function: &FunctionIr) -> Result<Self, EmitError> {
-        match function.protocol.flavor() {
-            FunctionFlavor::Arrow => Ok(Self(FunctionArgumentsState::Pending(
-                FunctionArgumentsKind::Absent,
-            ))),
-            FunctionFlavor::Ordinary if function.strict || !has_simple_parameter_list(function) => {
-                Ok(Self(FunctionArgumentsState::Pending(
-                    FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Unmapped(
-                        UnmappedArgumentsPlan { _private: () },
-                    )),
-                )))
+        let protocol = match function.protocol.flavor() {
+            FunctionFlavor::Arrow => {
+                return Ok(Self(FunctionArgumentsState::Pending(
+                    FunctionArgumentsKind::Absent,
+                )));
             }
-            FunctionFlavor::Ordinary => Ok(Self(FunctionArgumentsState::Pending(
-                FunctionArgumentsKind::Present(PresentArgumentsObjectProtocol::Mapped(
-                    MappedArgumentsPlan::for_function(function)?,
-                )),
-            ))),
-        }
+            FunctionFlavor::Ordinary if function.strict || !has_simple_parameter_list(function) => {
+                PresentArgumentsObjectProtocol::Unmapped(UnmappedArgumentsPlan { _private: () })
+            }
+            FunctionFlavor::Ordinary => {
+                PresentArgumentsObjectProtocol::Mapped(MappedArgumentsPlan::for_function(function)?)
+            }
+        };
+        let action = if function.own_arguments_use.is_proven_unobserved() {
+            match (
+                LegacyActivationMode::for_source(function.protocol, function.strict).is_exposable(),
+                protocol,
+            ) {
+                (false, _) => ArgumentsBindingAction::ElideUnobserved,
+                (true, PresentArgumentsObjectProtocol::Mapped(plan)) => {
+                    ArgumentsBindingAction::DeferMapped(plan)
+                }
+                (true, protocol) => ArgumentsBindingAction::Materialize(protocol),
+            }
+        } else {
+            ArgumentsBindingAction::Materialize(protocol)
+        };
+        Ok(Self(FunctionArgumentsState::Pending(
+            FunctionArgumentsKind::Present(action),
+        )))
     }
 
     pub(crate) fn take_for_binding(&mut self) -> Result<ArgumentsBindingProtocol, EmitError> {
@@ -114,7 +139,7 @@ impl FunctionArgumentsProtocol {
 }
 
 impl ArgumentsBindingProtocol {
-    pub(crate) fn into_present(self) -> Option<PresentArgumentsObjectProtocol> {
+    pub(crate) fn into_present_action(self) -> Option<ArgumentsBindingAction> {
         self.0
     }
 }
@@ -245,17 +270,30 @@ mod tests {
             .expect("valid lowered function should have an arguments protocol")
     }
 
-    fn take_present(
-        protocol: &mut FunctionArgumentsProtocol,
-    ) -> Option<PresentArgumentsObjectProtocol> {
+    fn take_action(protocol: &mut FunctionArgumentsProtocol) -> Option<ArgumentsBindingAction> {
         protocol
             .take_for_binding()
             .expect("fresh protocol should be bindable")
-            .into_present()
+            .into_present_action()
+    }
+
+    fn take_materialized(
+        protocol: &mut FunctionArgumentsProtocol,
+    ) -> Option<PresentArgumentsObjectProtocol> {
+        match take_action(protocol) {
+            Some(ArgumentsBindingAction::Materialize(plan)) => Some(plan),
+            Some(ArgumentsBindingAction::DeferMapped(plan)) => {
+                Some(PresentArgumentsObjectProtocol::Mapped(plan))
+            }
+            Some(ArgumentsBindingAction::ElideUnobserved) => {
+                panic!("fixture requires materialized arguments")
+            }
+            None => None,
+        }
     }
 
     fn mapped_entries(protocol: &mut FunctionArgumentsProtocol) -> Vec<(u32, u32)> {
-        let Some(PresentArgumentsObjectProtocol::Mapped(plan)) = take_present(protocol) else {
+        let Some(PresentArgumentsObjectProtocol::Mapped(plan)) = take_materialized(protocol) else {
             panic!("expected a mapped arguments protocol");
         };
         plan.entries
@@ -266,23 +304,23 @@ mod tests {
 
     #[test]
     fn function_arguments_protocol_distinguishes_absent_unmapped_and_mapped_empty() {
-        assert!(take_present(&mut protocol_for("const f = (value) => value;")).is_none());
+        assert!(take_action(&mut protocol_for("const f = (value) => value;")).is_none());
 
         for source in [
-            "function f(value) { 'use strict'; }",
+            "function f(value) { 'use strict'; return arguments[0]; }",
             "function f(value = 1) {}",
             "function f(...values) {}",
             "function f({ value }) {}",
         ] {
             assert!(matches!(
-                take_present(&mut protocol_for(source)),
+                take_materialized(&mut protocol_for(source)),
                 Some(PresentArgumentsObjectProtocol::Unmapped(_))
             ));
         }
 
         let mut empty = protocol_for("function f() {}");
         assert!(matches!(
-            take_present(&mut empty),
+            take_materialized(&mut empty),
             Some(PresentArgumentsObjectProtocol::Mapped(_))
         ));
         let mut empty = protocol_for("function f() {}");
@@ -304,12 +342,71 @@ mod tests {
     #[test]
     fn function_arguments_protocol_can_bind_only_once() {
         let mut protocol = protocol_for("function f(value) {}");
-        assert!(take_present(&mut protocol).is_some());
+        assert!(take_action(&mut protocol).is_some());
 
         let Err(error) = protocol.take_for_binding() else {
             panic!("a consumed arguments protocol must reject a second binding");
         };
         assert!(error.to_string().contains("was bound more than once"));
+    }
+
+    #[test]
+    fn unused_non_reflectable_binding_elides_only_its_object() {
+        for source in [
+            "function f(value) { 'use strict'; return value; }",
+            "const holder = { method(value) { return value; } };",
+            "const holder = { f(value) { var arguments = 1; return value; } };",
+        ] {
+            let mut protocol = protocol_for(source);
+            assert!(protocol.present().is_some(), "{source}");
+            assert!(
+                matches!(
+                    take_action(&mut protocol),
+                    Some(ArgumentsBindingAction::ElideUnobserved)
+                ),
+                "{source}"
+            );
+            assert!(protocol.present().is_some(), "{source}");
+        }
+    }
+
+    #[test]
+    fn unobserved_sloppy_binding_defers_its_mapped_object() {
+        assert!(matches!(
+            take_action(&mut protocol_for("function f(value) { return value; }")),
+            Some(ArgumentsBindingAction::DeferMapped(_))
+        ));
+    }
+
+    #[test]
+    fn source_reads_keep_arguments_materialized() {
+        for source in [
+            "function f(value) { 'use strict'; return arguments[0]; }",
+            "const holder = { f(value) { arguments = 1; return value; } };",
+            "const holder = { f(value) { var arguments; return arguments[0]; } };",
+            "function f(value) { 'use strict'; return () => arguments[0]; }",
+            "function f(value) { 'use strict'; return eval('arguments')[0]; }",
+            "'use strict'; function f(value = arguments[0]) { return value; }",
+        ] {
+            let program = lower_script(source);
+            let function = program
+                .script
+                .as_ref()
+                .expect("script IR should exist")
+                .functions
+                .iter()
+                .find(|function| function.name == "f")
+                .expect("fixture should lower f");
+            let mut protocol = FunctionArgumentsProtocol::for_user_function(function)
+                .expect("valid function should have an arguments protocol");
+            assert!(
+                matches!(
+                    take_action(&mut protocol),
+                    Some(ArgumentsBindingAction::Materialize(_))
+                ),
+                "{source}"
+            );
+        }
     }
 
     #[test]

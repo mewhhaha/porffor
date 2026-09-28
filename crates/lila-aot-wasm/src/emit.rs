@@ -2,9 +2,13 @@ use std::borrow::Cow;
 
 use lila_ir::DerivedConstructorActivationIr;
 
+use crate::abi::{
+    ArgVectorLocal, CallAbi, CallResultSlot, JsCallParameter, PreparedScriptParameter,
+};
 use crate::functions::{
     emit_array_alloc_helper_function, emit_function_object_alloc_helper_function,
-    LegacyActivationLocals, LegacyActivationMode,
+    host_builtin_environment_argument, HostBuiltinEnvironmentArgument, LegacyActivationLocals,
+    LegacyActivationMode,
 };
 use crate::modules::module_execution_record_count;
 use crate::objects::{
@@ -160,11 +164,11 @@ enum FunctionModuleState<'a> {
 }
 
 impl FunctionModuleState<'_> {
-    const fn parameter_count(&self) -> usize {
+    fn parameter_count(&self) -> usize {
         match self {
             Self::Main(_, _) => 0,
-            Self::Internal => JS_FUNCTION_PARAM_COUNT,
-            Self::PreparedScript(_) => PREPARED_SCRIPT_PARAM_COUNT,
+            Self::Internal => CallAbi::Js.parameter_count(),
+            Self::PreparedScript(_) => CallAbi::PreparedScript.parameter_count(),
         }
     }
 
@@ -336,6 +340,7 @@ impl NumericErrorRealmSource {
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::RuntimeErrorObject
+            | RuntimeHelperId::MaterializeLegacyArguments
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -421,6 +426,7 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::RuntimeErrorObject
+            | RuntimeHelperId::MaterializeLegacyArguments
             | RuntimeHelperId::JsonStringifyValue => Self::MainRealmFallback,
         }
     }
@@ -519,6 +525,7 @@ impl ObjectMutationErrorRealmSource {
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
             | RuntimeHelperId::RuntimeErrorObject
+            | RuntimeHelperId::MaterializeLegacyArguments
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -588,6 +595,7 @@ impl ObjectReadErrorRealmSource {
             | RuntimeHelperId::IndexedElementWrite
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::RuntimeErrorObject
+            | RuntimeHelperId::MaterializeLegacyArguments
             | RuntimeHelperId::JsonStringifyValue => Self::GlobalFallback,
         }
     }
@@ -673,6 +681,71 @@ impl CompletionKind {
     }
 }
 
+/// Temporary local indices are assigned once and keep their Wasm type for the
+/// whole body. The two free lists let scalar and reference lifetimes
+/// interleave without reserving the whole 2048-scalar planning range before
+/// the first reference local.
+struct TypedTempPool {
+    base: u32,
+    types: Vec<ValType>,
+    scalar_stack: Vec<u32>,
+    scalar_free: Vec<u32>,
+    arg_vector_stack: Vec<ArgVectorLocal>,
+    arg_vector_free: Vec<ArgVectorLocal>,
+}
+
+impl TypedTempPool {
+    fn new(base: u32) -> Self {
+        Self {
+            base,
+            types: Vec::new(),
+            scalar_stack: Vec::new(),
+            scalar_free: Vec::new(),
+            arg_vector_stack: Vec::new(),
+            arg_vector_free: Vec::new(),
+        }
+    }
+
+    fn reserve_legacy_arguments_frame(&mut self) -> crate::gc_types::legacy_arguments::FrameLocal {
+        let local =
+            crate::gc_types::legacy_arguments::FrameLocal::new(self.base + self.types.len() as u32);
+        self.types
+            .push(crate::gc_types::legacy_arguments::ref_type());
+        local
+    }
+
+    fn reserve_scalar(&mut self, limit: u32) -> u32 {
+        assert!(self.scalar_stack.len() < limit as usize);
+        let local = self.scalar_free.pop().unwrap_or_else(|| {
+            let local = self.base + self.types.len() as u32;
+            self.types.push(ValType::I64);
+            local
+        });
+        self.scalar_stack.push(local);
+        local
+    }
+
+    fn release_scalar(&mut self, local: u32) {
+        assert_eq!(self.scalar_stack.pop(), Some(local));
+        self.scalar_free.push(local);
+    }
+
+    fn reserve_arg_vector(&mut self) -> ArgVectorLocal {
+        let local = self.arg_vector_free.pop().unwrap_or_else(|| {
+            let local = ArgVectorLocal::new(self.base + self.types.len() as u32);
+            self.types.push(crate::gc_types::arg_vector::ref_type());
+            local
+        });
+        self.arg_vector_stack.push(local);
+        local
+    }
+
+    fn release_arg_vector(&mut self, local: ArgVectorLocal) {
+        assert_eq!(self.arg_vector_stack.pop(), Some(local));
+        self.arg_vector_free.push(local);
+    }
+}
+
 pub(crate) struct FunctionBuilder<'a> {
     pub(crate) body: &'a BlockIr,
     module_prelude_id: Option<lila_ir::StaticScriptId>,
@@ -705,6 +778,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) class_function_context_local: u32,
     pub(crate) captured_direct_eval_execution_context_local: Option<u32>,
     pub(crate) legacy_activation_locals: Option<LegacyActivationLocals>,
+    pub(crate) deferred_arguments_frame: Option<crate::gc_types::legacy_arguments::FrameLocal>,
     /// Sloppy source functions share one cleanup/return epilogue. Abrupt
     /// guards branch here instead of copying legacy property scans per site.
     pub(crate) legacy_completion_exit: Option<LabelDepth>,
@@ -716,8 +790,7 @@ pub(crate) struct FunctionBuilder<'a> {
     pub(crate) completion_aux_local: u32,
     pub(crate) scratch_local: u32,
     pub(crate) temp_local_base: u32,
-    pub(crate) temp_stack_depth: u32,
-    pub(crate) max_temp_stack_depth: u32,
+    temp_pool: TypedTempPool,
     pub(crate) environment_depth: u32,
     pub(crate) this_payload_local: Option<u32>,
     pub(crate) this_tag_local: Option<u32>,
@@ -1476,6 +1549,9 @@ fn emit_script_with_forced_builtins(
     uses_heap: bool,
     promise_rejection_policy: PromiseRejectionPolicy,
 ) -> Result<(WasmArtifact, ForcedBuiltins), EmitError> {
+    // Heap-backed modules emit guarded JS-ABI helpers, so this import is
+    // present exactly when the code section contains stack-guard wrappers.
+    let uses_stack_guard = uses_heap;
     let references_agent_host = script
         .host_builtins
         .iter()
@@ -1536,6 +1612,7 @@ fn emit_script_with_forced_builtins(
     // same line-oriented host ABI as `print`. Its import therefore belongs to
     // every heap-backed module even when user source never names `print`.
     let uses_host_print = uses_heap || compiled_host_builtins.contains(&HostBuiltinId::Print);
+    let uses_host_gc = compiled_host_builtins.contains(&HostBuiltinId::Gc);
     let uses_agent_host = compiled_host_builtins.iter().any(|builtin| {
         matches!(
             builtin,
@@ -1621,7 +1698,14 @@ fn emit_script_with_forced_builtins(
         + u32::from(uses_agent_host)
         + u32::from(uses_intl_host)
         + u32::from(uses_random_f64);
-    let imported_function_count = reject_dynamic_source_import_function_index + 1;
+    let stack_guard_import_function_index =
+        uses_stack_guard.then_some(reject_dynamic_source_import_function_index + 1);
+    let gc_import_function_index = uses_host_gc
+        .then_some(reject_dynamic_source_import_function_index + 1 + u32::from(uses_stack_guard));
+    let imported_function_count = reject_dynamic_source_import_function_index
+        + 1
+        + u32::from(uses_stack_guard)
+        + u32::from(uses_host_gc);
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
     // The Temporal calendar helpers are only *called* from the five types that
@@ -1659,6 +1743,7 @@ fn emit_script_with_forced_builtins(
         intl_call_import_function_index.map(IntlCallImportFunctionIndex::new),
         random_f64_import_function_index.map(RandomF64ImportFunctionIndex::new),
         RejectDynamicSourceImportFunctionIndex::new(reject_dynamic_source_import_function_index),
+        gc_import_function_index.map(GcImportFunctionIndex::new),
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -1748,7 +1833,11 @@ fn emit_script_with_forced_builtins(
         &ConstExpr::i64_const(0),
     );
     if uses_heap {
-        for _ in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
+        for index in THROW_ERROR_NAME_HEAP_GLOBAL_INDEX + 1..GLOBAL_INDEX_REGISTRY.len() as u32 {
+            if index == crate::gc_types::legacy_arguments::GLOBAL_INDEX {
+                globals.legacy_arguments_root();
+                continue;
+            }
             globals.global(
                 GlobalType {
                     val_type: ValType::I64,
@@ -2462,6 +2551,23 @@ fn emit_script_with_forced_builtins(
             builder.compile_runtime_error_object_helper()
         })
         .transpose()?;
+    let materialize_legacy_arguments_helper_function = uses_heap
+        .then(|| {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                heap_alloc_function_index,
+                object_append_data_property_function_index,
+                object_append_accessor_property_function_index,
+                function_object_alloc_function_index,
+                plain_object_alloc_function_index,
+                array_alloc_function_index,
+            );
+            builder.compile_materialize_legacy_arguments_helper()
+        })
+        .transpose()?;
     let with_environment_has_binding_helper_function = uses_heap
         .then(|| {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -2796,6 +2902,11 @@ fn emit_script_with_forced_builtins(
                 .expect("runtime error-object helper must exist when heap is enabled"),
         );
         helper_bodies.insert(
+            RuntimeHelperId::MaterializeLegacyArguments,
+            materialize_legacy_arguments_helper_function
+                .expect("legacy argument materializer requires a heap"),
+        );
+        helper_bodies.insert(
             RuntimeHelperId::IndexedElementRead,
             indexed_element_read_helper_function
                 .expect("indexed element-read helper must exist when heap is enabled"),
@@ -2871,9 +2982,9 @@ fn emit_script_with_forced_builtins(
         let prepared_start = script.functions.len();
         let prepared_end = prepared_start + script.prepared_script_units().count();
         functions.function(if (prepared_start..prepared_end).contains(&index) {
-            PREPARED_SCRIPT_TYPE_INDEX
+            CallAbi::PreparedScript.type_index()
         } else {
-            JS_FUNCTION_TYPE_INDEX
+            CallAbi::Js.type_index()
         });
     }
     if uses_heap {
@@ -2951,7 +3062,223 @@ fn emit_script_with_forced_builtins(
         "compiled runtime helper bodies were never emitted: {:?}",
         helper_bodies.keys().collect::<Vec<_>>()
     );
+
+    let mut stack_guard_main_wrapper = None;
+    let stack_guard_metadata = if uses_stack_guard {
+        let original_defined_function_count = u32::try_from(compiled_functions.len() + 1)
+            .map_err(|_| EmitError::unsupported("stack-guard function index space overflow"))?;
+        let prepared_start = script.functions.len();
+        let prepared_end = prepared_start + script.prepared_script_units().count();
+        let mut guarded_shapes = BTreeMap::new();
+        let mut unguarded_helper_indices = Vec::new();
+
+        for (callable_index, emitted) in compiled_functions
+            .iter()
+            .take(callable_function_count)
+            .enumerate()
+        {
+            let defined_index = u32::try_from(callable_index + 1)
+                .map_err(|_| EmitError::unsupported("stack-guard function index overflow"))?;
+            let abi = if (prepared_start..prepared_end).contains(&callable_index) {
+                CallAbi::PreparedScript
+            } else {
+                CallAbi::Js
+            };
+            let realm_source = if (prepared_start..prepared_end).contains(&callable_index) {
+                FunctionRealmSource::PreparedScript
+            } else {
+                match emitted.identity() {
+                    FunctionIdentity::Script { id, .. } => {
+                        let meta = function_metas.get(id).ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "stack guard cannot resolve the Realm source for function `{id}`"
+                            ))
+                        })?;
+                        FunctionRealmSource::LexicalEnvironment {
+                            has_function_context: meta.has_function_context(),
+                            missing_environment: MissingEnvironmentRealmSource::Trap,
+                        }
+                    }
+                    FunctionIdentity::StandardBuiltin(_)
+                    | FunctionIdentity::StandardBuiltinStub(_) => {
+                        FunctionRealmSource::FunctionEnvironment
+                    }
+                    FunctionIdentity::HostBuiltin(builtin) => {
+                        match host_builtin_environment_argument(*builtin) {
+                            HostBuiltinEnvironmentArgument::FunctionObject => {
+                                FunctionRealmSource::FunctionEnvironment
+                            }
+                            HostBuiltinEnvironmentArgument::LexicalEnvironment => {
+                                FunctionRealmSource::LexicalEnvironment {
+                                    has_function_context: false,
+                                    missing_environment:
+                                        MissingEnvironmentRealmSource::ActiveOrCurrent,
+                                }
+                            }
+                        }
+                    }
+                    identity => {
+                        return Err(EmitError::unsupported(format!(
+                            "stack guard cannot wrap callable identity `{}`",
+                            identity.wasm_name()
+                        )));
+                    }
+                }
+            };
+            guarded_shapes.insert(
+                DefinedFunctionIndex::new(defined_index),
+                (abi, realm_source),
+            );
+        }
+
+        for (function_index, emitted) in compiled_functions
+            .iter()
+            .enumerate()
+            .skip(callable_function_count)
+        {
+            let FunctionIdentity::RuntimeHelper(helper) = emitted.identity() else {
+                return Err(EmitError::unsupported(format!(
+                    "stack guard found a non-helper after the callable function range: {}",
+                    emitted.identity().wasm_name()
+                )));
+            };
+            let defined_index = u32::try_from(function_index + 1)
+                .map_err(|_| EmitError::unsupported("stack-guard function index overflow"))?;
+            match helper.stack_guard_policy() {
+                crate::runtime_helpers::StackGuardPolicy::GuardedThrowCompletion => {
+                    let abi = [CallAbi::Js, CallAbi::Raw, CallAbi::Dispatch]
+                        .into_iter()
+                        .find(|abi| abi.type_index() == helper.type_index())
+                        .ok_or_else(|| {
+                            EmitError::unsupported(format!(
+                                "stack guard policy marks incompatible helper `{}` as guarded",
+                                helper.debug_name()
+                            ))
+                        })?;
+                    guarded_shapes.insert(
+                        DefinedFunctionIndex::new(defined_index),
+                        (abi, FunctionRealmSource::Active),
+                    );
+                }
+                crate::runtime_helpers::StackGuardPolicy::BoundedNoGuard
+                | crate::runtime_helpers::StackGuardPolicy::ErrorConstruction => {
+                    unguarded_helper_indices.push(DefinedFunctionIndex::new(defined_index));
+                }
+            }
+        }
+
+        if !unguarded_helper_indices.iter().any(|index| {
+            heap_alloc_function_index.is_some_and(|base| {
+                RuntimeHelperId::RuntimeErrorObject.index(base) - imported_function_count
+                    == index.get()
+            })
+        }) {
+            return Err(EmitError::unsupported(
+                "stack guard requires the unguarded RuntimeErrorObject helper",
+            ));
+        }
+
+        let plan = StackGuardPlan::new(
+            original_defined_function_count,
+            guarded_shapes.keys().copied(),
+        )
+        .map_err(|error| EmitError::unsupported(error.to_string()))?;
+        let startup_body_index = original_defined_function_count
+            .checked_add(plan.appended_body_count())
+            .ok_or_else(|| {
+                EmitError::unsupported("stack-guard startup body index overflows u32")
+            })?;
+        startup_body_index
+            .checked_add(1)
+            .ok_or_else(|| EmitError::unsupported("stack-guard function count overflows u32"))?;
+        let startup_body = DefinedFunctionIndex::new(startup_body_index);
+        let can_enter_import_index = stack_guard_import_function_index.ok_or_else(|| {
+            EmitError::unsupported("stack-guard wrappers require their host callback import")
+        })?;
+        let runtime_error_object_wasm_index = RuntimeHelperId::RuntimeErrorObject
+            .index(heap_alloc_function_index.expect("heap-backed modules emit RuntimeErrorObject"));
+        let range_error_name_payload = string_pool.payload(RANGE_ERROR_NAME);
+        let range_error_message_payload = string_pool.payload("");
+        let mut relocated_bodies = Vec::with_capacity(plan.appended_body_count() as usize);
+        let mut guarded_functions = Vec::with_capacity(plan.guarded_functions().len());
+
+        for (function_index, emitted) in compiled_functions.into_iter().enumerate() {
+            let defined_index = DefinedFunctionIndex::new(
+                u32::try_from(function_index + 1)
+                    .map_err(|_| EmitError::unsupported("stack-guard function index overflow"))?,
+            );
+            let Some(guarded) = plan
+                .guarded_functions()
+                .iter()
+                .find(|guarded| guarded.wrapper() == defined_index)
+                .copied()
+            else {
+                guarded_functions.push(emitted);
+                continue;
+            };
+            let (abi, realm_source) = *guarded_shapes
+                .get(&defined_index)
+                .expect("every planned wrapper has its original ABI shape");
+            let target_identity = emitted.identity().clone();
+            let wrapper_body = emit_guarded_wrapper(
+                guarded,
+                imported_function_count,
+                can_enter_import_index,
+                runtime_error_object_wasm_index,
+                abi,
+                range_error_name_payload,
+                range_error_message_payload,
+                realm_source,
+            )
+            .map_err(|error| EmitError::unsupported(error.to_string()))?;
+            guarded_functions.push(EmittedFunction::new(
+                FunctionIdentity::StackGuardWrapper(Box::new(target_identity.clone())),
+                wrapper_body,
+            ));
+            functions.function(abi.type_index());
+            relocated_bodies.push(
+                emitted
+                    .with_identity(FunctionIdentity::GuardedBody(Box::new(target_identity)))
+                    .with_active_realm_restoration(
+                        abi.parameter_count() as u32,
+                        STACK_GUARD_ACTIVE_REALM_GLOBAL_INDEX,
+                    )
+                    .map_err(EmitError::unsupported)?,
+            );
+        }
+
+        // The appended bodies follow wrapper-index order, matching the
+        // relocation plan's body indices exactly.
+        guarded_functions.extend(relocated_bodies);
+        compiled_functions = guarded_functions;
+        functions.function(0);
+        let main_wrapper_body = emit_main_entry_wrapper(
+            startup_body,
+            imported_function_count,
+            can_enter_import_index,
+        )
+        .map_err(|error| EmitError::unsupported(error.to_string()))?;
+        stack_guard_main_wrapper = Some(EmittedFunction::new(
+            FunctionIdentity::StackGuardWrapper(Box::new(FunctionIdentity::Main)),
+            main_wrapper_body,
+        ));
+
+        Some(StackGuardMetadata {
+            original_defined_function_count: plan.original_defined_function_count(),
+            startup_body,
+            guarded_functions: plan.guarded_functions().to_vec(),
+            unguarded_helper_indices: unguarded_helper_indices.into_iter().collect(),
+        })
+    } else {
+        None
+    };
+
     module_package.append_remaining_functions(compiled_functions);
+    if let Some(main_wrapper) = stack_guard_main_wrapper {
+        module_package
+            .wrap_main_and_relocate(main_wrapper, STACK_GUARD_ACTIVE_REALM_GLOBAL_INDEX)
+            .map_err(EmitError::unsupported)?;
+    }
 
     let mut imports = ImportSection::new();
     imports.import(
@@ -3048,6 +3375,20 @@ fn emit_script_with_forced_builtins(
         HOST_IMPORT_REJECT_DYNAMIC_SOURCE,
         wasm_encoder::EntityType::Function(HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX),
     );
+    if uses_stack_guard {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_STACK_GUARD,
+            wasm_encoder::EntityType::Function(STACK_GUARD_IMPORT_TYPE_INDEX),
+        );
+    }
+    if uses_host_gc {
+        imports.import(
+            HOST_IMPORT_MODULE,
+            HOST_IMPORT_GC,
+            wasm_encoder::EntityType::Function(HOST_GC_IMPORT_TYPE_INDEX),
+        );
+    }
 
     let mut memories = None;
     let mut data = None;
@@ -3270,6 +3611,11 @@ fn emit_script_with_forced_builtins(
     debug_dump.push(format!(
         "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_REJECT_DYNAMIC_SOURCE}"
     ));
+    if uses_host_gc {
+        debug_dump.push(format!(
+            "import func: {HOST_IMPORT_MODULE}.{HOST_IMPORT_GC}"
+        ));
+    }
 
     if !string_pool.bytes.is_empty() || uses_heap {
         if uses_shared_memory {
@@ -3305,6 +3651,19 @@ fn emit_script_with_forced_builtins(
         debug_dump.push(format!(
             "custom section: {INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION} ({} bytes)",
             artifact_identity.as_bytes().len()
+        ));
+    }
+
+    if let Some(stack_guard_metadata) = &stack_guard_metadata {
+        let metadata = stack_guard_metadata.encode();
+        module.section(&wasm_encoder::CustomSection {
+            name: Cow::Borrowed(STACK_GUARD_CUSTOM_SECTION),
+            data: Cow::Owned(metadata),
+        });
+        debug_dump.push(format!(
+            "custom section: {STACK_GUARD_CUSTOM_SECTION} ({} wrappers, {} unguarded helpers)",
+            stack_guard_metadata.guarded_functions.len(),
+            stack_guard_metadata.unguarded_helper_indices.len()
         ));
     }
 
@@ -3355,6 +3714,20 @@ fn emit_script_with_forced_builtins(
             invariant_note: "direct-js-to-wasm module",
             debug_dump: debug_dump.join("\n"),
             function_sizes,
+            stack_guard: stack_guard_metadata.map(|metadata| StackGuardArtifactMetadata {
+                original_defined_function_count: metadata.original_defined_function_count,
+                startup_body: metadata.startup_body.get(),
+                guarded_functions: metadata
+                    .guarded_functions
+                    .into_iter()
+                    .map(|guarded| (guarded.wrapper().get(), guarded.body().get()))
+                    .collect(),
+                unguarded_helper_indices: metadata
+                    .unguarded_helper_indices
+                    .into_iter()
+                    .map(DefinedFunctionIndex::get)
+                    .collect(),
+            }),
         },
         touched_stubbed,
     ))
@@ -3714,7 +4087,8 @@ impl<'a> FunctionBuilder<'a> {
             + (hoisted_vars.len() as u32 * 2);
         let temp_local_count = count_block_temp_locals(body).max(2048) as u32;
         let current_env_local = param_local_count + total_binding_local_count;
-        let class_function_context_local = current_env_local + 5;
+        let first_result_local = current_env_local + 1;
+        let class_function_context_local = first_result_local + CallResultSlot::ALL.len() as u32;
         let named_function_context_local = class_function_context_local + 1;
         let scratch_local = named_function_context_local + 1;
         let captured_direct_eval_execution_context_local = captured_bindings
@@ -3731,27 +4105,9 @@ impl<'a> FunctionBuilder<'a> {
             // planner, so its exit funnel cannot access an absent global.
             .filter(|_| uses_heap)
             .and_then(|meta| match meta.origin {
-                FunctionMetaOrigin::Source => Some(match meta.protocol {
-                    FunctionProtocolIr::OrdinaryCallAndConstruct if !meta.strict => {
-                        LegacyActivationMode::Exposable
-                    }
-                    FunctionProtocolIr::OrdinaryCallOnly
-                    | FunctionProtocolIr::OrdinaryCallAndConstruct
-                    | FunctionProtocolIr::Arrow
-                    | FunctionProtocolIr::Generator
-                    | FunctionProtocolIr::Async
-                    | FunctionProtocolIr::AsyncArrow
-                    | FunctionProtocolIr::AsyncGenerator
-                    | FunctionProtocolIr::ModuleActivation
-                    | FunctionProtocolIr::AsyncModuleActivation
-                    | FunctionProtocolIr::ObjectMethod(_)
-                    | FunctionProtocolIr::ObjectGetter
-                    | FunctionProtocolIr::ObjectSetter
-                    | FunctionProtocolIr::ClassConstructor
-                    | FunctionProtocolIr::ClassMethod(_)
-                    | FunctionProtocolIr::ClassGetter
-                    | FunctionProtocolIr::ClassSetter => LegacyActivationMode::Barrier,
-                }),
+                FunctionMetaOrigin::Source => {
+                    Some(LegacyActivationMode::for_source(meta.protocol, meta.strict))
+                }
                 FunctionMetaOrigin::PreparedScript => match &module_state {
                     FunctionModuleState::PreparedScript(unit) => match &unit.kind {
                         PreparedScriptKind::DirectEval(_) => None,
@@ -3774,6 +4130,12 @@ impl<'a> FunctionBuilder<'a> {
             });
         let legacy_activation_locals = legacy_activation_mode
             .map(|mode| LegacyActivationLocals::at(legacy_activation_base, mode));
+        let temp_local_base = legacy_activation_base
+            + if legacy_activation_locals.is_some() {
+                LegacyActivationLocals::COUNT
+            } else {
+                0
+            };
         let object_read_error_realm_source =
             ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
         let object_mutation_error_realm_source =
@@ -3812,25 +4174,22 @@ impl<'a> FunctionBuilder<'a> {
             class_function_context_local,
             captured_direct_eval_execution_context_local,
             legacy_activation_locals,
+            deferred_arguments_frame: None,
             legacy_completion_exit: None,
             active_private_environment_locals: Vec::new(),
             named_function_context_local,
-            result_local: current_env_local + 1,
-            result_tag_local: current_env_local + 2,
-            completion_local: current_env_local + 3,
-            completion_aux_local: current_env_local + 4,
+            result_local: first_result_local + CallResultSlot::Payload.index(),
+            result_tag_local: first_result_local + CallResultSlot::Tag.index(),
+            completion_local: first_result_local + CallResultSlot::Completion.index(),
+            completion_aux_local: first_result_local + CallResultSlot::Aux.index(),
             scratch_local,
-            temp_local_base: legacy_activation_base
-                + if legacy_activation_locals.is_some() {
-                    LegacyActivationLocals::COUNT
-                } else {
-                    0
-                },
-            temp_stack_depth: 0,
-            max_temp_stack_depth: 0,
+            temp_local_base,
+            temp_pool: TypedTempPool::new(temp_local_base),
             environment_depth: 0,
-            this_payload_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(1),
-            this_tag_local: matches!(return_abi, ReturnAbi::MultiValue).then_some(2),
+            this_payload_local: matches!(return_abi, ReturnAbi::MultiValue)
+                .then_some(JsCallParameter::ThisPayload.index()),
+            this_tag_local: matches!(return_abi, ReturnAbi::MultiValue)
+                .then_some(JsCallParameter::ThisTag.index()),
             control_stack: Vec::new(),
             breakable_stack: Vec::new(),
             loop_stack: Vec::new(),
@@ -4106,6 +4465,12 @@ impl<'a> FunctionBuilder<'a> {
     /// only when `JSON.stringify` is compiled, immediately after the last
     /// unconditional runtime helper, so its index never shifts the preceding
     /// fixed-offset helpers.
+    pub(crate) fn reserve_legacy_arguments_frame(
+        &mut self,
+    ) -> crate::gc_types::legacy_arguments::FrameLocal {
+        self.temp_pool.reserve_legacy_arguments_frame()
+    }
+
     pub(crate) fn json_stringify_value_helper_function_index(&self) -> Option<u32> {
         self.heap_alloc_function_index
             .map(|base| RuntimeHelperId::JsonStringifyValue.index(base))
@@ -4116,9 +4481,21 @@ impl<'a> FunctionBuilder<'a> {
             + self.temp_local_count as usize
     }
 
+    fn declared_local_types(&self, local_count: usize) -> Vec<ValType> {
+        CallResultSlot::declared_local_types(
+            self.module_state.parameter_count(),
+            self.result_local - CallResultSlot::Payload.index(),
+            local_count,
+        )
+    }
+
+    fn new_body(&self) -> Function {
+        Function::new_with_locals_types(self.declared_local_types(self.local_count()))
+    }
+
     pub(crate) fn emitted_local_count(&self) -> u32 {
         self.temp_local_base - self.module_state.parameter_count() as u32
-            + self.max_temp_stack_depth
+            + self.temp_pool.types.len() as u32
     }
 
     pub(crate) const fn is_main(&self) -> bool {
@@ -4172,7 +4549,7 @@ impl<'a> FunctionBuilder<'a> {
             FunctionModuleState::PreparedScript(unit)
                 if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
             {
-                Some(9)
+                Some(PreparedScriptParameter::DirectEvalContext.index())
             }
             FunctionModuleState::Main(_, _)
             | FunctionModuleState::Internal
@@ -4187,7 +4564,7 @@ impl<'a> FunctionBuilder<'a> {
             FunctionModuleState::PreparedScript(unit)
                 if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) =>
             {
-                Some(8)
+                Some(PreparedScriptParameter::PrivateEnvironment.index())
             }
             FunctionModuleState::Main(_, _)
             | FunctionModuleState::Internal
@@ -4218,18 +4595,23 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn reserve_temp_local(&mut self) -> u32 {
-        assert!(self.temp_stack_depth < self.temp_local_count);
-        let local = self.temp_local_base + self.temp_stack_depth;
-        self.temp_stack_depth += 1;
-        self.max_temp_stack_depth = self.max_temp_stack_depth.max(self.temp_stack_depth);
-        local
+        self.temp_pool.reserve_scalar(self.temp_local_count)
     }
 
     pub(crate) fn release_temp_local(&mut self, local: u32) {
-        assert!(self.temp_stack_depth > 0);
-        self.temp_stack_depth -= 1;
-        let expected = self.temp_local_base + self.temp_stack_depth;
-        assert_eq!(local, expected);
+        self.temp_pool.release_scalar(local);
+    }
+
+    pub(crate) fn reserve_arg_vector_local(&mut self) -> ArgVectorLocal {
+        self.temp_pool.reserve_arg_vector()
+    }
+
+    pub(crate) fn release_arg_vector_local(&mut self, local: ArgVectorLocal) {
+        self.temp_pool.release_arg_vector(local);
+    }
+
+    pub(crate) const fn arg_vector_param_local(&self) -> ArgVectorLocal {
+        ArgVectorLocal::new(JsCallParameter::Argv.index())
     }
 
     /// Rewrites the body's local declaration down to the locals actually used.
@@ -4244,15 +4626,20 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn finish_function(&self, function: Function) -> Function {
         let planned_local_count = self.local_count() as u32;
         let emitted_local_count = self.emitted_local_count();
-        if emitted_local_count == planned_local_count {
-            return function;
-        }
-
         // The rebuild itself lives in `code_sink.rs`: it is the one operation
         // that reconstructs a body from raw bytes, and going through the public
         // constructors here would reset the label depth to "fresh body" on a
         // body that is already closed.
-        function.rewrite_local_declaration(planned_local_count, emitted_local_count)
+        let planned_types = self.declared_local_types(planned_local_count as usize);
+        let mut emitted_types = self.declared_local_types(
+            (self.temp_local_base as usize) - self.module_state.parameter_count(),
+        );
+        emitted_types.extend_from_slice(&self.temp_pool.types);
+        assert_eq!(emitted_types.len(), emitted_local_count as usize);
+        if emitted_types == planned_types {
+            return function;
+        }
+        function.rewrite_local_declaration_types(&planned_types, &emitted_types)
     }
 
     fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
@@ -4298,8 +4685,7 @@ impl<'a> FunctionBuilder<'a> {
                 "private module activation requires its validated execution graph",
             ));
         }
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.new_body();
 
         self.push_scope();
         self.initialize_runtime_gc_anchor_root(&mut function);
@@ -4388,6 +4774,29 @@ impl<'a> FunctionBuilder<'a> {
         self.bind_parameters(&mut function)?;
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         for name in self.hoisted_vars.clone() {
+            // With one parameter/body environment, `var arguments` declares
+            // the already initialized implicit binding. Keep both IR storage
+            // names on the same cell so reads and later assignments agree.
+            // A formal or hoisted function named `arguments` owns its own
+            // binding instead. A body with parameter expressions carries its
+            // separate var environment in FunctionBody initialization below.
+            let reuses_implicit_arguments = !self.is_main()
+                && name == "arguments"
+                && self.function_arguments_protocol.present().is_some()
+                && !self.params.iter().any(|param| param.name == "arguments")
+                && !self.body.statements.iter().any(|statement| {
+                    matches!(statement, StatementIr::Lexical { name, .. } if name == "arguments")
+                });
+            if reuses_implicit_arguments {
+                let storage = self
+                    .lookup_binding(LEXICAL_ARGUMENTS_NAME)
+                    .expect("present arguments protocol must bind the implicit arguments storage");
+                self.binding_scopes
+                    .last_mut()
+                    .expect("binding scope stack must exist")
+                    .insert(name, storage);
+                continue;
+            }
             // A main-frame write name always owns storage. Internal functions
             // may instead reuse their parameter or implicit `arguments`
             // binding, preserving their existing hoisting behavior.
@@ -4512,7 +4921,7 @@ impl<'a> FunctionBuilder<'a> {
         {
             self.emit_super_construct_with_arg_vector(
                 self.argc_param_local(),
-                self.argv_param_local(),
+                self.arg_vector_param_local(),
                 self.result_local,
                 self.result_tag_local,
                 &mut function,
@@ -4614,10 +5023,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(self.result_local));
             }
             ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(self.result_local));
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+                self.emit_current_completion_values(&mut function);
             }
         }
         function.instruction(&Instruction::End);
@@ -4824,6 +5230,10 @@ impl<'a> FunctionBuilder<'a> {
         let realm = self.emit_alloc_realm_record(1, 1, realm_local, function)?;
         function.instruction(&Instruction::LocalGet(realm.index()));
         function.instruction(&Instruction::GlobalSet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalGet(realm.index()));
+        function.instruction(&Instruction::GlobalSet(
+            STACK_GUARD_ACTIVE_REALM_GLOBAL_INDEX,
+        ));
         self.release_temp_local(realm_local);
         Ok(())
     }
@@ -4834,8 +5244,7 @@ impl<'a> FunctionBuilder<'a> {
                 "unsupported in lila wasm-aot first slice: missing builtin id",
             ));
         };
-        let mut function =
-            Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()));
+        let mut function = self.new_body();
         self.push_scope();
         self.init_current_env(&mut function)?;
         self.emit_begin_legacy_activation(&mut function);
@@ -4940,10 +5349,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.pop_scope();
         self.emit_end_legacy_activation(&mut function);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5053,10 +5459,11 @@ impl<'a> FunctionBuilder<'a> {
             // allocates and appends without creating a runtime error, so it
             // cannot reach its own call seam.
             | RuntimeHelperId::RuntimeErrorObject
+            | RuntimeHelperId::MaterializeLegacyArguments
             // Deliberately recursive: see above.
             | RuntimeHelperId::JsonStringifyValue => {}
         }
-        Function::new_with_locals_types(std::iter::repeat_n(ValType::I64, self.local_count()))
+        self.new_body()
     }
 
     /// Compiles the shared object-read runtime helper. Rather than inlining the
@@ -5087,10 +5494,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5120,10 +5524,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_object_write(0, 1, 2, 3, 4, &mut function)?;
         self.pop_scope();
         self.object_write_strict_flag_local = None;
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5157,10 +5558,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5190,10 +5588,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5212,10 +5607,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_array_write(0, 1, 2, 3, &mut function)?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5304,10 +5696,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(receiver_payload_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_payload_local);
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5346,17 +5735,14 @@ impl<'a> FunctionBuilder<'a> {
             1,
             Some((2, Some(3))),
             4,
-            5,
+            ArgVectorLocal::new(5),
             self.result_local,
             self.result_tag_local,
             PropagateCallThrow::LeaveInCompletion,
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5384,10 +5770,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5414,16 +5797,13 @@ impl<'a> FunctionBuilder<'a> {
             2,
             3,
             4,
-            5,
+            ArgVectorLocal::new(5),
             self.result_local,
             self.result_tag_local,
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5447,16 +5827,13 @@ impl<'a> FunctionBuilder<'a> {
             2,
             3,
             4,
-            5,
+            ArgVectorLocal::new(5),
             self.result_local,
             self.result_tag_local,
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5777,10 +6154,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5864,10 +6238,7 @@ impl<'a> FunctionBuilder<'a> {
             &mut function,
         )?;
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -5900,7 +6271,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.named_function_context_local));
             }
             ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(0));
+                function.instruction(&Instruction::LocalGet(JsCallParameter::Environment.index()));
                 function.instruction(&Instruction::LocalSet(self.current_env_local));
                 if self
                     .current_function_meta()
@@ -6343,5 +6714,38 @@ impl<'a> FunctionBuilder<'a> {
                 .shared_memory_alloc_function_index()
                 .is_some(),
         )
+    }
+}
+
+#[cfg(test)]
+mod typed_temp_pool_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_and_argument_vector_reuse_never_retypes_a_local() {
+        let mut pool = TypedTempPool::new(11);
+        let first_scalar = pool.reserve_scalar(8);
+        let first_vector = pool.reserve_arg_vector();
+        let second_scalar = pool.reserve_scalar(8);
+        assert_eq!(
+            (first_scalar, first_vector.index(), second_scalar),
+            (11, 12, 13)
+        );
+        pool.release_scalar(second_scalar);
+        pool.release_arg_vector(first_vector);
+        pool.release_scalar(first_scalar);
+
+        let reused_vector = pool.reserve_arg_vector();
+        let reused_scalar = pool.reserve_scalar(8);
+        assert_eq!(reused_vector, first_vector);
+        assert_eq!(reused_scalar, first_scalar);
+        assert_eq!(
+            pool.types,
+            [
+                ValType::I64,
+                crate::gc_types::arg_vector::ref_type(),
+                ValType::I64,
+            ]
+        );
     }
 }

@@ -4,7 +4,6 @@ use std::path::Path;
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/pending-to-primitive-operation-identity.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -122,7 +121,7 @@ fn every_raw_producer_constructs_the_fixed_identity_token() {
     assert!(!raw_emitters.contains("letoperation="));
     assert!(!raw_emitters.contains("MayThrowOperation"));
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("PendingToPrimitiveCompletion"));
         assert!(evidence.contains("operation boundaries now own identity"));
         assert!(evidence.contains("ToPrimitive"));

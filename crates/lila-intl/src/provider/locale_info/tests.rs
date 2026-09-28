@@ -87,14 +87,19 @@ fn calendars_are_filtered_to_date_time_format_calendars() {
     assert_eq!(calendars("en-US-u-rg-cnzzzz"), ["gregory", "chinese"]);
     assert_eq!(calendars("en"), ["gregory"]);
     assert_eq!(calendars("th"), ["buddhist", "gregory"]);
-    assert_eq!(calendars("fa"), ["persian", "gregory", "islamic-civil"]);
+    assert_eq!(
+        calendars("fa"),
+        ["persian", "gregory", "islamic-civil", "islamic-tbla"]
+    );
     assert_eq!(calendars("hi"), ["gregory", "indian"]);
-    // Japanese remains outside DateTimeFormat's calendar inventory. CLDR's SA
-    // preference omits Islamic Civil, while EG includes it after unsupported
-    // Islamic variants. KR explicitly prefers Dangi after Gregorian.
-    assert_eq!(calendars("ja"), ["gregory"]);
-    assert_eq!(calendars("ar-SA"), ["gregory"]);
-    assert_eq!(calendars("ar-EG"), ["gregory", "islamic-civil"]);
+    // Calendar preferences retain CLDR order, filtered to the formatter
+    // inventory. KR explicitly prefers Dangi after Gregorian.
+    assert_eq!(calendars("ja"), ["gregory", "japanese"]);
+    assert_eq!(calendars("ar-SA"), ["gregory", "islamic-umalqura"]);
+    assert_eq!(
+        calendars("ar-EG"),
+        ["gregory", "coptic", "islamic-civil", "islamic-tbla"]
+    );
     assert_eq!(calendars("ko-KR"), ["gregory", "dangi"]);
     assert_eq!(calendars("th-u-ca-japanese"), ["japanese"]);
 }
@@ -214,13 +219,20 @@ fn supported_values_are_sorted_canonical_lists() {
         [
             "buddhist",
             "chinese",
+            "coptic",
             "dangi",
+            "ethioaa",
+            "ethiopic",
             "gregory",
+            "hebrew",
             "indian",
             "islamic-civil",
+            "islamic-tbla",
+            "islamic-umalqura",
             "iso8601",
+            "japanese",
             "persian",
-            "roc"
+            "roc",
         ]
     );
     let collations = values(SupportedValuesKey::Collation);

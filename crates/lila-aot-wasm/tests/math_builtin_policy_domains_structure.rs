@@ -2,7 +2,6 @@ const MATH_SOURCE: &str = include_str!("../src/builtins/math.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/math-builtin-policy-domains.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn enum_variants(source: &'static str, name: &str) -> Vec<&'static str> {
     source
@@ -234,8 +233,8 @@ fn math_emitter_consumes_one_top_level_policy_and_one_restricted_unary_policy() 
 }
 
 #[test]
-fn contract_and_task_record_the_nested_math_dispatch_invariant() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_nested_math_dispatch_invariant() {
+    for evidence in [CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("capability-free `MathBuiltin`"));
         assert!(words.contains("capability-free `MathUnaryBuiltin`"));

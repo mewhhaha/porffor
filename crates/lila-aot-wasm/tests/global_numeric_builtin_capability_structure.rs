@@ -5,7 +5,6 @@ const GLOBAL_NUMERIC_SOURCE: &str = include_str!("../src/builtins/global_numeric
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/global-numeric-builtin-capability.md");
-const TASK: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -158,7 +157,7 @@ fn exhaustive_emitter_preserves_both_result_policies_and_common_order() {
 }
 
 #[test]
-fn contract_and_t24_record_the_source_equivalent_capability_closure() {
+fn contract_records_the_source_equivalent_capability_closure() {
     for marker in [
         "private, non-derived `GlobalNumericBuiltin::{IsFinite, IsNaN}`",
         "fixed producer entries",
@@ -169,5 +168,4 @@ fn contract_and_t24_record_the_source_equivalent_capability_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("global-numeric-builtin-capability.md"));
 }

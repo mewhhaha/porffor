@@ -9,8 +9,6 @@ const CONTRACT: &str = include_str!(
 );
 const MODE_CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/promise-combinator-mode-domains.md");
-const PROMISE_TASK: &str = include_str!("../../../tasks/14-promises-jobs-async.md");
-const MODULARITY_TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -187,7 +185,7 @@ fn then_invocation_consumes_only_the_selected_pair() {
         assert!(!handoff.contains(removed), "found `{removed}`");
     }
 
-    for text in [CONTRACT, MODE_CONTRACT, PROMISE_TASK, MODULARITY_TASK] {
+    for text in [CONTRACT, MODE_CONTRACT] {
         assert!(text.contains("PromiseCombinatorReactionPairLocals"));
         assert!(text.contains("promise_combinator_reaction_pair_ownership_structure"));
     }

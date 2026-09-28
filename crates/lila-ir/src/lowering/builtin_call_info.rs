@@ -1977,12 +1977,20 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatConstructor
             | StandardBuiltinId::IntlDateTimeFormatPrototypeResolvedOptions
             | StandardBuiltinId::IntlNumberFormatConstructor
-            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions => Some(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: None,
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
+            | StandardBuiltinId::IntlCollatorConstructor
+            | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
+            | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions
+            | StandardBuiltinId::IntlPluralRulesConstructor
+            | StandardBuiltinId::IntlRelativeTimeFormatConstructor
+            | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions => {
+                Some(ValueInfo {
+                    kind: ValueKind::Object,
+                    possible_kinds: KindSet::from_kind(ValueKind::Object),
+                    heap_shape: None,
+                    function_targets: FunctionTargetKnowledge::none(),
+                })
+            }
             StandardBuiltinId::IntlGetCanonicalLocales
             | StandardBuiltinId::IntlSupportedValuesOf
             | StandardBuiltinId::IntlLocalePrototypeGetCalendars
@@ -1993,15 +2001,23 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
             | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlCollatorSupportedLocalesOf
+            | StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatToParts
             | StandardBuiltinId::IntlNumberFormatPrototypeFormatRangeToParts => {
                 Some(ValueInfo::new(ValueKind::Array))
+            }
+            StandardBuiltinId::IntlCollatorCompareFunction => {
+                Some(ValueInfo::new(ValueKind::Number))
             }
             StandardBuiltinId::IntlLocalePrototypeNumericGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::IntlDateTimeFormatPrototypeFormatGetter
-            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter => {
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
+            | StandardBuiltinId::IntlCollatorPrototypeCompareGetter => {
                 Some(ValueInfo::new(ValueKind::Function))
             }
             StandardBuiltinId::IntlLocalePrototypeLanguageGetter
@@ -2010,7 +2026,10 @@ impl<'a> ScriptLowerer<'a> {
             | StandardBuiltinId::IntlDateTimeFormatBoundFormat
             | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
             | StandardBuiltinId::IntlNumberFormatBoundFormat
-            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange => {
+            | StandardBuiltinId::IntlNumberFormatPrototypeFormatRange
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelect
+            | StandardBuiltinId::IntlPluralRulesPrototypeSelectRange
+            | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat => {
                 Some(ValueInfo::new(ValueKind::String))
             }
             StandardBuiltinId::TemporalZonedDateTimePrototypeGetTimeZoneTransition => {

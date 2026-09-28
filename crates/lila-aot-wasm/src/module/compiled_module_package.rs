@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use wasm_encoder::{ElementSection, Elements, RefType, TableSection, TableType};
 
 use super::*;
+use crate::abi::CallAbi;
 
 /// The one type section and the typed indices assigned while constructing it.
 pub(crate) struct ModuleTypeRegistry {
@@ -14,9 +15,16 @@ impl ModuleTypeRegistry {
     pub(crate) fn new() -> Self {
         let mut types = ModuleTypeSectionBuilder::new();
         types.function([], [ValType::I64]);
-        types.function(
-            function_param_types(),
-            [ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+        types.arg_vector();
+        assert_eq!(
+            types.function(CallAbi::Js.parameter_types(), CallAbi::Js.result_types()),
+            CallAbi::Js.type_index(),
+            "JS call ABI type index changed without updating the function section",
+        );
+        assert_eq!(
+            types.function(CallAbi::Raw.parameter_types(), CallAbi::Raw.result_types()),
+            CallAbi::Raw.type_index(),
+            "raw helper ABI type index changed without updating the function section",
         );
         types.function([ValType::I64], [ValType::I64]);
         types.function(
@@ -65,12 +73,36 @@ impl ModuleTypeRegistry {
         types.function([ValType::I64, ValType::I64, ValType::I64], [ValType::I64]);
         types.function([], [ValType::F64]);
 
-        types.function(
-            std::iter::repeat_n(ValType::I64, PREPARED_SCRIPT_PARAM_COUNT),
-            [ValType::I64; 4],
+        assert_eq!(
+            types.function(
+                CallAbi::Dispatch.parameter_types(),
+                CallAbi::Dispatch.result_types()
+            ),
+            CallAbi::Dispatch.type_index(),
+            "call dispatcher ABI type index changed without updating the function section",
+        );
+
+        assert_eq!(
+            types.function(
+                CallAbi::PreparedScript.parameter_types(),
+                CallAbi::PreparedScript.result_types(),
+            ),
+            CallAbi::PreparedScript.type_index(),
+            "prepared-script call ABI type index changed without updating the function section",
+        );
+
+        // Stack-guard wrappers call this leaf import before entering the
+        // relocated body.
+        assert_eq!(
+            types.function([ValType::I32, ValType::I32], [ValType::I32]),
+            STACK_GUARD_IMPORT_TYPE_INDEX,
+            "stack-guard import type index changed without updating its declaration",
         );
 
         let runtime = RuntimeModuleTypes::register(&mut types.section);
+        crate::gc_types::legacy_arguments::register(&mut types.section);
+        assert_eq!(types.section.len(), HOST_GC_IMPORT_TYPE_INDEX);
+        types.section.ty().function([], []);
 
         Self {
             section: types.finish(),
@@ -139,6 +171,19 @@ impl CompiledModulePackage {
         for function in remaining_functions {
             self.code.push(function);
         }
+    }
+
+    /// Replace the original `main` entry with its guard wrapper and append the
+    /// compiled body after all remaining original and relocated functions.
+    pub(crate) fn wrap_main_and_relocate(
+        &mut self,
+        wrapper: EmittedFunction,
+        active_realm_global_index: u32,
+    ) -> Result<(), String> {
+        self.main_emitted_local_count = self
+            .code
+            .wrap_main_and_relocate(wrapper, active_realm_global_index)?;
+        Ok(())
     }
 
     pub(crate) const fn main_emitted_local_count(&self) -> u32 {
@@ -267,6 +312,35 @@ const _: for<'a> fn(
     MainFunctionCompilation<'a>,
 ) -> Result<CompiledModulePackage, EmitError> = FinalizedModuleSections::compile_main;
 const _: fn() -> ModuleTypeRegistry = ModuleTypeRegistry::new;
+
+#[cfg(test)]
+mod arg_vector_signature_tests {
+    use super::*;
+
+    #[test]
+    fn native_argument_vector_has_distinct_js_dispatch_and_raw_signatures() {
+        let reference = crate::gc_types::arg_vector::ref_type();
+        assert_eq!(CallAbi::Js.parameter_types()[6], reference);
+        assert_eq!(CallAbi::Dispatch.parameter_types()[5], reference);
+        assert_eq!(CallAbi::Raw.parameter_types(), vec![ValType::I64; 7]);
+        assert_eq!(CallAbi::PreparedScript.parameter_types()[6], reference);
+        assert_eq!(
+            crate::runtime_helpers::RuntimeHelperId::FunctionCall.type_index(),
+            CallAbi::Dispatch.type_index(),
+        );
+        assert_eq!(
+            crate::runtime_helpers::RuntimeHelperId::ObjectRead.type_index(),
+            CallAbi::Raw.type_index(),
+        );
+
+        let registry = ModuleTypeRegistry::new();
+        let mut module = Module::new();
+        module.section(&registry.section);
+        wasmparser::Validator::new()
+            .validate_all(&module.finish())
+            .expect("the central GC array and call signatures must validate");
+    }
+}
 const _: fn(
     ImportSection,
     FunctionSection,
@@ -283,28 +357,42 @@ const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections) -> Modul
 
 /// Single-use owner of the module type section.
 ///
-/// Function signatures are appended here. The opaque runtime-GC registration
-/// operation borrows the same section once, so GC types follow those signatures
-/// without exposing their assigned indices back to module assembly.
+/// Function signatures and the internal argument-vector array are appended
+/// here. The opaque rooted runtime-GC registration follows those signatures
+/// without exposing its assigned indices back to module assembly.
 struct ModuleTypeSectionBuilder {
     section: TypeSection,
+    next_index: u32,
 }
 
 impl ModuleTypeSectionBuilder {
     fn new() -> Self {
         Self {
             section: TypeSection::new(),
+            next_index: 0,
         }
     }
 
-    fn function<P, R>(&mut self, params: P, results: R)
+    fn function<P, R>(&mut self, params: P, results: R) -> u32
     where
         P: IntoIterator<Item = ValType>,
         P::IntoIter: ExactSizeIterator,
         R: IntoIterator<Item = ValType>,
         R::IntoIter: ExactSizeIterator,
     {
+        let index = self.next_index;
+        self.next_index = self
+            .next_index
+            .checked_add(1)
+            .expect("Wasm type index overflow");
         self.section.ty().function(params, results);
+        index
+    }
+
+    fn arg_vector(&mut self) {
+        assert_eq!(self.next_index, 1, "argument vector precedes call ABIs");
+        crate::gc_types::arg_vector::register(&mut self.section);
+        self.next_index += 1;
     }
 
     fn finish(self) -> TypeSection {
@@ -333,6 +421,10 @@ impl ModuleGlobalSectionBuilder {
     pub(crate) fn global(&mut self, global_type: GlobalType, init_expr: &ConstExpr) -> &mut Self {
         self.section.global(global_type, init_expr);
         self
+    }
+
+    pub(crate) fn legacy_arguments_root(&mut self) {
+        crate::gc_types::legacy_arguments::append_global(&mut self.section);
     }
 
     fn finish(self, runtime: RuntimeModuleTypes) -> FinalizedModuleGlobals {

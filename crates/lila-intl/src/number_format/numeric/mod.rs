@@ -8,13 +8,13 @@ mod resource;
 mod round;
 
 pub use notation::{
-    format_decimal, CompactExponentRow, CompactExponentTable, DecimalFormatSettings, DecimalScale,
-    InvalidCompactExponentTable, NotationScaling, SelectedNotation,
+    CompactExponentRow, CompactExponentTable, DecimalFormatSettings, DecimalScale,
+    InvalidCompactExponentTable, NotationScaling, SelectedNotation, format_decimal,
 };
-pub use parse::{normalize_numeric_input, NumericNormalizationError, NumericWireError};
+pub use parse::{NumericNormalizationError, NumericWireError, normalize_numeric_input};
 pub use plural::{ExactPluralOperand, PluralOperand, PluralOperands};
 pub use resource::{NumberFormatResourceError, NumericLimits};
-pub use round::{round_decimal, RoundedDecimal, RoundingSettings};
+pub use round::{RoundedDecimal, RoundingSettings, round_decimal};
 
 #[cfg(test)]
 mod tests;

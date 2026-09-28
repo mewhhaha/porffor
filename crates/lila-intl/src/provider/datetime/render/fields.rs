@@ -1,11 +1,11 @@
-use crate::datetime::{DateTimeFormatError, DateTimeHourCycle};
+use crate::datetime::{DateTimeCalendar, DateTimeFormatError, DateTimeHourCycle};
 
 use super::super::{
     calendar::{Fields, Year},
     names::NameKey,
     pattern::{DayPeriod, Field, NameContext, NameWidth, Pattern, PeriodKind},
     plan::ValidatedPlan,
-    profile::{invalid, Profile},
+    profile::{invalid, AlgorithmicField, Profile},
 };
 
 pub(super) fn format(
@@ -30,17 +30,22 @@ pub(super) fn format(
             })
             .map(|(_, system)| system.as_str())
             .unwrap_or(&plan.numbering);
-        if let Some(labels) = profile.algorithmic.get(system) {
-            if !matches!(field, Field::Day(_)) {
-                return Err(invalid(
-                    "finite algorithmic numbering used for a different field",
-                ));
-            }
-            return usize::try_from(value - 1)
-                .ok()
-                .and_then(|index| labels.get(index))
-                .cloned()
-                .ok_or_else(|| invalid("day outside the finite numbering field"));
+        if let Some(algorithm) = profile.algorithmic.get(system) {
+            return match (algorithm, field) {
+                (AlgorithmicField::FiniteDays(labels), Field::Day(_)) => usize::try_from(value - 1)
+                    .ok()
+                    .and_then(|index| labels.get(index))
+                    .cloned()
+                    .ok_or_else(|| invalid("day outside the finite numbering field")),
+                (AlgorithmicField::JapaneseYearOne(one), Field::Year(_)) => {
+                    if value == 1 {
+                        Ok(one.clone())
+                    } else {
+                        super::positional(profile, plan.locale, "latn", value, width)
+                    }
+                }
+                _ => Err(invalid("algorithmic numbering used for a different field")),
+            };
         }
         super::positional(profile, plan.locale, system, value, width)
     };
@@ -65,12 +70,15 @@ pub(super) fn format(
             Year::Era { .. } => Err(invalid("era calendar pattern contains cyclic year")),
         },
         Field::Month { context, width } => {
+            if plan.calendar_kind == DateTimeCalendar::Hebrew && fields.leap_month && width > 2 {
+                return name(NameKey::HebrewLeapMonth(context, month_width(width)));
+            }
             let month = if width <= 2 {
                 number(i64::from(fields.month), width)?
             } else {
                 name(NameKey::Month(context, month_width(width), fields.month))?
             };
-            if !fields.leap_month {
+            if !fields.leap_month || plan.calendar_kind == DateTimeCalendar::Hebrew {
                 return Ok(month);
             }
             let key = if width <= 2 {

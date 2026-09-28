@@ -1,0 +1,4 @@
+sloppy-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js
+sloppy-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js
+strict-script:intl402/Temporal/PlainMonthDay/prototype/toString/calendarname-never.js
+strict-script:intl402/Temporal/PlainYearMonth/prototype/toString/calendarname-never.js

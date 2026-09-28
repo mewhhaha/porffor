@@ -1,0 +1,8 @@
+sloppy-script:language/expressions/object/method-definition/async-gen-meth-eval-var-scope-syntax-err.js
+sloppy-script:language/expressions/object/method-definition/async-meth-eval-var-scope-syntax-err.js
+sloppy-script:language/expressions/object/method-definition/gen-meth-eval-var-scope-syntax-err.js
+sloppy-script:language/expressions/object/method-definition/meth-eval-var-scope-syntax-err.js
+sloppy-script:language/expressions/object/scope-gen-meth-body-lex-distinct.js
+sloppy-script:language/expressions/object/scope-getter-body-lex-distinc.js
+sloppy-script:language/expressions/object/scope-meth-body-lex-distinct.js
+sloppy-script:language/expressions/object/scope-setter-body-lex-distinc.js

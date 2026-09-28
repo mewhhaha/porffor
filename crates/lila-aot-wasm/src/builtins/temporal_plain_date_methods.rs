@@ -156,8 +156,8 @@ impl<'a> FunctionBuilder<'a> {
     /// Every mode performs `ToMonthCode` syntax validation during field
     /// preparation. Month-code suitability remains in the resolve step,
     /// after the observable `GetTemporalOverflowOption`. Era and
-    /// calendar-specific resolution remains in
-    /// `emit_temporal_resolve_era_to_iso_year` and the two callers' resolve steps.
+    /// calendar-specific resolution is deferred to the Temporal calendar host
+    /// query in each caller.
     ///
     /// The era slots are reserved *before* this emitter's own scratch locals
     /// and handed back to the caller, because `reserve_temp_local` is a strict
@@ -709,15 +709,11 @@ impl<'a> FunctionBuilder<'a> {
             )?,
             TemporalConversionOverflowOptions::Omit => {}
         }
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
-            era,
+        self.emit_temporal_calendar_from_fields_query(
             calendar_payload_local,
             year_local,
             year_present_local,
-            function,
-        )?;
-        self.emit_temporal_plain_date_resolve_fields(
-            &resolved_year,
+            era.raw_locals(),
             month_local,
             month_present_local,
             month_code_payload_local,
@@ -725,8 +721,12 @@ impl<'a> FunctionBuilder<'a> {
             day_local,
             day_present_local,
             overflow_local,
+            [year_local, month_local, day_local],
             function,
         )?;
+        for local in era.raw_locals().into_iter().rev() {
+            self.release_temp_local(local);
+        }
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(handled_local));
         function.instruction(&Instruction::End);
@@ -1166,20 +1166,54 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        // Era resolution runs before the receiver merge, so `{ era, eraYear }`
-        // *excludes* the receiver's year rather than being checked against it.
-        let resolved_year = self.emit_temporal_resolve_era_to_iso_year(
-            era,
+        // Project the receiver only after the argument and options have been
+        // observed. Preserve its stable monthCode when neither month form is
+        // supplied; a leap month can have a different ordinal in the target
+        // year.
+        let receiver_calendar_year_local = self.reserve_temp_local();
+        let receiver_calendar_month_code_local = self.reserve_temp_local();
+        let receiver_calendar_month_code_leap_local = self.reserve_temp_local();
+        let receiver_calendar_day_local = self.reserve_temp_local();
+        let receiver_month_code_payload_local = self.reserve_temp_local();
+        self.emit_temporal_calendar_fields_query(
             calendar_payload_local,
-            new_year_local,
-            year_present_local,
+            [year_local, month_local, day_local],
+            &[
+                (
+                    lila_intl::TEMPORAL_CALENDAR_RESPONSE_YEAR_OFFSET,
+                    receiver_calendar_year_local,
+                ),
+                (
+                    lila_intl::TEMPORAL_CALENDAR_RESPONSE_MONTH_CODE_OFFSET,
+                    receiver_calendar_month_code_local,
+                ),
+                (
+                    lila_intl::TEMPORAL_CALENDAR_RESPONSE_MONTH_CODE_LEAP_OFFSET,
+                    receiver_calendar_month_code_leap_local,
+                ),
+                (
+                    lila_intl::TEMPORAL_CALENDAR_RESPONSE_DAY_OFFSET,
+                    receiver_calendar_day_local,
+                ),
+            ],
             function,
         )?;
-        self.emit_temporal_resolved_year_default_to(&resolved_year, year_local, function);
+        function.instruction(&Instruction::LocalGet(year_present_local));
+        function.instruction(&Instruction::LocalGet(era.present_locals()[0]));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::LocalGet(era.present_locals()[1]));
+        function.instruction(&Instruction::I64Or);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(receiver_calendar_year_local));
+        function.instruction(&Instruction::LocalSet(new_year_local));
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::LocalSet(year_present_local));
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(day_present_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(day_local));
+        function.instruction(&Instruction::LocalGet(receiver_calendar_day_local));
         function.instruction(&Instruction::LocalSet(new_day_local));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(month_present_local));
@@ -1187,18 +1221,51 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::LocalGet(month_local));
-        function.instruction(&Instruction::LocalSet(new_month_local));
+        function.instruction(&Instruction::I64Const(self.strings.payload("M01")));
+        function.instruction(&Instruction::LocalSet(receiver_month_code_payload_local));
+        for month in 1_i64..=13 {
+            for leap in [false, true] {
+                function.instruction(&Instruction::LocalGet(receiver_calendar_month_code_local));
+                function.instruction(&Instruction::I64Const(month));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::LocalGet(
+                    receiver_calendar_month_code_leap_local,
+                ));
+                function.instruction(&Instruction::I64Const(i64::from(leap)));
+                function.instruction(&Instruction::I64Eq);
+                function.instruction(&Instruction::I32And);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                let spelling = if leap {
+                    format!("M{month:02}L")
+                } else {
+                    format!("M{month:02}")
+                };
+                function.instruction(&Instruction::I64Const(self.strings.payload(&spelling)));
+                function.instruction(&Instruction::LocalSet(receiver_month_code_payload_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+        function.instruction(&Instruction::LocalGet(receiver_month_code_payload_local));
+        function.instruction(&Instruction::LocalSet(month_code_payload_local));
         function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::LocalSet(month_present_local));
+        function.instruction(&Instruction::LocalSet(month_code_present_local));
         function.instruction(&Instruction::End);
-        // `year` is already forced present by
-        // `emit_temporal_resolved_year_default_to` above.
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::LocalSet(day_present_local));
-
-        self.emit_temporal_plain_date_resolve_fields(
-            &resolved_year,
+        for local in [
+            receiver_month_code_payload_local,
+            receiver_calendar_day_local,
+            receiver_calendar_month_code_leap_local,
+            receiver_calendar_month_code_local,
+            receiver_calendar_year_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        self.emit_temporal_calendar_from_fields_query(
+            calendar_payload_local,
+            new_year_local,
+            year_present_local,
+            era.raw_locals(),
             new_month_local,
             month_present_local,
             month_code_payload_local,
@@ -1206,8 +1273,12 @@ impl<'a> FunctionBuilder<'a> {
             new_day_local,
             day_present_local,
             overflow_local,
+            [new_year_local, new_month_local, new_day_local],
             function,
         )?;
+        for local in era.raw_locals().into_iter().rev() {
+            self.release_temp_local(local);
+        }
         function.instruction(&Instruction::GlobalGet(
             TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX,
         ));
@@ -1661,15 +1732,17 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Add);
         function.instruction(&Instruction::LocalSet(day_delta_local));
 
-        self.emit_temporal_add_iso_date(
-            year_local,
-            month_local,
-            day_local,
-            date_fields[TemporalUnit::Year.duration_field_index()],
-            date_fields[TemporalUnit::Month.duration_field_index()],
-            date_fields[TemporalUnit::Week.duration_field_index()],
-            day_delta_local,
+        self.emit_temporal_calendar_date_add_query(
+            calendar_payload_local,
+            [year_local, month_local, day_local],
+            [
+                date_fields[TemporalUnit::Year.duration_field_index()],
+                date_fields[TemporalUnit::Month.duration_field_index()],
+                date_fields[TemporalUnit::Week.duration_field_index()],
+                day_delta_local,
+            ],
             overflow_local,
+            [year_local, month_local, day_local],
             function,
         )?;
         function.instruction(&Instruction::GlobalGet(

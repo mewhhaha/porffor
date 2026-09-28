@@ -30,7 +30,7 @@ change emitted Wasm.
 cargo test -p lila-aot-wasm --test heap_collector_phase_structure
 cargo test -p lila-aot-wasm --test weak_edge_retention_structure
 cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
+cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_does_not_claim_linear_heap_collection -- --exact --test-threads=1
 cargo check -p lila-aot-wasm --lib
 git diff --check
 ```

@@ -6,7 +6,6 @@ const FIXTURE_SOURCE: &str =
 const MODULE_BOUNDARY_SOURCE: &str = include_str!("../../../scripts/check-module-boundaries.sh");
 const CONTRACT_SOURCE: &str =
     include_str!("../../../docs/rust-rewrite/contracts/reflect-optional-argument-presence.md");
-const TASK_SOURCE: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn anchored_offsets(source: &str, declaration: &str) -> Vec<usize> {
     source
@@ -78,9 +77,9 @@ fn builtin_argument_presence_has_one_argc_authority() {
         );
     }
     for forbidden in [
-        "argv_param_local",
+        "arg_vector_param_local",
         "ValueKind::Undefined",
-        "emit_array_read",
+        "emit_arg_vector_read",
     ] {
         assert!(
             !presence.contains(forbidden),
@@ -232,7 +231,7 @@ fn runtime_fixture_observes_omitted_and_explicit_undefined_as_distinct() {
 }
 
 #[test]
-fn module_guard_contract_and_task_record_the_presence_boundary() {
+fn module_guard_contract_records_the_presence_boundary() {
     for marker in [
         "'builtin optional-argument presence authority definition/use'",
         "'three Reflect optional-argument presence consumers'",
@@ -254,12 +253,5 @@ fn module_guard_contract_and_task_record_the_presence_boundary() {
             CONTRACT_SOURCE.contains(marker),
             "contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "Reflect optional-argument defaults",
-        "reflect_optional_argument_presence_structure",
-        "wasm_reflect_optional_argument_presence.js",
-    ] {
-        assert!(TASK_SOURCE.contains(marker), "T11 marker `{marker}`");
     }
 }

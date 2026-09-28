@@ -34,7 +34,7 @@ also groups legitimate adaptations and diagnostic observations by task.
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `b9c5ade351ca1f656430e4ddcc1dcaf49239d014adbb53cd057dd30d9abcf475` |
 | `test262/backlog/shortcut-inventory.md` | `72c4d5e780825381ab97877b1f50dd77a85d14a7266c59c2fa9c6c146f05187e` |
-| `crates/lila-test262/src/lib.rs` | `f10dfe1769fb4f67adf4976f8a7a879f785a7118a84a851635bb7efd8715b9f4` |
+| `crates/lila-test262/src/lib.rs` | `5e122450b75c63511694ccd5960bab516ff9bc5189d1dee7668cbb1ba520ce98` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.
@@ -42,6 +42,6 @@ The generator alone cross-checks the committed ledger and inventory; it does
 not replace the Rust selector scanner or verify every recorded classification.
 
 Full-suite evidence and native snapshot provenance remain governed by
-[T01](../../tasks/01-baseline-and-generated-backlog.md) and
-[T26](../../tasks/26-zero-failure-conformance-closure.md). Only the Rust publisher
+the [conformance ownership domains](../../docs/rust-rewrite/conformance-ownership.md)
+and [publication contract](../../docs/rust-rewrite/reproducible-publication-driver.md). Only the Rust publisher
 owns canonical Test262 result counts and the generated README conformance block.

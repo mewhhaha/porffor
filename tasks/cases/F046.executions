@@ -1,0 +1,6 @@
+sloppy-script:staging/sm/RegExp/prototype-different-global.js
+sloppy-script:staging/sm/RegExp/prototype.js
+sloppy-script:staging/sm/RegExp/toString.js
+strict-script:staging/sm/RegExp/prototype-different-global.js
+strict-script:staging/sm/RegExp/prototype.js
+strict-script:staging/sm/RegExp/toString.js

@@ -1,0 +1,2 @@
+sloppy-script:intl402/Temporal/Duration/prototype/toLocaleString/returns-same-results-as-DurationFormat.js
+strict-script:intl402/Temporal/Duration/prototype/toLocaleString/returns-same-results-as-DurationFormat.js

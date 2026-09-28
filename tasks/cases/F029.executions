@@ -1,0 +1,14 @@
+sloppy-script:language/statements/class/elements/private-setter-visible-to-direct-eval.js
+sloppy-script:staging/sm/class/derivedConstructorArrowEvalNestedSuperCall.js
+sloppy-script:staging/sm/class/fields-instance-class-name-binding-eval.js
+sloppy-script:staging/sm/class/fields-static-class-name-binding-eval.js
+sloppy-script:staging/sm/class/newTargetEval.js
+sloppy-script:staging/sm/class/superPropBasicGetter.js
+sloppy-script:staging/sm/class/superPropEvalInsideArrow.js
+strict-script:language/statements/class/elements/private-setter-visible-to-direct-eval.js
+strict-script:staging/sm/class/derivedConstructorArrowEvalNestedSuperCall.js
+strict-script:staging/sm/class/fields-instance-class-name-binding-eval.js
+strict-script:staging/sm/class/fields-static-class-name-binding-eval.js
+strict-script:staging/sm/class/newTargetEval.js
+strict-script:staging/sm/class/superPropBasicGetter.js
+strict-script:staging/sm/class/superPropEvalInsideArrow.js

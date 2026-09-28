@@ -104,7 +104,7 @@ drop. Neither was a complete dispatch-table oracle.
 - `crates/lila-cli/tests/fixtures/wasm_iterator_helper_prototype_dispatch_matrix.js`
 - `crates/lila-cli/tests/cli/iterator.rs`
 - this contract
-- `tasks/15-generators-iterators-resource-management.md`
+- `docs/rust-rewrite/conformance-ownership.md`
 
 This file set does not overlap the active T13 dynamic-source or T14 async-resume
 implementation files. Test262 snapshots are explicitly outside the batch.

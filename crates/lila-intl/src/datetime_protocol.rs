@@ -52,6 +52,8 @@ macro_rules! wire_domain {
 wire_domain!(DateTimeCalendar {
     Gregorian = 1, Iso8601 = 2, Chinese = 3, Buddhist = 4, Indian = 5, Persian = 6, Roc = 7,
     Dangi = 8, IslamicCivil = 9,
+    Coptic = 10, Ethioaa = 11, Ethiopic = 12, Hebrew = 13,
+    IslamicTabular = 14, IslamicUmmAlQura = 15, Japanese = 16,
 });
 wire_domain!(DateTimeHourCycle { H11 = 1, H12 = 2, H23 = 3, H24 = 4 });
 wire_domain!(DateTimeLocaleMatcher { Lookup = 1, BestFit = 2 });

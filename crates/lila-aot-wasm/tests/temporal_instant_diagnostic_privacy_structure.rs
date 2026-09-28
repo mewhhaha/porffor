@@ -4,7 +4,6 @@ use std::path::Path;
 const INSTANT_SOURCE: &str = include_str!("../src/builtins/temporal_instant.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-instant-diagnostic-privacy.md");
-const TASK: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -93,7 +92,7 @@ fn instant_diagnostics_have_one_recursive_owner_and_frozen_evidence() {
         );
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence
             .contains("owner-private `TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE`"));
         assert!(evidence.contains("owner-private `TEMPORAL_INSTANT_VALUE_OF_MESSAGE`"));

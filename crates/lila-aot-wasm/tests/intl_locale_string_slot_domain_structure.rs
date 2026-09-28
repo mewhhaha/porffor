@@ -2,8 +2,6 @@ const INTL_SOURCE: &str = include_str!("../src/builtins/intl.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/intl-locale-string-slot-dispatch.md");
-const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T23: &str = include_str!("../../../tasks/23-intl402.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -151,11 +149,5 @@ fn locale_string_slot_contract_records_exact_witnesses_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [TASK_T02, TASK_T23] {
-        assert!(task.contains("intl-locale-string-slot-dispatch.md"));
-        assert!(task.contains("00486705af5ad3a89c1386f4ca8b3088d5531ca676a582aa643ca90bca658d6a"));
-        assert!(task.contains("4/4"));
-        assert!(task.contains("no new Intl behavior"));
     }
 }

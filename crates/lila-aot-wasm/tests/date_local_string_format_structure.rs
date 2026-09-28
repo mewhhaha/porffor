@@ -11,7 +11,6 @@ const CLI_DATE_TESTS: &str = include_str!("../../lila-cli/tests/cli/date.rs");
 const CLI_FIXTURE: &str = include_str!("../../lila-cli/tests/fixtures/wasm_date_locale_strings.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/date-current-time-source.md");
-const TASK: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -358,8 +357,7 @@ fn contract_and_existing_cli_witness_pin_all_three_formats() {
     assert!(CONTRACT.contains(
         "tests::wasm_backend_uses_one_injected_clock_for_date_temporal_and_monotonic_reads"
     ));
-    assert!(TASK.contains("DateTimeValueSource"));
-    assert!(TASK.contains("DateLocalStringFormat"));
+
     assert!(
         CLI_DATE_TESTS.contains("fn run_wasm_backend_succeeds_for_date_locale_strings_fixture()")
     );

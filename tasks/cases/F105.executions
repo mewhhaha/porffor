@@ -1,0 +1,2 @@
+sloppy-script:intl402/Temporal/PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js
+strict-script:intl402/Temporal/PlainMonthDay/from/dont-calculate-month-info-for-out-of-range-year.js

@@ -70,11 +70,13 @@ fn accounting_brackets_stay_paired_with_their_currency() {
     );
     let mixed = range("en", "-1", "2", options);
     assert_eq!(mixed.to_text(), "($1.00) – $2.00");
-    assert!(mixed
-        .parts()
-        .iter()
-        .filter(|part| part.kind_name() == "currency")
-        .all(|part| part.source() != RangePartSource::Shared));
+    assert!(
+        mixed
+            .parts()
+            .iter()
+            .filter(|part| part.kind_name() == "currency")
+            .all(|part| part.source() != RangePartSource::Shared)
+    );
 }
 
 #[test]
@@ -94,11 +96,13 @@ fn percent_patterns_use_owned_signs_without_collapsing_plain_signs() {
     };
     let rendered = range("en", "0.01", "0.02", signed);
     assert_eq!(rendered.to_text(), "+1–2%");
-    assert!(rendered
-        .parts()
-        .iter()
-        .filter(|part| matches!(part.kind_name(), "plusSign" | "percentSign"))
-        .all(|part| part.source() == RangePartSource::Shared));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .filter(|part| matches!(part.kind_name(), "plusSign" | "percentSign"))
+            .all(|part| part.source() == RangePartSource::Shared)
+    );
     let plain = range("en", "-1", "-2", super::options());
     assert_eq!(plain.to_text(), "-1 – -2");
     assert_eq!(
@@ -142,11 +146,13 @@ fn short_measurement_names_share_but_their_signs_and_notation_do_not() {
             .count(),
         1
     );
-    assert!(rendered
-        .parts()
-        .iter()
-        .filter(|part| part.kind_name() == "unit")
-        .all(|part| part.source() == RangePartSource::Shared));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .filter(|part| part.kind_name() == "unit")
+            .all(|part| part.source() == RangePartSource::Shared)
+    );
 }
 
 #[test]
@@ -254,16 +260,20 @@ fn literal_only_unit_forms_remain_complete_endpoint_values() {
         .map(NumberRangePart::text)
         .collect();
     assert_eq!(start, "متران");
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind_name() == "integer"
-            && part.text() == "3"
-            && part.source() == RangePartSource::End));
-    assert!(!rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind_name() == "unit" && part.source() == RangePartSource::Shared));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind_name() == "integer"
+                && part.text() == "3"
+                && part.source() == RangePartSource::End)
+    );
+    assert!(
+        !rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind_name() == "unit" && part.source() == RangePartSource::Shared)
+    );
 }
 
 #[test]

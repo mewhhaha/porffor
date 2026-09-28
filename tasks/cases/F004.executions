@@ -1,0 +1,2 @@
+sloppy-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js
+strict-script:intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js

@@ -7,7 +7,6 @@ const ERROR_REALM_FIXTURE: &str =
 const MODULE_BOUNDARY_SOURCE: &str = include_str!("../../../scripts/check-module-boundaries.sh");
 const CONTRACT_SOURCE: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-reflect-set-handler-protocol.md");
-const TASK_SOURCE: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn anchored_offsets(source: &str, declaration: &str) -> Vec<usize> {
     source
@@ -241,7 +240,7 @@ fn cli_regressions_cover_handler_brands_proxy_dispatch_and_error_realms() {
 }
 
 #[test]
-fn boundary_contract_and_task_pin_the_bounded_reflect_owner() {
+fn boundary_contract_pins_the_bounded_reflect_owner() {
     for marker in [
         "Reflect Set must retain $required_proxy_reflect_set_seam",
         "Reflect Set must not reconstruct or bypass $forbidden_proxy_reflect_set_seam",
@@ -265,12 +264,5 @@ fn boundary_contract_and_task_pin_the_bounded_reflect_owner() {
             CONTRACT_SOURCE.contains(marker),
             "contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "Direct `Reflect.set` handler acquisition",
-        "proxy_reflect_set_handler_protocol_structure",
-        "wasm_proxy_reflect_set_handler_protocol.js",
-    ] {
-        assert!(TASK_SOURCE.contains(marker), "T11 marker `{marker}`");
     }
 }

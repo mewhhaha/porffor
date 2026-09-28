@@ -10,7 +10,6 @@ const FOR_STATEMENT_SOURCE: &str = include_str!(
 );
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/lexical-declaration-context.md");
-const TASK: &str = include_str!("../../../tasks/07-parser-grammar-early-errors.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -328,7 +327,7 @@ fn three_exhaustive_decisions_preserve_statement_and_for_head_semantics() {
 }
 
 #[test]
-fn contract_and_t07_record_the_borrowed_exhaustive_boundary() {
+fn contract_records_the_borrowed_exhaustive_boundary() {
     for marker in [
         "private two-row authority",
         "grammar decisions match both rows directly and exhaustively",
@@ -341,10 +340,4 @@ fn contract_and_t07_record_the_borrowed_exhaustive_boundary() {
             "missing contract marker `{marker}`"
         );
     }
-    let task = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(task.contains("LexicalDeclarationContext::{Statement, ForHead}"));
-    assert!(task.contains("This is source-equivalent parser"));
-    assert!(task.contains("invariant closure"));
-    assert!(task.contains("Direct vendor-file `rustfmt --check`"));
-    assert!(task.contains("touched match regions are clean"));
 }

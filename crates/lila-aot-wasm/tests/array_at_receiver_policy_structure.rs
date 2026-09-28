@@ -6,8 +6,6 @@ const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-at-receiver-policy.md");
-const T16: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
-const T17: &str = include_str!("../../../tasks/17-typedarrays-binary-data-atomics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -391,8 +389,8 @@ fn two_fixed_entries_own_the_policy_and_direct_at_selects_the_typed_entry() {
 }
 
 #[test]
-fn contract_and_tasks_record_the_private_source_equivalent_boundary() {
-    for evidence in [CONTRACT, T16, T17] {
+fn contract_records_the_private_source_equivalent_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `ArrayAtReceiverPolicy`"));
         assert!(evidence.contains("source-equivalent"));
         assert!(evidence.contains("claims no new Array"));

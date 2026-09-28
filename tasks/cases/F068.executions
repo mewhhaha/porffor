@@ -1,0 +1,3 @@
+sloppy-script:language/expressions/super/prop-dot-obj-ref-non-strict.js
+sloppy-script:language/expressions/super/prop-expr-obj-ref-non-strict.js
+sloppy-script:staging/sm/class/superPropStrictAssign.js

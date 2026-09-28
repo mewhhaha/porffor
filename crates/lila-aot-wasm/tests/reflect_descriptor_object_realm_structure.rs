@@ -7,7 +7,6 @@ const DESCRIPTOR_OBJECT_PROTOTYPE_SOURCE: &str =
 const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/reflect-descriptor-object-realm.md");
-const TASK: &str = include_str!("../../../tasks/06-realms-intrinsics-cross-realm.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -418,5 +417,4 @@ fn created_realm_reflect_methods_are_self_backed_and_the_contract_is_recorded() 
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("reflect-descriptor-object-realm.md"));
 }

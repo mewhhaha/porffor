@@ -26,13 +26,9 @@ selection, observable read order, null and sparse locale lists, `Intl.Locale`
 identifiers, invalid receiver and Date behavior, reentrant Date mutation,
 replaced public Intl properties, foreign-Realm errors, primitive options
 wrappers and thrown-value identity. The construction lifecycle guard still pins
-reserve-before-observation, one initialization and one publication. Checkpoint
-thirteen passes all twelve native regressions and all 24 pinned Date locale
-executions on 2026-09-18, repairing four failures from checkpoint twelve and
-retaining twenty successes, with zero crashes or timeouts. The exact compiler
-and source identities are retained in the
-[completed-baseline evidence](completed-baseline-follow-up.md). These bounded
-results do not refresh the full-suite status.
+reserve-before-observation, one initialization and one publication. Current
+failures and replay evidence belong in the
+[failure backlog](../../tasks/README.md).
 
 The algorithms are specified by [ECMA-402 Date locale methods](https://tc39.es/ecma402/#sup-date.prototype.tolocalestring)
 and [CreateDateTimeFormat](https://tc39.es/ecma402/#sec-createdatetimeformat).

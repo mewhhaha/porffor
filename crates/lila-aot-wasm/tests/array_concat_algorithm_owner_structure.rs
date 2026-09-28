@@ -15,7 +15,6 @@ const CONCAT_SPREADABLE_DESCRIPTOR_FIXTURE: &str = include_str!(
 );
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-concat-spreadable-tagged-slot.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -131,7 +130,7 @@ fn concat_spreadable_uses_only_the_ordinary_array_named_property_owner() {
     assert!(ARRAY_CLI_TESTS.contains(
         "fn run_wasm_backend_preserves_array_concat_spreadable_descriptor_assignment_semantics()"
     ));
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("ordinary Array named-property owner"));
     }
 }

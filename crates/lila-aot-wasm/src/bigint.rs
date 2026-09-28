@@ -154,7 +154,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::Call(helper));
-        self.store_call_results(out_payload_local, out_tag_local, function);
+        self.store_call_results(
+            crate::objects::TaggedLocals::new(out_payload_local, out_tag_local),
+            function,
+        );
         self.emit_propagate_throw_from_locals_if_needed(
             out_payload_local,
             out_tag_local,
@@ -692,10 +695,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(lhs_sign);
         self.pop_scope();
 
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }

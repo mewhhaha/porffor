@@ -14,8 +14,6 @@ const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.t
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/ordinary-property-plain-assignment-reference.md"
 );
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/08-environments-control-flow.md");
 
 const EXACT_TEST262: &[(&str, &str)] = &[
     (
@@ -449,35 +447,6 @@ fn exact_inventory_is_raw_unmasked_and_controls_remain_separate() {
 
 #[test]
 fn verified_status_records_the_exact_baseline_results_and_nonclaims() {
-    for source in [README, TASK] {
-        for marker in [
-            "eb32c63a",
-            "target-member-computed-reference-null.js",
-            "target-member-identifier-reference-null.js",
-            "target-member-identifier-reference-undefined.js",
-            "1/6",
-            "target-member-computed-reference-undefined.js",
-            "target-member-computed-reference.js",
-            "each `2/2`",
-            "known-failure entry owns",
-            "workspace/all-target check",
-            "15.18 seconds",
-            "`cargo xc`",
-            "focused IR invariant `1/1`",
-            "structure executable `7/7`",
-            "retained eager-compound and numeric",
-            "exact Wasm CLI fixture",
-            "66.90 seconds",
-            "all `6/6`",
-            "zero unsupported, not-implemented, crash or bug outcomes",
-            "controls remain `4/4`",
-            "`(1).p`",
-            "property-read assertion",
-            "broader assignment leaf",
-        ] {
-            assert!(source.contains(marker), "status lost {marker}");
-        }
-    }
     for marker in [
         "three physical files produce six",
         "The selected current-head baseline is 1/6",

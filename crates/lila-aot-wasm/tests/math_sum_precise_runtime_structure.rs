@@ -6,7 +6,6 @@ const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/math-sum-precise-runtime.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -99,7 +98,7 @@ fn sum_precise_proof_state_and_phase_witness_are_closed() {
     assert!(!state.contains("_ =>"));
     assert!(!state.contains(".clone()"));
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("capability-free `MathSumPreciseState`"));
         assert!(words.contains("Batch AL"));

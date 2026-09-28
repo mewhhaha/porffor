@@ -14,8 +14,6 @@ const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs"
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/plain-async-function-await-using-scope.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 const EXACT_PATHS: [&str; 2] = [
     "language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncfunctionbody.js",
@@ -469,7 +467,6 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         assert!(!TEST262_RUNNER_SOURCE.contains(path));
         assert!(!KNOWN_FAILURES.contains(path));
         assert!(CONTRACT.contains(path));
-        assert!(TASK.contains(path));
     }
 
     for marker in [
@@ -486,21 +483,7 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         assert!(FIXTURE.contains(marker), "missing fixture marker {marker}");
     }
     assert!(CLI_TEST_SOURCE.contains("fn wasm_await_using_plain_async_function_lifecycle()"));
-    assert!(README.contains("plain-async-function `await using` batch is implemented"));
-    assert!(TASK.contains("plain-async-function `await using` batch is implemented"));
-    assert!(README.contains("exact Test262 paths are now\n  `4/4`"));
-    assert!(TASK.contains("exact Test262 paths are now `4/4`"));
-    for nonclaim in [
-        "Async generators",
-        "resource loop heads",
-        "modules",
-        "dynamic source",
-        "suspension inside an initializer",
-        "nonlinear async control flow",
-    ] {
-        assert!(README.contains(nonclaim));
-        assert!(TASK.contains(nonclaim));
-    }
+
     assert!(CONTRACT.contains("all 49 plain-async statement-list files"));
     assert!(CONTRACT.contains("complete `await using` directory"));
 }

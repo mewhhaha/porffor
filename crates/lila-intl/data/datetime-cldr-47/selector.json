@@ -21,7 +21,14 @@
     "persian",
     "roc",
     "dangi",
-    "islamic-civil"
+    "islamic-civil",
+    "coptic",
+    "ethioaa",
+    "ethiopic",
+    "hebrew",
+    "islamic-tbla",
+    "islamic-umalqura",
+    "japanese"
   ],
   "default_locale": "en-US",
   "minimum_draft": "contributed",
@@ -35,7 +42,14 @@
     "persian": "persian",
     "roc": "roc",
     "dangi": "dangi",
-    "islamic-civil": "islamic-civil"
+    "islamic-civil": "islamic-civil",
+    "coptic": "coptic",
+    "ethioaa": "ethiopic-amete-alem",
+    "ethiopic": "ethiopic",
+    "hebrew": "hebrew",
+    "islamic-tbla": "islamic-tbla",
+    "islamic-umalqura": "islamic-umalqura",
+    "japanese": "japanese"
   },
   "release": "47.0.0",
   "commit": "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"

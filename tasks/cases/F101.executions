@@ -1,0 +1,2 @@
+sloppy-script:language/expressions/object/dstr/object-rest-proxy-gopd-not-called-on-excluded-keys.js
+strict-script:language/expressions/object/dstr/object-rest-proxy-gopd-not-called-on-excluded-keys.js

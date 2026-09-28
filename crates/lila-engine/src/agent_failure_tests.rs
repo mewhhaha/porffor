@@ -1,7 +1,7 @@
 use super::*;
 
 fn group_with_worker(worker: WasmAgentWorker) -> WasmAgentGroup {
-    let engine = WasmtimeEngine::default();
+    let engine = shared_wasm_engine().expect("product engine supports the shared-memory fixture");
     let realm = RealmBuilder::new().build();
     let started_at = realm.host_clock().monotonic_instant();
     let memory = WasmtimeSharedMemory::new(&engine, wasmtime::MemoryType::shared(1, 1))

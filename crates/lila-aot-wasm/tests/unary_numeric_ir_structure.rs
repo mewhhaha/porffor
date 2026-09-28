@@ -12,7 +12,6 @@ const CLI_BITWISE_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_bigint_bitwise_core.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/numeric-conversion-codomains.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -163,7 +162,7 @@ fn unary_numeric_kind_exhaustively_emits_bigint_and_number_complement() {
 fn contract_and_behavior_witness_cover_both_unary_numeric_kinds() {
     assert!(CONTRACT.contains("UnaryNumericKind"));
     assert!(CONTRACT.contains("cargo test -p lila-aot-wasm --test unary_numeric_ir_structure"));
-    assert!(TASK.contains("UnaryNumericKind"));
+
     assert!(CLI_NUMERIC_TESTS.contains("fn run_wasm_backend_succeeds_for_bigint_bitwise_fixture()"));
     for marker in [
         "~0n",

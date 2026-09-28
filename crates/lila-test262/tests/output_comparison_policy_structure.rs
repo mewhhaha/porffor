@@ -4,7 +4,6 @@ use std::path::Path;
 const OWNER_SOURCE: &str = include_str!("../src/differential.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/differential-output-comparison-policy.md");
-const TASK: &str = include_str!("../../../tasks/25-differential-fuzzing-performance.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -204,6 +203,5 @@ fn focused_policy_evidence_is_named_in_source_and_durable_docs() {
         "v3_matches_primitive_completion_and_exact_ordered_print_transcript",
     ] {
         assert!(CONTRACT.contains(evidence));
-        assert!(TASK.contains(evidence));
     }
 }

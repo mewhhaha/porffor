@@ -5,7 +5,6 @@ const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/conversion-error-realm-source-lifecycle.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -819,7 +818,7 @@ fn all_source_producers_and_the_current_realm_phase_lifecycle_are_exact() {
 }
 
 #[test]
-fn contract_and_t04_record_the_non_copy_phase_authority() {
+fn contract_records_the_non_copy_phase_authority() {
     for marker in [
         "type-owned current-function Realm proof",
         "payload and tag locals only",
@@ -832,5 +831,4 @@ fn contract_and_t04_record_the_non_copy_phase_authority() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("conversion-error-realm-source-lifecycle.md"));
 }

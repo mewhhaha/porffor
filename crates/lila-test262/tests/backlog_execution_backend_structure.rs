@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-backlog-execution-backend.md");
-const TASK: &str = include_str!("../../../tasks/01-baseline-and-generated-backlog.md");
 
 fn source() -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -108,8 +107,8 @@ fn backlog_backend_is_owned_once_and_projected_by_name() {
 }
 
 #[test]
-fn contract_and_task_record_the_closed_backlog_backend_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_closed_backlog_backend_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("BacklogArtifact.execution_backend"));
         assert!(evidence.contains("ExecutionBackend"));
         assert!(evidence.contains("future-backend"));

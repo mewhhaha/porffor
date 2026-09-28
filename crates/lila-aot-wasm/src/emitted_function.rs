@@ -36,7 +36,7 @@
 use std::num::NonZeroU32;
 
 use lila_ir::{FunctionId, HostBuiltinId, StandardBuiltinId};
-use wasm_encoder::{CodeSection, NameMap, NameSection};
+use wasm_encoder::{CodeSection, Encode, Instruction, NameMap, NameSection};
 
 // The body handed to `EmittedFunction::new` is the label-counting sink, not the
 // raw encoder type: `Function::into_body` is what asserts the body closed every
@@ -97,6 +97,10 @@ pub(crate) enum FunctionIdentity {
     HostBuiltin(HostBuiltinId),
     /// One of the shared runtime helpers.
     RuntimeHelper(RuntimeHelperId),
+    /// A thin guard kept at the original function index.
+    StackGuardWrapper(Box<FunctionIdentity>),
+    /// The original body moved after the old defined-function space.
+    GuardedBody(Box<FunctionIdentity>),
 }
 
 impl FunctionIdentity {
@@ -120,6 +124,13 @@ impl FunctionIdentity {
             Self::StandardBuiltinStub(_) => "builtin_stub::shared".to_string(),
             Self::HostBuiltin(builtin) => format!("host::{}", builtin.as_str()),
             Self::RuntimeHelper(helper) => format!("helper::{}", helper.debug_name()),
+            Self::StackGuardWrapper(target) => {
+                format!("stack_guard::wrapper::{}", target.wasm_name())
+            }
+            // The relocated body remains the source-level implementation for
+            // size reports and native failure diagnostics. The thin wrapper
+            // has its own explicit `stack_guard::wrapper::` symbol.
+            Self::GuardedBody(target) => target.wasm_name(),
         }
     }
 
@@ -133,11 +144,22 @@ impl FunctionIdentity {
             Self::StandardBuiltinStub(_) => "builtin-stub",
             Self::HostBuiltin(_) => "host-builtin",
             Self::RuntimeHelper(_) => "runtime-helper",
+            Self::StackGuardWrapper(_) => "stack-guard-wrapper",
+            Self::GuardedBody(target) => target.category(),
         }
     }
 
     pub(crate) fn is_runtime_helper(&self) -> bool {
-        matches!(self, Self::RuntimeHelper(_))
+        match self {
+            Self::RuntimeHelper(_) => true,
+            Self::GuardedBody(target) => target.is_runtime_helper(),
+            Self::Main
+            | Self::Script { .. }
+            | Self::StandardBuiltin(_)
+            | Self::StandardBuiltinStub(_)
+            | Self::HostBuiltin(_)
+            | Self::StackGuardWrapper(_) => false,
+        }
     }
 }
 
@@ -398,6 +420,145 @@ impl EmittedFunction {
             declared_locals,
         }
     }
+
+    pub(crate) fn identity(&self) -> &FunctionIdentity {
+        &self.identity
+    }
+
+    /// Re-labels an already-finished body without decoding or re-encoding it.
+    /// The raw bytes and their measurements stay paired while relocation gives
+    /// the body a distinct entry in the Wasm `name` section.
+    pub(crate) fn with_identity(mut self, identity: FunctionIdentity) -> Self {
+        self.identity = identity;
+        self
+    }
+
+    /// Preserve the caller's active Realm around ordinary Wasm calls while
+    /// leaving it untouched across tail calls. Guard wrappers install the
+    /// callee Realm and tail-call this body. Capture the active Realm at each
+    /// call site: a body may temporarily enter another Realm (for example,
+    /// while draining Promise jobs), so its entry Realm is not always the
+    /// active Realm to restore when a nested call returns.
+    pub(crate) fn with_active_realm_restoration(
+        mut self,
+        parameter_count: u32,
+        active_realm_global_index: u32,
+    ) -> Result<Self, String> {
+        let body = wasmparser::FunctionBody::new(wasmparser::BinaryReader::new(&self.raw_body, 0));
+        let mut locals = body
+            .get_locals_reader()
+            .map_err(|error| format!("cannot read relocated function locals: {error}"))?;
+        let local_group_count = locals.get_count();
+        let mut declared_local_count = 0u32;
+        for _ in 0..local_group_count {
+            let (count, _) = locals
+                .read()
+                .map_err(|error| format!("cannot read relocated function locals: {error}"))?;
+            declared_local_count = declared_local_count
+                .checked_add(count)
+                .ok_or_else(|| "relocated function local count overflows u32".to_string())?;
+        }
+        let operators_start = locals.original_position();
+        let realm_local_index = parameter_count
+            .checked_add(declared_local_count)
+            .ok_or_else(|| "active Realm local index overflows u32".to_string())?;
+        let transformed_local_count = declared_local_count
+            .checked_add(1)
+            .ok_or_else(|| "relocated function local count overflows u32".to_string())?;
+        let expanded_group_count = local_group_count
+            .checked_add(1)
+            .ok_or_else(|| "relocated function local group count overflows u32".to_string())?;
+
+        let mut operators = body
+            .get_operators_reader()
+            .map_err(|error| format!("cannot read relocated function operators: {error}"))?;
+        let mut call_ranges = Vec::new();
+        let mut saw_final_end = false;
+        while !operators.eof() {
+            let (operator, start) = operators
+                .read_with_offset()
+                .map_err(|error| format!("cannot read relocated function operators: {error}"))?;
+            let end = operators.original_position();
+            match operator {
+                wasmparser::Operator::Call { .. }
+                | wasmparser::Operator::CallIndirect { .. }
+                | wasmparser::Operator::CallRef { .. } => call_ranges.push((start, end)),
+                wasmparser::Operator::End if operators.eof() => saw_final_end = true,
+                _ => {}
+            }
+        }
+        if !saw_final_end || operators_start > self.raw_body.len() {
+            return Err("relocated function body has no final end operator".to_string());
+        }
+        if call_ranges.is_empty() {
+            return Ok(self);
+        }
+
+        let (old_group_count, group_count_prefix_len) = read_var_u32(&self.raw_body)?;
+        if old_group_count != local_group_count {
+            return Err("relocated function local count changed while decoding".to_string());
+        }
+
+        let instrumentation_bytes = call_ranges
+            .len()
+            .checked_mul(24)
+            .and_then(|bytes| bytes.checked_add(16))
+            .ok_or_else(|| "relocated function instrumentation size overflows usize".to_string())?;
+        let mut transformed = Vec::with_capacity(
+            self.raw_body
+                .len()
+                .checked_add(instrumentation_bytes)
+                .ok_or_else(|| "relocated function body size overflows usize".to_string())?,
+        );
+        write_var_u32(expanded_group_count, &mut transformed);
+        transformed.extend_from_slice(&self.raw_body[group_count_prefix_len..operators_start]);
+        transformed.push(1); // one new local declaration group
+        transformed.push(0x7e); // i64
+
+        let mut copied_through = operators_start;
+        for (call_start, call_end) in call_ranges {
+            if call_start < copied_through
+                || call_end < call_start
+                || call_end > self.raw_body.len()
+            {
+                return Err("relocated function operator offsets are not ordered".to_string());
+            }
+            transformed.extend_from_slice(&self.raw_body[copied_through..call_start]);
+            Instruction::GlobalGet(active_realm_global_index).encode(&mut transformed);
+            Instruction::LocalSet(realm_local_index).encode(&mut transformed);
+            transformed.extend_from_slice(&self.raw_body[call_start..call_end]);
+            Instruction::LocalGet(realm_local_index).encode(&mut transformed);
+            Instruction::GlobalSet(active_realm_global_index).encode(&mut transformed);
+            copied_through = call_end;
+        }
+        transformed.extend_from_slice(&self.raw_body[copied_through..]);
+        self.raw_body = transformed;
+        self.body_bytes = FunctionBodySize::of(&self.raw_body);
+        self.declared_locals = Some(FunctionLocalCount(transformed_local_count));
+        Ok(self)
+    }
+}
+
+fn read_var_u32(bytes: &[u8]) -> Result<(u32, usize), String> {
+    let mut reader = wasmparser::BinaryReader::new(bytes, 0);
+    let value = reader
+        .read_var_u32()
+        .map_err(|error| format!("invalid local declaration count: {error}"))?;
+    Ok((value, reader.original_position()))
+}
+
+fn write_var_u32(mut value: u32, output: &mut Vec<u8>) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        output.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
 }
 
 /// One row of the emitted-function table.
@@ -417,8 +578,8 @@ pub(crate) struct EmittedFunctionRecord {
 /// "push a body and forget to record it" state is unrepresentable rather than
 /// something review has to notice.
 pub(crate) struct ModuleCode {
-    section: CodeSection,
-    records: Vec<EmittedFunctionRecord>,
+    functions: Vec<EmittedFunction>,
+    first_wasm_index: u32,
     next_wasm_index: u32,
 }
 
@@ -428,31 +589,66 @@ impl ModuleCode {
     /// index space).
     pub(crate) fn new(first_wasm_index: u32) -> Self {
         Self {
-            section: CodeSection::new(),
-            records: Vec::new(),
+            functions: Vec::new(),
+            first_wasm_index,
             next_wasm_index: first_wasm_index,
         }
     }
 
     pub(crate) fn push(&mut self, function: EmittedFunction) {
-        let wasm_index = self.next_wasm_index;
-        self.next_wasm_index += 1;
-        self.section.raw(&function.raw_body);
-        self.records.push(EmittedFunctionRecord {
-            wasm_index,
-            identity: function.identity,
-            body_bytes: function.body_bytes,
-            declared_locals: function.declared_locals,
-        });
+        self.next_wasm_index = self
+            .next_wasm_index
+            .checked_add(1)
+            .expect("emitted Wasm function index space overflow");
+        self.functions.push(function);
+    }
+
+    /// Preserve main's original index for its entry wrapper, then move the
+    /// compiled body to the end of code-section order. The caller has already
+    /// appended all other original functions and guarded JS bodies, so the
+    /// resulting index is the metadata's startup-body index.
+    pub(crate) fn wrap_main_and_relocate(
+        &mut self,
+        wrapper: EmittedFunction,
+        active_realm_global_index: u32,
+    ) -> Result<u32, String> {
+        let main = std::mem::replace(
+            self.functions
+                .first_mut()
+                .expect("compiled module code starts with main"),
+            wrapper,
+        );
+        assert!(matches!(main.identity(), FunctionIdentity::Main));
+        let main = main
+            .with_identity(FunctionIdentity::GuardedBody(Box::new(
+                FunctionIdentity::Main,
+            )))
+            .with_active_realm_restoration(0, active_realm_global_index)?;
+        let local_count = main
+            .declared_locals
+            .ok_or_else(|| "could not count relocated main-body locals".to_string())?
+            .count();
+        self.push(main);
+        Ok(local_count)
     }
 
     pub(crate) fn finish(self) -> (CodeSection, ModuleFunctionTable) {
-        (
-            self.section,
-            ModuleFunctionTable {
-                records: self.records,
-            },
-        )
+        let mut section = CodeSection::new();
+        let mut records = Vec::with_capacity(self.functions.len());
+        let first_wasm_index = self.first_wasm_index;
+        for (offset, function) in self.functions.into_iter().enumerate() {
+            let wasm_index = first_wasm_index
+                .checked_add(u32::try_from(offset).expect("function count fits u32"))
+                .expect("emitted Wasm function index space overflow");
+            section.raw(&function.raw_body);
+            records.push(EmittedFunctionRecord {
+                wasm_index,
+                identity: function.identity,
+                body_bytes: function.body_bytes,
+                declared_locals: function.declared_locals,
+            });
+        }
+        (section, ModuleFunctionTable { records })
     }
 }
 
@@ -789,6 +985,73 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn realm_restoration_preserves_leaf_and_tail_only_bodies() {
+        for tail_call in [false, true] {
+            let mut function = Function::new([]);
+            if tail_call {
+                function.instruction(&Instruction::ReturnCall(6));
+            }
+            function.instruction(&Instruction::End);
+            let emitted = EmittedFunction::new(FunctionIdentity::Main, function);
+            let original = emitted.raw_body.clone();
+            let transformed = emitted
+                .with_active_realm_restoration(0, 17)
+                .expect("a body without ordinary calls needs no Realm capture");
+            assert_eq!(transformed.raw_body, original);
+            assert_eq!(transformed.declared_locals.unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn active_realm_restore_follows_calls_but_not_tail_calls() {
+        let mut function = Function::new([]);
+        function.instruction(&Instruction::Call(5));
+        function.instruction(&Instruction::I64Const(99));
+        function.instruction(&Instruction::GlobalSet(17));
+        function.instruction(&Instruction::Call(7));
+        function.instruction(&Instruction::ReturnCall(6));
+        function.instruction(&Instruction::End);
+        let transformed = EmittedFunction::new(FunctionIdentity::Main, function)
+            .with_active_realm_restoration(0, 17)
+            .expect("Realm instrumentation should preserve the body");
+        assert_eq!(
+            transformed
+                .declared_locals
+                .expect("the capture local is measurable")
+                .count(),
+            1
+        );
+
+        let body =
+            wasmparser::FunctionBody::new(wasmparser::BinaryReader::new(&transformed.raw_body, 0));
+        let operators = body
+            .get_operators_reader()
+            .expect("instrumented body should parse")
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("every instrumented operator should parse");
+        assert!(matches!(
+            operators.as_slice(),
+            [
+                wasmparser::Operator::GlobalGet { global_index: 17 },
+                wasmparser::Operator::LocalSet { local_index: 0 },
+                wasmparser::Operator::Call { function_index: 5 },
+                wasmparser::Operator::LocalGet { local_index: 0 },
+                wasmparser::Operator::GlobalSet { global_index: 17 },
+                wasmparser::Operator::I64Const { value: 99 },
+                wasmparser::Operator::GlobalSet { global_index: 17 },
+                wasmparser::Operator::GlobalGet { global_index: 17 },
+                wasmparser::Operator::LocalSet { local_index: 0 },
+                wasmparser::Operator::Call { function_index: 7 },
+                wasmparser::Operator::LocalGet { local_index: 0 },
+                wasmparser::Operator::GlobalSet { global_index: 17 },
+                wasmparser::Operator::ReturnCall { function_index: 6 },
+                wasmparser::Operator::End,
+            ]
+        ));
     }
 
     /// The `None` answer must be reachable, or `format_declared_locals`'s

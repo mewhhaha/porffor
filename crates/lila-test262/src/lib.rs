@@ -476,7 +476,7 @@ impl Default for SuiteConfig {
             // Wasm-AOT stalls into a visible, bounded Timeout failure instead of
             // an unbounded multi-minute process stall. A correctness-green but
             // genuinely-this-slow case is itself performance debt (see
-            // tasks/25) and must not hide behind an inflated bound. A single
+            // docs/rust-rewrite/architecture-invariants.md) and must not hide behind an inflated bound. A single
             // fresh Engine/Wasmtime bootstrap plus compile in an unoptimized
             // debug build costs roughly 15-30s even for a trivial script, so
             // this floor keeps headroom above that legitimate cost while
@@ -969,7 +969,7 @@ impl Default for RunConfig {
             resume: false,
             snapshot_name: "latest".to_string(),
             // wasm-aot is the only backend whose results count as conformance
-            // (AGENTS.md, tasks/25, tasks/27). spec-exec remains available as an
+            // (AGENTS.md). spec-exec remains available as an
             // explicit, developer-selected differential oracle, never a harness
             // default.
             execution_backend: ExecutionBackend::WasmAot,
@@ -35744,7 +35744,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             // same backend the comparison below loads (spec-exec), otherwise the
             // aggregate snapshot is written under the wrong backend key. This is
             // no longer implied by RunConfig::default() since the harness default
-            // flipped to wasm-aot (tasks/25).
+            // flipped to wasm-aot (the Wasm-AOT product contract).
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };

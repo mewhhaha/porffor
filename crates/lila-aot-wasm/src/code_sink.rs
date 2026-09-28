@@ -293,24 +293,41 @@ impl Function {
         self.into_body_named(&"an unnamed test body")
     }
 
-    /// Replace the local declaration without changing frame identity or state.
+    /// Replace a body's typed local declaration without changing frame
+    /// identity or state. The emitted declaration may retype planned i64
+    /// temporary slots as references and may grow past the planned scalar
+    /// reservation; instructions retain their absolute local indices.
+    pub(crate) fn rewrite_local_declaration_types(
+        self,
+        planned_local_types: &[ValType],
+        emitted_local_types: &[ValType],
+    ) -> Self {
+        let Self { body, frames } = self;
+        let local_declaration =
+            wasm_encoder::Function::new_with_locals_types(planned_local_types.iter().copied())
+                .into_raw_body();
+        let mut body_bytes = body.into_raw_body();
+        assert!(
+            body_bytes.starts_with(&local_declaration),
+            "function local declaration does not match the planned local types"
+        );
+        let instruction_bytes = body_bytes.split_off(local_declaration.len());
+        let mut body =
+            wasm_encoder::Function::new_with_locals_types(emitted_local_types.iter().copied());
+        body.raw(instruction_bytes);
+        Self { body, frames }
+    }
+
+    #[cfg(test)]
     pub(crate) fn rewrite_local_declaration(
         self,
         planned_local_count: u32,
         emitted_local_count: u32,
     ) -> Self {
-        let Self { body, frames } = self;
-        let local_declaration =
-            wasm_encoder::Function::new([(planned_local_count, ValType::I64)]).into_raw_body();
-        let mut body_bytes = body.into_raw_body();
-        assert!(
-            body_bytes.starts_with(&local_declaration),
-            "function local declaration does not match planned local count {planned_local_count}"
-        );
-        let instruction_bytes = body_bytes.split_off(local_declaration.len());
-        let mut body = wasm_encoder::Function::new([(emitted_local_count, ValType::I64)]);
-        body.raw(instruction_bytes);
-        Self { body, frames }
+        self.rewrite_local_declaration_types(
+            &vec![ValType::I64; planned_local_count as usize],
+            &vec![ValType::I64; emitted_local_count as usize],
+        )
     }
 }
 

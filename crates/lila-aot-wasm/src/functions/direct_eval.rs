@@ -47,7 +47,7 @@ impl FunctionBuilder<'_> {
             function,
         )?;
         self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-        self.release_temp_local(argv);
+        self.release_arg_vector_local(argv);
         self.release_temp_local(argc);
         self.release_temp_local(receiver_tag);
         self.release_temp_local(receiver_payload);
@@ -64,7 +64,7 @@ impl FunctionBuilder<'_> {
         receiver_payload: u32,
         receiver_tag: u32,
         argc: u32,
-        argv: u32,
+        argv: ArgVectorLocal,
         continuation: &CallContinuation,
         payload_local: u32,
         tag_local: u32,
@@ -129,7 +129,7 @@ impl FunctionBuilder<'_> {
         context: &DirectEvalContextIr,
         realm: u32,
         argc: u32,
-        argv: u32,
+        argv: ArgVectorLocal,
         payload_local: u32,
         tag_local: u32,
         function: &mut Function,
@@ -144,7 +144,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(self.scratch_local));
-        self.emit_array_read(argv, self.scratch_local, payload_local, tag_local, function);
+        self.emit_arg_vector_read(argv, self.scratch_local, payload_local, tag_local, function);
         function.instruction(&Instruction::End);
         self.set_completion_kind(CompletionKind::Normal, function);
         function.instruction(&Instruction::LocalGet(tag_local));
@@ -225,12 +225,15 @@ impl FunctionBuilder<'_> {
                     function.instruction(&Instruction::LocalGet(invocation.new_target_payload));
                     function.instruction(&Instruction::LocalGet(invocation.new_target_tag));
                     function.instruction(&Instruction::I64Const(0));
-                    function.instruction(&Instruction::I64Const(0));
+                    crate::gc_types::arg_vector::emit_null(function);
                     function.instruction(&Instruction::LocalGet(variable_environment));
                     function.instruction(&Instruction::LocalGet(private_environment));
                     function.instruction(&Instruction::LocalGet(invocation.execution_context));
                     function.instruction(&Instruction::Call(wasm_index));
-                    self.store_call_results(payload_local, tag_local, function);
+                    self.store_call_results(
+                        crate::objects::TaggedLocals::new(payload_local, tag_local),
+                        function,
+                    );
                     self.release_direct_eval_invocation(invocation);
                     self.release_temp_local(private_environment);
                     self.release_temp_local(variable_environment);

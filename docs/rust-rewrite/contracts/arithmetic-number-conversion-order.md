@@ -31,6 +31,6 @@ cargo test --release --locked -j2 -p lila-engine --lib wasm_backend_outlined_to_
 cargo test --release --locked -j2 -p lila-engine --test aot_declaration_completion
 ```
 
-Current verification and the exact real execution cohort are recorded in the
-[September repair notes](../observed-later-failure-repairs.md). This contract
+Current failing executions and replay evidence are recorded in the
+[failure backlog](../../../tasks/README.md). This contract
 does not establish full numeric or Test262 conformance.

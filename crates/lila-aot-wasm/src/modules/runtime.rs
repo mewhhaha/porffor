@@ -61,10 +61,7 @@ impl FunctionBuilder<'_> {
             }
         }
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -94,7 +91,7 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::I64Const(0));
         }
         function.instruction(&Instruction::Call(index));
-        self.store_call_results(payload, tag, function);
+        self.store_call_results(crate::objects::TaggedLocals::new(payload, tag), function);
         Ok(())
     }
 

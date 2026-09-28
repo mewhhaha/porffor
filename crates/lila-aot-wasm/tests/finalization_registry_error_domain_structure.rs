@@ -1,7 +1,6 @@
 const FINALIZATION_REGISTRY_SOURCE: &str = include_str!("../src/builtins/finalization_registry.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/finalization-registry-error-domain.md");
-const TASK: &str = include_str!("../../../tasks/21-symbols-collections-weakrefs.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -202,9 +201,9 @@ fn typed_failures_preserve_the_register_and_receiver_ordering() {
 }
 
 #[test]
-fn contract_and_task_record_the_invariant_and_non_claim() {
+fn contract_records_the_invariant_and_non_claim() {
     let normalized_contract = normalized(CONTRACT);
-    let normalized_task = normalized(TASK);
+
     for evidence in [
         "FinalizationRegistryTypeError",
         "arbitrary diagnostic string",
@@ -215,10 +214,6 @@ fn contract_and_task_record_the_invariant_and_non_claim() {
         assert!(
             normalized_contract.contains(&normalized_evidence),
             "contract evidence `{evidence}`"
-        );
-        assert!(
-            normalized_task.contains(&normalized_evidence),
-            "task evidence `{evidence}`"
         );
     }
 }

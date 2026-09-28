@@ -1,0 +1,4 @@
+sloppy-script:intl402/String/prototype/toLocaleLowerCase/validates-all-locale-identifiers.js
+sloppy-script:intl402/String/prototype/toLocaleUpperCase/validates-all-locale-identifiers.js
+strict-script:intl402/String/prototype/toLocaleLowerCase/validates-all-locale-identifiers.js
+strict-script:intl402/String/prototype/toLocaleUpperCase/validates-all-locale-identifiers.js

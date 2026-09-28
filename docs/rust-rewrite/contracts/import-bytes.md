@@ -29,5 +29,5 @@ phaseful occurrence.
 
 Focused regressions are in `lila-engine`'s `aot_import_bytes` target and
 `lila-ir`'s `module_instantiation` and `module_unit_structure` targets. The
-upstream family is `language/import/import-bytes`. Verification of the current
-batch is recorded in the [discovery checkpoint](../failure-discovery-20260926.md).
+upstream family is `language/import/import-bytes`. Current failures and replay
+evidence belong in the [failure backlog](../../../tasks/README.md).

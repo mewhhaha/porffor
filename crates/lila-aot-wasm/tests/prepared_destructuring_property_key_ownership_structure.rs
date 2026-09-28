@@ -5,7 +5,6 @@ const SOURCE: &str = include_str!("../src/control_flow.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/prepared-destructuring-property-key-ownership.md"
 );
-const TASK: &str = include_str!("../../../tasks/08-environments-control-flow.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -265,8 +264,8 @@ fn write_installs_and_releases_computed_key_locals_exhaustively() {
 }
 
 #[test]
-fn contract_task_and_existing_semantic_witness_name_the_boundary() {
-    for text in [CONTRACT, TASK] {
+fn contract_and_existing_semantic_witness_name_the_boundary() {
+    for text in [CONTRACT] {
         assert!(text.contains("PreparedDestructuringPropertyKey"));
         assert!(text.contains("prepared_destructuring_property_key_ownership_structure"));
     }

@@ -7272,7 +7272,12 @@ impl<'a> ScriptLowerer<'a> {
                     function_targets: FunctionTargetKnowledge::unknown(),
                 };
             }
-            return TypedExpr::from_info(info, ExprIr::Identifier(binding.storage_name));
+            let expr = if name == "arguments" && binding.storage_name == LEXICAL_ARGUMENTS_NAME {
+                ExprIr::Arguments
+            } else {
+                ExprIr::Identifier(binding.storage_name)
+            };
+            return TypedExpr::from_info(info, expr);
         }
 
         if let Some(host) = self.host_surface_policy.resolve_global(&name) {
@@ -7310,18 +7315,6 @@ impl<'a> ScriptLowerer<'a> {
                     ExprIr::FunctionValue(function_id),
                 );
             }
-        }
-
-        if name == "arguments" && self.lookup_binding(LEXICAL_ARGUMENTS_NAME).is_some() {
-            return TypedExpr::from_info(
-                ValueInfo {
-                    kind: ValueKind::Arguments,
-                    possible_kinds: KindSet::from_kind(ValueKind::Arguments),
-                    heap_shape: None,
-                    function_targets: FunctionTargetKnowledge::none(),
-                },
-                ExprIr::Arguments,
-            );
         }
 
         if name == GLOBAL_THIS_NAME {
@@ -8814,6 +8807,7 @@ impl<'a> ScriptLowerer<'a> {
             resumable_plan,
             strict: class_kind != ClassFunctionKind::None
                 || class_element_execution_kind != ClassElementExecutionKind::None,
+            own_arguments_use: OwnArgumentsUse::conservative(),
             class_element_execution_kind,
             class_heritage_kind: class_context.heritage_kind,
             is_static_class_member: class_context.is_static,
@@ -9105,6 +9099,7 @@ impl<'a> ScriptLowerer<'a> {
             generator_plan: None,
             resumable_plan: None,
             strict: true,
+            own_arguments_use: OwnArgumentsUse::conservative(),
             class_element_execution_kind,
             class_heritage_kind: class_context.heritage_kind,
             is_static_class_member: class_context.is_static,
@@ -9202,6 +9197,7 @@ impl<'a> ScriptLowerer<'a> {
             generator_plan: None,
             resumable_plan: None,
             strict: protocol.class_kind() != ClassFunctionKind::None,
+            own_arguments_use: OwnArgumentsUse::conservative(),
             class_element_execution_kind,
             class_heritage_kind: class_context.heritage_kind,
             is_static_class_member: class_context.is_static,
@@ -9352,6 +9348,7 @@ impl<'a> ScriptLowerer<'a> {
             generator_plan: None,
             resumable_plan: None,
             strict: true,
+            own_arguments_use: OwnArgumentsUse::conservative(),
             class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: heritage_kind,
             is_static_class_member: is_static,
@@ -19642,6 +19639,55 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn set_binding_value_info(&mut self, name: &str, info: ValueInfo) -> Option<()> {
+        let resolved = self.lookup_binding_with_location(name);
+        let implicit_arguments = name == "arguments"
+            && resolved
+                .as_ref()
+                .is_some_and(|(binding, _)| binding.storage_name == LEXICAL_ARGUMENTS_NAME);
+        let same_environment_var_arguments = name == "arguments"
+            && matches!(
+                resolved,
+                Some((_, BindingLookupLocation::VariableEnvironment))
+            )
+            && self
+                .analysis
+                .owner_plans
+                .get(&self.current_owner_id)
+                .is_some_and(|owner| {
+                    owner.flavor == FunctionFlavor::Ordinary
+                        && owner.body_environment_id.is_none()
+                        && !owner.parameter_names.contains("arguments")
+                        && !owner.function_bindings.contains_key("arguments")
+                })
+            && self
+                .scopes
+                .iter()
+                .any(|scope| scope.contains_key(LEXICAL_ARGUMENTS_NAME));
+        let name = if implicit_arguments {
+            LEXICAL_ARGUMENTS_NAME
+        } else {
+            name
+        };
+        // A source write can be conditional (notably in a default parameter
+        // initializer). Keep the initial object among the possible values;
+        // runtime storage still carries the current tag after the write.
+        let info = if implicit_arguments || same_environment_var_arguments {
+            let previous = self.lookup_binding(name)?;
+            self.merge_value_infos(
+                ValueInfo {
+                    kind: previous.kind,
+                    possible_kinds: previous.possible_kinds,
+                    heap_shape: previous.heap_shape,
+                    function_targets: previous.function_targets,
+                },
+                info,
+            )
+        } else {
+            info
+        };
+        if same_environment_var_arguments {
+            self.set_binding_value_info(LEXICAL_ARGUMENTS_NAME, info.clone())?;
+        }
         if !self.scopes.iter().any(|scope| scope.contains_key(name))
             && !self.var_bindings.contains_key(name)
         {
@@ -20676,7 +20722,8 @@ impl<'a> ScriptLowerer<'a> {
         &self,
         name: &str,
     ) -> Option<(BindingInfo, BindingLookupLocation)> {
-        self.scopes
+        let scoped = self
+            .scopes
             .iter()
             .enumerate()
             .rev()
@@ -20685,18 +20732,44 @@ impl<'a> ScriptLowerer<'a> {
                     .get(name)
                     .cloned()
                     .map(|binding| (binding, BindingLookupLocation::Scope(scope_index)))
-            })
-            .or_else(|| {
-                self.var_bindings.get(name).and_then(|binding| {
-                    if binding.is_script_global && self.current_owner_id != SCRIPT_OWNER_ID {
-                        return None;
-                    }
-                    Some((
-                        binding.to_binding_info(name),
-                        BindingLookupLocation::VariableEnvironment,
-                    ))
+            });
+        if scoped.is_some() {
+            return scoped;
+        }
+        let implicit_arguments = if name == "arguments" {
+            self.scopes
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(scope_index, scope)| {
+                    scope
+                        .get(LEXICAL_ARGUMENTS_NAME)
+                        .cloned()
+                        .map(|binding| (binding, BindingLookupLocation::Scope(scope_index)))
                 })
-            })
+        } else {
+            None
+        };
+        let implicit_precedes_var = self
+            .analysis
+            .owner_plans
+            .get(&self.current_owner_id)
+            .is_some_and(|owner| {
+                owner.body_environment_id.is_some() || !owner.root_bindings.contains("arguments")
+            });
+        if implicit_precedes_var && implicit_arguments.is_some() {
+            return implicit_arguments;
+        }
+        let var = self.var_bindings.get(name).and_then(|binding| {
+            if binding.is_script_global && self.current_owner_id != SCRIPT_OWNER_ID {
+                return None;
+            }
+            Some((
+                binding.to_binding_info(name),
+                BindingLookupLocation::VariableEnvironment,
+            ))
+        });
+        var.or(implicit_arguments)
     }
 
     fn locate_identifier_reference(&self, name: &str) -> LocatedIdentifierReference {

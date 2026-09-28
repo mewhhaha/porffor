@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "name": "full-native-gc-20260927",
+  "refresh_date": "2026-09-28",
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "ecma262-current-draft",
+    "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+  },
+  "manifest_hash": 12471854949206383352,
+  "total": 102956,
+  "passed": 99229,
+  "failed": 3727,
+  "counts_per_outcome": {
+    "Bug": 3248,
+    "Crash": 37,
+    "NotImplemented": 442,
+    "Success": 99229
+  },
+  "completed_nodes": 748,
+  "total_nodes": 748,
+  "compiler_sha256": "2a3f86d17b6735d941d747d7791c9a45b94dd1f4cf19c7dbe2454228c5cc4202",
+  "source_inputs_sha256": "8e9996c101a4f68c09e356f74c60157a8413644f169a9ca818cf7191ffca3bb6",
+  "source_commit": "940cf0b91130f8b26e0564ef53ac4e51d67f8f8b",
+  "source_state": "Observed dirty worktree inputs hashed by publication session; commit alone does not reproduce this compiler.",
+  "suite_sha256": "ff36b7ed00925326f106b5328d5e4fb78e603d15c9c53cd3fac515d011618de5",
+  "source_snapshot_directory": "target/test262-scratch/full-native-gc-20260927/snapshots",
+  "extraction": "collect-new-test262-failures.py validated every completed native leaf and exact execution identity; exclusion list was empty. Full passed leaf inventories remain in the original snapshot directory.",
+  "artifacts": {
+    "evidence/aggregate.json": "86bc0532022bb99d5ce979af9eb7e9691b7faba7cb69a1de049cb93c94e4c0d0",
+    "evidence/failures.executions": "b208fbd4ce80b32b87cfa90011043e4bbc8101a01f1f5be78d0ad367d2bbcbb4",
+    "evidence/failures.json": "f923b23b33840eff4b251cc69595022bceec28a290ac86e82bd0545e7b1a981f",
+    "evidence/provenance.json": "68b74eefbfa610e18bc31a5d1000b35128c89990ffd4f9943521a4edfa1abf28",
+    "evidence/publication-session.json": "63068fcd420ce33d78bd4e61efb45944c4f12c7482562e9f497bd72443685eb2",
+    "evidence/published-status.json": "3707006151d8b05e984a47452b17d9ef6659cfac8fcb8c0f49992ed8146754ea"
+  }
+}

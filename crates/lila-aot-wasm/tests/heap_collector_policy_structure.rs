@@ -84,14 +84,15 @@ fn heap_owner_delegates_to_the_closed_policy() {
 }
 
 #[test]
-fn host_gc_remains_explicitly_unsupported() {
+fn host_gc_uses_runtime_collection_without_claiming_linear_heap_collection() {
     let owner = bounded(
         HOST_SOURCE,
         "pub(crate) fn compile_host_gc_builtin(",
         "pub(crate) fn compile_host_parse_int_builtin(",
     );
-    assert!(owner.contains("if heap_collector_is_executable() {"));
-    assert!(owner.contains("heap collector is marked executable but host gc emitter is not wired"));
-    assert!(owner.contains("gc requires a real collector in wasm-aot"));
-    assert!(owner.contains("self.set_completion_kind(CompletionKind::Throw, function);"));
+    assert!(owner.contains("self.functions.gc_import_function_index()"));
+    assert!(owner.contains("function.instruction(&Instruction::Call(gc));"));
+    assert!(!owner.contains("heap_collector_is_executable"));
+    assert!(!owner.contains("CompletionKind::Throw"));
+    assert!(owner.contains("ValueKind::Undefined.tag()"));
 }

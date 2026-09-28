@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-execution-identity.md");
-const TASK: &str = include_str!("../../../tasks/01-baseline-and-generated-backlog.md");
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -157,10 +156,7 @@ fn execution_plan_is_the_exact_private_no_capability_domain() {
         );
     }
     assert_eq!(
-        count_in_rust_sources(
-            &root.join("crates/lila-test262/src"),
-            "TestExecutionPlan"
-        ),
+        count_in_rust_sources(&root.join("crates/lila-test262/src"), "TestExecutionPlan"),
         5,
         "the declaration, implementation, discovery owner and two unit witnesses are the complete ownership census"
     );
@@ -214,5 +210,4 @@ fn execution_plan_exhaustively_binds_flags_to_ordered_modes() {
     );
     assert!(!modes.contains("_=>"));
     assert!(CONTRACT.contains("TestExecutionPlan"));
-    assert!(TASK.contains("TestExecutionPlan"));
 }

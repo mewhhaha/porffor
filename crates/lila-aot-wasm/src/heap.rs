@@ -60,6 +60,10 @@ use super::heap_intl_number_format_layout::{
     IntlNumberFormatHeapSlot, HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT,
 };
 #[cfg(test)]
+use super::heap_intl_plural_rules_layout::{
+    IntlPluralRulesHeapSlot, HEAP_INTL_PLURAL_RULES_RECORD_LAYOUT,
+};
+#[cfg(test)]
 use super::heap_map_entry_layout::{MapEntryHeapSlot, HEAP_MAP_ENTRY_LAYOUT};
 #[cfg(test)]
 use super::heap_map_iterator_layout::{MapIteratorHeapSlot, HEAP_MAP_ITERATOR_RECORD_LAYOUT};
@@ -283,7 +287,7 @@ pub(crate) const HEAP_HEADER_SIZE: u64 = 256;
 pub(crate) const HEAP_FUNCTION_OBJECT_SIZE: u64 = 320;
 pub(crate) const HEAP_OBJECT_ENTRY_SIZE: u64 = 64;
 pub(crate) const HEAP_REALM_RECORD_SIZE: u64 = 64;
-pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 528;
+pub(crate) const HEAP_REALM_INTRINSICS_RECORD_SIZE: u64 = 560;
 pub(crate) const HEAP_ARRAY_ENTRY_SIZE: u64 = 40;
 // Array offsets intentionally retain padding at boxed-object metadata positions:
 // some generic object paths can still receive an Array pointer after tag erasure.
@@ -327,6 +331,9 @@ pub(crate) const HEAP_INTL_LOCALE_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_INTL_DATE_TIME_FORMAT_RECORD_SIZE: u64 = 192;
 pub(crate) const HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE: u64 =
     40 + lila_intl::NUMBER_CONFIGURATION_WORDS as u64 * 8;
+pub(crate) const HEAP_INTL_PLURAL_RULES_RECORD_SIZE: u64 =
+    40 + lila_intl::NUMBER_CONFIGURATION_WORDS as u64 * 8;
+pub(crate) const HEAP_INTL_RELATIVE_TIME_FORMAT_RECORD_SIZE: u64 = 40;
 pub(crate) const HEAP_MAP_ITERATOR_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_RECORD_SIZE: u64 = 32;
 pub(crate) const HEAP_SET_ENTRY_SIZE: u64 = 24;
@@ -722,6 +729,10 @@ pub(crate) const HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET: u64 
 /// ECMA-402 %Intl%.[[FallbackSymbol]]: one Symbol per Realm, described
 /// "IntlLegacyConstructedSymbol" (normative-optional constructor mode, 4.3 Note 1).
 pub(crate) const HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET: u64 = 520;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_COLLATOR_PROTOTYPE_OFFSET: u64 = 528;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_PLURAL_RULES_PROTOTYPE_OFFSET: u64 = 536;
+pub(crate) const HEAP_REALM_INTRINSICS_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_OFFSET: u64 = 544;
+pub(crate) const HEAP_REALM_INTRINSICS_ARRAY_VALUES_OFFSET: u64 = 552;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_TAG_OFFSET: u64 = 0;
 pub(crate) const HEAP_BOUND_FUNCTION_TARGET_PAYLOAD_OFFSET: u64 = 8;
 pub(crate) const HEAP_BOUND_FUNCTION_THIS_TAG_OFFSET: u64 = 16;
@@ -795,6 +806,17 @@ pub(crate) const HEAP_INTL_LOCALE_SCRIPT_OFFSET: u64 = 16;
 pub(crate) const HEAP_INTL_LOCALE_REGION_OFFSET: u64 = 24;
 pub(crate) const HEAP_INTL_LOCALE_BASE_NAME_OFFSET: u64 = 32;
 
+/// Collator stores resolved locale options and its cached bound compare function.
+pub(crate) const HEAP_INTL_COLLATOR_RECORD_SIZE: u64 = 72;
+pub(crate) const HEAP_INTL_COL_LOCALE_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_COL_DATA_LOCALE_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_COL_COLLATION_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_COL_USAGE_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_COL_NUMERIC_OFFSET: u64 = 32;
+pub(crate) const HEAP_INTL_COL_CASE_FIRST_OFFSET: u64 = 40;
+pub(crate) const HEAP_INTL_COL_SENSITIVITY_OFFSET: u64 = 48;
+pub(crate) const HEAP_INTL_COL_IGNORE_PUNCTUATION_OFFSET: u64 = 56;
+pub(crate) const HEAP_INTL_COL_BOUND_COMPARE_OFFSET: u64 = 64;
 /// NumberFormat references precede the closed NumberConfigurationWord vector.
 pub(crate) const HEAP_INTL_NF_LOCALE_OFFSET: u64 = 0;
 pub(crate) const HEAP_INTL_NF_DATA_LOCALE_OFFSET: u64 = 8;
@@ -802,6 +824,17 @@ pub(crate) const HEAP_INTL_NF_NUMBERING_SYSTEM_OFFSET: u64 = 16;
 pub(crate) const HEAP_INTL_NF_STYLE_TEXT_OFFSET: u64 = 24;
 pub(crate) const HEAP_INTL_NF_BOUND_FORMAT_OFFSET: u64 = 32;
 pub(crate) const HEAP_INTL_NF_WORDS_OFFSET: u64 = 40;
+pub(crate) const HEAP_INTL_PR_LOCALE_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_PR_DATA_LOCALE_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_PR_TYPE_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_PR_CATEGORY_MASK_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_PR_CATEGORY_COUNT_OFFSET: u64 = 32;
+pub(crate) const HEAP_INTL_PR_WORDS_OFFSET: u64 = 40;
+pub(crate) const HEAP_INTL_RTF_LOCALE_OFFSET: u64 = 0;
+pub(crate) const HEAP_INTL_RTF_DATA_LOCALE_OFFSET: u64 = 8;
+pub(crate) const HEAP_INTL_RTF_NUMBERING_SYSTEM_OFFSET: u64 = 16;
+pub(crate) const HEAP_INTL_RTF_STYLE_OFFSET: u64 = 24;
+pub(crate) const HEAP_INTL_RTF_NUMERIC_OFFSET: u64 = 32;
 
 /// `Intl.DateTimeFormat` internal slots (ECMA-402 11.5, Table 8).
 ///
@@ -1862,6 +1895,9 @@ pub(crate) const OBJECT_INTERNAL_BRAND_ASYNC_DISPOSABLE_STACK: u64 = 39;
 /// AsyncDisposableStack wrong-receiver witnesses depend on this distinction.
 pub(crate) const OBJECT_INTERNAL_BRAND_DISPOSABLE_STACK: u64 = 40;
 pub(crate) const OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT: u64 = 41;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_COLLATOR: u64 = 44;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_PLURAL_RULES: u64 = 45;
+pub(crate) const OBJECT_INTERNAL_BRAND_INTL_RELATIVE_TIME_FORMAT: u64 = 46;
 /// `Iterator.prototype.chunks` and `Iterator.prototype.windows` helpers share
 /// one slot layout but not one brand: the brand is what selects the
 /// algorithm when `%IteratorHelperPrototype%` dispatches `next`/`return`.
@@ -2109,8 +2145,6 @@ pub(crate) const FUNCTION_FLAG_IS_HTMLDDA: u64 = 512;
 pub(crate) const FUNCTION_FLAG_GENERATOR: u64 = 1024;
 pub(crate) const FUNCTION_FLAG_ASYNC: u64 = 2048;
 pub(crate) const FUNCTION_FLAG_ASYNC_GENERATOR: u64 = 4096;
-pub(crate) const JS_FUNCTION_PARAM_COUNT: usize = 7;
-
 #[allow(dead_code)]
 pub(crate) const HEAP_OBJECT_HEADER_LAYOUT: &[HeapLayoutSlot] = &[
     HeapLayoutSlot {
@@ -4010,6 +4044,34 @@ pub(crate) const HEAP_REALM_INTRINSICS_LAYOUT: &[HeapLayoutSlot] = &[
         record: "realm-intrinsics",
         name: "%Intl%.[[FallbackSymbol]]",
         offset: HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.Collator.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_COLLATOR_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.PluralRules.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_PLURAL_RULES_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Intl.RelativeTimeFormat.prototype%",
+        offset: HEAP_REALM_INTRINSICS_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_OFFSET,
+        width: 8,
+        pointer: true,
+    },
+    HeapLayoutSlot {
+        record: "realm-intrinsics",
+        name: "%Array.prototype.values%",
+        offset: HEAP_REALM_INTRINSICS_ARRAY_VALUES_OFFSET,
         width: 8,
         pointer: true,
     },
@@ -6282,7 +6344,7 @@ mod tests {
         assert_eq!(HEAP_BIGINT_RECORD_SIZE, 32);
         assert_eq!(HEAP_SYMBOL_RECORD_SIZE, 32);
         assert_eq!(HEAP_REALM_RECORD_SIZE, 64);
-        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 528);
+        assert_eq!(HEAP_REALM_INTRINSICS_RECORD_SIZE, 560);
         assert_eq!(HEAP_REALM_INTRINSICS_INTL_FALLBACK_SYMBOL_OFFSET, 520);
         assert_eq!(HEAP_REALM_INTRINSICS_EVAL_FUNCTION_OFFSET, 440);
         assert_eq!(HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET, 448);
@@ -6401,6 +6463,10 @@ mod tests {
         let intl_number_format_layout = HEAP_INTL_NUMBER_FORMAT_RECORD_LAYOUT
             .iter()
             .map(IntlNumberFormatHeapSlot::layout)
+            .collect::<Vec<_>>();
+        let intl_plural_rules_layout = HEAP_INTL_PLURAL_RULES_RECORD_LAYOUT
+            .iter()
+            .map(IntlPluralRulesHeapSlot::layout)
             .collect::<Vec<_>>();
         let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
             .iter()
@@ -6638,6 +6704,10 @@ mod tests {
             &intl_number_format_layout,
             HEAP_INTL_NUMBER_FORMAT_RECORD_SIZE,
         );
+        assert_layout(
+            &intl_plural_rules_layout,
+            HEAP_INTL_PLURAL_RULES_RECORD_SIZE,
+        );
         assert_layout(&map_iterator_layout, HEAP_MAP_ITERATOR_RECORD_SIZE);
         assert_layout(&set_record_layout, HEAP_SET_RECORD_SIZE);
         assert_layout(&set_entry_layout, HEAP_SET_ENTRY_SIZE);
@@ -6709,6 +6779,10 @@ mod tests {
             .iter()
             .map(IntlNumberFormatHeapSlot::layout)
             .collect::<Vec<_>>();
+        let intl_plural_rules_layout = HEAP_INTL_PLURAL_RULES_RECORD_LAYOUT
+            .iter()
+            .map(IntlPluralRulesHeapSlot::layout)
+            .collect::<Vec<_>>();
         let object_entry_layout = HEAP_OBJECT_ENTRY_LAYOUT
             .iter()
             .map(ObjectEntryHeapSlot::layout)
@@ -6757,6 +6831,10 @@ mod tests {
                 .filter(|slot| slot.pointer)
                 .count()
             + intl_number_format_layout
+                .iter()
+                .filter(|slot| slot.pointer)
+                .count()
+            + intl_plural_rules_layout
                 .iter()
                 .filter(|slot| slot.pointer)
                 .count()
@@ -7455,7 +7533,7 @@ mod tests {
     }
 
     #[test]
-    fn heap_collector_policy_keeps_gc_builtin_unsupported_until_executable() {
+    fn heap_collector_policy_does_not_claim_linear_heap_collection() {
         assert!(!heap_collector_is_executable());
         assert_eq!(HEAP_COLLECTOR_POLICY.name(), "non-moving-tracing-collector");
         assert!(!HEAP_COLLECTOR_POLICY.moves_objects());
@@ -7648,6 +7726,60 @@ mod tests {
         assert_ne!(
             OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT,
             OBJECT_INTERNAL_BRAND_INTL_DATE_TIME_FORMAT
+        );
+    }
+
+    #[test]
+    fn plural_rules_record_owns_configuration_words_and_pointer_slots() {
+        let slots = HEAP_INTL_PLURAL_RULES_RECORD_LAYOUT
+            .iter()
+            .map(IntlPluralRulesHeapSlot::layout)
+            .collect::<Vec<_>>();
+        assert_eq!(slots.len(), 5 + lila_intl::NUMBER_CONFIGURATION_WORDS);
+        assert_eq!(HEAP_INTL_PLURAL_RULES_RECORD_SIZE, 176);
+        assert_layout(&slots, HEAP_INTL_PLURAL_RULES_RECORD_SIZE);
+        assert!(slots[..2].iter().all(|slot| slot.pointer));
+        assert!(slots[2..].iter().all(|slot| !slot.pointer));
+        for word in lila_intl::NumberConfigurationWord::ALL {
+            let slot = &slots[5 + word.index()];
+            assert_eq!(slot.offset, HEAP_INTL_PR_WORDS_OFFSET + word.offset());
+            assert_eq!(slot.width, 8);
+            assert!(!slot.pointer);
+        }
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Intl.PluralRules.prototype%"
+                && slot.pointer
+                && slot.offset == HEAP_REALM_INTRINSICS_INTL_PLURAL_RULES_PROTOTYPE_OFFSET
+        }));
+        assert_ne!(
+            OBJECT_INTERNAL_BRAND_INTL_PLURAL_RULES,
+            OBJECT_INTERNAL_BRAND_INTL_NUMBER_FORMAT
+        );
+    }
+
+    #[test]
+    fn relative_time_format_record_has_closed_aligned_slots() {
+        assert_eq!(HEAP_INTL_RELATIVE_TIME_FORMAT_RECORD_SIZE, 40);
+        let offsets = [
+            HEAP_INTL_RTF_LOCALE_OFFSET,
+            HEAP_INTL_RTF_DATA_LOCALE_OFFSET,
+            HEAP_INTL_RTF_NUMBERING_SYSTEM_OFFSET,
+            HEAP_INTL_RTF_STYLE_OFFSET,
+            HEAP_INTL_RTF_NUMERIC_OFFSET,
+        ];
+        assert_eq!(offsets, [0, 8, 16, 24, 32]);
+        assert!(offsets.iter().all(|offset| offset % 8 == 0));
+        assert!(offsets
+            .iter()
+            .all(|offset| offset + 8 <= HEAP_INTL_RELATIVE_TIME_FORMAT_RECORD_SIZE));
+        assert!(HEAP_REALM_INTRINSICS_LAYOUT.iter().any(|slot| {
+            slot.name == "%Intl.RelativeTimeFormat.prototype%"
+                && slot.pointer
+                && slot.offset == HEAP_REALM_INTRINSICS_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_OFFSET
+        }));
+        assert_ne!(
+            OBJECT_INTERNAL_BRAND_INTL_RELATIVE_TIME_FORMAT,
+            OBJECT_INTERNAL_BRAND_INTL_PLURAL_RULES
         );
     }
 

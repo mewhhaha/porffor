@@ -112,7 +112,7 @@ final rounding, planning roots and absence of the former static route.
 - `crates/lila-cli/tests/fixtures/wasm_math_sum_precise_runtime.js`
 - `crates/lila-cli/tests/cli/language_numerics.rs`
 - this contract
-- `tasks/20-number-bigint-math-json.md`
+- `docs/rust-rewrite/conformance-ownership.md`
 
 The lane's freeze gates are scoped `rustfmt --check`, `node --check`, source
 inventory and `git diff --check`. Cargo, the CLI fixture, pinned Test262, the

@@ -16,8 +16,6 @@ const EXACT_TEST262: &str =
     include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/nullable-quantifier.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-nullable-quantifier-progress.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/19-regexp.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -784,24 +782,6 @@ fn exact_inventory_fixture_and_verified_status_remain_bounded() {
         .contains("fn run_wasm_backend_rejects_empty_optional_nullable_quantifier_iterations()"));
     assert!(CLI_TEST_SOURCE.contains("wasm_regexp_nullable_quantifier_progress.js"));
 
-    for source in [README, TASK] {
-        for marker in [
-            "44247b836b",
-            "built-ins/RegExp/nullable-quantifier.js",
-            "0/2",
-            "Runtime/NotImplemented",
-            "workspace/all-target `cargo check`",
-            "`cargo xc`",
-            "`1/1` in `8.37s`",
-            "`5/5` in `22.36s`",
-            "`1/1` in `22.83s`",
-            "`27.19s`",
-            "passes `2/2` with zero unsupported",
-            "full-suite claim is made",
-        ] {
-            assert!(source.contains(marker), "status lost {marker}");
-        }
-    }
     for marker in [
         "REGEXP_OPCODE_PROGRESS_SPLIT",
         "REGEXP_OPCODE_PROGRESS_CHECK",

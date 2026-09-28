@@ -21,9 +21,6 @@ tests remain unchanged:
 cargo test -p lila-engine --test aot_intl_datetime_numbering
 ```
 
-The frozen checkpoint16r3 Intl replay completed 394 executions: 390 Success and
-4 Bug, with no timeouts. Both modes of `related-year-zh.js` and
-`temporal-objects-no-time-clip-non-latin-numerals.js` remained failing at that
-checkpoint. The new Chinese and Arabic profiles target those failures; their
-candidate replay is pending. Historical outcomes are retained in the
-[completed-baseline follow-up](completed-baseline-follow-up.md).
+Current failing executions and verification commands are tracked in the
+[failure backlog](../../tasks/README.md). Historical checkpoint results remain
+in Git history.

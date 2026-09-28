@@ -4,7 +4,6 @@ use std::path::Path;
 const PRIVATE_ELEMENTS_SOURCE: &str = include_str!("../src/objects/private_elements.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/private-element-entry-protocol.md");
-const TASK: &str = include_str!("../../../tasks/09-functions-classes-private-elements.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -690,12 +689,9 @@ fn private_element_entry_consumer_projects_once_before_sole_private_name_publica
 }
 
 #[test]
-fn private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner() {
+fn private_element_entry_contract_names_the_closed_row_owner() {
     assert!(CONTRACT.contains("Private Name list publication"));
-    assert!(
-        TASK.contains("Realm-list publication"),
-        "historical T09 checkpoint"
-    );
+
     assert!(!PRIVATE_ELEMENTS_SOURCE.contains("CURRENT_REALM_GLOBAL_INDEX"));
     for marker in [
         "PrivateElementEntryLocals",
@@ -708,6 +704,5 @@ fn private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner()
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(TASK.contains(marker), "missing T09 marker: {marker}");
     }
 }

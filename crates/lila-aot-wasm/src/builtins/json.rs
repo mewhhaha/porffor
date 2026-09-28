@@ -1215,11 +1215,11 @@ impl<'a> FunctionBuilder<'a> {
         // variant here would surface a stale `result_local` and drop the actual
         // error object (see replacer-function-abrupt.js).
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         self.emit_pre_evaluated_arg_vector(
             &[
-                (property_key.payload, property_key.tag),
-                (value.payload, value.tag),
+                crate::objects::TaggedLocals::new(property_key.payload, property_key.tag),
+                crate::objects::TaggedLocals::new(value.payload, value.tag),
             ],
             argc_local,
             argv_local,
@@ -1236,7 +1236,7 @@ impl<'a> FunctionBuilder<'a> {
             value.tag,
             function,
         )?;
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.emit_propagate_throw_from_locals_if_needed(value.payload, value.tag, function)?;
         function.instruction(&Instruction::End);
@@ -3005,10 +3005,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.release_temp_local(output_local);
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }

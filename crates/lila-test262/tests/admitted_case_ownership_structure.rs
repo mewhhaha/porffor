@@ -5,7 +5,6 @@ const JOURNAL_SOURCE: &str = include_str!("../src/attempt_journal.rs");
 const RUNNER_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-admitted-case-ownership.md");
-const TASK: &str = include_str!("../../../tasks/25-differential-fuzzing-performance.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -252,7 +251,11 @@ fn attempt_authorities_are_exact_debug_only_non_cloneable_types() {
         ),
     ] {
         let declaration = format!("{start}{}", bounded(JOURNAL_SOURCE, start, end));
-        assert_eq!(rust_code(&declaration, true), expected, "declaration `{start}`");
+        assert_eq!(
+            rust_code(&declaration, true),
+            expected,
+            "declaration `{start}`"
+        );
     }
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -349,7 +352,7 @@ fn worker_moves_the_admitted_proof_once_then_retires_its_journal_slot() {
 }
 
 #[test]
-fn contract_and_t25_record_the_admission_ownership_closure() {
+fn contract_records_the_admission_ownership_closure() {
     for marker in [
         "`RunPhase -> QueuedCase -> CaseAdmission -> AdmittedCase` chain",
         "consumes the `AdmittedCase`",
@@ -360,5 +363,4 @@ fn contract_and_t25_record_the_admission_ownership_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("test262-admitted-case-ownership.md"));
 }

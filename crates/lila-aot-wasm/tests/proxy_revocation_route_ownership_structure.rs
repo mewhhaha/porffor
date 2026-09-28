@@ -8,7 +8,6 @@ const OBJECT_DESCRIPTOR_BUILTIN_SOURCE: &str =
 const REFLECT_BUILTIN_SOURCE: &str = include_str!("../src/builtins/reflect.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/proxy-revocation-route-ownership.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -521,7 +520,7 @@ fn ten_proxy_operations_select_their_exact_revocation_routes() {
 }
 
 #[test]
-fn contract_and_task_record_the_bounded_ownership_law() {
+fn contract_records_the_bounded_ownership_law() {
     for phrase in [
         "ten exact producers",
         "one consuming exhaustive router",
@@ -535,5 +534,4 @@ fn contract_and_task_record_the_bounded_ownership_law() {
     }
     assert!(CONTRACT
         .contains("cargo test -p lila-aot-wasm --test proxy_revocation_route_ownership_structure"));
-    assert!(TASK.contains("`ProxyRevocationRoute` is now a crate-private, capability-free"));
 }

@@ -1409,7 +1409,7 @@ task: it remains a Test262 ownership fallback bucket and parsing it as `TaskId`
 fails.
 
 Note for the record: T04 *is* a real backlog task
-(`tasks/04-spec-operations-and-completion-abi.md`); the original dry run's claim
+(`docs/rust-rewrite/conformance-ownership.md`); the original dry run's claim
 that it did not exist came from checking `test262/backlog/ownership-map.tsv`,
 which maps Test262 path prefixes to tasks and so legitimately omits a task that
 owns no prefix. The twelve gap rows keep `TaskId::T04` and it is correct.

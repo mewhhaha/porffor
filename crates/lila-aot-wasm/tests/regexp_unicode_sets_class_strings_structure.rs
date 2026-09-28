@@ -9,8 +9,7 @@ const PROGRAM_SOURCE: &str = include_str!("../../lila-ir/src/regexp/program.rs")
 const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs");
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../test262/backlog/shortcut-allowlist.tsv");
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/19-regexp.md");
+
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/regexp-unicode-set-finite-string-algebra.md"
 );
@@ -38,111 +37,165 @@ fn positions_in_order(source: &str, markers: &[&str]) {
 const EXACT_TEST262: [(&str, &str); 27] = [
     (
         "character-class-escape-union-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-union-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-union-string-literal.js"
+        ),
     ),
     (
         "character-class-union-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-union-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-union-string-literal.js"
+        ),
     ),
     (
         "character-property-escape-union-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-union-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-union-string-literal.js"
+        ),
     ),
     (
         "character-union-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-union-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-union-string-literal.js"
+        ),
     ),
     (
         "string-literal-union-character-class-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-class-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-class-escape.js"
+        ),
     ),
     (
         "string-literal-union-character-class.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-class.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-class.js"
+        ),
     ),
     (
         "string-literal-union-character-property-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-property-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character-property-escape.js"
+        ),
     ),
     (
         "string-literal-union-character.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-character.js"
+        ),
     ),
     (
         "string-literal-union-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-union-string-literal.js"
+        ),
     ),
     (
         "character-class-escape-intersection-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-intersection-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-intersection-string-literal.js"
+        ),
     ),
     (
         "character-class-intersection-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-intersection-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-intersection-string-literal.js"
+        ),
     ),
     (
         "character-property-escape-intersection-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-intersection-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-intersection-string-literal.js"
+        ),
     ),
     (
         "character-intersection-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-intersection-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-intersection-string-literal.js"
+        ),
     ),
     (
         "string-literal-intersection-character-class-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-class-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-class-escape.js"
+        ),
     ),
     (
         "string-literal-intersection-character-class.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-class.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-class.js"
+        ),
     ),
     (
         "string-literal-intersection-character-property-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-property-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character-property-escape.js"
+        ),
     ),
     (
         "string-literal-intersection-character.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-character.js"
+        ),
     ),
     (
         "string-literal-intersection-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-intersection-string-literal.js"
+        ),
     ),
     (
         "character-class-escape-difference-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-difference-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-escape-difference-string-literal.js"
+        ),
     ),
     (
         "character-class-difference-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-difference-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-class-difference-string-literal.js"
+        ),
     ),
     (
         "character-property-escape-difference-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-difference-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-property-escape-difference-string-literal.js"
+        ),
     ),
     (
         "character-difference-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-difference-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/character-difference-string-literal.js"
+        ),
     ),
     (
         "string-literal-difference-character-class-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-class-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-class-escape.js"
+        ),
     ),
     (
         "string-literal-difference-character-class.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-class.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-class.js"
+        ),
     ),
     (
         "string-literal-difference-character-property-escape.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-property-escape.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character-property-escape.js"
+        ),
     ),
     (
         "string-literal-difference-character.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-character.js"
+        ),
     ),
     (
         "string-literal-difference-string-literal.js",
-        include_str!("../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-string-literal.js"),
+        include_str!(
+            "../../../test262/vendor/test262/test/built-ins/RegExp/unicodeSets/generated/string-literal-difference-string-literal.js"
+        ),
     ),
 ];
 
@@ -193,7 +246,10 @@ fn finite_class_set_is_the_only_canonical_string_algebra() {
         "struct FiniteClassSetAtom {\n    multi_code_point_strings: Vec<Vec<RegExpInstruction>>,\n    singleton: RegExpInstruction,\n    contains_empty: bool,\n}",
         "enum RequiresUnicodeSetSemantics {\n    PropertyOfStrings(RequiresUnicodePropertyOfStrings),\n    StringCaseFolding(RequiresUnicodeSetStringCaseFolding),\n}",
     ] {
-        assert!(IR_SOURCE.contains(domain), "missing closed domain: {domain}");
+        assert!(
+            IR_SOURCE.contains(domain),
+            "missing closed domain: {domain}"
+        );
     }
     assert!(!IR_SOURCE.contains("RequiresClassStringSemantics"));
 
@@ -515,34 +571,4 @@ fn durable_fixture_exercises_complete_string_members_and_set_algebra() {
     }
     assert!(CLI_TEST_SOURCE.contains("fn run_wasm_backend_matches_unicode_sets_class_strings()"));
     assert!(CLI_TEST_SOURCE.contains("wasm_regexp_unicode_sets_class_strings.js"));
-}
-
-#[test]
-fn verified_status_preserves_baseline_and_exact_scope() {
-    for source in [README, TASK] {
-        let source = source.split_whitespace().collect::<Vec<_>>().join(" ");
-        for marker in [
-            "f580b424d",
-            "string-literal-union-string-literal.js",
-            "string-literal-intersection-string-literal.js",
-            "string-literal-difference-string-literal.js",
-            "`0/2` sloppy/strict",
-            "All six measured",
-            "Runtime/NotImplemented",
-            "RegExp.prototype.exec unsupported",
-            "27-file/54-execution",
-            "workspace/all-target",
-            "`cargo xc`",
-            "`1/1`",
-            "`7/7`",
-            "`54/54`",
-            "zero parser, early-error, lowering, runtime, Wasm-backend",
-            "reverse",
-            "Unicode properties of strings",
-            "`/iv`",
-            "no broader UnicodeSets or RegExp completion claim",
-        ] {
-            assert!(source.contains(marker), "status lost {marker}");
-        }
-    }
 }

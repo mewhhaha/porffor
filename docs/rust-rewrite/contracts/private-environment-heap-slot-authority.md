@@ -39,8 +39,8 @@ currently uses a non-moving, non-collecting allocation path.
 
 The 2026-09-12 semantic correction adds the token-head layout and initialization
 witnesses. The structure target passes 5/5, the backend library passes 431/431,
-and the finite-eval Wasmtime target passes 12/12; see the
-[batch verification](../expression-semantics-followup-20260912.md).
+and the finite-eval Wasmtime target passed 12/12 at that historical checkpoint,
+retained in Git history.
 
 ## Historical passive boundary
 

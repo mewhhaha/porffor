@@ -3,7 +3,6 @@ use std::path::Path;
 
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/obsolete-core-backend-api-removal.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
     fs::read_dir(dir)
@@ -66,7 +65,7 @@ fn live_neighboring_apis_remain_reachable() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "f3bc9cf6043c6d927bf0d51a9f600cf28f1c2e86291f623c47ba9406b35bc0c7",
             "6af38235bb977a2b2673f8424ea1bfa1b4fb4b958df5f4a06b9490bb8e270b48",

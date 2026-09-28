@@ -13,7 +13,7 @@ pub(super) struct Profile {
     pub(super) default_locale: String,
     pub(super) locales: Vec<Locale>,
     pub(super) digits: BTreeMap<String, [char; 10]>,
-    pub(super) algorithmic: BTreeMap<String, Vec<String>>,
+    pub(super) algorithmic: BTreeMap<String, AlgorithmicField>,
     pub(super) geography: raw::Geography,
 }
 pub(super) struct Locale {
@@ -44,6 +44,13 @@ pub(super) enum CalendarData {
     Roc,
     Dangi,
     IslamicCivil,
+    Coptic,
+    Ethioaa,
+    Ethiopic,
+    Hebrew,
+    IslamicTabular,
+    IslamicUmmAlQura,
+    Japanese,
 }
 
 /// How a calendar's year field is represented and named.
@@ -55,8 +62,14 @@ pub(super) enum YearKind {
     Cyclic,
 }
 
+pub(super) enum AlgorithmicField {
+    FiniteDays(Vec<String>),
+    /// CLDR's `jpanyear`: year one is 元; other integers use Latin digits.
+    JapaneseYearOne(String),
+}
+
 impl CalendarData {
-    pub(super) const ALL: [Self; 8] = [
+    pub(super) const ALL: [Self; 15] = [
         Self::Gregorian,
         Self::Chinese,
         Self::Buddhist,
@@ -65,6 +78,13 @@ impl CalendarData {
         Self::Roc,
         Self::Dangi,
         Self::IslamicCivil,
+        Self::Coptic,
+        Self::Ethioaa,
+        Self::Ethiopic,
+        Self::Hebrew,
+        Self::IslamicTabular,
+        Self::IslamicUmmAlQura,
+        Self::Japanese,
     ];
 
     /// The LDML calendar type selected by `selector.json`.
@@ -78,6 +98,13 @@ impl CalendarData {
             Self::Roc => "roc",
             Self::Dangi => "dangi",
             Self::IslamicCivil => "islamic-civil",
+            Self::Coptic => "coptic",
+            Self::Ethioaa => "ethiopic-amete-alem",
+            Self::Ethiopic => "ethiopic",
+            Self::Hebrew => "hebrew",
+            Self::IslamicTabular => "islamic-tbla",
+            Self::IslamicUmmAlQura => "islamic-umalqura",
+            Self::Japanese => "japanese",
         }
     }
 
@@ -91,6 +118,13 @@ impl CalendarData {
             Self::Roc => 5,
             Self::Dangi => 6,
             Self::IslamicCivil => 7,
+            Self::Coptic => 8,
+            Self::Ethioaa => 9,
+            Self::Ethiopic => 10,
+            Self::Hebrew => 11,
+            Self::IslamicTabular => 12,
+            Self::IslamicUmmAlQura => 13,
+            Self::Japanese => 14,
         }
     }
 
@@ -98,9 +132,37 @@ impl CalendarData {
     /// `calendar::convert` for the era-code mapping.
     pub(super) const fn years(self) -> YearKind {
         match self {
-            Self::Gregorian | Self::Roc | Self::IslamicCivil => YearKind::Eras(&[0, 1]),
-            Self::Buddhist | Self::Indian | Self::Persian => YearKind::Eras(&[0]),
+            Self::Gregorian
+            | Self::Roc
+            | Self::IslamicCivil
+            | Self::IslamicTabular
+            | Self::IslamicUmmAlQura
+            | Self::Ethiopic => YearKind::Eras(&[0, 1]),
+            Self::Buddhist
+            | Self::Indian
+            | Self::Persian
+            | Self::Coptic
+            | Self::Ethioaa
+            | Self::Hebrew => YearKind::Eras(&[0]),
+            Self::Japanese => YearKind::Eras(&[232, 233, 234, 235, 236, 237, 238]),
             Self::Chinese | Self::Dangi => YearKind::Cyclic,
+        }
+    }
+
+    pub(super) const fn months(self) -> u8 {
+        match self {
+            Self::Coptic | Self::Ethioaa | Self::Ethiopic | Self::Hebrew => 13,
+            Self::Gregorian
+            | Self::Chinese
+            | Self::Buddhist
+            | Self::Indian
+            | Self::Persian
+            | Self::Roc
+            | Self::Dangi
+            | Self::IslamicCivil
+            | Self::IslamicTabular
+            | Self::IslamicUmmAlQura
+            | Self::Japanese => 12,
         }
     }
 }
@@ -124,6 +186,13 @@ impl DateTimeCalendar {
             Self::Roc => CalendarData::Roc,
             Self::Dangi => CalendarData::Dangi,
             Self::IslamicCivil => CalendarData::IslamicCivil,
+            Self::Coptic => CalendarData::Coptic,
+            Self::Ethioaa => CalendarData::Ethioaa,
+            Self::Ethiopic => CalendarData::Ethiopic,
+            Self::Hebrew => CalendarData::Hebrew,
+            Self::IslamicTabular => CalendarData::IslamicTabular,
+            Self::IslamicUmmAlQura => CalendarData::IslamicUmmAlQura,
+            Self::Japanese => CalendarData::Japanese,
         }
     }
 }
@@ -169,13 +238,16 @@ impl Profile {
             || selector.release != "47.0.0"
             || selector.commit != "2ef784e3a4168bc2a43cd1b5b9839b6636f5899c"
             || selector.minimum_draft != "contributed"
-            || selector.alt_selection != "ascii date/time patterns when supplied; default names; short territory for generic location names"
+            || selector.alt_selection
+                != "ascii date/time patterns when supplied; default names; short territory for generic location names"
             || selector.calendar_identifiers.len() != DateTimeCalendar::ALL.len()
             || !selector
                 .calendars
                 .iter()
                 .map(String::as_str)
-                .eq(DateTimeCalendar::ALL.iter().map(|calendar| calendar.as_str()))
+                .eq(DateTimeCalendar::ALL
+                    .iter()
+                    .map(|calendar| calendar.as_str()))
             || DateTimeCalendar::ALL.iter().any(|calendar| {
                 selector
                     .calendar_identifiers
@@ -207,17 +279,30 @@ impl Profile {
         }
         let mut algorithmic = BTreeMap::new();
         for row in raw.algorithmic_fields {
-            if row.field != 'd'
-                || row.minimum != 1
-                || row.values.len() != 31
+            if row.minimum != 1
                 || row.values.iter().any(String::is_empty)
                 || row.source.is_empty()
                 || row.ruleset.is_empty()
                 || row.consumed_rules.is_empty()
                 || digits.contains_key(&row.identifier)
-                || algorithmic.insert(row.identifier, row.values).is_some()
             {
                 return Err(invalid("invalid finite algorithmic date field"));
+            }
+            let field = match (row.field, row.method.as_str(), row.identifier.as_str()) {
+                ('d', "finite", _) if row.values.len() == 31 => {
+                    AlgorithmicField::FiniteDays(row.values)
+                }
+                ('y', "one_replaced_latin", "jpanyear")
+                    if row.values.len() == 1
+                        && row.source == "common/rbnf/ja.xml"
+                        && row.ruleset == "spellout-numbering-year-latn" =>
+                {
+                    AlgorithmicField::JapaneseYearOne(row.values.into_iter().next().unwrap())
+                }
+                _ => return Err(invalid("unsupported algorithmic date field")),
+            };
+            if algorithmic.insert(row.identifier, field).is_some() {
+                return Err(invalid("duplicate algorithmic date field"));
             }
         }
         let mut locales = Vec::new();

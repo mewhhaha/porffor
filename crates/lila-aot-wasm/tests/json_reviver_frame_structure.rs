@@ -8,7 +8,6 @@ const CLI_FIXTURE: &str =
 const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/json-reviver-frame.md");
 const PARSE_CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/json-parse-frame-state.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn unique_bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     assert_eq!(source.matches(start).count(), 1, "unique start `{start}`");
@@ -357,7 +356,7 @@ fn static_reviver_has_one_private_child_owner() {
             .contains(&format!("json_wire_domain!({retained_parent_domain}")));
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("Batch AN"));
         assert!(words.contains("capability-free `JsonStaticPropertyKey`"));
@@ -485,7 +484,7 @@ fn reviver_frame_wire_domains_fix_four_states_and_two_property_roles() {
     assert!(!JSON_SOURCE.contains("JsonReviverFrameState::ALL.iter().copied()"));
     assert!(!JSON_SOURCE.contains("JsonReviverPropertyRole::ALL.iter().copied()"));
 
-    for evidence in [CONTRACT, PARSE_CONTRACT, TASK] {
+    for evidence in [CONTRACT, PARSE_CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("Batch AM"));
         assert!(words.contains("capability-free JSON wire domains"));

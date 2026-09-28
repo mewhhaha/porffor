@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-aggregate-evidence-requirement.md");
-const TASK: &str = include_str!("../../../tasks/26-zero-failure-conformance-closure.md");
 
 fn source() -> String {
     fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
@@ -156,5 +155,4 @@ fn contract_records_the_closed_publication_evidence_boundary() {
     assert!(CONTRACT.contains("AggregateEvidenceRequirement"));
     assert!(CONTRACT
         .contains("cargo test -p lila-test262 --test aggregate_evidence_requirement_structure"));
-    assert!(TASK.contains("AggregateEvidenceRequirement"));
 }

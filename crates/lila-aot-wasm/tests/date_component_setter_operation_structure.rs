@@ -3,8 +3,6 @@ const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/date-component-setter-operation.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T22: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -69,7 +67,7 @@ fn component_setter_operation_is_an_exact_closed_domain() {
         )));
     }
     assert!(!DATE_SOURCE.contains("pub(super) enum DateComponentSetterOperation"));
-    for evidence in [CONTRACT, T02, T22] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `DateComponentSetterOperation`"));
         assert!(evidence.contains("fixed Date setter entries"));
         assert!(evidence.contains("source-equivalent"));
@@ -191,6 +189,10 @@ fn emitted_argument_counts_match_the_read_only_builtin_length_matrix() {
         "StandardBuiltinId::DatePrototypeSetDate|StandardBuiltinId::DatePrototypeSetUtcDate|StandardBuiltinId::DatePrototypeSetMilliseconds|StandardBuiltinId::DatePrototypeSetUtcMilliseconds=>1",
         "StandardBuiltinId::DatePrototypeSetHours|StandardBuiltinId::DatePrototypeSetUtcHours=>4",
     ] {
-        assert_eq!(builtin_lengths.matches(projection).count(), 1, "{projection}");
+        assert_eq!(
+            builtin_lengths.matches(projection).count(),
+            1,
+            "{projection}"
+        );
     }
 }

@@ -2,7 +2,6 @@ const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-callback-receiver-kind.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -93,7 +92,7 @@ fn array_reduce_direction_is_a_private_two_variant_domain() {
     assert!(!projections.contains("=> false"));
     assert!(!projections.contains("_ =>"));
     assert!(!projections.contains("unreachable!"));
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("capability-free `ArrayReduceDirection`"));
     }
 }

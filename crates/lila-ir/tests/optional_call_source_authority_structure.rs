@@ -8,7 +8,6 @@ const CALL_EXPRESSION_SOURCE: &str =
 const CALL_CANDIDATE_SOURCE: &str = include_str!("../src/lowering/call_candidate_analysis.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-source-capability.md");
-const TASK: &str = include_str!("../../../tasks/13-dynamic-source-evaluation.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -297,8 +296,7 @@ fn optional_call_analysis_exhaustively_couples_source_proof_and_diagnostic_owner
     ] {
         let durable_evidence = normalized(durable_evidence);
         assert!(
-            normalized(CONTRACT).contains(&durable_evidence)
-                || normalized(TASK).contains(&durable_evidence),
+            normalized(CONTRACT).contains(&durable_evidence),
             "missing durable evidence `{durable_evidence}`"
         );
     }

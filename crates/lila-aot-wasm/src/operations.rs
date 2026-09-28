@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::emit::{NumericErrorRealmSource, ObjectReadErrorRealmSource};
+use crate::objects::TaggedLocals;
 use lila_ir::StaticRegExpCompilation;
 
 mod canonical_numeric_index;
@@ -721,7 +722,7 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            self.release_temp_local(argv_local);
+            self.release_arg_vector_local(argv_local);
             self.release_temp_local(argc_local);
             self.release_temp_local(callee_tag_local);
             self.release_temp_local(callee_payload_local);
@@ -752,7 +753,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::End);
         }
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callee_tag_local);
         self.release_temp_local(callee_payload_local);
@@ -2943,7 +2944,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.emit_outlined_object_read_realm_argument(function);
         function.instruction(&Instruction::Call(helper));
-        self.store_call_results(payload_local, tag_local, function);
+        self.store_call_results(TaggedLocals::new(payload_local, tag_local), function);
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(input_payload_local));
         function.instruction(&Instruction::LocalSet(payload_local));
@@ -4081,7 +4082,7 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_outlined_numeric_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
-                self.store_call_results(payload_local, tag_local, function);
+                self.store_call_results(TaggedLocals::new(payload_local, tag_local), function);
                 self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
                     tag_local,
@@ -4869,7 +4870,10 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_outlined_numeric_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
-                self.store_call_results(result_payload_local, result_tag_local, function);
+                self.store_call_results(
+                    TaggedLocals::new(result_payload_local, result_tag_local),
+                    function,
+                );
                 function.instruction(&Instruction::End);
                 self.emit_propagate_throw_from_locals_if_needed(
                     result_payload_local,
@@ -5158,7 +5162,7 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::LocalGet(self.current_env_local));
                 function.instruction(&Instruction::Call(helper));
-                self.store_call_results(payload_local, tag_local, function);
+                self.store_call_results(TaggedLocals::new(payload_local, tag_local), function);
                 function.instruction(&Instruction::End);
                 self.emit_propagate_throw_from_locals_if_needed(
                     payload_local,
@@ -8234,7 +8238,10 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.emit_outlined_object_read_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
-                self.store_call_results(result_payload_local, result_tag_local, function);
+                self.store_call_results(
+                    TaggedLocals::new(result_payload_local, result_tag_local),
+                    function,
+                );
                 self.emit_propagate_throw_from_locals_if_needed(
                     result_payload_local,
                     result_tag_local,

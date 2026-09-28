@@ -1,0 +1,2 @@
+sloppy-script:staging/sm/statements/regress-642975.js
+strict-script:staging/sm/statements/regress-642975.js

@@ -1,7 +1,6 @@
 const SOURCE: &str = include_str!("../src/builtins/array_from_async.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-from-async-source-mode-domain.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -288,11 +287,11 @@ fn eight_mode_projections_preserve_the_callback_algorithms() {
 }
 
 #[test]
-fn contract_and_t16_record_the_closed_source_mode_domain() {
+fn contract_records_the_closed_source_mode_domain() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
-        "capability-free `ArrayFromAsyncSourceMode`",
+        "`ArrayFromAsyncSourceMode` is the private, capability-free Rust authority",
         "three semantic producers",
         "eight comparisons",
         "runtime heap wire value",
@@ -300,11 +299,11 @@ fn contract_and_t16_record_the_closed_source_mode_domain() {
         "0x18bf07d71957d97f",
     ] {
         assert!(
-            contract_words.contains(marker) || task_words.contains(marker),
-            "missing contract/task marker: {marker}"
+            contract_words.contains(marker),
+            "missing contract marker: {marker}"
         );
     }
-    for text in [&contract_words, &task_words] {
+    for text in [&contract_words] {
         assert!(text.contains("Batch AL"));
         assert!(text.contains("cargo xc"));
         assert!(text.contains("4/4"));

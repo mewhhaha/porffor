@@ -6,7 +6,6 @@ const CLASS_DEFINITION_SOURCE: &str = include_str!("../src/lowering/class_defini
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/obsolete-lowering-specialization-removal.md"
 );
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn generated_function_output_source() -> &'static str {
     let start = LOWERING_SOURCE
@@ -88,7 +87,7 @@ fn live_lowering_authorities_and_output_fields_remain() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "5fa129a28e54d16a8d17a6d160906b0c4e018205424be6173ed5571d2fadf9b2",
             "8ee9816ca0c120d3d1513ac8b831c3a0783f39b7db85b431c12ee89502a1c5a9",

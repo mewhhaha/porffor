@@ -5,7 +5,6 @@ const FIXTURE_SOURCE: &str =
 const MODULE_BOUNDARY_SOURCE: &str = include_str!("../../../scripts/check-module-boundaries.sh");
 const CONTRACT_SOURCE: &str =
     include_str!("../../../docs/rust-rewrite/contracts/reflect-property-key-conversion.md");
-const TASK_SOURCE: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn anchored_offsets(source: &str, declaration: &str) -> Vec<usize> {
     source
@@ -196,7 +195,7 @@ fn runtime_fixture_observes_exact_symbols_and_abrupt_conversion() {
 }
 
 #[test]
-fn module_guard_contract_and_task_pin_the_five_boundaries() {
+fn module_guard_contract_pins_the_five_boundaries() {
     for marker in [
         "'five Reflect full ToPropertyKey consumers'",
         "'legacy payload-only Reflect ToPropertyKey consumers'",
@@ -218,12 +217,5 @@ fn module_guard_contract_and_task_pin_the_five_boundaries() {
             CONTRACT_SOURCE.contains(marker),
             "contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "five Reflect property-key boundaries",
-        "reflect_property_key_conversion_structure",
-        "wasm_reflect_property_key_conversion.js",
-    ] {
-        assert!(TASK_SOURCE.contains(marker), "T11 marker `{marker}`");
     }
 }

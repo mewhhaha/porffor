@@ -1,7 +1,7 @@
 # ArrayBuffer flag wire domain
 
-Status: implemented; owner inventory refreshed on 2026-09-24. See the
-[codec checkpoint](../uint8array-codec-baseline-follow-up.md#verification) for current verification.
+Status: implemented; owner inventory refreshed on 2026-09-24. Current failing executions and replay evidence are tracked in the
+[failure backlog](../../../tasks/README.md).
 
 ## Boundary
 

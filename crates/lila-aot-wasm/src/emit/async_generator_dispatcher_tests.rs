@@ -1,6 +1,6 @@
 use super::async_generator_dispatcher_unsupported_feature;
-use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, StatementIr};
+use lila_front::{ParseOptions, parse};
+use lila_ir::{StatementIr, lower};
 
 fn lowered_await_loop() -> StatementIr {
     let parsed = parse(

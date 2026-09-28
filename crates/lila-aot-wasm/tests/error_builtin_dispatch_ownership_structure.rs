@@ -5,7 +5,6 @@ const ERROR_SOURCE: &str = include_str!("../src/builtins/errors.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/error-builtin-dispatch-ownership.md");
-const TASK: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -329,7 +328,7 @@ fn thirteen_fixed_error_entries_own_every_raw_authority() {
 }
 
 #[test]
-fn contract_and_t24_record_the_source_equivalent_dispatch_closure() {
+fn contract_records_the_source_equivalent_dispatch_closure() {
     for marker in [
         "private, non-derived `ErrorBuiltin`",
         "nine exact constructor producers",
@@ -340,5 +339,4 @@ fn contract_and_t24_record_the_source_equivalent_dispatch_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("error-builtin-dispatch-ownership.md"));
 }

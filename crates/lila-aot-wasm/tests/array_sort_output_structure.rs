@@ -4,8 +4,6 @@ use std::path::Path;
 const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/array-sort-output.md");
-const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T16: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -432,11 +430,5 @@ fn array_sort_output_contract_records_fixed_dispatch_witnesses_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [TASK_T02, TASK_T16] {
-        assert!(task.contains("array-sort-output.md"));
-        assert!(task.contains("1745b093aab4e0643c08de0b1d402f3770ef5a9618635ae7b31ec318a8c74c4c"));
-        assert!(task.contains("4/4"));
-        assert!(task.contains("no new Array behavior"));
     }
 }

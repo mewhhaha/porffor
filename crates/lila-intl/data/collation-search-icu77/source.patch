@@ -1,0 +1,37 @@
+--- a/icu4c/source/tools/genrb/parse.cpp
++++ b/icu4c/source/tools/genrb/parse.cpp
+@@ -939,14 +939,21 @@
+     fclose(f);
+ }
+ 
++struct ExportTrieContext {
++    UMutableCPTrie* trie;
++    UBool omitJamo;
++};
++
+ static UBool
+ convertTrie(const void *context, UChar32 start, UChar32 end, uint32_t value) {
+-    if (start >= 0x1100 && start < 0x1200 && end >= 0x1100 && end < 0x1200) {
+-        // Range entirely in conjoining jamo block.
++    const auto* exportContext = static_cast<const ExportTrieContext*>(context);
++    if (exportContext->omitJamo && start >= 0x1100 && start < 0x1200 &&
++        end >= 0x1100 && end < 0x1200) {
++        // Only the root standard collation uses the separately exported Jamo table.
+         return true;
+     }
+     icu::IcuToolErrorCode status("genrb: convertTrie");
+-    umutablecptrie_setRange((UMutableCPTrie*)context, start, end, value, status);
++    umutablecptrie_setRange(exportContext->trie, start, end, value, status);
+     return !U_FAILURE(*status);
+ }
+ 
+@@ -972,7 +979,8 @@
+     uint32_t trieDefault = root ? icu::Collation::UNASSIGNED_CE32 : icu::Collation::FALLBACK_CE32;
+     icu::LocalUMutableCPTriePointer builder(umutablecptrie_open(trieDefault, trieDefault, status));
+ 
+-    utrie2_enum(data->trie, nullptr, &convertTrie, builder.getAlias());
++    ExportTrieContext exportContext{builder.getAlias(), root && uprv_strcmp(collationType, "standard") == 0};
++    utrie2_enum(data->trie, nullptr, &convertTrie, &exportContext);
+ 
+     // If the diacritic table was cut short, copy CE32s between the lowered
+     // limit and the max limit from the root to the tailoring. As of June 2022,

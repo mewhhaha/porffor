@@ -98,8 +98,8 @@ def render(root: Path) -> str:
                   'The generator alone cross-checks the committed ledger and inventory; it does',
                   'not replace the Rust selector scanner or verify every recorded classification.', '',
                   'Full-suite evidence and native snapshot provenance remain governed by',
-                  '[T01](../../tasks/01-baseline-and-generated-backlog.md) and',
-                  '[T26](../../tasks/26-zero-failure-conformance-closure.md). Only the Rust publisher',
+                  'the [conformance ownership domains](../../docs/rust-rewrite/conformance-ownership.md)',
+                  'and [publication contract](../../docs/rust-rewrite/reproducible-publication-driver.md). Only the Rust publisher',
                   'owns canonical Test262 result counts and the generated README conformance block.', ''])
     return '\n'.join(lines)
 

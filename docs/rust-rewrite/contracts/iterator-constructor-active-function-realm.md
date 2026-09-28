@@ -145,9 +145,10 @@ The complete T15 ladder and current-SHA low-RAM publication path remain the
 final closure gates.
 
 The 2026-09-10 allocator correction adds retained-constructor and global
-replacement controls in `aot_regexp_constructor_and_iterator`. Its current
-verification belongs to the [latest baseline repair batch](../latest-baseline-repairs.md);
-the historical checkpoint above does not verify that later change.
+replacement controls in `aot_regexp_constructor_and_iterator`. Run that target
+when changing this boundary; the historical checkpoint above does not verify
+later changes. Current failures belong in the
+[failure backlog](../../../tasks/README.md).
 
 ## Non-claims
 

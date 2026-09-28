@@ -14,8 +14,6 @@ const TEST262_RUNNER_SOURCE: &str = include_str!("../../lila-test262/src/lib.rs"
 const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.tsv");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/async-generator-await-using-scope.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 const EXACT_FILES: [(&str, &str); 2] = [
     (
@@ -469,7 +467,6 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         assert!(!TEST262_RUNNER_SOURCE.contains(path));
         assert!(!KNOWN_FAILURES.contains(path));
         assert!(CONTRACT.contains(path));
-        assert!(TASK.contains(path));
     }
 
     for marker in [
@@ -512,14 +509,7 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         ],
     );
 
-    for status in [README, TASK] {
-        assert!(status.contains("async-generator `await using`"));
-        assert!(status.contains("5ad393f3d0"));
-        assert!(status.contains("`0/4`"));
-        assert!(status.contains("`4/4`"));
-        assert!(status.contains("zero unsupported, crash or bug"));
-        assert!(status.contains("current-request reaction before the queued reaction"));
-    }
+    let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for exclusion in [
         "Classic-`for` and `for-of` resource heads",
         "modules",
@@ -530,8 +520,6 @@ fn exact_inventory_and_durable_fixture_bound_the_claim() {
         "complete `await using` directory",
         "full pinned aggregate",
     ] {
-        assert!(
-            CONTRACT.contains(exclusion) || README.contains(exclusion) || TASK.contains(exclusion)
-        );
+        assert!(contract_words.contains(exclusion));
     }
 }

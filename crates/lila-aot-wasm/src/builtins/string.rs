@@ -631,8 +631,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
 
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             index_local,
             arg_payload_local,
             arg_tag_local,
@@ -2587,13 +2587,13 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         let species_argc_local = self.reserve_temp_local();
-        let species_argv_local = self.reserve_temp_local();
+        let species_argv_local = self.reserve_arg_vector_local();
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(source_tag_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (receiver_payload_local, receiver_tag_local),
-                (new_flags_payload_local, source_tag_local),
+                crate::objects::TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+                crate::objects::TaggedLocals::new(new_flags_payload_local, source_tag_local),
             ],
             species_argc_local,
             species_argv_local,
@@ -2611,7 +2611,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
-        self.release_temp_local(species_argv_local);
+        self.release_arg_vector_local(species_argv_local);
         self.release_temp_local(species_argc_local);
         function.instruction(&Instruction::Else);
 
@@ -4759,7 +4759,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_alloc_array_payload_with_length(zero_local, argv_local, function)?;
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(argc_local));
-        self.emit_array_write(
+        self.emit_dense_call_staging_append(
             argv_local,
             argc_local,
             match_string_local,
@@ -4803,7 +4803,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(string_tag_local));
         function.instruction(&Instruction::LocalSet(capture_tag_local));
         function.instruction(&Instruction::End);
-        self.emit_array_write(
+        self.emit_dense_call_staging_append(
             argv_local,
             argc_local,
             capture_payload_local,
@@ -4829,7 +4829,7 @@ impl<'a> FunctionBuilder<'a> {
             (index_payload_local, number_tag_local),
             (input_string_local, string_tag_local),
         ] {
-            self.emit_array_write(argv_local, argc_local, payload, tag, function)?;
+            self.emit_dense_call_staging_append(argv_local, argc_local, payload, tag, function)?;
             function.instruction(&Instruction::LocalGet(argc_local));
             function.instruction(&Instruction::I64Const(1));
             function.instruction(&Instruction::I64Add);
@@ -4873,7 +4873,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_array_write(
+        self.emit_dense_call_staging_append(
             argv_local,
             argc_local,
             groups_payload_local,
@@ -4916,16 +4916,19 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         function.instruction(&Instruction::Else);
+        let callback_argv_local = self.reserve_arg_vector_local();
+        self.emit_arg_vector_from_array(argv_local, callback_argv_local, function);
         self.emit_function_handle_call_with_argv(
             replacement_payload_local,
             replacement_tag_local,
             Some((zero_local, Some(undefined_tag_local))),
             argc_local,
-            argv_local,
+            callback_argv_local,
             callback_payload_local,
             callback_tag_local,
             function,
         )?;
+        self.release_arg_vector_local(callback_argv_local);
         self.emit_return_current_completion_if_throw(function);
         self.emit_value_to_string_payload(callback_payload_local, callback_tag_local, function)?;
         function.instruction(&Instruction::LocalSet(callback_string_local));
@@ -5210,11 +5213,11 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
         let species_argc_local = self.reserve_temp_local();
-        let species_argv_local = self.reserve_temp_local();
+        let species_argv_local = self.reserve_arg_vector_local();
         self.emit_pre_evaluated_arg_vector(
             &[
-                (receiver_payload_local, receiver_tag_local),
-                (flags_payload_local, flags_tag_local),
+                crate::objects::TaggedLocals::new(receiver_payload_local, receiver_tag_local),
+                crate::objects::TaggedLocals::new(flags_payload_local, flags_tag_local),
             ],
             species_argc_local,
             species_argv_local,
@@ -5232,7 +5235,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_return_current_completion_if_throw(function);
-        self.release_temp_local(species_argv_local);
+        self.release_arg_vector_local(species_argv_local);
         self.release_temp_local(species_argc_local);
         function.instruction(&Instruction::Else);
         self.emit_string_search_argument_is_regexp_to_local(
@@ -5937,9 +5940,12 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         self.emit_return_current_completion_if_throw(function);
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         self.emit_pre_evaluated_arg_vector(
-            &[(input_string_local, input_tag_local)],
+            &[crate::objects::TaggedLocals::new(
+                input_string_local,
+                input_tag_local,
+            )],
             argc_local,
             argv_local,
             function,
@@ -5965,7 +5971,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
         self.emit_return_current_completion(function);
         function.instruction(&Instruction::End);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
 
         function.instruction(&Instruction::LocalGet(exec_result_tag_local));
@@ -12704,8 +12710,8 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
         self.set_completion_kind(CompletionKind::Normal, function);
 
+        self.release_arg_vector_local(argv_local);
         for local in [
-            argv_local,
             argc_local,
             method_tag_local,
             method_payload_local,

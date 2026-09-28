@@ -1,8 +1,8 @@
 use super::super::*;
 use super::atomics::ATOMICS_PUBLICATION_ORDER;
 use crate::functions::{
-    ErrorMessageConstructorKind, NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext,
-    RealmRecordLocal,
+    host_builtin_environment_argument, ErrorMessageConstructorKind, HostBuiltinEnvironmentArgument,
+    NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext, RealmRecordLocal,
 };
 use crate::intrinsics::promise::{
     PROMISE_PROTOTYPE_METHOD_PUBLICATIONS, PROMISE_STATIC_METHOD_PUBLICATIONS,
@@ -181,7 +181,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let argc_local = self.argc_param_local();
-        let argv_local = self.argv_param_local();
+        let argv_local = self.arg_vector_param_local();
         let output_local = self.reserve_temp_local();
         let index_local = self.reserve_temp_local();
         let arg_payload_local = self.reserve_temp_local();
@@ -213,7 +213,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(output_local));
         function.instruction(&Instruction::End);
 
-        self.emit_array_read(
+        self.emit_arg_vector_read(
             argv_local,
             index_local,
             arg_payload_local,
@@ -260,20 +260,14 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        if heap_collector_is_executable() {
-            return Err(EmitError::unsupported(
-                "heap collector is marked executable but host gc emitter is not wired",
-            ));
-        }
-        function.instruction(&Instruction::I64Const(
-            self.strings
-                .payload("gc requires a real collector in wasm-aot"),
-        ));
+        let gc = self.functions.gc_import_function_index().ok_or_else(|| {
+            EmitError::unsupported("host gc builtin requires its Wasm collector import")
+        })?;
+        function.instruction(&Instruction::Call(gc));
+        function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(self.result_local));
-        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        self.set_completion_kind(CompletionKind::Throw, function);
-        self.emit_return_current_completion(function);
         Ok(())
     }
 
@@ -4413,6 +4407,12 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             )?;
             if *name == "values" {
+                self.emit_store_non_array_realm_intrinsic(
+                    realm_record_local,
+                    NonArrayRealmIntrinsicSlot::ArrayValues,
+                    method_payload_local,
+                    function,
+                );
                 self.emit_define_realm_array_prototype_data_with_flags(
                     &array_prototype,
                     "Symbol.iterator",
@@ -8559,12 +8559,35 @@ impl<'a> FunctionBuilder<'a> {
                 method_local,
                 function,
             )?;
-            self.store_i64_local_at_offset(
-                method_local,
-                HEAP_FUNCTION_ENV_HANDLE_OFFSET,
-                method_local,
-                function,
-            );
+            // The call ABI and the stack guard consume the same environment
+            // classification. A function object cannot stand in for a lexical
+            // environment: its parent/Realm offsets have different meanings.
+            match host_builtin_environment_argument(builtin) {
+                HostBuiltinEnvironmentArgument::FunctionObject => {
+                    self.store_i64_local_at_offset(
+                        method_local,
+                        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                        method_local,
+                        function,
+                    );
+                }
+                HostBuiltinEnvironmentArgument::LexicalEnvironment => {
+                    let environment_local = self.reserve_temp_local();
+                    self.load_i64_to_local_from_offset(
+                        realm_record_local,
+                        HEAP_REALM_GLOBAL_ENVIRONMENT_OFFSET,
+                        environment_local,
+                        function,
+                    );
+                    self.store_i64_local_at_offset(
+                        method_local,
+                        HEAP_FUNCTION_ENV_HANDLE_OFFSET,
+                        environment_local,
+                        function,
+                    );
+                    self.release_temp_local(environment_local);
+                }
+            }
             self.store_i64_local_at_offset(
                 method_local,
                 HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,

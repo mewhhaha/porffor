@@ -1,0 +1,12 @@
+sloppy-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Azeri.js
+sloppy-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Lithuanian.js
+sloppy-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Turkish.js
+sloppy-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Azeri.js
+sloppy-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Lithuanian.js
+sloppy-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Turkish.js
+strict-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Azeri.js
+strict-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Lithuanian.js
+strict-script:intl402/String/prototype/toLocaleLowerCase/special_casing_Turkish.js
+strict-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Azeri.js
+strict-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Lithuanian.js
+strict-script:intl402/String/prototype/toLocaleUpperCase/special_casing_Turkish.js

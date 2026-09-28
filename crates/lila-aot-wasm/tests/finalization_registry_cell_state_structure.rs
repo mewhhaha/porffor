@@ -3,7 +3,6 @@ const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const CELL_LAYOUT_SOURCE: &str = include_str!("../src/heap_finalization_registry_cell_layout.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/finalization-registry-cell-state.md");
-const TASK: &str = include_str!("../../../tasks/21-symbols-collections-weakrefs.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -122,9 +121,9 @@ fn every_cell_state_load_routes_exact_words_and_traps_corruption() {
 }
 
 #[test]
-fn contract_and_task_record_the_lifecycle_invariant_and_non_claim() {
+fn contract_records_the_lifecycle_invariant_and_non_claim() {
     let normalized_contract = normalized(CONTRACT);
-    let normalized_task = normalized(TASK);
+
     for evidence in [
         "FinalizationRegistryCellState",
         "Vacant",
@@ -137,10 +136,6 @@ fn contract_and_task_record_the_lifecycle_invariant_and_non_claim() {
         assert!(
             normalized_contract.contains(&normalized_evidence),
             "contract evidence `{evidence}`"
-        );
-        assert!(
-            normalized_task.contains(&normalized_evidence),
-            "task evidence `{evidence}`"
         );
     }
 }

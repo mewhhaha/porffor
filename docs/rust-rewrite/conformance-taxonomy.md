@@ -1,6 +1,7 @@
-# Grug Conformance Taxonomy
+# Lila conformance taxonomy
 
-Every failure must fall into one bucket. No mystery pile.
+Every failure has a typed classification, a responsible implementation area,
+and an evidence-backed entry in the [failure backlog](../../tasks/README.md).
 
 ## Failure Kinds
 

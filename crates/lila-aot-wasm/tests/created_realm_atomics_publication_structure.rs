@@ -7,8 +7,6 @@ const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_atomics_created_realm.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/atomics-builtin-dispatch-boundary.md");
-const TASK_T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T17: &str = include_str!("../../../tasks/17-typedarrays-binary-data-atomics.md");
 
 fn publication_domain() -> &'static str {
     ATOMICS_SOURCE
@@ -212,12 +210,5 @@ fn atomics_dispatch_contract_records_the_exact_boundary_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [TASK_T02, TASK_T17] {
-        assert!(task.contains("atomics-builtin-dispatch-boundary.md"));
-        assert!(task.contains("ATOMICS_PUBLICATION_ORDER"));
-        assert!(task.contains("5/5"));
-        assert!(task.contains("3382f4b6d98ca6acfb04ad9c9f452bd1f93bf65f9d3334e0cef0f17583366231"));
-        assert!(task.contains("no new Atomics behavior"));
     }
 }

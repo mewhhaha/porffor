@@ -1,5 +1,10 @@
 use lila_ir::CompletionKindIr;
 
+mod call;
+pub(crate) use call::{
+    ArgVectorLocal, CallAbi, CallResultSlot, JsCallParameter, PreparedScriptParameter,
+};
+
 pub(crate) const COMPLETION_KIND_NORMAL: i64 = CompletionKindIr::Normal.abi_code();
 pub(crate) const COMPLETION_KIND_THROW: i64 = CompletionKindIr::Throw.abi_code();
 pub(crate) const COMPLETION_KIND_RETURN: i64 = CompletionKindIr::Return.abi_code();

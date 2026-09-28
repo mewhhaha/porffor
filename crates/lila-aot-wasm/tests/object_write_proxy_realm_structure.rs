@@ -10,7 +10,6 @@ const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_proxy_set_error_realm.js");
 const ARRAY_INHERITED_INDEX_SET_STATE_CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-inherited-index-set-state.md");
-const ARRAY_TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -278,7 +277,7 @@ fn array_inherited_index_set_state_is_one_capability_free_code_authority() {
                 .count(),
         2
     );
-    for evidence in [ARRAY_INHERITED_INDEX_SET_STATE_CONTRACT, ARRAY_TASK] {
+    for evidence in [ARRAY_INHERITED_INDEX_SET_STATE_CONTRACT] {
         assert!(evidence.contains("capability-free `ArrayInheritedIndexSetState`"));
     }
 }

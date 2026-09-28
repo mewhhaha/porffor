@@ -1,0 +1,2 @@
+sloppy-script:built-ins/SharedArrayBuffer/proto-from-ctor-realm.js
+strict-script:built-ins/SharedArrayBuffer/proto-from-ctor-realm.js

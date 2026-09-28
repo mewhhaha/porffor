@@ -85,7 +85,7 @@ fn hypot_producer_walks_every_runtime_argument_before_finishing() {
 
     for operation in [
         "Instruction::Loop(BlockType::Empty)",
-        "self.argv_param_local(),",
+        "self.arg_vector_param_local(),",
         "self.argc_param_local()",
         "Instruction::I64GeU",
         "Instruction::BrIf(1)",
@@ -95,7 +95,7 @@ fn hypot_producer_walks_every_runtime_argument_before_finishing() {
     ] {
         assert!(producer.contains(operation), "missing `{operation}`");
     }
-    assert_eq!(producer.matches("emit_array_read(").count(), 1);
+    assert_eq!(producer.matches("emit_arg_vector_read(").count(), 1);
     assert_eq!(producer.matches("emit_value_to_number_payload(").count(), 1);
     assert_eq!(
         producer
@@ -110,7 +110,7 @@ fn hypot_producer_walks_every_runtime_argument_before_finishing() {
 
     assert_before(
         producer,
-        "emit_array_read(",
+        "emit_arg_vector_read(",
         "emit_value_to_number_payload(",
     );
     assert_before(

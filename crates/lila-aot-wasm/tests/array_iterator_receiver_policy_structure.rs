@@ -1,7 +1,6 @@
 const SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-iterator-receiver-policy.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -61,7 +60,7 @@ fn array_iterator_receiver_policy_is_a_private_two_variant_domain() {
     assert!(!SOURCE.contains("pub enum ArrayIteratorReceiverPolicy"));
     assert!(!SOURCE.contains("pub(crate) enum ArrayIteratorReceiverPolicy"));
     assert_eq!(SOURCE.matches("ArrayIteratorReceiverPolicy").count(), 12);
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("capability-free `ArrayIteratorReceiverPolicy`"));
     }
 }

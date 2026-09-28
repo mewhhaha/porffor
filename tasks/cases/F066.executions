@@ -1,0 +1,3 @@
+sloppy-script:staging/sm/syntax/escaped-let-static-identifier.js
+sloppy-script:staging/sm/syntax/let-as-label.js
+strict-script:staging/sm/syntax/escaped-let-static-identifier.js

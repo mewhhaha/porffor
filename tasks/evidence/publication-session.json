@@ -1,0 +1,39 @@
+{
+  "identity": {
+    "checkout_commit": "940cf0b91130f8b26e0564ef53ac4e51d67f8f8b",
+    "checkout_tree": "8941517c7982a3dc71a9566ec8c9c1533ce3856c",
+    "environment": {
+      "LANG": "en_US.UTF-8",
+      "LC_ALL": null,
+      "LC_TIME": "sv_SE.UTF-8",
+      "LILA_CACHE_LIMIT_BYTES": null,
+      "LILA_FUNCTION_CACHE_LIMIT_BYTES": "34359738368",
+      "LILA_MODULE_CACHE_LIMIT_BYTES": "536870912",
+      "LILA_MODULE_MEMORY_CACHE_ENTRIES": "1",
+      "LILA_PROGRAM_CACHE_LIMIT_BYTES": "536870912",
+      "LILA_TEST262_DISABLE_CASE_RUNNER": null,
+      "LILA_TEST262_FORCE_CASE_RUNNER": "1",
+      "RUST_MIN_STACK": null,
+      "TZ": null
+    },
+    "executable": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/full-native-gc-20260927/lila",
+    "executable_sha256": "2a3f86d17b6735d941d747d7791c9a45b94dd1f4cf19c7dbe2454228c5cc4202",
+    "execution_backend": "wasm-aot",
+    "isolate_cases": true,
+    "jobs": 1,
+    "repository": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream",
+    "snapshot_directory": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/full-native-gc-20260927/snapshots",
+    "snapshot_name": "full-native-gc-20260927",
+    "source_input_files": 4485,
+    "source_inputs_sha256": "8e9996c101a4f68c09e356f74c60157a8413644f169a9ca818cf7191ffca3bb6",
+    "suite_files": 56994,
+    "suite_root": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+    "suite_sha256": "ff36b7ed00925326f106b5328d5e4fb78e603d15c9c53cd3fac515d011618de5",
+    "threads": 10
+  },
+  "progress": {
+    "completed": 748,
+    "total": 748
+  },
+  "schema_version": 2
+}

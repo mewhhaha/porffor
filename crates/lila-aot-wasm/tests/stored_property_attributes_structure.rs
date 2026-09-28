@@ -6,7 +6,6 @@ const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const MODULE_NAMESPACE_SOURCE: &str = include_str!("../src/objects/module_namespace.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/stored-property-attributes.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -157,8 +156,8 @@ fn every_external_producer_names_its_kind_and_attributes() {
 }
 
 #[test]
-fn task_and_contract_record_the_stored_attribute_boundary() {
-    for evidence in [TASK, CONTRACT] {
+fn contract_records_the_stored_attribute_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("StoredPropertyAttributes"));
         assert!(evidence.contains("positional boolean"));
         assert!(evidence.contains("Accessor"));

@@ -82,8 +82,11 @@ const SPECIES_ARGUMENT_LISTS: &str = r#"
                 function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_pre_evaluated_arg_vector(
                     &[
-                        (buffer_payload_local, buffer_tag_local),
-                        (new_byte_offset_payload_local, number_tag_local),
+                        crate::objects::TaggedLocals::new(buffer_payload_local, buffer_tag_local),
+                        crate::objects::TaggedLocals::new(
+                            new_byte_offset_payload_local,
+                            number_tag_local,
+                        ),
                     ],
                     argc_local,
                     argv_local,
@@ -92,9 +95,15 @@ const SPECIES_ARGUMENT_LISTS: &str = r#"
                 function.instruction(&Instruction::Else);
                 self.emit_pre_evaluated_arg_vector(
                     &[
-                        (buffer_payload_local, buffer_tag_local),
-                        (new_byte_offset_payload_local, number_tag_local),
-                        (new_length_payload_local, number_tag_local),
+                        crate::objects::TaggedLocals::new(buffer_payload_local, buffer_tag_local),
+                        crate::objects::TaggedLocals::new(
+                            new_byte_offset_payload_local,
+                            number_tag_local,
+                        ),
+                        crate::objects::TaggedLocals::new(
+                            new_length_payload_local,
+                            number_tag_local,
+                        ),
                     ],
                     argc_local,
                     argv_local,
@@ -104,12 +113,7 @@ const SPECIES_ARGUMENT_LISTS: &str = r#"
 "#;
 
 const ARGUMENTS_VECTOR_LENGTH_LOAD: &str = r#"
-        self.load_i64_to_local_from_offset(
-            self.argv_param_local(),
-            HEAP_LEN_OFFSET,
-            len_local,
-            function,
-        );
+        self.emit_arg_vector_len_to_local(self.arg_vector_param_local(), len_local, function);
 "#;
 
 fn subarray_arm() -> &'static str {
@@ -340,7 +344,7 @@ fn subarray_species_arguments_keep_call_count_and_vector_length_coherent() {
             .matches(ARGUMENTS_VECTOR_LENGTH_LOAD)
             .count(),
         1,
-        "arguments-object construction must derive its observable length from the call vector header"
+        "arguments-object construction must derive its observable length from the native call vector"
     );
 
     let arm = subarray_arm();
@@ -357,7 +361,7 @@ fn subarray_species_arguments_keep_call_count_and_vector_length_coherent() {
     );
     assert!(
         !arm.contains("Instruction::LocalSet(argc_local)"),
-        "subarray must not change argc independently of the vector header"
+        "subarray must not change argc independently of the native call vector"
     );
 
     let normalized = without_whitespace(arm);

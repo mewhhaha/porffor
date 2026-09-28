@@ -156,7 +156,7 @@ const LEDGER: &str = include_str!("../known-failures.tsv");
 /// The row's own text set the condition for deleting it rather than filling it:
 /// *"the moment `language`, `language_errors` and `language_numerics` all bank
 /// green"*. Batch 7's rung 5 met it, and this is how that was read rather than
-/// assumed (`docs/rust-rewrite/batch-findings/b7-runner-findings.md`, rung 5):
+/// assumed (the historical batch-7 verification in Git):
 ///
 /// - `language` **45**, `language_errors` **29**, `language_numerics` **31**,
 ///   each `ok` with zero failures, each from ONE invocation. `language::` had
@@ -455,16 +455,16 @@ impl FromStr for TestTarget {
     }
 }
 
-/// A backlog task id: `T` followed by exactly two digits.
+/// A conformance ownership domain: `T` followed by exactly two digits.
 ///
 /// Validated once, here, so no consumer has to re-check that an owner is real.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct TaskId(u8);
 
 impl TaskId {
-    /// The `tasks/` filename prefix this id must be backed by, e.g. `"17-"`.
-    fn task_file_prefix(self) -> String {
-        format!("{:02}-", self.0)
+    /// The domain must have a row in the durable ownership registry.
+    fn ownership_row_prefix(self) -> String {
+        format!("| T{:02} |", self.0)
     }
 }
 
@@ -1249,37 +1249,17 @@ fn declaration_for<'a>(
 fn ledger_is_well_formed() {
     let ledger = parsed_ledger_or_panic();
 
-    // Every owner is a real backlog task.
-    let tasks_dir = repo_root().join("tasks");
-    let task_files: Vec<String> = std::fs::read_dir(&tasks_dir)
-        .unwrap_or_else(|error| panic!("{}: could not read: {error}", tasks_dir.display()))
-        .map(|entry| {
-            entry
-                .unwrap_or_else(|error| {
-                    panic!("{}: could not read entry: {error}", tasks_dir.display())
-                })
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    assert!(
-        !task_files.is_empty(),
-        "{}: no task files found, so the owner check below would pass vacuously",
-        tasks_dir.display()
-    );
+    // Stable Txx domain identifiers are independent of the current Fxxx tasks.
+    const OWNERSHIP: &str = include_str!("../../../../docs/rust-rewrite/conformance-ownership.md");
     for row in &ledger.rows {
-        let prefix = row.owner_task.task_file_prefix();
+        let prefix = row.owner_task.ownership_row_prefix();
         assert!(
-            task_files
-                .iter()
-                .any(|name| name.starts_with(&prefix) && name.ends_with(".md")),
-            "known-failures.tsv:{}: owner_task {} has no backing tasks/{}*.md. Every conformance \
+            OWNERSHIP.lines().any(|line| line.starts_with(&prefix)),
+            "known-failures.tsv:{}: owner_task {} has no conformance-ownership.md entry. Every conformance \
              failure needs an owner and a reason (AGENTS.md), and an owner nobody can look up is \
              not an owner.",
             row.line,
-            row.owner_task,
-            prefix
+            row.owner_task
         );
     }
 
@@ -1312,7 +1292,7 @@ fn ledger_is_well_formed() {
         // reproduced that shape in its own schema: the `unfilled` row cited
         // `target/watched/b2-cli.log`, which is gitignored, so on any other
         // checkout it simply does not exist and nothing notices. Contrast the
-        // columns that *are* consumed -- `owner_task` against `tasks/<NN>-*.md`
+        // columns that *are* consumed -- `owner_task` against the ownership registry
         // and `test` against the source scan -- and both bite.
         let evidence_path = row.evidence.split_whitespace().next().unwrap_or("");
         assert!(

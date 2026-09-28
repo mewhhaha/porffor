@@ -107,7 +107,7 @@ impl RuntimeCompiler {
         let artifact = engine.emit_wasm(&unit).unwrap();
         let bytes = with_compiler_exports(&artifact.bytes);
         let wasm_engine = shared_wasm_engine().unwrap();
-        let module = WasmtimeModule::new(&wasm_engine, bytes).unwrap();
+        let module = WasmtimeModule::new(&wasm_engine, &bytes).unwrap();
         let mut store = WasmtimeStore::new(
             &wasm_engine,
             CompilerStore {
@@ -119,7 +119,10 @@ impl RuntimeCompiler {
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&wasm_engine);
+        stack_guard_host::register(&mut linker, &module, &bytes).unwrap();
         for import in module.imports() {
+            if import.module() == WASM_HOST_IMPORT_NAMESPACE
+                && import.name() == stack_guard_host::IMPORT_NAME { continue; }
             match import.ty() {
                 WasmtimeExternType::Func(signature) => {
                     linker

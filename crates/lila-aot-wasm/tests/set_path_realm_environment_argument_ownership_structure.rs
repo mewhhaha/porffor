@@ -6,7 +6,6 @@ const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/set-path-realm-environment-argument-ownership.md"
 );
-const TASK: &str = include_str!("../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -292,7 +291,11 @@ fn source_projection_and_unit_observations_are_exhaustive_and_exact() {
             "panic!(\"global mutation fallback exposed a set-path Realm argument\")}}"
         ),
     ] {
-        assert_eq!(unit.matches(row).count(), 1, "missing exact unit row `{row}`");
+        assert_eq!(
+            unit.matches(row).count(),
+            1,
+            "missing exact unit row `{row}`"
+        );
     }
     assert!(!unit.contains("assert_eq!(set_path_realm_environment_argument"));
 }
@@ -339,7 +342,7 @@ fn sole_product_consumer_emits_exactly_one_abi_argument() {
 }
 
 #[test]
-fn contract_and_task_record_source_equivalence_and_deferred_conformance() {
+fn contract_records_source_equivalence_and_deferred_conformance() {
     for phrase in [
         "SetPathRealmEnvironmentArgument",
         "11 identifier mentions",
@@ -348,7 +351,4 @@ fn contract_and_task_record_source_equivalence_and_deferred_conformance() {
     ] {
         assert!(CONTRACT.contains(phrase), "contract missing `{phrase}`");
     }
-    assert!(TASK.contains("set-path Realm environment argument"));
-    assert!(TASK.contains("11-mention"));
-    assert!(TASK.contains("Test262 remains deferred"));
 }

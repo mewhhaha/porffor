@@ -2,7 +2,6 @@ const SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/test262-checkpoint-run-identity-admission.md"
 );
-const TASK: &str = include_str!("../../../tasks/03-conformance-harness-integrity.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -213,7 +212,7 @@ fn case_execution_and_resume_forward_one_admitted_identity() {
 }
 
 #[test]
-fn contract_and_task_record_the_admission_boundary_without_claiming_conformance() {
+fn contract_records_the_admission_boundary_without_claiming_conformance() {
     for phrase in [
         "`CheckpointRunIdentity` is the opaque, producer-owned pairing",
         "untrusted object into `CheckpointRunIdentityWire`",
@@ -221,6 +220,4 @@ fn contract_and_task_record_the_admission_boundary_without_claiming_conformance(
     ] {
         assert!(CONTRACT.contains(phrase), "missing `{phrase}`");
     }
-    assert!(TASK.contains("cross one typed admission point"));
-    assert!(TASK.contains("test262-checkpoint-run-identity-admission.md"));
 }

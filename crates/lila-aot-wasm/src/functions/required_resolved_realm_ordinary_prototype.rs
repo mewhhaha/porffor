@@ -24,6 +24,9 @@ pub(crate) enum OrdinaryDefaultPrototype {
     IntlLocale,
     IntlDateTimeFormat,
     IntlNumberFormat,
+    IntlCollator,
+    IntlPluralRules,
+    IntlRelativeTimeFormat,
     Promise,
     DisposableStack,
     AggregateError,
@@ -48,6 +51,11 @@ impl OrdinaryDefaultPrototype {
                 HEAP_REALM_INTRINSICS_INTL_DATE_TIME_FORMAT_PROTOTYPE_OFFSET
             }
             Self::IntlNumberFormat => HEAP_REALM_INTRINSICS_INTL_NUMBER_FORMAT_PROTOTYPE_OFFSET,
+            Self::IntlCollator => HEAP_REALM_INTRINSICS_INTL_COLLATOR_PROTOTYPE_OFFSET,
+            Self::IntlPluralRules => HEAP_REALM_INTRINSICS_INTL_PLURAL_RULES_PROTOTYPE_OFFSET,
+            Self::IntlRelativeTimeFormat => {
+                HEAP_REALM_INTRINSICS_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_OFFSET
+            }
             Self::Promise => HEAP_REALM_INTRINSICS_PROMISE_PROTOTYPE_OFFSET,
             Self::DisposableStack => HEAP_REALM_INTRINSICS_DISPOSABLE_STACK_PROTOTYPE_OFFSET,
             Self::AggregateError => HEAP_REALM_INTRINSICS_AGGREGATE_ERROR_PROTOTYPE_OFFSET,

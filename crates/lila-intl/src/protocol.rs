@@ -11,13 +11,18 @@ use crate::{
 };
 
 use crate::{
-    CanonicalLocaleId, DateTimeFormatError, DateTimeFormatRequest, DateTimeLocaleRequest,
-    DateTimeLocaleResult, DateTimeParts, DateTimePlanRequest, DateTimePlanResult,
-    DateTimeRangeParts, DateTimeRangeRequest, DateTimeSupportedLocalesRequest,
-    DateTimeSupportedLocalesResult, IntlCapabilitySet, IntlDataCapability, IntlDataIdentity,
+    CanonicalLocaleId, CollatorCompareRequest, CollatorLocaleRequest, CollatorLocaleResult,
+    PluralCategory, PluralCategoryRequest, PluralRulesLocaleRequest, PluralRulesLocaleResult,
+    RelativeTimeFormatRequest, RelativeTimeLocaleRequest, RelativeTimeLocaleResult,
+    RelativeTimeParts,
+    DateTimeFormatError, DateTimeFormatRequest, DateTimeLocaleRequest, DateTimeLocaleResult,
+    DateTimeParts, DateTimePlanRequest, DateTimePlanResult, DateTimeRangeParts,
+    DateTimeRangeRequest, DateTimeSupportedLocalesRequest, DateTimeSupportedLocalesResult,
+    IntlCapabilitySet, IntlDataCapability, IntlDataIdentity, IntlServiceError,
     InvalidCanonicalLocaleId, LocaleId, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
-    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TemporalTimeZoneAnswer,
-    TemporalTimeZoneError, TemporalTimeZoneRequest, TimeZoneId, TimeZoneResolveError,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, TemporalCalendarAnswer,
+    TemporalCalendarError, TemporalCalendarRequest, TemporalTimeZoneAnswer, TemporalTimeZoneError,
+    TemporalTimeZoneRequest, TimeZoneId, TimeZoneResolveError,
 };
 
 /// Packed offset/length span read by an Intl host operation.
@@ -383,6 +388,67 @@ intl_operations! {
         response: TemporalTimeZoneAnswer,
         error: TemporalTimeZoneError,
         capabilities: [IntlDataCapability::TimeZoneTransitions],
+    }
+    QueryTemporalCalendar {
+        code: 17,
+        name: "query-temporal-calendar",
+        request: TemporalCalendarRequest,
+        response: TemporalCalendarAnswer,
+        error: TemporalCalendarError,
+        capabilities: [IntlDataCapability::Calendars],
+    }
+    ResolveCollatorLocale {
+        code: 18,
+        name: "resolve-collator-locale",
+        request: CollatorLocaleRequest,
+        response: CollatorLocaleResult,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::ParentLocales,
+            IntlDataCapability::Collation],
+    }
+    CompareCollator {
+        code: 19,
+        name: "compare-collator",
+        request: CollatorCompareRequest,
+        response: i32,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::Collation],
+    }
+    ResolvePluralRulesLocale {
+        code: 20,
+        name: "resolve-plural-rules-locale",
+        request: PluralRulesLocaleRequest,
+        response: PluralRulesLocaleResult,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::ParentLocales,
+            IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules],
+    }
+    SelectPluralCategory {
+        code: 21,
+        name: "select-plural-category",
+        request: PluralCategoryRequest,
+        response: PluralCategory,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::DecimalPatterns, IntlDataCapability::PluralRules],
+    }
+    ResolveRelativeTimeLocale {
+        code: 22,
+        name: "resolve-relative-time-locale",
+        request: RelativeTimeLocaleRequest,
+        response: RelativeTimeLocaleResult,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::LocaleAliases, IntlDataCapability::ParentLocales,
+            IntlDataCapability::NumberingSystems, IntlDataCapability::DecimalPatterns,
+            IntlDataCapability::PluralRules, IntlDataCapability::RelativeTimePatterns],
+    }
+    FormatRelativeTime {
+        code: 23,
+        name: "format-relative-time",
+        request: RelativeTimeFormatRequest,
+        response: RelativeTimeParts,
+        error: IntlServiceError,
+        capabilities: [IntlDataCapability::NumberingSystems, IntlDataCapability::DecimalPatterns,
+            IntlDataCapability::PluralRules, IntlDataCapability::RelativeTimePatterns],
     }
 }
 
@@ -843,7 +909,11 @@ mod tests {
         assert_eq!(IntlHostOp::LocaleInfo.wire(), 14);
         assert_eq!(IntlHostOp::SupportedValues.wire(), 15);
         assert_eq!(IntlHostOp::QueryTemporalTimeZone.wire(), 16);
-        assert_eq!(IntlHostOp::from_wire(17), None);
+        assert_eq!(IntlHostOp::QueryTemporalCalendar.wire(), 17);
+        assert_eq!(
+            IntlHostOp::from_wire(17),
+            Some(IntlHostOp::QueryTemporalCalendar)
+        );
 
         let read = IntlHostReadSpan::new(u32::MAX, u32::MAX);
         assert_eq!(IntlHostReadSpan::from_wire(read.wire()), read);

@@ -173,6 +173,13 @@ impl<'a> ExactPluralOperand<'a> {
         !self.fraction.has_nonzero()
     }
 
+    pub(crate) fn small_integer_value(self) -> Option<u64> {
+        match self.integer {
+            PluralInteger::Small(value) if self.is_integer() => Some(value),
+            PluralInteger::Small(_) | PluralInteger::Digits(_) => None,
+        }
+    }
+
     pub fn compare_integer(self, value: u64) -> Ordering {
         let integer = match self.integer {
             PluralInteger::Small(integer) => integer.cmp(&value),

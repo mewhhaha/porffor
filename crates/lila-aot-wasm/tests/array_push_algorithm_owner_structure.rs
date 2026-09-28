@@ -90,7 +90,9 @@ fn push_has_one_unbounded_canonical_owner() {
     );
     assert_eq!(
         canonical
-            .matches("self.emit_array_read(\n                    self.argv_param_local(),")
+            .matches(
+                "self.emit_arg_vector_read(\n                    self.arg_vector_param_local(),"
+            )
             .count(),
         2
     );
@@ -147,7 +149,7 @@ fn shared_boundary_and_both_push_receiver_paths_preserve_order() {
     for (earlier, later) in [
         ("HEAP_LEN_OFFSET", "Instruction::LocalSet(arg_index_local)"),
         (
-            "self.emit_array_read(",
+            "self.emit_arg_vector_read(",
             "self.emit_array_inherited_index_set_state(",
         ),
         (
@@ -173,7 +175,7 @@ fn shared_boundary_and_both_push_receiver_paths_preserve_order() {
             "MAX_SAFE_INTEGER",
         ),
         ("MAX_SAFE_INTEGER", "Instruction::LocalSet(arg_index_local)"),
-        ("self.emit_array_read(", "self.emit_object_write("),
+        ("self.emit_arg_vector_read(", "self.emit_object_write("),
     ] {
         assert_before(generic, earlier, later);
     }

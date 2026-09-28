@@ -4,8 +4,6 @@ const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/object-get-own-property-descriptors-owner.md"
 );
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T10: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 #[test]
 fn object_get_own_property_descriptors_has_one_private_module_owner() {
@@ -65,7 +63,7 @@ fn complete_compiler_family_moved_together() {
 
 #[test]
 fn owner_evidence_records_scope_and_nonclaim() {
-    for evidence in [CONTRACT, T02, T10] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("object/get_own_property_descriptors.rs"));
         assert!(evidence.contains("source-equivalent"));
         assert!(evidence.contains("no new Object behavior"));

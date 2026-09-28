@@ -5,7 +5,6 @@ const JSON_SOURCE: &str = include_str!("../src/builtins/json.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/json-builtin-policy-domain.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -181,8 +180,8 @@ fn json_builtin_selection_has_one_owned_exhaustive_consumer() {
 }
 
 #[test]
-fn contract_and_task_record_the_json_builtin_ownership_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_json_builtin_ownership_boundary() {
+    for evidence in [CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("capability-free `JsonBuiltin`"));
         assert!(words.contains("Batch AJ"));

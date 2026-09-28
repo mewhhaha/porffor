@@ -1,7 +1,6 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/async-function-resume-completion.md");
-const TASK: &str = include_str!("../../../tasks/14-promises-jobs-async.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -112,8 +111,8 @@ fn one_borrowed_layout_owns_every_suspension_policy() {
 }
 
 #[test]
-fn contract_and_task_record_the_capability_boundary_and_nonclaims() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_capability_boundary_and_nonclaims() {
+    for evidence in [CONTRACT] {
         let evidence = without_whitespace(evidence);
         assert!(evidence.contains("capability-free"));
         assert!(evidence.contains("must-use"));

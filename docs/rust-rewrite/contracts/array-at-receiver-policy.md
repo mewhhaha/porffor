@@ -48,7 +48,7 @@ cargo test -p lila-aot-wasm --test array_at_receiver_policy_structure
 cargo test -p lila-aot-wasm --test typed_array_search_kind_structure
 cargo test -p lila-cli --test cli array::run_wasm_backend_succeeds_for_supported_array_at_runtime_kinds_fixture -- --exact --test-threads=1
 rustfmt --edition 2021 --check crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/tests/array_at_receiver_policy_structure.rs crates/lila-aot-wasm/tests/typed_array_search_kind_structure.rs
-git diff --check -- crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/tests/array_at_receiver_policy_structure.rs crates/lila-aot-wasm/tests/typed_array_search_kind_structure.rs docs/rust-rewrite/contracts/array-at-receiver-policy.md tasks/16-arrays-and-array-builtins.md
+git diff --check -- crates/lila-aot-wasm/src/builtins/array.rs crates/lila-aot-wasm/tests/array_at_receiver_policy_structure.rs crates/lila-aot-wasm/tests/typed_array_search_kind_structure.rs docs/rust-rewrite/contracts/array-at-receiver-policy.md docs/rust-rewrite/conformance-ownership.md
 ```
 
 On 2026-08-28, the owned structure target passed `3/3`, the direct-entry owner

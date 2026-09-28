@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/RegExp/cross-compartment-getter.js
+sloppy-script:staging/sm/RegExp/source.js
+strict-script:staging/sm/RegExp/cross-compartment-getter.js
+strict-script:staging/sm/RegExp/source.js

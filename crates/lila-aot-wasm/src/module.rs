@@ -48,6 +48,9 @@ pub(crate) const HOST_IMPORT_AGENT_CALL: &str = "agent_call";
 pub(crate) const HOST_IMPORT_INTL_CALL: &str = "intl_call";
 pub(crate) const HOST_IMPORT_RANDOM_F64: &str = "random_f64";
 pub(crate) const HOST_IMPORT_REJECT_DYNAMIC_SOURCE: &str = "reject_dynamic_source";
+pub(crate) const HOST_IMPORT_STACK_GUARD: &str = "stack_guard_can_enter";
+pub(crate) const HOST_IMPORT_GC: &str = "gc";
+pub(crate) const HOST_GC_IMPORT_TYPE_INDEX: u32 = 23;
 
 pub(crate) const RESULT_TAG_GLOBAL_INDEX: u32 = 0;
 pub(crate) const COMPLETION_KIND_GLOBAL_INDEX: u32 = 1;
@@ -224,6 +227,17 @@ pub(crate) const INTL_FALLBACK_SYMBOL_GLOBAL_INDEX: u32 = 147;
 /// The currently executing sloppy legacy source function, or zero across
 /// strict/newer source frames. Prepared eval Scripts leave this unchanged.
 pub(crate) const LEGACY_ACTIVE_CALLER_GLOBAL_INDEX: u32 = 148;
+pub(crate) const INTL_COLLATOR_PROTOTYPE_GLOBAL_INDEX: u32 = 149;
+pub(crate) const INTL_COLLATOR_CONSTRUCTOR_GLOBAL_INDEX: u32 = 150;
+/// The Realm of the currently active guarded JavaScript function. Guard
+/// wrappers save and restore this around body entry so runtime-helper guards
+/// can create errors in the executing function's Realm without interpreting
+/// their heterogeneous arg0 as an environment pointer.
+pub(crate) const STACK_GUARD_ACTIVE_REALM_GLOBAL_INDEX: u32 = 151;
+pub(crate) const INTL_PLURAL_RULES_CONSTRUCTOR_GLOBAL_INDEX: u32 = 152;
+pub(crate) const INTL_PLURAL_RULES_PROTOTYPE_GLOBAL_INDEX: u32 = 153;
+pub(crate) const INTL_RELATIVE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX: u32 = 154;
+pub(crate) const INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX: u32 = 155;
 
 pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 /// The no-heap alias, mirroring `THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX`.
@@ -235,28 +249,27 @@ pub(crate) const THROW_ERROR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_IN
 /// `Arguments`), and a module with no heap cannot produce one.
 pub(crate) const THROW_ERROR_MESSAGE_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
 pub(crate) const THROW_ERROR_CONSTRUCTOR_NAME_NO_HEAP_GLOBAL_INDEX: u32 = HEAP_PTR_GLOBAL_INDEX;
-pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;
-pub(crate) const PREPARED_SCRIPT_TYPE_INDEX: u32 = 15;
-pub(crate) const PREPARED_SCRIPT_PARAM_COUNT: usize = 10;
-pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 2;
-pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 3;
-pub(crate) const OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX: u32 = 4;
-pub(crate) const FUNCTION_OBJECT_ALLOC_TYPE_INDEX: u32 = 5;
-pub(crate) const PLAIN_OBJECT_ALLOC_TYPE_INDEX: u32 = 6;
-pub(crate) const ARRAY_ALLOC_TYPE_INDEX: u32 = 7;
-pub(crate) const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 8;
-pub(crate) const HOST_NUMBER_POW_IMPORT_TYPE_INDEX: u32 = 9;
-pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX: u32 = 10;
-pub(crate) const HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX: u32 = 11;
-pub(crate) const HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX: u32 = 12;
+pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = crate::abi::CallAbi::Js.type_index();
+pub(crate) const STACK_GUARD_IMPORT_TYPE_INDEX: u32 = 19;
+pub(crate) const HEAP_ALLOC_TYPE_INDEX: u32 = 4;
+pub(crate) const OBJECT_APPEND_DATA_PROPERTY_TYPE_INDEX: u32 = 5;
+pub(crate) const OBJECT_APPEND_ACCESSOR_PROPERTY_TYPE_INDEX: u32 = 6;
+pub(crate) const FUNCTION_OBJECT_ALLOC_TYPE_INDEX: u32 = 7;
+pub(crate) const PLAIN_OBJECT_ALLOC_TYPE_INDEX: u32 = 8;
+pub(crate) const ARRAY_ALLOC_TYPE_INDEX: u32 = 9;
+pub(crate) const HOST_PRINT_IMPORT_TYPE_INDEX: u32 = 10;
+pub(crate) const HOST_NUMBER_POW_IMPORT_TYPE_INDEX: u32 = 11;
+pub(crate) const HOST_AGENT_CAN_SUSPEND_IMPORT_TYPE_INDEX: u32 = 12;
+pub(crate) const HOST_MONOTONIC_CLOCK_NANOS_IMPORT_TYPE_INDEX: u32 = 13;
+pub(crate) const HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX: u32 = 14;
 pub(crate) const HOST_REJECT_DYNAMIC_SOURCE_IMPORT_TYPE_INDEX: u32 =
     HOST_SLEEP_NANOS_IMPORT_TYPE_INDEX;
-pub(crate) const HOST_AGENT_CALL_IMPORT_TYPE_INDEX: u32 = 13;
+pub(crate) const HOST_AGENT_CALL_IMPORT_TYPE_INDEX: u32 = 15;
 // The two host calls deliberately share the existing `(i64, i64, i64) -> i64`
 // Wasm signature while retaining distinct semantic names and typed Rust wire
 // domains. Reusing the type keeps every existing registry index stable.
 pub(crate) const HOST_INTL_CALL_IMPORT_TYPE_INDEX: u32 = HOST_AGENT_CALL_IMPORT_TYPE_INDEX;
-pub(crate) const HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX: u32 = 14;
+pub(crate) const HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX: u32 = 16;
 // Both host capabilities return one binary64 value and take no arguments.
 // Reusing the already-registered type preserves every type index.
 pub(crate) const HOST_RANDOM_F64_IMPORT_TYPE_INDEX: u32 = HOST_WALL_CLOCK_MILLIS_IMPORT_TYPE_INDEX;
@@ -873,6 +886,38 @@ pub(crate) const GLOBAL_INDEX_REGISTRY: &[GlobalIndexSlot] = &[
         name: "[[LegacyActiveCaller]]",
         index: LEGACY_ACTIVE_CALLER_GLOBAL_INDEX,
     },
+    GlobalIndexSlot {
+        name: "Intl.Collator.prototype",
+        index: INTL_COLLATOR_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.Collator",
+        index: INTL_COLLATOR_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[StackGuardActiveRealm]]",
+        index: STACK_GUARD_ACTIVE_REALM_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.PluralRules",
+        index: INTL_PLURAL_RULES_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.PluralRules.prototype",
+        index: INTL_PLURAL_RULES_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.RelativeTimeFormat",
+        index: INTL_RELATIVE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "Intl.RelativeTimeFormat.prototype",
+        index: INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+    },
+    GlobalIndexSlot {
+        name: "[[DeferredLegacyArguments]]",
+        index: crate::gc_types::legacy_arguments::GLOBAL_INDEX,
+    },
 ];
 
 /// Maps a global-object property name to the canonical function-object global
@@ -948,6 +993,13 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         StandardBuiltinId::IntlLocaleConstructor => Some(INTL_LOCALE_CONSTRUCTOR_GLOBAL_INDEX),
         StandardBuiltinId::IntlDateTimeFormatConstructor => {
             Some(INTL_DATE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::IntlCollatorConstructor => Some(INTL_COLLATOR_CONSTRUCTOR_GLOBAL_INDEX),
+        StandardBuiltinId::IntlPluralRulesConstructor => {
+            Some(INTL_PLURAL_RULES_CONSTRUCTOR_GLOBAL_INDEX)
+        }
+        StandardBuiltinId::IntlRelativeTimeFormatConstructor => {
+            Some(INTL_RELATIVE_TIME_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
         }
         StandardBuiltinId::IntlNumberFormatConstructor => {
             Some(INTL_NUMBER_FORMAT_CONSTRUCTOR_GLOBAL_INDEX)
@@ -1772,6 +1824,18 @@ pub(crate) fn standard_builtin_constructor_global_index(builtin: StandardBuiltin
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRange
         | StandardBuiltinId::IntlDateTimeFormatPrototypeFormatRangeToParts
         | StandardBuiltinId::IntlDateTimeFormatBoundFormat
+        | StandardBuiltinId::IntlCollatorSupportedLocalesOf
+        | StandardBuiltinId::IntlCollatorPrototypeResolvedOptions
+        | StandardBuiltinId::IntlCollatorPrototypeCompareGetter
+        | StandardBuiltinId::IntlCollatorCompareFunction
+        | StandardBuiltinId::IntlPluralRulesSupportedLocalesOf
+        | StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions
+        | StandardBuiltinId::IntlPluralRulesPrototypeSelect
+        | StandardBuiltinId::IntlPluralRulesPrototypeSelectRange
+        | StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf
+        | StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions
+        | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat
+        | StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts
         | StandardBuiltinId::IntlNumberFormatSupportedLocalesOf
         | StandardBuiltinId::IntlNumberFormatPrototypeResolvedOptions
         | StandardBuiltinId::IntlNumberFormatPrototypeFormatGetter
@@ -2020,6 +2084,19 @@ pub struct WasmArtifact {
     /// that renders the `largest emitted function:` line, so the two cannot
     /// disagree.
     pub function_sizes: Vec<EmittedFunctionSummary>,
+    /// Relocation and helper-frame metadata consumed by the Wasmtime stack
+    /// guard host callback. The same record is serialized into the
+    /// `lila.stack_guard` custom section so it survives artifact caching.
+    pub stack_guard: Option<StackGuardArtifactMetadata>,
+}
+
+/// Defined-function indices used by the catchable native-stack guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackGuardArtifactMetadata {
+    pub original_defined_function_count: u32,
+    pub startup_body: u32,
+    pub guarded_functions: Vec<(u32, u32)>,
+    pub unguarded_helper_indices: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2147,17 +2224,20 @@ mod tests {
             "no-heap throw-error-message export aliases the same slot as its name sibling; a \
              heap-less module cannot produce an object completion, so neither is ever read"
         );
+        let highest_global = GLOBAL_INDEX_REGISTRY
+            .last()
+            .expect("global registry is non-empty");
         assert_eq!(
             GLOBAL_INDEX_REGISTRY.len(),
-            LEGACY_ACTIVE_CALLER_GLOBAL_INDEX as usize + 1,
-            "the fixed scalar registry length tracks its highest index; dynamic globals and the \
+            highest_global.index as usize + 1,
+            "the fixed global registry length tracks its highest index; dynamic globals and the \
              typed runtime GC root are appended afterward"
         );
         assert_eq!(
-            GLOBAL_INDEX_REGISTRY.last().map(|slot| slot.name),
-            Some("[[LegacyActiveCaller]]"),
-            "the active legacy caller is the appended scalar global"
+            highest_global.index,
+            crate::gc_types::legacy_arguments::GLOBAL_INDEX
         );
+        assert_eq!(highest_global.name, "[[DeferredLegacyArguments]]");
         assert!(
             REGEXP_STRING_ITERATOR_PROTOTYPE_GLOBAL_INDEX
                 > THROW_ERROR_CONSTRUCTOR_NAME_HEAP_GLOBAL_INDEX,

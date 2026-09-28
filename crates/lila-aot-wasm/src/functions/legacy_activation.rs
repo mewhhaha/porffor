@@ -1,4 +1,5 @@
 use super::*;
+use lila_ir::FunctionProtocolIr;
 
 /// The only source functions allowed to expose legacy reflection
 /// properties are sloppy ordinary declarations and expressions. Every other
@@ -7,6 +8,36 @@ use super::*;
 pub(crate) enum LegacyActivationMode {
     Exposable,
     Barrier,
+}
+
+impl LegacyActivationMode {
+    /// Keep source-function reflection eligibility identical at activation
+    /// entry and when planning whether its arguments object may be elided.
+    pub(crate) const fn for_source(protocol: FunctionProtocolIr, strict: bool) -> Self {
+        match protocol {
+            FunctionProtocolIr::OrdinaryCallAndConstruct if !strict => Self::Exposable,
+            FunctionProtocolIr::OrdinaryCallOnly
+            | FunctionProtocolIr::OrdinaryCallAndConstruct
+            | FunctionProtocolIr::Arrow
+            | FunctionProtocolIr::Generator
+            | FunctionProtocolIr::Async
+            | FunctionProtocolIr::AsyncArrow
+            | FunctionProtocolIr::AsyncGenerator
+            | FunctionProtocolIr::ModuleActivation
+            | FunctionProtocolIr::AsyncModuleActivation
+            | FunctionProtocolIr::ObjectMethod(_)
+            | FunctionProtocolIr::ObjectGetter
+            | FunctionProtocolIr::ObjectSetter
+            | FunctionProtocolIr::ClassConstructor
+            | FunctionProtocolIr::ClassMethod(_)
+            | FunctionProtocolIr::ClassGetter
+            | FunctionProtocolIr::ClassSetter => Self::Barrier,
+        }
+    }
+
+    pub(crate) const fn is_exposable(self) -> bool {
+        matches!(self, Self::Exposable)
+    }
 }
 
 /// Wasm locals owned by one invocation. Keeping the saved values in the Wasm
@@ -283,6 +314,16 @@ impl FunctionBuilder<'_> {
         let Some(locals) = self.legacy_activation_locals else {
             return;
         };
+        if let Some(frame) = self.deferred_arguments_frame {
+            crate::gc_types::legacy_arguments::emit_get(
+                function,
+                frame,
+                crate::gc_types::legacy_arguments::Field::Parent,
+            );
+            function.instruction(&Instruction::GlobalSet(
+                crate::gc_types::legacy_arguments::GLOBAL_INDEX,
+            ));
+        }
         if matches!(locals.mode, LegacyActivationMode::Exposable) {
             // The same source function may be recursively active; restore the
             // immediately enclosing invocation's values before returning.

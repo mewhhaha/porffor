@@ -6,8 +6,6 @@ const PROTOTYPE_LOOKUP_SOURCE: &str = include_str!("../src/builtins/object/proto
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/object-builtin-policy-domains.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T10: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -483,7 +481,7 @@ fn integrity_and_prototype_lookup_policies_are_exhaustive() {
         }
     }
 
-    for evidence in [CONTRACT, T02, T10] {
+    for evidence in [CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("Batch AL"));
         assert!(words.contains("Batch AM"));
@@ -491,12 +489,5 @@ fn integrity_and_prototype_lookup_policies_are_exhaustive() {
         assert!(words.contains("EnumerableOwnProperties"));
         assert!(words.contains("PrototypeLookup"));
         assert!(words.contains("IntegrityTest"));
-    }
-
-    for task in [T02, T10] {
-        let words = task.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(words.contains("private `builtins/object/prototype_lookup.rs`"));
-        assert!(words.contains("private `builtins/object/integrity_test.rs`"));
-        assert!(words.contains("private `builtins/object/enumerable_own_properties.rs`"));
     }
 }

@@ -5,7 +5,6 @@ const BACKEND_NAMESPACE_SOURCE: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/descriptor-source-text-attribute-selection.md"
 );
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -139,8 +138,8 @@ fn module_namespace_source_renders_only_the_complete_module_source_tag_descripto
 }
 
 #[test]
-fn task_and_contract_record_the_named_attribute_boundary() {
-    for evidence in [TASK, CONTRACT] {
+fn contract_records_the_named_attribute_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("DescriptorSourceText"));
         assert!(evidence.contains("non_configurable"));
         assert!(evidence.contains("boolean"));

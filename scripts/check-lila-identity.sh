@@ -63,6 +63,9 @@ while IFS= read -r -d '' path; do
   case "$path" in
     vendor/*|test262/vendor/*|test262/snapshots/*) continue ;;
     crates/lila-test262/tests/fixtures/*/snapshots/*) continue ;;
+    # Frozen measurements retain the original checkout paths and source hashes.
+    # Preserve those bytes; current task prose and product surfaces remain audited.
+    tasks/evidence/*.json) continue ;;
     docs/rust-rewrite/lila-identity-map.tsv) continue ;;
     docs/rust-rewrite/lila-identity-migration.md) continue ;;
     scripts/check-lila-identity.sh) continue ;;
@@ -72,7 +75,6 @@ while IFS= read -r -d '' path; do
     # migration readers/tests, not product or publication identities.
     scripts/check-readme-status-artifacts.sh) continue ;;
     scripts/tests/check-readme-status-artifacts.sh) continue ;;
-    tasks/28-retire-legacy-js.md|tasks/29-lila-identifier-migration.md) continue ;;
   esac
 
   if printf '%s\n' "$path" | grep -Eq "$old_path_pattern"; then

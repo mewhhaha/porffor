@@ -36,8 +36,8 @@ slot in its declaring private environment. This prevents foreign-eval class
 definitions from being separated from later instance brands by the caller's
 execution realm. All eight remaining Realm offsets are unchanged. The
 structure target passes 4/4, the backend library passes 431/431 and the
-finite-eval Wasmtime target passes 12/12; see the
-[batch verification](../expression-semantics-followup-20260912.md).
+finite-eval Wasmtime target passed 12/12 at that historical checkpoint,
+retained in Git history.
 
 ## Historical passive boundary
 

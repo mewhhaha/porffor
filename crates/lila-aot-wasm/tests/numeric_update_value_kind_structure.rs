@@ -8,7 +8,6 @@ const SUPER_EXPRESSIONS_SOURCE: &str =
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/numeric-update-value-kind.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start = source
@@ -105,8 +104,8 @@ fn backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch() {
 }
 
 #[test]
-fn contract_and_task_record_the_closed_numeric_update_boundary() {
-    for source in [CONTRACT, TASK] {
+fn contract_records_the_closed_numeric_update_boundary() {
+    for source in [CONTRACT] {
         assert!(source.contains("NumericUpdateValueKind"));
         assert!(source.contains("Number"));
         assert!(source.contains("BigInt"));

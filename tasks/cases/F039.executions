@@ -1,0 +1,12 @@
+sloppy-script:language/expressions/tagged-template/cache-differing-expressions-eval.js
+sloppy-script:language/expressions/tagged-template/cache-differing-expressions-new-function.js
+sloppy-script:language/expressions/tagged-template/cache-eval-inner-function.js
+sloppy-script:language/expressions/tagged-template/cache-identical-source-eval.js
+sloppy-script:language/expressions/tagged-template/cache-identical-source-new-function.js
+sloppy-script:language/expressions/tagged-template/cache-realm.js
+strict-script:language/expressions/tagged-template/cache-differing-expressions-eval.js
+strict-script:language/expressions/tagged-template/cache-differing-expressions-new-function.js
+strict-script:language/expressions/tagged-template/cache-eval-inner-function.js
+strict-script:language/expressions/tagged-template/cache-identical-source-eval.js
+strict-script:language/expressions/tagged-template/cache-identical-source-new-function.js
+strict-script:language/expressions/tagged-template/cache-realm.js

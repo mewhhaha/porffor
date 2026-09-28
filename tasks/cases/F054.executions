@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/Number/parseInt-01.js
+sloppy-script:staging/sm/global/parseInt-01.js
+strict-script:staging/sm/Number/parseInt-01.js
+strict-script:staging/sm/global/parseInt-01.js

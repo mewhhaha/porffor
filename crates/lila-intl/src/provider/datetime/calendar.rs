@@ -1,7 +1,8 @@
 use icu_calendar::{
     cal::{
-        Buddhist, Chinese, Dangi, Gregorian, HijriTabular, HijriTabularEpoch,
-        HijriTabularLeapYears, Indian, Iso, Persian, Roc,
+        Buddhist, Chinese, Coptic, Dangi, Ethiopian, EthiopianEraStyle, Gregorian, Hebrew,
+        HijriTabular, HijriTabularEpoch, HijriTabularLeapYears, HijriUmmAlQura, Indian, Iso,
+        Japanese, Persian, Roc,
     },
     types::{EraYear, RataDie},
     Date,
@@ -147,6 +148,102 @@ pub(super) fn convert(
                     false,
                     date.day_of_month().0,
                 )
+            }
+            DateTimeCalendar::Coptic => {
+                let date = iso.to_calendar(Coptic);
+                (
+                    era_year(date.era_year(), &[("am", 0)])?,
+                    date.month().ordinal,
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Ethioaa => {
+                let date =
+                    iso.to_calendar(Ethiopian::new_with_era_style(EthiopianEraStyle::AmeteAlem));
+                (
+                    era_year(date.era_year(), &[("aa", 0)])?,
+                    date.month().ordinal,
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Ethiopic => {
+                let date = iso.to_calendar(Ethiopian::new());
+                (
+                    era_year(date.era_year(), &[("aa", 0), ("am", 1)])?,
+                    date.month().ordinal,
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Hebrew => {
+                let date = iso.to_calendar(Hebrew);
+                let (code, leap) = date.month().formatting_code.parsed().ok_or_else(|| {
+                    super::profile::invalid("invalid converted Hebrew month code")
+                })?;
+                // LDML's Hebrew month-name keys run 1..=13 even in a common
+                // year: key 6 is Adar I and key 7 is Adar/Adar II. ICU's
+                // ordinal is year-dependent; the formatting code is stable.
+                let month = if code >= 6 {
+                    code + 1
+                } else if leap {
+                    6
+                } else {
+                    code
+                };
+                (
+                    era_year(date.era_year(), &[("am", 0)])?,
+                    month,
+                    leap && code == 6,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::IslamicTabular => {
+                let date = iso.to_calendar(HijriTabular::new(
+                    HijriTabularLeapYears::TypeII,
+                    HijriTabularEpoch::Thursday,
+                ));
+                (
+                    era_year(date.era_year(), &[("ah", 0), ("bh", 1)])?,
+                    date.month().ordinal,
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::IslamicUmmAlQura => {
+                let date = iso.to_calendar(HijriUmmAlQura::new());
+                (
+                    era_year(date.era_year(), &[("ah", 0), ("bh", 1)])?,
+                    date.month().ordinal,
+                    false,
+                    date.day_of_month().0,
+                )
+            }
+            DateTimeCalendar::Japanese => {
+                let date = iso.to_calendar(Japanese::new());
+                // ECMA-402's era/monthCode calendar uses Gregorian eras through
+                // 1872-12-31, before Japan adopted the Gregorian calendar.
+                let year = if fields.year < 1873 {
+                    era_year(
+                        iso.to_calendar(Gregorian).era_year(),
+                        &[("bce", 237), ("ce", 238)],
+                    )?
+                } else {
+                    era_year(
+                        date.era_year(),
+                        &[
+                            ("meiji", 232),
+                            ("taisho", 233),
+                            ("showa", 234),
+                            ("heisei", 235),
+                            ("reiwa", 236),
+                            ("bce", 237),
+                            ("ce", 238),
+                        ],
+                    )?
+                };
+                (year, date.month().ordinal, false, date.day_of_month().0)
             }
         };
     Ok(Fields {

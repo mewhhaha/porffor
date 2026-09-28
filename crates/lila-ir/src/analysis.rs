@@ -3963,6 +3963,48 @@ impl<'a> AnalysisBuilder<'a> {
         refs.entry(storage_name).or_insert(source_name);
     }
 
+    fn arrow_arguments_reference_name(
+        &self,
+        owner_id: &str,
+        capture_aliases: &BTreeMap<String, String>,
+    ) -> &'static str {
+        if capture_aliases.contains_key("arguments") {
+            return "arguments";
+        }
+        let mut cursor = self
+            .owner_plans
+            .get(owner_id)
+            .map(|owner| owner.definition_environment_cursor.clone());
+        while let Some(current) = cursor {
+            let environment = &self.environment_plans[&current.environment_id];
+            if environment.binding_storage_names.contains("arguments") {
+                let owner = &self.owner_plans[&environment.owner_id];
+                // A body with parameter expressions has its own var cell.
+                // Formals and hoisted functions named `arguments` also shadow
+                // the implicit binding. In the single-environment `var` case,
+                // both names denote the same implicit cell.
+                if environment.kind == EnvironmentKind::FunctionBody
+                    || owner.parameter_names.contains("arguments")
+                    || owner.function_bindings.contains_key("arguments")
+                    || !environment
+                        .binding_storage_names
+                        .contains(LEXICAL_ARGUMENTS_NAME)
+                {
+                    return "arguments";
+                }
+                return LEXICAL_ARGUMENTS_NAME;
+            }
+            if environment
+                .binding_storage_names
+                .contains(LEXICAL_ARGUMENTS_NAME)
+            {
+                return LEXICAL_ARGUMENTS_NAME;
+            }
+            cursor = environment.parent_cursor.clone();
+        }
+        LEXICAL_ARGUMENTS_NAME
+    }
+
     fn scan_statement(
         &mut self,
         owner_id: &str,
@@ -5572,7 +5614,8 @@ impl<'a> AnalysisBuilder<'a> {
                         if owner.is_some_and(|owner| owner.flavor == FunctionFlavor::Arrow) {
                             self.record_ref(
                                 owner_id,
-                                LEXICAL_ARGUMENTS_NAME.to_string(),
+                                self.arrow_arguments_reference_name(owner_id, capture_aliases)
+                                    .to_string(),
                                 capture_aliases,
                                 refs,
                             );

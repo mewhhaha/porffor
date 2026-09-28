@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/RegExp/lastIndex-match-or-replace.js
+sloppy-script:staging/sm/RegExp/lastIndex-search.js
+strict-script:staging/sm/RegExp/lastIndex-match-or-replace.js
+strict-script:staging/sm/RegExp/lastIndex-search.js

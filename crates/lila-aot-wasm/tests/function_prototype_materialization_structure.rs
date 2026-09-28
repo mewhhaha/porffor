@@ -5,7 +5,6 @@ const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/function-prototype-materialization.md");
-const TASK: &str = include_str!("../../../tasks/09-functions-classes-private-elements.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -318,7 +317,7 @@ fn exhaustive_policy_projection_preserves_the_automatic_allocation_gate() {
 }
 
 #[test]
-fn contract_and_t09_record_the_exhaustive_source_equivalence() {
+fn contract_records_the_exhaustive_source_equivalence() {
     for marker in [
         "nine producer sites",
         "exhaustive two-arm projection",
@@ -329,6 +328,4 @@ fn contract_and_t09_record_the_exhaustive_source_equivalence() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("FunctionPrototypeMaterialization::{Automatic, BootstrapSupplied}"));
-    assert!(TASK.contains("function-prototype-materialization.md"));
 }

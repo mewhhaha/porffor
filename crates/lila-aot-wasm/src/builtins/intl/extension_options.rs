@@ -51,6 +51,21 @@ impl LocaleExtensionOption {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Validate the Unicode type grammar used by `Intl.Collator`'s `collation`
+    /// option. The shared validator also enforces the canonical subtag shape
+    /// and routes an invalid value through the current function Realm.
+    pub(in crate::builtins) fn emit_intl_validate_unicode_type_string(
+        &mut self,
+        value: u32,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_intl_locale_validate_extension_option(
+            LocaleExtensionOption::Collation,
+            value,
+            function,
+        )
+    }
+
     fn emit_intl_add_const(&self, local: u32, amount: i64, function: &mut Function) {
         function.instruction(&Instruction::LocalGet(local));
         function.instruction(&Instruction::I64Const(amount));

@@ -1,0 +1,4 @@
+sloppy-script:language/expressions/assignment/target-super-computed-reference-null.js
+sloppy-script:language/expressions/assignment/target-super-identifier-reference-null.js
+strict-script:language/expressions/assignment/target-super-computed-reference-null.js
+strict-script:language/expressions/assignment/target-super-identifier-reference-null.js

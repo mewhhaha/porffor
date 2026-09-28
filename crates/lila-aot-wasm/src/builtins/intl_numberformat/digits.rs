@@ -9,6 +9,36 @@ pub(super) struct NumberDigitOptionsReady {
     observed: ObservedNumberDigitOptions,
     priority: u32,
 }
+
+/// Emits ECMA-402's shared SetNumberFormatDigitOptions steps for
+/// Intl.PluralRules after its localeMatcher/type/notation/compactDisplay
+/// options have been observed.
+pub(crate) fn emit_plural_rules_digit_options(
+    builder: &mut FunctionBuilder<'_>,
+    options: TaggedLocals,
+    selected: &NfOptionsLocals,
+    function: &mut Function,
+) -> Result<(), EmitError> {
+    let currency = builder.reserve_temp_local();
+    builder.emit_nf_set_const(currency, 0, function);
+    let fallback = builder.reserve_temp_local();
+    builder.emit_nf_set_const(fallback, 1, function);
+    builder.emit_nf_number_option(
+        options,
+        "minimumIntegerDigits",
+        1,
+        21,
+        fallback,
+        selected.word(NfWord::MinimumInteger),
+        function,
+    )?;
+    builder.release_temp_local(fallback);
+    ObservedNumberDigitOptions::read(builder, options, function)?
+        .observe_rounding(builder, options, selected, function)?
+        .finish(builder, selected, currency, function)?;
+    builder.release_temp_local(currency);
+    Ok(())
+}
 const DIGIT_PROPERTIES: [&str; 4] = [
     "minimumFractionDigits",
     "maximumFractionDigits",

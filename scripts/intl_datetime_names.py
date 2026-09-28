@@ -35,6 +35,10 @@ def field_names(leaves):
                 index = DAYS[path[-1].get("type")]
             elif kind == "month":
                 index = int(path[-1].get("type"))
+                if path[-1].get("yeartype") is not None:
+                    if path[-1].get("yeartype") != "leap":
+                        raise ValueError(f"unknown calendar month year type: {source}")
+                    kind = "hebrew_leap_month"
             else:
                 period = path[-1].get("type")
                 if period not in PERIODS:
@@ -57,7 +61,8 @@ def field_names(leaves):
         if (context is not None and context not in CONTEXTS) or (width is not None and width not in WIDTHS):
             raise ValueError(f"unknown name context or width: {source}")
         if index is not None:
-            bounds = {"era": (0, 1), "month": (1, 12), "weekday": (0, 6), "cyclic_year": (1, 60)}[kind]
+            bounds = {"era": (0, 238), "month": (1, 13), "hebrew_leap_month": (7, 7),
+                      "weekday": (0, 6), "cyclic_year": (1, 60)}[kind]
             if not bounds[0] <= index <= bounds[1]:
                 raise ValueError(f"name index outside selected calendar: {source}")
         key = kind, context, width, index, period

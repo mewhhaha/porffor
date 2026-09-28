@@ -552,7 +552,7 @@ impl<'a> FunctionBuilder<'a> {
         let length_local = self.reserve_temp_local();
         let is_constructor_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let target_payload_local = self.reserve_temp_local();
         let target_tag_local = self.reserve_temp_local();
         let state_local = self.reserve_temp_local();
@@ -628,7 +628,10 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
         function.instruction(&Instruction::LocalSet(length_tag_local));
         self.emit_pre_evaluated_arg_vector(
-            &[(length_payload_local, length_tag_local)],
+            &[crate::objects::TaggedLocals::new(
+                length_payload_local,
+                length_tag_local,
+            )],
             argc_local,
             argv_local,
             function,
@@ -771,7 +774,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(state_local);
         self.release_temp_local(target_tag_local);
         self.release_temp_local(target_payload_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(is_constructor_local);
         self.release_temp_local(length_local);
@@ -809,7 +812,7 @@ impl<'a> FunctionBuilder<'a> {
         let target_tag_local = self.reserve_temp_local();
         let is_constructor_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let key_local = self.reserve_temp_local();
         let state_local = self.reserve_temp_local();
         let throwaway_capability_local = self.reserve_temp_local();
@@ -1101,7 +1104,11 @@ impl<'a> FunctionBuilder<'a> {
             throwaway_capability_local,
             state_local,
             key_local,
-            argv_local,
+        ] {
+            self.release_temp_local(local);
+        }
+        self.release_arg_vector_local(argv_local);
+        for local in [
             argc_local,
             is_constructor_local,
             target_tag_local,

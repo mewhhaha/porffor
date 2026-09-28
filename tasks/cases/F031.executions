@@ -1,0 +1,14 @@
+sloppy-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-chinese.js
+sloppy-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-hebrew.js
+sloppy-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-islamic.js
+sloppy-script:intl402/Temporal/PlainMonthDay/from/fields-missing-properties.js
+sloppy-script:intl402/Temporal/PlainMonthDay/from/fields-object.js
+sloppy-script:intl402/Temporal/PlainMonthDay/from/fields-underspecified.js
+sloppy-script:intl402/Temporal/PlainMonthDay/prototype/with/fields-missing-properties.js
+strict-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-chinese.js
+strict-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-hebrew.js
+strict-script:intl402/Temporal/PlainMonthDay/from/calendarresolvefields-error-ordering-islamic.js
+strict-script:intl402/Temporal/PlainMonthDay/from/fields-missing-properties.js
+strict-script:intl402/Temporal/PlainMonthDay/from/fields-object.js
+strict-script:intl402/Temporal/PlainMonthDay/from/fields-underspecified.js
+strict-script:intl402/Temporal/PlainMonthDay/prototype/with/fields-missing-properties.js

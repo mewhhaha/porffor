@@ -5,7 +5,6 @@ const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const HOST_BUILTINS_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/shadowed-property-read-arm-removal.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn property_read_source() -> &'static str {
     let start = OBJECTS_SOURCE
@@ -48,7 +47,7 @@ fn private_types_and_imports_have_direct_owners() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "68165b09f3c33dde58a972643a8dd69cf970bca44fff30af6baa600ad1063f76",
             "ed859523f2e4b103fb5b069adf5931321c934efd3ef99f6e6e98b359e63e6c87",

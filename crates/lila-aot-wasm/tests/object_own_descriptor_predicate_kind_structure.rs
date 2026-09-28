@@ -4,7 +4,6 @@ const OWN_DESCRIPTOR_PREDICATE_SOURCE: &str =
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/object-own-descriptor-predicate-kind.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -194,7 +193,7 @@ fn one_owned_kind_controls_all_three_semantic_decisions() {
 
 #[test]
 fn evidence_records_the_borrowed_own_descriptor_predicate_authority() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("OwnDescriptorPredicateBuiltin"));
         assert!(evidence.contains("borrowed exhaustive"));
     }

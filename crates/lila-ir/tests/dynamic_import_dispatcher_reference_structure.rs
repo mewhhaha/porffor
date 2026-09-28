@@ -5,7 +5,6 @@ const DYNAMIC_SOURCE: &str = include_str!("../src/modules/dynamic.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/dynamic-import-dispatcher-reference-ownership.md"
 );
-const TASK: &str = include_str!("../../../tasks/12-modules-linking-loading.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -391,9 +390,9 @@ fn rewrite_calls_consumes_the_reference_in_one_exhaustive_projection() {
 }
 
 #[test]
-fn contract_and_t12_record_the_single_projection_boundary() {
+fn contract_records_the_single_projection_boundary() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "non-`Clone`, non-`Copy`",
         "six lexical mentions",
@@ -404,6 +403,5 @@ fn contract_and_t12_record_the_single_projection_boundary() {
             contract_words.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T12 marker: {marker}");
     }
 }

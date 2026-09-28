@@ -12914,6 +12914,117 @@ target[Symbol.iterator];"#,
     }
 
     #[test]
+    fn hoisted_var_arguments_starts_with_the_implicit_object_in_both_body_environments() {
+        for source in [
+            "function read() { var arguments; return arguments; } read(19);",
+            "function read(first = 0) { var arguments; return arguments; } read(undefined, 19);",
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let function = program
+                .script
+                .as_ref()
+                .expect("script IR")
+                .functions
+                .iter()
+                .find(|function| function.name == "read")
+                .expect("read function");
+            let body = match function.body.statements.last().expect("function body") {
+                StatementIr::Block(body) => body,
+                _ => &function.body,
+            };
+            let value = body
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    StatementIr::Return(value) => Some(value),
+                    _ => None,
+                })
+                .expect("return value");
+            assert_eq!(value.kind, ValueKind::Arguments, "{source}");
+            assert!(
+                matches!(&value.expr, ExprIr::Identifier(name) if name == "arguments"),
+                "{source}: {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_initializer_write_keeps_the_unassigned_arguments_object_path() {
+        let source =
+            "function read(first = (arguments = 101)) { var arguments; return arguments; }";
+        let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let function = program
+            .script
+            .as_ref()
+            .expect("script IR")
+            .functions
+            .iter()
+            .find(|function| function.name == "read")
+            .expect("read function");
+        let StatementIr::Block(body) = function.body.statements.last().expect("body environment")
+        else {
+            panic!("parameter expression must create a body environment");
+        };
+        let value = body
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                StatementIr::Return(value) => Some(value),
+                _ => None,
+            })
+            .expect("return value");
+        assert!(value.possible_kinds.contains(ValueKind::Arguments));
+        assert!(value.possible_kinds.contains(ValueKind::Number));
+    }
+
+    #[test]
+    fn arrows_capture_the_body_var_arguments_cell_after_parameter_expressions() {
+        for (source, captured_name) in [
+            (
+                "function outer() { var arguments; return () => arguments; }",
+                LEXICAL_ARGUMENTS_NAME,
+            ),
+            (
+                "function outer(first = 0) { var arguments = [79]; return () => arguments; }",
+                "arguments",
+            ),
+            (
+                "function outer(arguments = 71) { return () => arguments; }",
+                "arguments",
+            ),
+        ] {
+            let program = lower_script(source);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let arrow = program
+                .script
+                .as_ref()
+                .expect("script IR")
+                .functions
+                .iter()
+                .find(|function| function.protocol.flavor() == FunctionFlavor::Arrow)
+                .expect("arrow function");
+            assert!(
+                arrow
+                    .captured_bindings
+                    .iter()
+                    .any(|binding| binding.name == captured_name),
+                "{source}: {:?}",
+                arrow.captured_bindings
+            );
+        }
+    }
+
+    #[test]
     fn root_update_replaces_an_earlier_nested_script_global_value() {
         let program = lower_script(
             "var args = null; var close = function() { args = arguments; }; close(); args = 1; args;",

@@ -86,6 +86,8 @@ mod heap_host_boundary;
 mod heap_intl_date_time_format_layout;
 mod heap_intl_locale_layout;
 mod heap_intl_number_format_layout;
+#[cfg(test)]
+mod heap_intl_plural_rules_layout;
 mod heap_map_entry_layout;
 mod heap_map_iterator_layout;
 mod heap_map_record_layout;
@@ -130,6 +132,7 @@ mod prepared_script;
 mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_helpers;
+mod stack_guard;
 use abi::*;
 use arguments_protocol::*;
 use bigint::BigIntHelperOp;
@@ -143,7 +146,9 @@ pub(crate) use emit::{
     IteratorCloseOnThrowLocals, LabelTargets, LoopTargets, OrdinarySetDataOnReceiverEmission,
     PropagateCallThrow, ReturnAbi,
 };
+pub use module::{StackGuardArtifactMetadata, WasmArtifact};
 pub use promise_rejection_policy::PromiseRejectionPolicy;
+pub use stack_guard::STACK_GUARD_CUSTOM_SECTION;
 // `FunctionBodySize` and `FunctionLocalCount` are part of the public face
 // because `EmittedFunctionSummary` carries them: a `pub` struct whose fields
 // name crate-private types is a `private_interfaces` warning, and flattening
@@ -162,6 +167,10 @@ pub(crate) use operations::ToPrimitiveAbruptRoute;
 use planning::*;
 pub use runtime_abi::{decode_heap_bigint_decimal, WasmRuntimeDecodeError, WasmRuntimeValueTag};
 pub(crate) use runtime_helpers::{RuntimeHelperEmission, RuntimeHelperFact, RuntimeHelperId};
+pub(crate) use stack_guard::{
+    emit_guarded_wrapper, emit_main_entry_wrapper, DefinedFunctionIndex, FunctionRealmSource,
+    MissingEnvironmentRealmSource, StackGuardMetadata, StackGuardPlan,
+};
 
 fn read_static_heap_shape_property(shape: &HeapShape, key: &str) -> Option<ObjectShapeProperty> {
     match shape {
@@ -930,6 +939,9 @@ mod tests {
             ("IntlLocale", "INTL_LOCALE"),
             ("IntlDateTimeFormat", "INTL_DATE_TIME_FORMAT"),
             ("IntlNumberFormat", "INTL_NUMBER_FORMAT"),
+            ("IntlCollator", "INTL_COLLATOR"),
+            ("IntlPluralRules", "INTL_PLURAL_RULES"),
+            ("IntlRelativeTimeFormat", "INTL_RELATIVE_TIME_FORMAT"),
             ("Generator", "GENERATOR"),
             ("AsyncGenerator", "ASYNC_GENERATOR"),
         ] {
@@ -948,7 +960,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.trim_end().ends_with(','))
                 .count(),
-            17,
+            20,
             "the closed domain count must include disposal, aggregate errors, Intl and generator prototypes"
         );
     }
@@ -2881,6 +2893,76 @@ mod tests {
         count
     }
 
+    /// Resolve the source-level main body through the exported entry and the
+    /// stack-guard relocation record. The entry keeps main's original function
+    /// index, but when guarded it is a thin wrapper that tail-calls the body.
+    fn semantic_main_wasm_index(artifact: &WasmArtifact) -> u32 {
+        let first_body_index = imported_function_count(artifact);
+        let exported_main = Parser::new(0)
+            .parse_all(&artifact.bytes)
+            .find_map(|payload| {
+                let Payload::ExportSection(reader) = payload.expect("module should parse") else {
+                    return None;
+                };
+                reader.into_iter().find_map(|export| {
+                    let export = export.expect("export should decode");
+                    (export.name == "main" && export.kind == wasmparser::ExternalKind::Func)
+                        .then_some(export.index)
+                })
+            })
+            .expect("module must export main as a function");
+        assert_eq!(
+            exported_main, first_body_index,
+            "the exported entry must own the first non-imported function index"
+        );
+
+        let names = function_names(artifact);
+        let Some(metadata) = &artifact.stack_guard else {
+            assert_eq!(
+                names.get(&exported_main).map(String::as_str),
+                Some("lila::main")
+            );
+            return exported_main;
+        };
+        assert_eq!(
+            names.get(&exported_main).map(String::as_str),
+            Some("stack_guard::wrapper::lila::main"),
+            "the exported entry must be main's guard wrapper"
+        );
+        assert!(
+            metadata.startup_body >= metadata.original_defined_function_count,
+            "the semantic main body must be relocated after the original function space"
+        );
+        let body_index = first_body_index
+            .checked_add(metadata.startup_body)
+            .expect("main body index must fit in the Wasm function space");
+        assert_eq!(
+            names.get(&body_index).map(String::as_str),
+            Some("lila::main"),
+            "the relocation target must retain the semantic main name"
+        );
+        let entry = Parser::new(0)
+            .parse_all(&artifact.bytes)
+            .filter_map(|payload| match payload.expect("module should parse") {
+                Payload::CodeSectionEntry(body) => Some(body),
+                _ => None,
+            })
+            .next()
+            .expect("main entry body must exist");
+        assert!(
+            entry
+                .get_operators_reader()
+                .expect("main entry operators should decode")
+                .into_iter()
+                .any(|operator| matches!(
+                    operator.expect("main entry operator should decode"),
+                    Operator::ReturnCall { function_index } if function_index == body_index
+                )),
+            "main guard wrapper must tail-call the recorded semantic body"
+        );
+        body_index
+    }
+
     #[test]
     fn emitted_modules_name_every_function() {
         let artifact = emit_script("function outer() { return 1; } outer();")
@@ -2892,9 +2974,9 @@ mod tests {
         // and every prefix check below stay green if `ModuleCode::new` were given
         // `0` instead of the imported function count — every name would then be
         // off by that count and wasmtime's `wasm[0]::function[N]` label, the
-        // entire point of the section, would point at the wrong function. `main`
-        // is the first body pushed, so it must sit at exactly the first
-        // non-imported index.
+        // entire point of the section, would point at the wrong function. The
+        // exported main entry owns the first body; its semantic body may move
+        // behind a stack-guard wrapper.
         let first_body_index = imported_function_count(&artifact);
         assert!(first_body_index > 0, "the module must import functions");
         assert_eq!(
@@ -2902,10 +2984,11 @@ mod tests {
             Some(&first_body_index),
             "name section must start at the first non-imported function index: {names:?}"
         );
+        let semantic_main_index = semantic_main_wasm_index(&artifact);
         assert_eq!(
-            names.get(&first_body_index).map(String::as_str),
+            names.get(&semantic_main_index).map(String::as_str),
             Some("lila::main"),
-            "main is pushed first, so it must own the first non-imported index: {names:?}"
+            "the semantic main body must be named at its resolved index"
         );
         assert!(
             names.values().any(|name| name.starts_with("js::outer")),
@@ -5029,6 +5112,34 @@ pick(true);"#,
                                 continue;
                             };
                             reference_globals.push(index as u32);
+                            if index as u32 != expected_root_index {
+                                assert_eq!(
+                                    index as u32,
+                                    crate::gc_types::legacy_arguments::GLOBAL_INDEX
+                                );
+                                let wasmparser::HeapType::Concrete(frame_type) =
+                                    reference_type.heap_type()
+                                else {
+                                    panic!("frame root must be typed");
+                                };
+                                let frame = module_types
+                                    [frame_type.as_module_index().unwrap() as usize]
+                                    .unwrap_struct();
+                                assert_eq!(frame.fields.len(), 7);
+                                for field in &frame.fields[..3] {
+                                    assert!(matches!(
+                                        field.element_type,
+                                        wasmparser::StorageType::Val(wasmparser::ValType::Ref(_))
+                                    ));
+                                    assert!(!field.mutable);
+                                }
+                                assert!(
+                                    global.ty.mutable
+                                        && !global.ty.shared
+                                        && reference_type.is_nullable()
+                                );
+                                continue;
+                            }
                             assert!(global.ty.mutable, "{label}: root must be mutable");
                             assert!(!global.ty.shared, "{label}: root must be per-instance");
                             assert!(
@@ -5072,10 +5183,18 @@ pick(true);"#,
                 }
             }
 
+            let expected_roots =
+                if expected_root_index > crate::gc_types::legacy_arguments::GLOBAL_INDEX {
+                    vec![
+                        crate::gc_types::legacy_arguments::GLOBAL_INDEX,
+                        expected_root_index,
+                    ]
+                } else {
+                    vec![expected_root_index]
+                };
             assert_eq!(
-                reference_globals,
-                [expected_root_index],
-                "{label} must have one typed root at the actual next global index"
+                reference_globals, expected_roots,
+                "{label}: only the frame root and final anchor root"
             );
             assert_eq!(
                 global_count,
@@ -5092,6 +5211,7 @@ pick(true);"#,
         )
         .expect("root-lifecycle fixture should emit");
         expect_valid_module(&artifact, 1);
+        let semantic_main_index = semantic_main_wasm_index(&artifact);
 
         let mut module_types = Vec::new();
         let mut root = None;
@@ -5115,7 +5235,10 @@ pick(true);"#,
                         else {
                             continue;
                         };
-                        assert!(root.is_none(), "the capability root is the sole GC global");
+                        if index as u32 == crate::gc_types::legacy_arguments::GLOBAL_INDEX {
+                            continue;
+                        }
+                        assert!(root.is_none(), "the capability root follows the frame root");
                         assert!(
                             global.ty.mutable,
                             "the root must support establish and clear"
@@ -5172,10 +5295,18 @@ pick(true);"#,
         let mut events = Vec::new();
         let mut holder_type = None;
         let mut constructed_types = Vec::new();
+        let mut function_index = imported_function_count(&artifact);
+        let mut found_semantic_main = false;
         for payload in Parser::new(0).parse_all(&artifact.bytes) {
             let Payload::CodeSectionEntry(body) = payload.expect("module should parse") else {
                 continue;
             };
+            let is_semantic_main = function_index == semantic_main_index;
+            function_index += 1;
+            if !is_semantic_main {
+                continue;
+            }
+            found_semantic_main = true;
             for operator in body
                 .get_operators_reader()
                 .expect("main operators should decode")
@@ -5229,6 +5360,10 @@ pick(true);"#,
             }
             break;
         }
+        assert!(
+            found_semantic_main,
+            "the relocated semantic main body must be present"
+        );
 
         let holder_type = holder_type.expect("main must traverse the typed holder field");
         assert_eq!(
@@ -5520,10 +5655,11 @@ ordinary(view.byteLength) === 9 && /1/.test(serialized);
         expect_valid_module(&artifact, 1);
 
         let local_counts = declared_function_local_counts(&artifact.bytes);
+        let semantic_main_index = semantic_main_wasm_index(&artifact);
         let declared_main_local_count = local_counts
-            .first()
+            .get((semantic_main_index - imported_function_count(&artifact)) as usize)
             .copied()
-            .expect("emitted module should contain a main function");
+            .expect("emitted module should contain the semantic main body");
         let reported_main_local_count = artifact
             .debug_dump
             .lines()
@@ -5850,6 +5986,7 @@ setterReceiver === receiver;
         ] {
             let artifact = emit_script(source).expect("emit should work");
             expect_valid_module(&artifact, 0);
+            let semantic_main_index = semantic_main_wasm_index(&artifact);
             let data = data_segment_bytes(&artifact.bytes);
             let mut expected_prefix = vec![b' '; 11];
             expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
@@ -5869,7 +6006,8 @@ setterReceiver === receiver;
             let heap_start = align_heap_start(data.len()) as i64;
             let mut static_segments = 0;
             let mut pointer_slot_initializer = None;
-            let mut first_function = true;
+            let mut function_index = imported_function_count(&artifact);
+            let mut found_semantic_main = false;
             let mut main_heap_start_store = false;
             let mut pointer_reads = 0;
             let mut pointer_writes = 0;
@@ -5916,7 +6054,9 @@ setterReceiver === receiver;
                             let Operator::I64Const { value } =
                                 init.read().expect("slot initializer should decode")
                             else {
-                                panic!("{label}: pointer/diagnostic slot must initialize to an i64 constant");
+                                panic!(
+                                    "{label}: pointer/diagnostic slot must initialize to an i64 constant"
+                                );
                             };
                             pointer_slot_initializer = Some(value);
                             assert!(matches!(
@@ -5926,6 +6066,9 @@ setterReceiver === receiver;
                         }
                     }
                     Payload::CodeSectionEntry(body) => {
+                        let is_semantic_main = function_index == semantic_main_index;
+                        found_semantic_main |= is_semantic_main;
+                        function_index += 1;
                         let mut previous_constant = None;
                         for operator in body
                             .get_operators_reader()
@@ -5944,17 +6087,20 @@ setterReceiver === receiver;
                                 {
                                     pointer_writes += 1;
                                     main_heap_start_store |=
-                                        first_function && previous_constant == Some(heap_start);
+                                        is_semantic_main && previous_constant == Some(heap_start);
                                     previous_constant = None;
                                 }
                                 _ => previous_constant = None,
                             }
                         }
-                        first_function = false;
                     }
                     _ => {}
                 }
             }
+            assert!(
+                found_semantic_main,
+                "{label}: semantic main body must be present"
+            );
             assert_eq!(
                 static_segments, 1,
                 "{label}: one pooled static-data segment"
@@ -6452,10 +6598,19 @@ calls;
     }
 
     #[test]
-    fn supports_host_gc_builtin_as_explicit_unsupported_throw() {
+    fn supports_host_gc_builtin_through_runtime_import() {
         let artifact = emit_script("if (typeof gc === \"function\") { gc(); }")
             .expect("gc host builtin should emit");
         expect_valid_module(&artifact, 1);
+        assert!(artifact
+            .debug_dump
+            .lines()
+            .any(|line| line == "import func: lila_host.gc"));
+        let ordinary = emit_script("1 + 2;").expect("ordinary script should emit");
+        assert!(!ordinary
+            .debug_dump
+            .lines()
+            .any(|line| line == "import func: lila_host.gc"));
     }
 
     #[test]

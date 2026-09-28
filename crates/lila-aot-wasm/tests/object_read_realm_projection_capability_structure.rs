@@ -4,7 +4,6 @@ use std::path::Path;
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/object-read-realm-projection-capability.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -237,7 +236,7 @@ fn each_projection_consumer_keeps_its_exact_emission_policy() {
 }
 
 #[test]
-fn contract_and_t10_record_the_source_equivalent_capability_closure() {
+fn contract_records_the_source_equivalent_capability_closure() {
     for marker in [
         "two distinct private, non-derived",
         "ABI argument receives",
@@ -248,5 +247,4 @@ fn contract_and_t10_record_the_source_equivalent_capability_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("object-read-realm-projection-capability.md"));
 }

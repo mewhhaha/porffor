@@ -8,7 +8,7 @@ const PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_keyed_element_projection.rs");
 const PROMISE_INTERNAL_FUNCTION_REALM_CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/promise-internal-function-realm-context.md");
-const MODULARITY_TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
+
 const PROMISE_SETTLEMENT_RECORD_ALLOCATION_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_settlement_record_allocation.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
@@ -411,7 +411,7 @@ fn combinator_materialization_propagates_the_aggregate_error_snapshot() {
     );
     assert!(PROMISE_INTERNAL_FUNCTION_REALM_CONTRACT
         .contains("PromiseCombinatorElementFunctionMaterializationContext"));
-    for text in [PROMISE_INTERNAL_FUNCTION_REALM_CONTRACT, MODULARITY_TASK] {
+    for text in [PROMISE_INTERNAL_FUNCTION_REALM_CONTRACT] {
         assert!(text.contains("promise_callback_created_allocation_realm_structure"));
     }
 }

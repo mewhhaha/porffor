@@ -358,19 +358,24 @@ fn run_wasm_backend_reports_uncaught_throw_fixture_error() {
 }
 
 #[test]
-fn run_wasm_backend_reports_gc_requires_real_collector() {
+fn run_wasm_backend_invokes_host_collector() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
-        .arg(fixture_path("wasm_gc_requires_real_collector.js"))
+        .arg("--host-surface")
+        .arg("test262")
+        .arg(fixture_path("wasm_host_gc.js"))
         .output()
         .expect("run command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("uncaught throw"));
-    assert!(stderr.contains("gc requires a real collector in wasm-aot"));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("gc returned undefined"));
 }
 
 #[test]

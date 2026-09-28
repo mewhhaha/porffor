@@ -1,0 +1,12 @@
+sloppy-script:built-ins/RegExp/unicode_restricted_brackets.js
+sloppy-script:built-ins/RegExp/unicode_restricted_character_class_escape.js
+sloppy-script:built-ins/RegExp/unicode_restricted_identity_escape.js
+sloppy-script:built-ins/RegExp/unicode_restricted_identity_escape_alpha.js
+sloppy-script:built-ins/RegExp/unicode_restricted_identity_escape_c.js
+sloppy-script:staging/sm/RegExp/constructor-regexp-unicode.js
+strict-script:built-ins/RegExp/unicode_restricted_brackets.js
+strict-script:built-ins/RegExp/unicode_restricted_character_class_escape.js
+strict-script:built-ins/RegExp/unicode_restricted_identity_escape.js
+strict-script:built-ins/RegExp/unicode_restricted_identity_escape_alpha.js
+strict-script:built-ins/RegExp/unicode_restricted_identity_escape_c.js
+strict-script:staging/sm/RegExp/constructor-regexp-unicode.js

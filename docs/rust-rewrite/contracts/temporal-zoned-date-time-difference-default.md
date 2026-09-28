@@ -173,8 +173,7 @@ snapshots and README status.
 
 ## Direct-arithmetic checkpoint completed 2026-09-12
 
-The [ZonedDateTime baseline follow-up](../zoned-date-time-baseline-follow-up.md)
-records 408/408 pinned executions, 49/49 focused Wasmtime regressions (including
+The historical ZonedDateTime checkpoint, retained in Git history, recorded 408/408 pinned executions, 49/49 focused Wasmtime regressions (including
 all ten difference tests), 1,122 IR tests, 428 backend tests, 102 Temporal
 structural tests, the workspace check, and 191/191 fake-fixture executions.
 The pinned replay repairs 136 reproduced main failures and retains the other

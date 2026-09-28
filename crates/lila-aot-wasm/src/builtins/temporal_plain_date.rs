@@ -129,10 +129,7 @@ impl TemporalCalendarId {
     pub(crate) const fn spellings(self) -> &'static [&'static str] {
         match self {
             Self::Iso8601 => &["iso8601"],
-            // `gregorian` is the Unicode CLDR alias of `gregory`; CLDR's
-            // alias table is normative for `CanonicalizeCalendar`, so both
-            // spellings must resolve to the one canonical `gregory`.
-            Self::Gregory => &["gregory", "gregorian"],
+            Self::Gregory => &["gregory"],
             Self::Buddhist => &["buddhist"],
         }
     }
@@ -508,10 +505,8 @@ pub(crate) struct TemporalEraSlots {
 
 /// An `era`/`eraYear` pair that has been read from a property bag.
 ///
-/// See [`TemporalEraSlots`] for the chain this sits in. Consumed by value by
-/// [`FunctionBuilder::emit_temporal_resolve_era_to_iso_year`], which also releases
-/// the four locals, so reading without resolving cannot compile and resolving
-/// twice cannot either.
+/// See [`TemporalEraSlots`] for the chain this sits in. The caller retains the
+/// four locals through the calendar host query, then releases them in LIFO order.
 #[must_use]
 pub(crate) struct TemporalEraLocals {
     era_payload_local: u32,
@@ -526,6 +521,17 @@ impl TemporalEraLocals {
     /// resolver consumes the bag.
     pub(crate) const fn present_locals(&self) -> [u32; 2] {
         [self.era_present_local, self.era_year_present_local]
+    }
+
+    /// The raw property-bag snapshot, consumed by the Temporal calendar host
+    /// query path after every observable read and option conversion completes.
+    pub(crate) const fn raw_locals(&self) -> [u32; 4] {
+        [
+            self.era_payload_local,
+            self.era_present_local,
+            self.era_year_local,
+            self.era_year_present_local,
+        ]
     }
 }
 
@@ -940,6 +946,31 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::End);
             }
         }
+        for calendar in lila_intl::TemporalCalendar::ALL {
+            let canonical_payload = self.strings.payload(calendar.identifier());
+            for spelling in [calendar.identifier()].into_iter().chain(
+                super::temporal_calendar::calendar_aliases(calendar)
+                    .iter()
+                    .copied(),
+            ) {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    calendar_payload_local,
+                    expected_payload_local,
+                    Some(case_fold_local),
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(canonical_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(matched_local));
+                function.instruction(&Instruction::End);
+            }
+        }
         function.instruction(&Instruction::LocalGet(matched_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
@@ -1209,12 +1240,15 @@ impl<'a> FunctionBuilder<'a> {
         let matched_local = self.reserve_temp_local();
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(matched_local));
-        for calendar in TemporalCalendarId::ALL {
-            if calendar.eras().is_empty() {
+        for calendar in lila_intl::TemporalCalendar::ALL {
+            if !lila_intl::TemporalCalendarEra::ALL
+                .into_iter()
+                .any(|era| era.allowed_in(calendar))
+            {
                 continue;
             }
             function.instruction(&Instruction::I64Const(
-                self.strings.payload(calendar.canonical()),
+                self.strings.payload(calendar.identifier()),
             ));
             function.instruction(&Instruction::LocalSet(expected_payload_local));
             self.emit_string_payload_equality_i32(
@@ -1678,8 +1712,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::Call(helper_index));
         self.store_call_results_to(
-            self.result_local,
-            self.result_tag_local,
+            crate::objects::TaggedLocals::new(self.result_local, self.result_tag_local),
             self.completion_local,
             self.completion_aux_local,
             function,
@@ -2148,71 +2181,39 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        match builtin {
-            StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter => {
-                function.instruction(&Instruction::LocalGet(calendar_payload_local));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
-            StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter => {
-                function.instruction(&Instruction::I64Const(self.strings.payload("M01")));
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                for month in 2_i64..=12 {
-                    function.instruction(&Instruction::LocalGet(month_local));
-                    function.instruction(&Instruction::I64Const(month));
-                    function.instruction(&Instruction::I64Eq);
-                    function.instruction(&Instruction::If(BlockType::Empty));
-                    function.instruction(&Instruction::I64Const(
-                        self.strings.payload(&format!("M{month:02}")),
-                    ));
+        let calendar_field_handled = self.emit_temporal_plain_date_calendar_field(
+            builtin,
+            calendar_payload_local,
+            [year_local, month_local, day_local],
+            function,
+        )?;
+        if !calendar_field_handled {
+            match builtin {
+                StandardBuiltinId::TemporalPlainDatePrototypeCalendarIdGetter => {
+                    function.instruction(&Instruction::LocalGet(calendar_payload_local));
                     function.instruction(&Instruction::LocalSet(self.result_local));
-                    function.instruction(&Instruction::End);
+                    function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
                 }
-                function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
-            StandardBuiltinId::TemporalPlainDatePrototypeEraGetter => {
-                self.emit_temporal_calendar_era_field(
-                    calendar_payload_local,
-                    year_local,
-                    TemporalEraField::Era,
-                    function,
-                );
-            }
-            StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter => {
-                self.emit_temporal_calendar_era_field(
-                    calendar_payload_local,
-                    year_local,
-                    TemporalEraField::EraYear,
-                    function,
-                );
-            }
-            StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter => {
-                self.emit_temporal_iso_year_is_leap_i32(year_local, function);
-                function.instruction(&Instruction::I64ExtendI32U);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Boolean.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-            }
-            _ => {
-                let value_local = self.reserve_temp_local();
-                self.emit_temporal_plain_date_numeric_field(
-                    builtin,
-                    calendar_payload_local,
-                    year_local,
-                    month_local,
-                    day_local,
-                    value_local,
-                    function,
-                );
-                function.instruction(&Instruction::LocalGet(value_local));
-                function.instruction(&Instruction::F64ConvertI64S);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                function.instruction(&Instruction::LocalSet(self.result_local));
-                function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
-                function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                self.release_temp_local(value_local);
+                _ => {
+                    let value_local = self.reserve_temp_local();
+                    self.emit_temporal_plain_date_numeric_field(
+                        builtin,
+                        calendar_payload_local,
+                        year_local,
+                        month_local,
+                        day_local,
+                        value_local,
+                        function,
+                    );
+                    function.instruction(&Instruction::LocalGet(value_local));
+                    function.instruction(&Instruction::F64ConvertI64S);
+                    function.instruction(&Instruction::I64ReinterpretF64);
+                    function.instruction(&Instruction::LocalSet(self.result_local));
+                    function.instruction(&Instruction::I64Const(ValueKind::Number.tag() as i64));
+                    function.instruction(&Instruction::LocalSet(self.result_tag_local));
+                    self.release_temp_local(value_local);
+                }
             }
         }
 

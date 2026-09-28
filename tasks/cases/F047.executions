@@ -1,0 +1,6 @@
+sloppy-script:intl402/String/prototype/localeCompare/default-options-object-prototype.js
+sloppy-script:intl402/String/prototype/localeCompare/returns-same-results-as-Collator.js
+sloppy-script:intl402/String/prototype/localeCompare/throws-same-exceptions-as-Collator.js
+strict-script:intl402/String/prototype/localeCompare/default-options-object-prototype.js
+strict-script:intl402/String/prototype/localeCompare/returns-same-results-as-Collator.js
+strict-script:intl402/String/prototype/localeCompare/throws-same-exceptions-as-Collator.js

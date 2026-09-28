@@ -146,12 +146,15 @@ impl FunctionBuilder<'_> {
             self.emit_default_this_for_known_strictness(meta.strict, function);
             self.emit_undefined_new_target(function);
             function.instruction(&Instruction::LocalGet(argc_local));
-            function.instruction(&Instruction::LocalGet(argv_local));
+            function.instruction(&Instruction::LocalGet(argv_local.index()));
             function.instruction(&Instruction::Call(meta.wasm_index));
-            self.store_call_results(payload_local, tag_local, function);
+            self.store_call_results(
+                crate::objects::TaggedLocals::new(payload_local, tag_local),
+                function,
+            );
             self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
             self.set_completion_kind(CompletionKind::Normal, function);
-            self.release_temp_local(argv_local);
+            self.release_arg_vector_local(argv_local);
             self.release_temp_local(argc_local);
             self.release_temp_local(callee_tag_local);
             self.release_temp_local(callee_payload_local);
@@ -184,7 +187,7 @@ impl FunctionBuilder<'_> {
                 function,
             )?;
             self.emit_propagate_throw_from_locals_if_needed(payload_local, tag_local, function)?;
-            self.release_temp_local(argv_local);
+            self.release_arg_vector_local(argv_local);
             self.release_temp_local(argc_local);
             if let Some((this_payload_local, this_tag_local)) = this_locals {
                 self.release_temp_local(this_tag_local);
@@ -242,7 +245,7 @@ impl FunctionBuilder<'_> {
             }
         }
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         if let Some((this_payload_local, this_tag_local)) = this_locals {
             self.release_temp_local(this_tag_local);

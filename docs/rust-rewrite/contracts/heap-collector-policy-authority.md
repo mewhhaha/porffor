@@ -14,20 +14,21 @@ contract could independently combine an arbitrary name, movement Boolean,
 capability and registry slices; those fields and the unused capability states
 no longer exist.
 
-Advancing collection now requires adding an explicit policy identity and
-handling it in every projection. Flipping one capability field cannot make
-`gc()` appear executable while roots, weak edges or phases remain disconnected.
+This policy describes the passive linear-heap inventory. It does not govern
+Wasmtime's native GC API. The host collection hook invokes that API without
+claiming that these linear roots, weak edges or phases have become executable.
 
 The focused recursive structure guard pins the exact capability-free domain,
-all six projections, registry identities, heap delegation and the host-GC
-unsupported boundary.
+all six projections, registry identities, heap delegation and the separation
+between native host collection and the passive linear-heap inventory.
 
 ## Passive boundary
 
 This changes passive Rust metadata only. It does not implement tracing,
 relocation, reclamation, ephemeron processing, weak clearing, finalization
-cleanup or executable `gc()`. The host builtin continues to emit its explicit
-unsupported throw.
+cleanup. The host builtin now calls the Wasmtime collector through
+`lila_host.gc`; that change does not turn this passive inventory into a
+JavaScript collector. See [the current GC architecture](../value-heap-gc.md).
 
 ```sh
 cargo test -p lila-aot-wasm --test heap_collector_policy_structure
@@ -35,14 +36,17 @@ cargo test -p lila-aot-wasm --test heap_collector_phase_structure
 cargo test -p lila-aot-wasm --test weak_edge_retention_structure
 cargo test -p lila-aot-wasm --test heap_named_slot_storage_structure
 cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib tests::supports_host_gc_builtin_as_explicit_unsupported_throw -- --exact --test-threads=1
+cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_does_not_claim_linear_heap_collection -- --exact --test-threads=1
+cargo test -p lila-aot-wasm --lib tests::supports_host_gc_builtin_through_runtime_import -- --exact --test-threads=1
 git diff --check
 ```
 
-The policy, phase and weak-edge guards each pass `4/4`, and the adjusted
+At the original passive-metadata checkpoint, the policy, phase and weak-edge
+guards each passed `4/4`, and the adjusted
 named-slot guard remains green at `3/3`. The exact phase inventory,
-unsupported-policy and emitted host-GC throw witnesses each pass `1/1`, with
+unsupported-policy and emitted host-GC throw witnesses each passed `1/1`, with
 only the workspace's existing warnings. Targeted formatting and diff checks
 pass. No broad workspace or conformance run was performed for this passive
-transition.
+transition. Current native host-hook behavior is documented in the
+[heap architecture](../value-heap-gc.md); current failures belong in the
+[failure backlog](../../../tasks/README.md).

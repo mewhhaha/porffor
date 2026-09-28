@@ -18,8 +18,6 @@ const KNOWN_FAILURES: &str = include_str!("../../lila-cli/tests/known-failures.t
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/ordinary-property-eager-compound-assignment-reference.md"
 );
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/08-environments-control-flow.md");
 
 macro_rules! exact_test262 {
     ($name:literal) => {
@@ -247,7 +245,10 @@ fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
         "#[derive(Debug)]\n#[must_use = \"a read ordinary Property Reference must be advanced to its applied result\"]\nstruct ReadOrdinaryPropertyReferenceLocals",
         "#[derive(Debug)]\n#[must_use = \"a ready ordinary Property Reference must be consumed by PutValue\"]\nstruct ReadyToWriteOrdinaryPropertyReferenceLocals",
     ] {
-        assert!(EXPRESSIONS_SOURCE.contains(prefix), "missing typestate {prefix}");
+        assert!(
+            EXPRESSIONS_SOURCE.contains(prefix),
+            "missing typestate {prefix}"
+        );
     }
     let roles = bounded(
         EXPRESSIONS_SOURCE,
@@ -486,28 +487,6 @@ fn exact_a7_inventory_is_raw_unmasked_and_keeps_all_t3_controls() {
 
 #[test]
 fn status_records_the_exact_baseline_and_keeps_the_batch_bounded() {
-    for source in [README, TASK] {
-        for marker in [
-            "ae1bd994b",
-            "22/88",
-            "66",
-            "T1, T2 and T4",
-            "T3 control",
-            "Runtime/Bug",
-            "post-batch",
-            "88/88",
-            "zero unsupported",
-            "1/1",
-            "75.42s",
-        ] {
-            assert!(
-                source
-                    .to_ascii_lowercase()
-                    .contains(&marker.to_ascii_lowercase()),
-                "status lost {marker}"
-            );
-        }
-    }
     for marker in [
         "44 physical files",
         "for 88 matrix\nexecutions",

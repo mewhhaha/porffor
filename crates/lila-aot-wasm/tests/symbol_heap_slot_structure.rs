@@ -6,7 +6,6 @@ const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/symbol-heap-slot-authority.md");
-const TASK: &str = include_str!("../../../tasks/05-values-heap-gc.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -162,5 +161,4 @@ fn symbol_layout_has_one_private_recursive_owner() {
         1
     );
     assert!(CONTRACT.contains("SymbolHeapSlot"));
-    assert!(TASK.contains("symbol-heap-slot-authority.md"));
 }

@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/destructuring/order-super.js
+sloppy-script:staging/sm/destructuring/order.js
+strict-script:staging/sm/destructuring/order-super.js
+strict-script:staging/sm/destructuring/order.js

@@ -11,12 +11,13 @@ Pending(Present) -> BoundPresent
 ```
 
 Parameter binding consumes the pending state exactly once. A present state
-moves its mapped or unmapped construction protocol into one
-`ArgumentsBindingProtocol`; consuming that authority is the only route to
-arguments-object initialization.
+moves one binding action into `ArgumentsBindingProtocol`: materialize its
+mapped or unmapped construction plan, defer a validated mapped object in one
+native-GC invocation frame, or keep the implicit binding while eliding a
+proven-unobserved object. Each action owns its binding initialization.
 
 Local-count planning and root-variable reuse need only know whether the
-function has its own arguments object. Their reusable `present()` projection
+function has its own arguments binding. Their reusable `present()` projection
 therefore returns `Option<()>`. It cannot expose, borrow or clone the semantic
 construction protocol.
 
@@ -30,8 +31,13 @@ install a second arguments object from the same validated map.
 
 `take_for_binding` moves the protocol out of `Pending` and records which
 terminal state was reached. A second call is a compiler-invariant error.
-`initialize_arguments_binding` accepts the owned present protocol, so a caller
-cannot invoke it twice with the same authority.
+`initialize_arguments_binding` accepts the owned materialization plan, so a
+caller cannot invoke it twice with the same authority. The elided arm creates
+binding storage and initializes it to `undefined`; it allocates no object.
+The deferred arm also initializes the unobserved binding to `undefined`, then
+transfers the validated mapping to a native invocation frame. That frame caches
+exactly one canonical Arguments object if legacy reflection observes it; it
+never reinitializes the function's binding.
 
 ## Retained reusable projections
 
@@ -45,10 +51,12 @@ lifecycle.
 
 1. A function arguments protocol starts pending and reaches exactly one
    terminal binding state.
-2. Mapped or unmapped construction semantics move through one non-cloneable
-   binding authority.
-3. Presence-only planning cannot recover the construction protocol.
-4. Arguments-object initialization consumes an owned present protocol.
+2. Eager materialization, deferral or proven elision moves through one
+   non-cloneable binding authority. The mapped/unmapped semantics are retained.
+3. Presence-only planning cannot recover the binding action or construction
+   protocol.
+4. Eager binding initialization consumes an owned materialization plan;
+   deferred materialization consumes the frame's pending state once.
 5. A repeated binding attempt fails explicitly instead of silently creating a
    second object.
 
@@ -57,9 +65,9 @@ lifecycle.
 The Rust-lexical structure guard pins the private closed state, the one-shot
 transition, the presence-only projection and the consuming initialization
 route. Arguments-protocol module tests cover absent, mapped and unmapped
-classification, validated mapped slots, last-duplicate selection, malformed
-storage rejection and repeated-binding rejection.
+classification, proven elision, validated mapped slots, last-duplicate
+selection, malformed storage rejection and repeated-binding rejection.
 
-This is a source-equivalent compiler ownership closure. It does not add an
-arguments-object behavior, complete parameter/body environment separation or
-claim a newly passing ECMAScript/Test262 case.
+The ownership protocol preserves the existing arguments-object behavior when
+the object is observable. It does not complete parameter/body environment
+separation or claim full ECMAScript/Test262 conformance.

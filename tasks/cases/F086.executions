@@ -1,0 +1,2 @@
+sloppy-script:built-ins/Object/internals/DefineOwnProperty/consistent-value-function-arguments.js
+sloppy-script:built-ins/Object/internals/DefineOwnProperty/consistent-value-function-caller.js

@@ -128,15 +128,17 @@ fn complete_locale_inventory_and_currency_precision_share_one_profile_authority(
         let selected = configuration(locale, options());
         assert_eq!(selected.locale.resolved().as_str(), *locale);
         assert_eq!(selected.locale.formatting().as_str(), *locale);
-        assert!(!partition_number(
-            &selected,
-            &value("1234.5"),
-            profiles,
-            &PartitionLimits::HOST_ABI
-        )
-        .unwrap()
-        .parts()
-        .is_empty());
+        assert!(
+            !partition_number(
+                &selected,
+                &value("1234.5"),
+                profiles,
+                &PartitionLimits::HOST_ABI
+            )
+            .unwrap()
+            .parts()
+            .is_empty()
+        );
     }
     let fractions = profiles.currency_fractions();
     for (code, expected) in [("JPY", 0), ("USD", 2), ("KWD", 3), ("CLF", 4), ("ZZZ", 2)] {
@@ -146,10 +148,12 @@ fn complete_locale_inventory_and_currency_precision_share_one_profile_authority(
         );
     }
     assert_eq!(fractions.default_digits().get(), 2);
-    assert!(fractions
-        .overrides()
-        .windows(2)
-        .all(|pair| pair[0].code() < pair[1].code()));
+    assert!(
+        fractions
+            .overrides()
+            .windows(2)
+            .all(|pair| pair[0].code() < pair[1].code())
+    );
 }
 
 #[test]
@@ -216,13 +220,15 @@ fn restored_locale_proof_rejects_cross_field_forgery() {
         ("zz", "zz", "latn"),
         ("en", "en", "roman"),
     ] {
-        assert!(ResolvedNumberLocale::from_resolved(
-            canonical(resolved),
-            canonical(formatting),
-            numbering,
-            profiles()
-        )
-        .is_err());
+        assert!(
+            ResolvedNumberLocale::from_resolved(
+                canonical(resolved),
+                canonical(formatting),
+                numbering,
+                profiles()
+            )
+            .is_err()
+        );
     }
     for name in ["", "ab", "arab_foo", "arab-", "traditional", "aßcd"] {
         assert!(NumberingSystemOption::parse(name).is_err());
@@ -307,14 +313,18 @@ fn every_numeric_digit_alphabet_is_selected_without_mapping_measurement_text() {
         "12",
         currency("USD", CurrencyDisplay::Code, CurrencySign::Standard),
     );
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Currency && part.text() == "USD"));
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Integer && part.text() == "١٢"));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Currency && part.text() == "USD")
+    );
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Integer && part.text() == "١٢")
+    );
 }
 
 #[test]
@@ -491,10 +501,12 @@ fn scientific_and_engineering_exponents_use_exact_digits_and_never_group_mantiss
             ..options()
         },
     );
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::ExponentInteger && part.text() == "𝟑"));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::ExponentInteger && part.text() == "𝟑")
+    );
 }
 
 #[test]
@@ -659,10 +671,11 @@ fn currency_symbols_names_accounting_and_alpha_spacing_use_pinned_rows() {
         "12",
         currency("IQD", CurrencyDisplay::Name, CurrencySign::Standard),
     );
-    assert!(ckb
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Currency && part.text() == "دیناری عێراقی"));
+    assert!(
+        ckb.parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Currency && part.text() == "دیناری عێراقی")
+    );
     assert_eq!(
         configuration("ckb", options()).locale.formatting().as_str(),
         "ckb"
@@ -677,10 +690,12 @@ fn numbering_extensions_do_not_change_currency_name_placement_locale() {
         currency("USD", CurrencyDisplay::Name, CurrencySign::Standard),
     );
     assert!(rendered.to_text().ends_with(" US-Dollar"));
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Integer && part.text() == "١٢"));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Integer && part.text() == "١٢")
+    );
 }
 
 #[test]
@@ -695,16 +710,20 @@ fn unit_forms_keep_numeric_omission_and_medial_placeholders() {
     );
     let short_dual = scalar("ar", "2", unit("meter", UnitDisplay::Short));
     assert_eq!(short_dual.to_text(), "متران");
-    assert!(!short_dual
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Integer));
+    assert!(
+        !short_dual
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Integer)
+    );
     let singular_day = scalar("zu", "1", unit("day", UnitDisplay::Narrow));
     assert_eq!(singular_day.to_text(), "1");
-    assert!(!singular_day
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Unit));
+    assert!(
+        !singular_day
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Unit)
+    );
     assert_eq!(
         scalar("zu", "2", unit("day", UnitDisplay::Narrow)).to_text(),
         "2 suku"
@@ -770,14 +789,17 @@ fn measurement_names_wrap_the_signed_number() {
     // A numeral-omitting form still shows the value's sign.
     let dual = scalar("ar", "-2", unit("meter", UnitDisplay::Short));
     assert!(dual.to_text().ends_with("متران"));
-    assert!(dual
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::MinusSign));
-    assert!(!dual
-        .parts()
-        .iter()
-        .any(|part| part.kind() == NumberPartKind::Integer));
+    assert!(
+        dual.parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::MinusSign)
+    );
+    assert!(
+        !dual
+            .parts()
+            .iter()
+            .any(|part| part.kind() == NumberPartKind::Integer)
+    );
     // Approximation stays beside the sign inside the measurement name.
     let approximate: Vec<_> = range("ja-JP", "-987", "-987", kph(UnitDisplay::Long))
         .parts()
@@ -880,18 +902,24 @@ fn sanctioned_per_compositions_are_complete_for_every_width() {
 fn range_collapse_reselects_plural_and_retains_endpoint_sources() {
     let rendered = range("en", "1", "2", unit("meter", UnitDisplay::Long));
     assert_eq!(rendered.to_text(), "1–2 meters");
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.source() == RangePartSource::Start && part.text() == "1"));
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.source() == RangePartSource::End && part.text() == "2"));
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.source() == RangePartSource::Shared && part.text() == "meters"));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.source() == RangePartSource::Start && part.text() == "1")
+    );
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.source() == RangePartSource::End && part.text() == "2")
+    );
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.source() == RangePartSource::Shared && part.text() == "meters")
+    );
     assert_eq!(
         range(
             "en",
@@ -963,11 +991,13 @@ fn range_keeps_notation_and_plain_signs_and_shares_owned_currency_spacing() {
             .count(),
         1
     );
-    assert!(rendered
-        .parts()
-        .iter()
-        .filter(|part| part.kind_name() == "currency")
-        .all(|part| part.source() == RangePartSource::Shared));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .filter(|part| part.kind_name() == "currency")
+            .all(|part| part.source() == RangePartSource::Shared)
+    );
     assert_eq!(
         range("en", "-1", "-2", options())
             .parts()
@@ -1016,10 +1046,12 @@ fn approximation_uses_shared_parts_and_sign_or_accounting_position() {
     );
     let rendered = range("fr", "1", "1", options());
     assert_eq!(rendered.to_text(), "≃1");
-    assert!(rendered
-        .parts()
-        .iter()
-        .all(|part| part.source() == RangePartSource::Shared));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .all(|part| part.source() == RangePartSource::Shared)
+    );
     assert_eq!(rendered.parts()[0].kind_name(), "approximatelySign");
 }
 
@@ -1033,14 +1065,18 @@ fn descending_infinite_and_signed_zero_ranges_keep_input_order() {
         "~∞"
     );
     let rendered = range("en", "-0", "0", options());
-    assert!(rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind_name() == "minusSign" && part.source() == RangePartSource::Start));
-    assert!(!rendered
-        .parts()
-        .iter()
-        .any(|part| part.kind_name() == "approximatelySign"));
+    assert!(
+        rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind_name() == "minusSign" && part.source() == RangePartSource::Start)
+    );
+    assert!(
+        !rendered
+            .parts()
+            .iter()
+            .any(|part| part.kind_name() == "approximatelySign")
+    );
 }
 
 #[test]
@@ -1068,13 +1104,15 @@ fn partition_limits_fail_before_truncation_and_apply_to_combined_ranges() {
             NumberPartitionResourceError::PartExtent { .. }
         ))
     ));
-    assert!(partition_number_range(
-        &configuration,
-        &NumberRange::new(value("12"), value("34")).unwrap(),
-        profiles(),
-        &bytes
-    )
-    .is_err());
+    assert!(
+        partition_number_range(
+            &configuration,
+            &NumberRange::new(value("12"), value("34")).unwrap(),
+            profiles(),
+            &bytes
+        )
+        .is_err()
+    );
 }
 
 #[test]

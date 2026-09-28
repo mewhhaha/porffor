@@ -2,7 +2,6 @@ const LOADER_SOURCE: &str = include_str!("../src/module_loader.rs");
 const ENGINE_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/module-entry-source-authority.md");
-const TASK: &str = include_str!("../../../tasks/12-modules-linking-loading.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -93,12 +92,11 @@ fn parsed_entry_handoffs_cannot_accept_a_second_source_authority() {
 }
 
 #[test]
-fn contract_and_task_record_the_entry_source_authority() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_entry_source_authority() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("ModuleEntry"));
         assert!(evidence.contains("HostLoad"));
         assert!(evidence.contains("InMemory"));
         assert!(evidence.contains("entry_locator"));
     }
-    assert!(TASK.contains("module-entry-source-authority.md"));
 }

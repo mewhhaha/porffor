@@ -9,6 +9,7 @@ use super::raw;
 pub(super) enum NameKey {
     Era(NameWidth, u8),
     Month(NameContext, NameWidth, u8),
+    HebrewLeapMonth(NameContext, NameWidth),
     Weekday(NameContext, NameWidth, u8),
     Period(NameContext, NameWidth, DayPeriod),
     CyclicYear(NameWidth, u8),
@@ -59,9 +60,12 @@ impl FieldNames {
                 record.index,
                 record.period.as_deref(),
             ) {
-                ("era", None, Some(width), Some(index @ 0..=1), None) => NameKey::Era(width, index),
-                ("month", Some(context), Some(width), Some(index @ 1..=12), None) => {
+                ("era", None, Some(width), Some(index), None) => NameKey::Era(width, index),
+                ("month", Some(context), Some(width), Some(index @ 1..=13), None) => {
                     NameKey::Month(context, width, index)
+                }
+                ("hebrew_leap_month", Some(context), Some(width), Some(7), None) => {
+                    NameKey::HebrewLeapMonth(context, width)
                 }
                 ("weekday", Some(context), Some(width), Some(index @ 0..=6), None) => {
                     NameKey::Weekday(context, width, index)

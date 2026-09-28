@@ -60,7 +60,7 @@ cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_test
 cargo test -p lila-aot-wasm --lib arguments_protocol::tests
 cargo test -p lila-aot-wasm --test callable_function_prototype_structure
 cargo test -p lila-aot-wasm --test heap_collector_policy_structure
-cargo test -p lila-cli --test cli language_errors::run_wasm_backend_reports_gc_requires_real_collector -- --exact --test-threads=1
+cargo test -p lila-cli --test cli language_errors::run_wasm_backend_invokes_host_collector -- --exact --test-threads=1
 ```
 
 The native cases cover separate Arguments instances in two foreign Realms,

@@ -9,7 +9,6 @@ const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const STRING_INTRINSICS_SOURCE: &str = include_str!("../src/intrinsics/string.rs");
 const HOST_BUILTINS_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/ecmascript-trim-mode.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 const RAW_TRIM_HELPER: &str = "emit_ecmascript_trim_payload_from_locals";
 const START_TRIM_WRAPPER: &str = "emit_ecmascript_trim_start_payload_from_locals";
@@ -515,8 +514,7 @@ fn ecmascript_trim_mode_is_private_closed_and_exhaustive() {
         "the borrowed start scan must retain its complete body and order"
     );
 
-    let final_slice_start =
-        "        function.instruction(&Instruction::LocalGet(end_local));\n        function.instruction(&Instruction::LocalGet(start_local));\n        function.instruction(&Instruction::I64Sub);";
+    let final_slice_start = "        function.instruction(&Instruction::LocalGet(end_local));\n        function.instruction(&Instruction::LocalGet(start_local));\n        function.instruction(&Instruction::I64Sub);";
     let end_projection = bounded_inclusive(raw_core, "        match mode {", final_slice_start);
     let expected_end_projection = r#"
         match mode {
@@ -675,7 +673,7 @@ fn ecmascript_trim_whitespace_table_is_private_complete_and_single_owned() {
         .collect::<Vec<_>>();
     assert_eq!(owners, vec![PathBuf::from("operations/string_trim.rs")]);
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `ECMASCRIPT_NON_ASCII_WHITESPACE_UTF8`"));
         assert!(
             evidence.contains("3b3f4cb67213c7881b83d193a979ff4ae654805c1e7c783c473d781eb5395bd8")

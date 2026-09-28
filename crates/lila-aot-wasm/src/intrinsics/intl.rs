@@ -171,6 +171,71 @@ const DATE_TIME_FORMAT_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
     },
 ];
 
+const COLLATOR_CONSTRUCTOR_PROPERTIES: &[IntlIntrinsicProperty] = &[IntlIntrinsicProperty {
+    name: "supportedLocalesOf",
+    builtin: StandardBuiltinId::IntlCollatorSupportedLocalesOf,
+    kind: IntlIntrinsicPropertyKind::Method,
+}];
+const COLLATOR_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
+    IntlIntrinsicProperty {
+        name: "compare",
+        builtin: StandardBuiltinId::IntlCollatorPrototypeCompareGetter,
+        kind: IntlIntrinsicPropertyKind::Getter,
+    },
+    IntlIntrinsicProperty {
+        name: "resolvedOptions",
+        builtin: StandardBuiltinId::IntlCollatorPrototypeResolvedOptions,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+];
+
+const PLURAL_RULES_CONSTRUCTOR_PROPERTIES: &[IntlIntrinsicProperty] = &[IntlIntrinsicProperty {
+    name: "supportedLocalesOf",
+    builtin: StandardBuiltinId::IntlPluralRulesSupportedLocalesOf,
+    kind: IntlIntrinsicPropertyKind::Method,
+}];
+const PLURAL_RULES_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
+    IntlIntrinsicProperty {
+        name: "select",
+        builtin: StandardBuiltinId::IntlPluralRulesPrototypeSelect,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "selectRange",
+        builtin: StandardBuiltinId::IntlPluralRulesPrototypeSelectRange,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "resolvedOptions",
+        builtin: StandardBuiltinId::IntlPluralRulesPrototypeResolvedOptions,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+];
+
+const RELATIVE_TIME_FORMAT_CONSTRUCTOR_PROPERTIES: &[IntlIntrinsicProperty] =
+    &[IntlIntrinsicProperty {
+        name: "supportedLocalesOf",
+        builtin: StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf,
+        kind: IntlIntrinsicPropertyKind::Method,
+    }];
+const RELATIVE_TIME_FORMAT_PROTOTYPE_PROPERTIES: &[IntlIntrinsicProperty] = &[
+    IntlIntrinsicProperty {
+        name: "format",
+        builtin: StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "formatToParts",
+        builtin: StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+    IntlIntrinsicProperty {
+        name: "resolvedOptions",
+        builtin: StandardBuiltinId::IntlRelativeTimeFormatPrototypeResolvedOptions,
+        kind: IntlIntrinsicPropertyKind::Method,
+    },
+];
+
 const NUMBER_FORMAT_CONSTRUCTOR_PROPERTIES: &[IntlIntrinsicProperty] = &[IntlIntrinsicProperty {
     name: "supportedLocalesOf",
     builtin: StandardBuiltinId::IntlNumberFormatSupportedLocalesOf,
@@ -223,6 +288,24 @@ pub(crate) fn intl_constructor_properties(
             constructor: DATE_TIME_FORMAT_CONSTRUCTOR_PROPERTIES,
             prototype: DATE_TIME_FORMAT_PROTOTYPE_PROPERTIES,
         }),
+        StandardBuiltinId::IntlCollatorConstructor => Some(IntlConstructorProperties {
+            prototype_name: "Intl.Collator",
+            prototype_slot: NonArrayRealmIntrinsicSlot::IntlCollatorPrototype,
+            constructor: COLLATOR_CONSTRUCTOR_PROPERTIES,
+            prototype: COLLATOR_PROTOTYPE_PROPERTIES,
+        }),
+        StandardBuiltinId::IntlPluralRulesConstructor => Some(IntlConstructorProperties {
+            prototype_name: "Intl.PluralRules",
+            prototype_slot: NonArrayRealmIntrinsicSlot::IntlPluralRulesPrototype,
+            constructor: PLURAL_RULES_CONSTRUCTOR_PROPERTIES,
+            prototype: PLURAL_RULES_PROTOTYPE_PROPERTIES,
+        }),
+        StandardBuiltinId::IntlRelativeTimeFormatConstructor => Some(IntlConstructorProperties {
+            prototype_name: "Intl.RelativeTimeFormat",
+            prototype_slot: NonArrayRealmIntrinsicSlot::IntlRelativeTimeFormatPrototype,
+            constructor: RELATIVE_TIME_FORMAT_CONSTRUCTOR_PROPERTIES,
+            prototype: RELATIVE_TIME_FORMAT_PROTOTYPE_PROPERTIES,
+        }),
         StandardBuiltinId::IntlNumberFormatConstructor => Some(IntlConstructorProperties {
             prototype_name: "Intl.NumberFormat",
             prototype_slot: NonArrayRealmIntrinsicSlot::IntlNumberFormatPrototype,
@@ -251,6 +334,30 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) fn install_intl_number_format_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.install_intl_constructor_intrinsics(context, function)
+    }
+
+    pub(crate) fn install_intl_plural_rules_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.install_intl_constructor_intrinsics(context, function)
+    }
+
+    pub(crate) fn install_intl_relative_time_format_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.install_intl_constructor_intrinsics(context, function)
+    }
+
+    pub(crate) fn install_intl_collator_constructor_intrinsics(
         &mut self,
         context: &IntrinsicInstall<'_>,
         function: &mut Function,

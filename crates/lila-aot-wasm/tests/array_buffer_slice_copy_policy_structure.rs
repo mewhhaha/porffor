@@ -5,7 +5,6 @@ const BINARY_DATA_SOURCE: &str = include_str!("../src/builtins/binary_data.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-buffer-slice-source-reobservation.md");
-const TASK: &str = include_str!("../../../tasks/17-typedarrays-binary-data-atomics.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -671,9 +670,9 @@ fn copy_writer_borrows_twice_then_consumes_the_policy() {
 }
 
 #[test]
-fn contract_and_t17_record_the_single_handoff_boundary() {
+fn contract_records_the_single_handoff_boundary() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "non-`Clone`, non-`Copy`",
         "31 lexical mentions",
@@ -691,6 +690,5 @@ fn contract_and_t17_record_the_single_handoff_boundary() {
             contract_words.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T17 marker: {marker}");
     }
 }

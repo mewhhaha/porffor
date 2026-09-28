@@ -7,7 +7,6 @@ const PROMISE_FINALLY_COMPLETION_SOURCE: &str =
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/promise-finally-completion.md");
-const TASK: &str = include_str!("../../../tasks/14-promises-jobs-async.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -573,9 +572,9 @@ fn standard_dispatch_has_no_finally_direction_choice() {
 }
 
 #[test]
-fn contract_and_t14_record_the_one_shot_completion_authority() {
+fn contract_records_the_one_shot_completion_authority() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "non-`Clone`, non-`Copy`",
         "eight lexical mentions",
@@ -587,6 +586,5 @@ fn contract_and_t14_record_the_one_shot_completion_authority() {
             contract_words.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T14 marker: {marker}");
     }
 }

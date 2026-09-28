@@ -4,7 +4,6 @@ use std::path::Path;
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/sync-iterator-protocol-error-authority.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -562,9 +561,9 @@ fn sole_consumer_exhaustively_maps_diagnostics_and_body_realm_sources() {
 }
 
 #[test]
-fn contract_and_task_record_the_focused_invariant_without_conformance_overclaim() {
+fn contract_records_the_focused_invariant_without_conformance_overclaim() {
     let contract = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for phrase in [
         "SyncIteratorProtocolError",
         "Exactly seventeen typed projector calls",
@@ -573,8 +572,4 @@ fn contract_and_task_record_the_focused_invariant_without_conformance_overclaim(
     ] {
         assert!(contract.contains(phrase), "contract missing `{phrase}`");
     }
-    assert!(task.contains("sync iterator protocol-error authority"));
-    assert!(task.contains("35"));
-    assert!(task.contains("`SyncIteratorProtocolError`"));
-    assert!(task.contains("No complete Test262 directory"));
 }

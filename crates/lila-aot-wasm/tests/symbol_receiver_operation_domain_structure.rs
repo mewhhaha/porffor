@@ -2,8 +2,6 @@ const SOURCE: &str = include_str!("../src/builtins/symbol.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/symbol-receiver-operation-ownership.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const T21: &str = include_str!("../../../tasks/21-symbols-collections-weakrefs.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -359,7 +357,7 @@ fn symbol_prototype_callers_name_all_four_receiver_operations() {
 }
 
 #[test]
-fn contract_and_task_record_the_single_receiver_owner() {
+fn contract_records_the_single_receiver_owner() {
     for phrase in [
         "seven production mentions",
         "four receiver operations",
@@ -368,11 +366,10 @@ fn contract_and_task_record_the_single_receiver_owner() {
     ] {
         assert!(CONTRACT.contains(phrase), "contract missing `{phrase}`");
     }
-    for evidence in [CONTRACT, T02, T21] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `SymbolBuiltin`"));
         assert!(evidence.contains("fixed Symbol entries"));
         assert!(evidence.contains("source-equivalent"));
         assert!(evidence.contains("no new Symbol behavior"));
     }
-    assert!(T21.contains("symbol-receiver-operation-ownership.md"));
 }

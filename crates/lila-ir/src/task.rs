@@ -1,15 +1,17 @@
-//! Closed identifiers for the repository task ledger.
+//! Closed identifiers for compiler and conformance ownership domains.
 //!
-//! Task identifiers cross compiler reports and conformance ownership data, so
-//! their text is a stable interface. The enum, complete registry, parser and
-//! formatter are generated from one list: adding a task cannot update one
+//! These identifiers cross compiler reports and conformance ownership data, so
+//! their text is a stable interface. See `docs/rust-rewrite/conformance-ownership.md`.
+//! Current actionable failures have separate Fxxx identifiers in `tasks/`.
+//! The enum, complete registry, parser and formatter are generated from one list:
+//! adding a domain cannot update one
 //! representation while forgetting another.
 
 use std::{error::Error, fmt, str::FromStr};
 
 macro_rules! define_task_ids {
     ($($variant:ident = $number:literal => $text:literal),+ $(,)?) => {
-        /// A task in the repository's `tasks/` ledger.
+        /// A compiler/conformance ownership domain, independent of actionable tasks.
         ///
         /// The public variants are the constructors. Consequently, code that
         /// holds a `TaskId` cannot hold a syntactically valid but nonexistent

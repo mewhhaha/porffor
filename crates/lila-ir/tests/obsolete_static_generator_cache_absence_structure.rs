@@ -4,7 +4,6 @@ const CALL_EXPRESSION_SOURCE: &str = include_str!("../src/lowering/call_expressi
 const FOR_OF_SOURCE: &str = include_str!("../src/lowering/for_of.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/obsolete-static-generator-cache-removal.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 #[test]
 fn write_never_static_generator_cache_surface_is_absent() {
@@ -58,7 +57,7 @@ fn live_generator_and_iterator_authorities_remain() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "8043d5ff10f4b61f90d5caea850ee1f648d81a7c5bfd413715fd1776194bd27c",
             "51ca4e5119307e3df723701e54632dc8f37cfe0f231ea0bd6401c10e7d1bd0d2",

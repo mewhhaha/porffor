@@ -11,7 +11,6 @@ const FLAT_OVERRIDE_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_array_flat_own_method_dispatch.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-flat-algorithm-owner.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -264,7 +263,7 @@ fn flat_override_fixture_and_evidence_remain_in_inventory() {
     }
     assert!(ARRAY_CLI_TESTS.contains("fn run_wasm_backend_calls_an_arrays_own_flat_method()"));
     assert!(ARRAY_CLI_TESTS.contains("fixture_path(\"wasm_array_flat_own_method_dispatch.js\")"));
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("`FlatMethodDispatch::{ArrayCanonical, GenericGetCall}`"));
     }
 }

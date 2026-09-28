@@ -1,0 +1,2 @@
+sloppy-script:staging/sm/object/getOwnPropertyDescriptor.js
+strict-script:staging/sm/object/getOwnPropertyDescriptor.js

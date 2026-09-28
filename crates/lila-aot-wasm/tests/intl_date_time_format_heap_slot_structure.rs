@@ -4,8 +4,6 @@ const OWNER: &str = include_str!("../src/heap_intl_date_time_format_layout.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/intl-date-time-format-heap-slot-authority.md"
 );
-const T05: &str = include_str!("../../../tasks/05-values-heap-gc.md");
-const T23: &str = include_str!("../../../tasks/23-intl402.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -275,11 +273,7 @@ fn intl_date_time_format_layout_has_one_private_owner() {
     assert!(!LIB_SOURCE.contains("pub mod heap_intl_date_time_format_layout;"));
     assert!(!HEAP_SOURCE.contains("record: \"intl-date-time-format-record\""));
     assert!(!HEAP_SOURCE.contains("HEAP_INTL_DATE_TIME_FORMAT_RECORD_LAYOUT: &[HeapLayoutSlot]"));
-    for evidence in [T05, T23] {
-        assert!(evidence.contains("IntlDateTimeFormatHeapSlot"));
-        assert!(evidence.contains("passive metadata migration"));
-        assert!(evidence.contains("no new Intl behavior"));
-    }
+
     for invariant in [
         "IntlDateTimeFormatHeapSlot",
         "six traced",

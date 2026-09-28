@@ -8,7 +8,6 @@ const FIXTURE: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/json-stringify-replacer-invocation-authority.md"
 );
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -346,14 +345,13 @@ fn sole_consumer_preserves_argument_result_and_abrupt_roles() {
 }
 
 #[test]
-fn contract_task_and_public_fixture_own_the_authority() {
+fn contract_and_public_fixture_own_the_authority() {
     for marker in [
         "JSON.stringify replacer invocation authority",
         "transpose replacer, receiver, property key, and value roles",
         "json_stringify_replacer_invocation_authority_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
     assert_eq!(
         CLI_SOURCE

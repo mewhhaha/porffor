@@ -1,7 +1,6 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/sync-dispose-completion-continuation.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -122,8 +121,8 @@ fn producers_move_one_continuation_into_the_sole_exhaustive_consumer() {
 }
 
 #[test]
-fn contract_and_task_record_the_one_way_continuation_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_one_way_continuation_boundary() {
+    for evidence in [CONTRACT] {
         let evidence = without_whitespace(evidence);
         assert!(evidence.contains("must-use"));
         assert!(evidence.contains("capability-free"));

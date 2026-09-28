@@ -16,7 +16,10 @@ lila-spec-exec = { path = "../lila-spec-exec", optional = true }
 rayon = "1.11.0"
 sha2 = "0.10.9"
 wasmparser = "0.245.1"
-wasmtime = { version = "38.0.4", default-features = false, features = ["cache", "cranelift", "gc", "gc-drc", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
+wasmtime = { version = "=49.0.1", default-features = false, features = ["cache", "cranelift", "gc", "gc-copying", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
+
+[dev-dependencies]
+wasm-encoder = "0.245.1"
 
 [build-dependencies]
 sha2 = "0.10.9"
@@ -24,7 +27,7 @@ sha2 = "0.10.9"
 [features]
 # Off by default: keeps the Boa interpreter (lila-spec-exec / boa_engine)
 # out of product and release builds. Only enable for developer-only
-# differential-oracle testing (see AGENTS.md and tasks/25). Never enable this
+# differential-oracle testing (see AGENTS.md). Never enable this
 # feature for a shipped/product build.
 spec-exec-oracle = ["dep:lila-spec-exec"]
 

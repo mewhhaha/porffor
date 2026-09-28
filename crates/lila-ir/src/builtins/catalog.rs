@@ -9,6 +9,10 @@
 // compile-time choice rather than an append-only backend catch-all.
 use super::*;
 use crate::names::{
+    BUILTIN_INTL_COLLATOR_COMPARE_FUNCTION_ID, BUILTIN_INTL_COLLATOR_FUNCTION_ID,
+    BUILTIN_INTL_COLLATOR_PROTOTYPE_COMPARE_GETTER_FUNCTION_ID,
+    BUILTIN_INTL_COLLATOR_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_COLLATOR_SUPPORTED_LOCALES_OF_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_BOUND_FORMAT_FUNCTION_ID, BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_GETTER_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_RANGE_FUNCTION_ID,
@@ -16,11 +20,22 @@ use crate::names::{
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
     BUILTIN_INTL_NUMBER_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+    BUILTIN_INTL_PLURAL_RULES_FUNCTION_ID,
+    BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_FUNCTION_ID,
+    BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_RANGE_FUNCTION_ID,
+    BUILTIN_INTL_PLURAL_RULES_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+    BUILTIN_INTL_RELATIVE_TIME_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID,
+    BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+    BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+    BUILTIN_INTL_RELATIVE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
     BUILTIN_ITERATOR_CHUNKS_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_CHUNKS_RETURN_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_CHUNKS_FUNCTION_ID, BUILTIN_ITERATOR_PROTOTYPE_INCLUDES_FUNCTION_ID,
     BUILTIN_ITERATOR_PROTOTYPE_JOIN_FUNCTION_ID, BUILTIN_ITERATOR_PROTOTYPE_WINDOWS_FUNCTION_ID,
     BUILTIN_ITERATOR_WINDOWS_NEXT_FUNCTION_ID, BUILTIN_ITERATOR_WINDOWS_RETURN_FUNCTION_ID,
-    INTL_NUMBER_FORMAT_NAME,
+    INTL_COLLATOR_NAME, INTL_NUMBER_FORMAT_NAME, INTL_PLURAL_RULES_NAME,
+    INTL_RELATIVE_TIME_FORMAT_NAME,
 };
 
 /// The family-specific realm installer, if any, run after a builtin's common
@@ -57,6 +72,9 @@ pub enum StandardBuiltinInstaller {
     IntlLocale,
     IntlDateTimeFormat,
     IntlNumberFormat,
+    IntlCollator,
+    IntlPluralRules,
+    IntlRelativeTimeFormat,
     Date,
     Error,
     BigInt,
@@ -2196,42 +2214,42 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeEraGetter {
         function: FunctionOrdinal(290) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.era",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get era",
     }
     TemporalPlainDatePrototypeEraYearGetter {
         function: FunctionOrdinal(291) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ERA_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.eraYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get eraYear",
     }
     TemporalPlainDatePrototypeYearGetter {
         function: FunctionOrdinal(292) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.year",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get year",
     }
     TemporalPlainDatePrototypeMonthGetter {
         function: FunctionOrdinal(293) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.month",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get month",
     }
     TemporalPlainDatePrototypeMonthCodeGetter {
         function: FunctionOrdinal(294) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTH_CODE_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.monthCode",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get monthCode",
     }
     TemporalPlainDatePrototypeDayGetter {
         function: FunctionOrdinal(295) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.day",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get day",
     }
@@ -2245,7 +2263,7 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeDayOfYearGetter {
         function: FunctionOrdinal(297) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAY_OF_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.dayOfYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get dayOfYear",
     }
@@ -2273,35 +2291,35 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeDaysInMonthGetter {
         function: FunctionOrdinal(301) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_MONTH_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.daysInMonth",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get daysInMonth",
     }
     TemporalPlainDatePrototypeDaysInYearGetter {
         function: FunctionOrdinal(302) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_DAYS_IN_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.daysInYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get daysInYear",
     }
     TemporalPlainDatePrototypeMonthsInYearGetter {
         function: FunctionOrdinal(303) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_MONTHS_IN_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.monthsInYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get monthsInYear",
     }
     TemporalPlainDatePrototypeInLeapYearGetter {
         function: FunctionOrdinal(304) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_IN_LEAP_YEAR_GETTER_FUNCTION_ID,
         debug: "get Temporal.PlainDate.prototype.inLeapYear",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "get inLeapYear",
     }
     TemporalPlainDatePrototypeWith {
         function: FunctionOrdinal(305) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_WITH_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.with",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "with",
     }
@@ -2350,14 +2368,14 @@ standard_builtin_catalog! {
     TemporalPlainDatePrototypeAdd {
         function: FunctionOrdinal(312) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_ADD_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.add",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "add",
     }
     TemporalPlainDatePrototypeSubtract {
         function: FunctionOrdinal(313) => BUILTIN_TEMPORAL_PLAIN_DATE_PROTOTYPE_SUBTRACT_FUNCTION_ID,
         debug: "Temporal.PlainDate.prototype.subtract",
-        flags: [],
+        flags: [INTL_HOST],
         installer: None,
         native: "subtract",
     }
@@ -3858,6 +3876,111 @@ standard_builtin_catalog! {
         flags: [WALL_CLOCK, INTL_HOST],
         installer: None,
         native: "",
+    }
+    IntlCollatorConstructor {
+        function: FunctionOrdinal(870) => BUILTIN_INTL_COLLATOR_FUNCTION_ID,
+        debug: "Intl.Collator",
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: IntlCollator,
+        native: INTL_COLLATOR_NAME,
+    }
+    IntlCollatorSupportedLocalesOf {
+        function: FunctionOrdinal(871) => BUILTIN_INTL_COLLATOR_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+        debug: "Intl.Collator.supportedLocalesOf",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "supportedLocalesOf",
+    }
+    IntlCollatorPrototypeResolvedOptions {
+        function: FunctionOrdinal(872) => BUILTIN_INTL_COLLATOR_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+        debug: "Intl.Collator.prototype.resolvedOptions",
+        flags: [],
+        installer: None,
+        native: "resolvedOptions",
+    }
+    IntlCollatorPrototypeCompareGetter {
+        function: FunctionOrdinal(873) => BUILTIN_INTL_COLLATOR_PROTOTYPE_COMPARE_GETTER_FUNCTION_ID,
+        debug: "get Intl.Collator.prototype.compare",
+        flags: [],
+        installer: None,
+        native: "get compare",
+    }
+    IntlCollatorCompareFunction {
+        function: FunctionOrdinal(874) => BUILTIN_INTL_COLLATOR_COMPARE_FUNCTION_ID,
+        debug: "Intl.Collator Compare Function",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "",
+    }
+    IntlPluralRulesConstructor {
+        function: FunctionOrdinal(875) => BUILTIN_INTL_PLURAL_RULES_FUNCTION_ID,
+        debug: "Intl.PluralRules",
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: IntlPluralRules,
+        native: INTL_PLURAL_RULES_NAME,
+    }
+    IntlPluralRulesSupportedLocalesOf {
+        function: FunctionOrdinal(876) => BUILTIN_INTL_PLURAL_RULES_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+        debug: "Intl.PluralRules.supportedLocalesOf",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "supportedLocalesOf",
+    }
+    IntlPluralRulesPrototypeResolvedOptions {
+        function: FunctionOrdinal(877) => BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+        debug: "Intl.PluralRules.prototype.resolvedOptions",
+        flags: [],
+        installer: None,
+        native: "resolvedOptions",
+    }
+    IntlPluralRulesPrototypeSelect {
+        function: FunctionOrdinal(878) => BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_FUNCTION_ID,
+        debug: "Intl.PluralRules.prototype.select",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "select",
+    }
+    IntlPluralRulesPrototypeSelectRange {
+        function: FunctionOrdinal(879) => BUILTIN_INTL_PLURAL_RULES_PROTOTYPE_SELECT_RANGE_FUNCTION_ID,
+        debug: "Intl.PluralRules.prototype.selectRange",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "selectRange",
+    }
+    IntlRelativeTimeFormatConstructor {
+        function: FunctionOrdinal(880) => BUILTIN_INTL_RELATIVE_TIME_FORMAT_FUNCTION_ID,
+        debug: "Intl.RelativeTimeFormat",
+        flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: IntlRelativeTimeFormat,
+        native: INTL_RELATIVE_TIME_FORMAT_NAME,
+    }
+    IntlRelativeTimeFormatSupportedLocalesOf {
+        function: FunctionOrdinal(881) => BUILTIN_INTL_RELATIVE_TIME_FORMAT_SUPPORTED_LOCALES_OF_FUNCTION_ID,
+        debug: "Intl.RelativeTimeFormat.supportedLocalesOf",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "supportedLocalesOf",
+    }
+    IntlRelativeTimeFormatPrototypeResolvedOptions {
+        function: FunctionOrdinal(882) => BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_RESOLVED_OPTIONS_FUNCTION_ID,
+        debug: "Intl.RelativeTimeFormat.prototype.resolvedOptions",
+        flags: [],
+        installer: None,
+        native: "resolvedOptions",
+    }
+    IntlRelativeTimeFormatPrototypeFormat {
+        function: FunctionOrdinal(883) => BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_FUNCTION_ID,
+        debug: "Intl.RelativeTimeFormat.prototype.format",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "format",
+    }
+    IntlRelativeTimeFormatPrototypeFormatToParts {
+        function: FunctionOrdinal(884) => BUILTIN_INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_FORMAT_TO_PARTS_FUNCTION_ID,
+        debug: "Intl.RelativeTimeFormat.prototype.formatToParts",
+        flags: [SYNCHRONOUS_USER_CODE, INTL_HOST],
+        installer: None,
+        native: "formatToParts",
     }
     IntlNumberFormatConstructor {
         function: FunctionOrdinal(833) => BUILTIN_INTL_NUMBER_FORMAT_FUNCTION_ID,
@@ -6369,8 +6492,22 @@ mod tests {
                 StandardBuiltinId::DatePrototypeToLocaleTimeString,
                 StandardBuiltinId::TemporalPlainDateFrom,
                 StandardBuiltinId::TemporalPlainDateCompare,
+                StandardBuiltinId::TemporalPlainDatePrototypeEraGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeEraYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthCodeGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDayGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDayOfYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInMonthGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeDaysInYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeMonthsInYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeInLeapYearGetter,
+                StandardBuiltinId::TemporalPlainDatePrototypeWith,
                 StandardBuiltinId::TemporalPlainDatePrototypeEquals,
                 StandardBuiltinId::TemporalPlainDatePrototypeToLocaleString,
+                StandardBuiltinId::TemporalPlainDatePrototypeAdd,
+                StandardBuiltinId::TemporalPlainDatePrototypeSubtract,
                 StandardBuiltinId::TemporalPlainDatePrototypeUntil,
                 StandardBuiltinId::TemporalPlainDatePrototypeSince,
                 StandardBuiltinId::TemporalPlainYearMonthPrototypeToLocaleString,
@@ -6459,6 +6596,17 @@ mod tests {
                 StandardBuiltinId::TemporalNowPlainTimeIso,
                 StandardBuiltinId::TemporalZonedDateTimePrototypeToJson,
                 StandardBuiltinId::TemporalZonedDateTimePrototypeToLocaleString,
+                StandardBuiltinId::IntlCollatorConstructor,
+                StandardBuiltinId::IntlCollatorSupportedLocalesOf,
+                StandardBuiltinId::IntlCollatorCompareFunction,
+                StandardBuiltinId::IntlPluralRulesConstructor,
+                StandardBuiltinId::IntlPluralRulesSupportedLocalesOf,
+                StandardBuiltinId::IntlPluralRulesPrototypeSelect,
+                StandardBuiltinId::IntlPluralRulesPrototypeSelectRange,
+                StandardBuiltinId::IntlRelativeTimeFormatConstructor,
+                StandardBuiltinId::IntlRelativeTimeFormatSupportedLocalesOf,
+                StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormat,
+                StandardBuiltinId::IntlRelativeTimeFormatPrototypeFormatToParts,
             ]
         );
     }
@@ -6801,6 +6949,15 @@ mod tests {
                 (
                     Builtin::IntlNumberFormatConstructor,
                     Installer::IntlNumberFormat,
+                ),
+                (Builtin::IntlCollatorConstructor, Installer::IntlCollator),
+                (
+                    Builtin::IntlPluralRulesConstructor,
+                    Installer::IntlPluralRules,
+                ),
+                (
+                    Builtin::IntlRelativeTimeFormatConstructor,
+                    Installer::IntlRelativeTimeFormat,
                 ),
             ]
         );

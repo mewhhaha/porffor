@@ -80,8 +80,15 @@ validation never reclassifies the function as unmapped.
 ## Consumption
 
 Parameter binding, local-count planning and root-var reuse consume `Absent`
-versus `Present` directly. Arguments-object emission accepts only the narrower
-present protocol and exhaustively selects:
+versus `Present` directly. A present binding has one closed action:
+`Materialize(plan)`, `DeferMapped(plan)` or `ElideUnobserved`. Elision keeps the semantic
+binding and initializes its storage to `undefined` without allocating an
+object. This preserves writes such as `var arguments = value`, whose binding
+name need not appear among source identifier references. No read can observe
+that temporary value under the proof below.
+
+Arguments-object emission accepts only the narrower materialization plan and
+exhaustively selects:
 
 - the current environment plus the mapped `callee` data property for
   `Mapped(plan)`;
@@ -95,6 +102,54 @@ duplicates or infer an environment slot from an argument index.
 Internal Wasm callables retain their existing strict/unmapped object, while the
 script main builder uses `Absent`. User-function builder creation is fallible,
 and the public emitter propagates protocol-construction errors.
+
+## Proven-unobserved allocation elision
+
+Source analysis records each function's identifier references, including its
+parameter initializers. Lowering grants a private `OwnArgumentsUse` proof only
+when that record exists and contains neither the hidden implicit-arguments
+storage name nor the source name `arguments`; the function also must have no
+owned `arguments` environment slot and no eval-visible environment. Raw
+`arguments` references and source-name aliases are treated conservatively so
+parameter, `var`, and block shadows cannot hide a source read. Nested arrow
+captures require an owned slot, and direct eval requires an eval-visible
+environment. Synthetic function IR receives the conservative state.
+
+The backend may elide only when this proof holds and the source function is a
+legacy-reflection barrier. The same exhaustive `LegacyActivationMode` source
+classification controls activation emission and the elision decision. Sloppy
+`OrdinaryCallAndConstruct` functions with simple parameters instead use
+`DeferMapped(plan)` when the binding proof holds. Their non-configurable
+`.arguments` data property can still expose the object during a call, so a
+private native-GC frame retains the argument vector, validated map, environment
+and active function context. The first property or descriptor observation
+materializes the canonical mapped object and caches its identity. Recursion
+selects the innermost matching function identity, and the normal/abrupt exit
+restores the previous native root and legacy property values. Non-simple
+parameter lists and source-observed bindings remain eager.
+
+Deferred materialization uses the callee's defining Realm for the object
+prototype. The frame's dynamic map contains only previously validated descriptor
+words; it cannot silently change mapped arguments into unmapped arguments.
+No source getter, coercion or Proxy trap runs while materializing the object.
+
+Both mapped and unmapped objects install an own `@@iterator` data property:
+writable, non-enumerable and configurable. Its value is the defining Realm's
+`%Array.prototype.values%`, captured in the intrinsic table during bootstrap.
+It does not read the mutable Array prototype during construction or property
+lookup. Deferred construction uses the same intrinsic and ordinary named
+property storage, so updates, deletion, own-key enumeration and Proxy
+invariants all observe the actual descriptor.
+
+String keys such as `"Symbol.iterator"` remain distinct from their well-known
+Symbol namesakes. Indexed Proxy targets validate their complete own-key lists
+against the same descriptor facts, including named properties and symbols.
+Every non-configurable key must be present; a non-extensible target also
+requires an exact key set.
+
+The mapped/unmapped semantic choice and mapped-slot validation still run before the binding action is
+selected. Elision changes neither the implicit binding's presence nor any
+visible arguments-object representation.
 
 ## Synthetic class-element calls
 
@@ -119,8 +174,9 @@ The static-block FunctionDeclarationInstantiation requirement follows
 
 ## Enforced invariants
 
-1. A function has either no own arguments object or exactly one present object
-   kind; impossible cross-products cannot be assembled.
+1. A function has either no own arguments binding or exactly one present
+   object kind, whose binding action is consumed once; impossible cross-products
+   cannot be assembled.
 2. Function shape and strictness are the only inputs to mapped versus unmapped
    semantics.
 3. `Mapped(empty)` remains distinct from `Unmapped`.

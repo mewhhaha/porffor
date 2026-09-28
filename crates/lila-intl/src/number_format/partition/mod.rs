@@ -1,11 +1,11 @@
 use super::configuration::NumberFormatConfiguration;
 use super::numeric::{
-    format_decimal, DecimalFormatSettings, FiniteValue, IntlMathematicalValue, NotationScaling,
-    NumberRange, NumberRangeEndpoint, NumberSign, RoundedDecimal, SelectedNotation,
+    DecimalFormatSettings, FiniteValue, IntlMathematicalValue, NotationScaling, NumberRange,
+    NumberRangeEndpoint, NumberSign, RoundedDecimal, SelectedNotation, format_decimal,
 };
 use super::options::*;
 use super::partition_resource::{
-    owned_text, NumberFormatKernelError, NumberPartitionResourceError, PartitionLimits,
+    NumberFormatKernelError, NumberPartitionResourceError, PartitionLimits, owned_text,
 };
 use super::parts::*;
 use super::plural_rules::{CardinalCategory, PluralSelectionPurpose};
@@ -14,7 +14,7 @@ use super::profiles::*;
 mod buffer;
 mod range;
 mod render;
-use buffer::{bidi, digit_text, Owner, Piece, Pieces};
+use buffer::{Owner, Piece, Pieces, bidi, digit_text};
 pub use range::partition_number_range;
 
 #[derive(Clone, Copy)]

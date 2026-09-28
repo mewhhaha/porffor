@@ -5,7 +5,7 @@ impl Locale {
     pub(super) fn from_raw(
         mut raw: raw::Locale,
         digits: &BTreeMap<String, [char; 10]>,
-        algorithmic: &BTreeMap<String, Vec<String>>,
+        algorithmic: &BTreeMap<String, AlgorithmicField>,
     ) -> Result<Self, DateTimeFormatError> {
         let identifier = CanonicalLocaleId::from_data(raw.locale.clone())
             .map_err(|_| invalid("invalid profile locale"))?;
@@ -108,7 +108,7 @@ impl Calendar {
         mut raw: raw::Calendar,
         data: CalendarData,
         digits: &BTreeMap<String, [char; 10]>,
-        algorithmic: &BTreeMap<String, Vec<String>>,
+        algorithmic: &BTreeMap<String, AlgorithmicField>,
     ) -> Result<Self, DateTimeFormatError> {
         if raw.calendar != data.source()
             || raw.available.is_empty()
@@ -235,7 +235,7 @@ impl Calendar {
         &mut self,
         rows: raw::RangeOverride,
         digits: &BTreeMap<String, [char; 10]>,
-        algorithmic: &BTreeMap<String, Vec<String>>,
+        algorithmic: &BTreeMap<String, AlgorithmicField>,
     ) -> Result<(), DateTimeFormatError> {
         if rows.styles.is_empty() && rows.available.is_empty() {
             return Err(invalid("empty range-pattern calendar"));
@@ -280,7 +280,7 @@ fn checked_range_pattern(
     raw: raw::Pattern,
     scalar: &Pattern,
     digits: &BTreeMap<String, [char; 10]>,
-    algorithmic: &BTreeMap<String, Vec<String>>,
+    algorithmic: &BTreeMap<String, AlgorithmicField>,
 ) -> Result<Pattern, DateTimeFormatError> {
     let ranged = pattern(raw, digits, algorithmic)?;
     check_range_structure(scalar, &ranged)?;
@@ -306,14 +306,20 @@ fn check_range_structure(scalar: &Pattern, ranged: &Pattern) -> Result<(), DateT
 fn numbering(
     rows: Vec<raw::NumberingOverride>,
     digits: &BTreeMap<String, [char; 10]>,
-    algorithmic: &BTreeMap<String, Vec<String>>,
+    algorithmic: &BTreeMap<String, AlgorithmicField>,
 ) -> Result<Vec<(Option<char>, String)>, DateTimeFormatError> {
     let mut keys = BTreeSet::new();
     let mut result = Vec::new();
     for row in rows {
         if !keys.insert(row.field)
             || (!digits.contains_key(&row.numbering)
-                && !(row.field == Some('d') && algorithmic.contains_key(&row.numbering)))
+                && !algorithmic.get(&row.numbering).is_some_and(|field| {
+                    matches!(
+                        (row.field, field),
+                        (Some('d'), AlgorithmicField::FiniteDays(_))
+                            | (Some('y'), AlgorithmicField::JapaneseYearOne(_))
+                    )
+                }))
         {
             return Err(invalid("unsupported pattern numbering override"));
         }
@@ -325,7 +331,7 @@ fn numbering(
 fn pattern(
     raw: raw::Pattern,
     digits: &BTreeMap<String, [char; 10]>,
-    algorithmic: &BTreeMap<String, Vec<String>>,
+    algorithmic: &BTreeMap<String, AlgorithmicField>,
 ) -> Result<Pattern, DateTimeFormatError> {
     if raw.source.is_empty() {
         return Err(invalid("empty source pattern"));

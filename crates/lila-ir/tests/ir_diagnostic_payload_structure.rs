@@ -10,7 +10,6 @@ const MODULE_EARLY: &str = include_str!("../src/modules/early.rs");
 const MODULE_GRAPH_TESTS: &str = include_str!("../src/modules/graph_tests.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/ir-diagnostic-payload-authority.md");
-const TASK: &str = include_str!("../../../tasks/07-parser-grammar-early-errors.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -135,7 +134,7 @@ fn constructors_project_only_their_owned_classification() {
     assert_eq!(lowering.phase(), IrDiagnosticPhase::Lowering);
     assert_eq!(lowering.error_type(), None);
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("IrDiagnosticPayload"));
         assert!(evidence.contains("diagnostic.kind()"));
     }

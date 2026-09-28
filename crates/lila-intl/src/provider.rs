@@ -3,6 +3,10 @@ use core::fmt;
 use icu_locale::{LocaleCanonicalizer, LocaleExpander};
 use sha2::{Digest as _, Sha256};
 
+use crate::intl_services::{
+    compare_collator_utf16, filter_service_locales, match_service_locale, resolve_collator,
+    CollatorLocaleQuery, IntlServiceKind,
+};
 use crate::number_format::{
     embedded_number_profiles, filter_number_locales, resolve_number_locale, InvalidNumberProfile,
     NumberLocaleRequest, NumberProfiles, NumberSupportedLocalesRequest, PartitionLimits,
@@ -10,11 +14,14 @@ use crate::number_format::{
 };
 use crate::number_operation::{format_number_parts_operation, format_number_range_parts_operation};
 use crate::{
-    FormatNumberParts, FormatNumberRangeParts, NumberFormatOperationError, NumberFormatRequest,
-    NumberRangeFormatRequest, NumberSupportedLocalesResult, ResolveNumberLocale,
-    SupportedNumberLocales,
+    CollatorCompareRequest, CollatorLocaleRequest, CollatorLocaleResult, CompareCollator,
+    FormatNumberParts, FormatNumberRangeParts, FormatRelativeTime, IntlServiceError,
+    NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
+    NumberSupportedLocalesResult, ResolveCollatorLocale, ResolveNumberLocale,
+    ResolveRelativeTimeLocale, SupportedNumberLocales,
 };
 
+mod collation_search;
 mod datetime;
 mod keyword_aliases;
 mod language_domain;
@@ -22,11 +29,16 @@ mod language_domain;
 mod likely_subtags_tests;
 mod locale_info;
 mod named_time_zones;
+mod plural_rules;
+mod relative_time;
+mod temporal_calendar;
 mod temporal_time_zone;
 mod time_zone_names;
 mod time_zone_snapshot;
+pub(crate) use collation_search::CollatorDataProvider;
 use language_domain::{LikelySubtags, ParsedLocale, ReservedLanguageAliasRules};
 use named_time_zones::NamedTimeZones;
+pub(crate) use plural_rules::PluralRulesDataProvider;
 use time_zone_names::TimeZoneNames;
 use time_zone_snapshot::TimeZoneNameInput;
 
@@ -37,14 +49,16 @@ use crate::{
     DateTimeSupportedLocalesResult, EmptyIntlProfile, FormatDateTimeParts,
     FormatDateTimeRangeParts, IntlDataDigest, IntlDataIdentity, IntlDataPlacement,
     IntlOperationProvider, IntlProfilePlan, IntlProvider, IntlService, IntlServiceSet,
-    InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleInfo, LocaleInfoError, LocaleInfoRequest,
-    LocaleInfoResult, LocaleTransformError, LocaleTransformRequest, LocaleTransformResult,
-    LookupNamedTimeZone, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult, MaximizeLocale,
-    MinimizeLocale, QueryTemporalTimeZone, ResolveDateTimeLocale, ResolveTimeZone,
-    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat,
+    InvalidCanonicalLocaleId, InvalidTimeZoneData, LocaleInfo, LocaleInfoError, LocaleInfoQuery,
+    LocaleInfoRequest, LocaleInfoResult, LocaleTransformError, LocaleTransformRequest,
+    LocaleTransformResult, LookupNamedTimeZone, LookupNamedTimeZoneRequest,
+    LookupNamedTimeZoneResult, MaximizeLocale, MinimizeLocale, QueryTemporalCalendar,
+    QueryTemporalTimeZone, ResolveDateTimeLocale, ResolvePluralRulesLocale, ResolveTimeZone,
+    ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot, SelectDateTimeFormat, SelectPluralCategory,
     SupportedDateTimeLocales, SupportedValues, SupportedValuesRequest, SupportedValuesResult,
-    TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneRequest, TimeZoneResolveError,
-    TimeZoneSelection, UnknownTimeZone,
+    TemporalCalendarAnswer, TemporalCalendarError, TemporalCalendarRequest, TemporalTimeZoneAnswer,
+    TemporalTimeZoneError, TemporalTimeZoneRequest, TimeZoneResolveError, TimeZoneSelection,
+    UnknownTimeZone,
 };
 
 /// Composite SHA-256 of exact locale, IANA transition/catalogue and CLDR name
@@ -52,13 +66,29 @@ use crate::{
 /// outer digest can remain stale when a component is regenerated.
 fn embedded_intl_data_digest() -> IntlDataDigest {
     let mut digest = Sha256::new();
-    digest.update(b"lila-intl-provider-v6\0");
+    digest.update(b"lila-intl-provider-v8\0");
     digest.update(keyword_aliases::PROVIDER_DATA_SHA256);
     digest.update(named_time_zones::PROVIDER_DATA_SHA256);
     digest.update(time_zone_names::PROVIDER_DATA_SHA256);
     digest.update(datetime::PROVIDER_DATA_SHA256);
     digest.update(NUMBER_FORMAT_DATA_SHA256);
     digest.update(locale_info::PROVIDER_DATA_SHA256);
+    digest.update(include_bytes!("provider/relative_time/patterns.json"));
+    digest.update(include_bytes!(
+        "provider/collation_search/generated/manifest.json"
+    ));
+    digest.update(include_bytes!(
+        "provider/collation_search/generated/search.postcard"
+    ));
+    digest.update(include_bytes!(
+        "provider/plural_rules/generated/manifest.json"
+    ));
+    digest.update(include_bytes!(
+        "provider/plural_rules/generated/plurals.postcard"
+    ));
+    digest.update(b"lila-plural-rules-provider-v4\0");
+    digest.update(b"lila-relative-time-provider-v2\0");
+    digest.update(b"icu-collator2.0.0;icu-plurals2.0.0;icu-decimal2.0.1\0");
     IntlDataDigest::from_sha256(digest.finalize().into())
 }
 
@@ -112,15 +142,25 @@ impl EmbeddedIntlProvider {
 pub fn embedded_intl_data_identity() -> Result<IntlDataIdentity, EmbeddedIntlProviderSetupError> {
     let services = IntlServiceSet::EMPTY
         .with(IntlService::Locale)
+        .with(IntlService::Collator)
         .with(IntlService::DateTimeFormat)
-        .with(IntlService::NumberFormat);
+        .with(IntlService::NumberFormat)
+        .with(IntlService::PluralRules)
+        .with(IntlService::RelativeTimeFormat);
     let profile = IntlProfilePlan::minimal(services)
         .map_err(EmbeddedIntlProviderSetupError::EmptyProfile)?
         .with_operation::<LookupNamedTimeZone>()
         .with_operation::<ResolveTimeZone>()
         .with_operation::<LocaleInfo>()
         .with_operation::<SupportedValues>()
-        .with_operation::<QueryTemporalTimeZone>();
+        .with_operation::<QueryTemporalTimeZone>()
+        .with_operation::<QueryTemporalCalendar>()
+        .with_operation::<ResolveCollatorLocale>()
+        .with_operation::<CompareCollator>()
+        .with_operation::<ResolvePluralRulesLocale>()
+        .with_operation::<SelectPluralCategory>()
+        .with_operation::<ResolveRelativeTimeLocale>()
+        .with_operation::<FormatRelativeTime>();
     let default_locale = CanonicalLocaleId::from_data("en-US")
         .map_err(EmbeddedIntlProviderSetupError::InvalidDefaultLocale)?;
     Ok(IntlDataIdentity::new(
@@ -134,6 +174,52 @@ pub fn embedded_intl_data_identity() -> Result<IntlDataIdentity, EmbeddedIntlPro
 impl IntlProvider for EmbeddedIntlProvider {
     fn identity(&self) -> &IntlDataIdentity {
         &self.identity
+    }
+}
+
+impl IntlOperationProvider<ResolveCollatorLocale> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: CollatorLocaleRequest,
+    ) -> Result<CollatorLocaleResult, IntlServiceError> {
+        let available = locale_info::collator_available_locales();
+        match request.query() {
+            CollatorLocaleQuery::SupportedLocales => Ok(CollatorLocaleResult::SupportedLocales(
+                filter_service_locales(request.requested(), available, request.matcher())?,
+            )),
+            CollatorLocaleQuery::Resolve(options) => {
+                let (locale, data_locale) = match_service_locale(
+                    request.requested(),
+                    available,
+                    self.identity.default_locale().as_str(),
+                    request.matcher(),
+                    IntlServiceKind::Collator,
+                )?;
+                let collations = match self
+                    .locale_information()
+                    .locale_info(LocaleInfoRequest::new(
+                        LocaleInfoQuery::Collations,
+                        data_locale.clone(),
+                    ))
+                    .map_err(|error| IntlServiceError::Provider(error.to_string()))?
+                {
+                    LocaleInfoResult::Identifiers(collations) => collations,
+                    _ => return Err(IntlServiceError::InvalidWire),
+                };
+                Ok(CollatorLocaleResult::Resolved(resolve_collator(
+                    locale,
+                    data_locale,
+                    options.clone(),
+                    &collations,
+                )?))
+            }
+        }
+    }
+}
+
+impl IntlOperationProvider<CompareCollator> for EmbeddedIntlProvider {
+    fn execute(&self, request: CollatorCompareRequest) -> Result<i32, IntlServiceError> {
+        compare_collator_utf16(request.configuration(), request.left(), request.right())
     }
 }
 
@@ -260,6 +346,17 @@ impl IntlOperationProvider<QueryTemporalTimeZone> for EmbeddedIntlProvider {
         request: TemporalTimeZoneRequest,
     ) -> Result<TemporalTimeZoneAnswer, TemporalTimeZoneError> {
         temporal_time_zone::answer(&self.named_time_zones, &request)
+    }
+}
+
+/// Temporal calendar operations share ICU4X calendar algorithms with the
+/// DateTimeFormat provider, keeping field projection and arithmetic aligned.
+impl IntlOperationProvider<QueryTemporalCalendar> for EmbeddedIntlProvider {
+    fn execute(
+        &self,
+        request: TemporalCalendarRequest,
+    ) -> Result<TemporalCalendarAnswer, TemporalCalendarError> {
+        temporal_calendar::answer(&request)
     }
 }
 
@@ -397,7 +494,10 @@ impl std::error::Error for EmbeddedIntlProviderSetupError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{IntlDataCapability, IntlKernel, LocaleId, LocaleTransformRequest};
+    use crate::{
+        CanonicalLocaleId, CollatorLocaleRequest, IntlDataCapability, IntlKernel, LocaleId,
+        LocaleTransformRequest, ServiceLocaleMatcher,
+    };
 
     #[test]
     fn embedded_locale_provider_resolves_cldr_aliases() {
@@ -424,5 +524,25 @@ mod tests {
             .expect("pinned ICU4X data contains the alias");
 
         assert_eq!(result.locale().as_str(), "he-IL");
+    }
+
+    #[test]
+    fn collator_locale_matching_uses_its_own_available_locale_inventory() {
+        let provider = EmbeddedIntlProvider::new().expect("embedded profile is valid");
+        let collator_locales = locale_info::collator_available_locales();
+        assert!(collator_locales.contains(&"en"));
+        assert!(!collator_locales.contains(&"agq"));
+        assert!(provider.numbers.available_locales().contains(&"agq"));
+
+        let requested = vec![CanonicalLocaleId::from_data("agq").unwrap()].into_boxed_slice();
+        let result = IntlOperationProvider::<ResolveCollatorLocale>::execute(
+            &provider,
+            CollatorLocaleRequest::supported_locales(requested, ServiceLocaleMatcher::Lookup),
+        )
+        .expect("supportedLocalesOf returns an empty result for unsupported locales");
+        assert_eq!(
+            result,
+            CollatorLocaleResult::SupportedLocales(Vec::new().into_boxed_slice())
+        );
     }
 }

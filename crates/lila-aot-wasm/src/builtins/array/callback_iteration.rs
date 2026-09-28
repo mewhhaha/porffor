@@ -56,7 +56,7 @@ impl<'a> FunctionBuilder<'a> {
         let target_tag_local = self.reserve_temp_local();
         let target_index_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         // The captured bound must survive callback validation, species effects,
         // and every callback. Do not substitute private Array/TypedArray extent.
@@ -151,9 +151,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(index_payload_local));
         self.emit_pre_evaluated_arg_vector(
             &[
-                (element_payload_local, element_tag_local),
-                (index_payload_local, number_tag_local),
-                (receiver_payload_local, receiver_tag_local),
+                TaggedLocals::new(element_payload_local, element_tag_local),
+                TaggedLocals::new(index_payload_local, number_tag_local),
+                TaggedLocals::new(receiver_payload_local, receiver_tag_local),
             ],
             argc_local,
             argv_local,
@@ -281,7 +281,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
             }
         }
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(target_index_local);
         self.release_temp_local(target_tag_local);

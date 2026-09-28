@@ -3,7 +3,6 @@ const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const MODULE_SOURCE: &str = include_str!("../src/module.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/obsolete-planning-analysis-removal.md");
-const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 #[test]
 fn unreachable_planning_analysis_is_absent() {
@@ -48,7 +47,7 @@ fn live_planning_and_ir_authorities_remain() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "be7c5a1e0e9fe6fefc2c8a5db187f192c1e5f55764eeee29d940dc26ad94a177",
             "17b31c1feb5348b2f1e2dc0cdf24a618519ddebf55d39105288c6b898d8fb88f",

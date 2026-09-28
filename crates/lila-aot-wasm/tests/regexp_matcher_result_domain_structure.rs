@@ -6,7 +6,6 @@ const MATCHER: &str = concat!(
 );
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-matcher-result-domain.md");
-const TASK: &str = include_str!("../../../tasks/19-regexp.md");
 
 fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
     let bytes = source.as_bytes();
@@ -242,7 +241,7 @@ fn sole_writer_consumes_and_exhaustively_projects_the_result() {
 }
 
 #[test]
-fn contract_and_task_record_the_exact_abi_boundary_and_nonclaims() {
+fn contract_records_the_exact_abi_boundary_and_nonclaims() {
     for marker in [
         "`RegExpMatcherResult::{Match, NoMatch, Failed(RegExpMatcherFailure)}`",
         "exactly 52 result producers",
@@ -250,13 +249,5 @@ fn contract_and_task_record_the_exact_abi_boundary_and_nonclaims() {
         "passed `4/4`",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-    }
-    for marker in [
-        "`RegExpMatcherResult::{Match, NoMatch, Failed(reason)}`",
-        "one match, three normal misses, 46 corrupt-program",
-        "source-equivalent ABI hardening",
-        "regexp-matcher-result-domain.md",
-    ] {
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
 }

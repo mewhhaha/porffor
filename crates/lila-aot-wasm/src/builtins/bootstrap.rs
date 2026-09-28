@@ -327,6 +327,17 @@ impl<'a> FunctionBuilder<'a> {
                     &intrinsic_context,
                     function,
                 )?,
+            StandardBuiltinInstaller::IntlPluralRules => {
+                self.install_intl_plural_rules_constructor_intrinsics(&intrinsic_context, function)?
+            }
+            StandardBuiltinInstaller::IntlRelativeTimeFormat => self
+                .install_intl_relative_time_format_constructor_intrinsics(
+                    &intrinsic_context,
+                    function,
+                )?,
+            StandardBuiltinInstaller::IntlCollator => {
+                self.install_intl_collator_constructor_intrinsics(&intrinsic_context, function)?
+            }
             StandardBuiltinInstaller::IntlNumberFormat => self
                 .install_intl_number_format_constructor_intrinsics(&intrinsic_context, function)?,
             StandardBuiltinInstaller::Date => {
@@ -3363,6 +3374,45 @@ impl<'a> FunctionBuilder<'a> {
             Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
             function,
         )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_COLLATOR_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_COLLATOR_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlCollatorPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_PLURAL_RULES_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_PLURAL_RULES_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlPluralRulesPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
+        function.instruction(&Instruction::GlobalSet(
+            INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+        ));
+        self.emit_store_current_realm_global_intrinsic(
+            INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+            NonArrayRealmIntrinsicSlot::IntlRelativeTimeFormatPrototype,
+            function,
+        );
+        self.emit_alloc_plain_object_with_prototype(
+            None,
+            Some(OBJECT_PROTOTYPE_GLOBAL_INDEX),
+            function,
+        )?;
         let regexp_prototype_local = self.reserve_temp_local();
         function.instruction(&Instruction::LocalSet(regexp_prototype_local));
         self.store_i64_const_at_offset(
@@ -3694,6 +3744,38 @@ impl<'a> FunctionBuilder<'a> {
             self.init_builtin_constructor_object(
                 StandardBuiltinId::IntlNumberFormatConstructor,
                 INTL_NUMBER_FORMAT_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlCollatorConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlCollatorConstructor,
+                INTL_COLLATOR_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(StandardBuiltinId::IntlPluralRulesConstructor)
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlPluralRulesConstructor,
+                INTL_PLURAL_RULES_PROTOTYPE_GLOBAL_INDEX,
+                function,
+            )?;
+        }
+        if self
+            .runtime_bootstrap_plan
+            .should_initialize_standard_builtin(
+                StandardBuiltinId::IntlRelativeTimeFormatConstructor,
+            )
+        {
+            self.init_builtin_constructor_object(
+                StandardBuiltinId::IntlRelativeTimeFormatConstructor,
+                INTL_RELATIVE_TIME_FORMAT_PROTOTYPE_GLOBAL_INDEX,
                 function,
             )?;
         }

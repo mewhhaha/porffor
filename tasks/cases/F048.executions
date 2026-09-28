@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/Function/bound-length-and-name.js
+sloppy-script:staging/sm/Function/bound-non-constructable.js
+strict-script:staging/sm/Function/bound-length-and-name.js
+strict-script:staging/sm/Function/bound-non-constructable.js

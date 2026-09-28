@@ -1,0 +1,4 @@
+sloppy-script:staging/sm/Symbol/property-basics.js
+sloppy-script:staging/sm/expressions/ToPropertyKey-symbols.js
+strict-script:staging/sm/Symbol/property-basics.js
+strict-script:staging/sm/expressions/ToPropertyKey-symbols.js

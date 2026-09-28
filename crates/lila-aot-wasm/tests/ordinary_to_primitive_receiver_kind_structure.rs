@@ -4,7 +4,6 @@ use std::path::Path;
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/ordinary-to-primitive-receiver-kind.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -146,8 +145,8 @@ fn only_live_tagged_receiver_paths_and_object_wrapper_reach_the_inner_emitter() 
 }
 
 #[test]
-fn contract_and_task_record_the_closed_receiver_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_closed_receiver_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("OrdinaryToPrimitiveReceiverKind"));
         assert!(evidence.contains("Object"));
         assert!(evidence.contains("Function"));

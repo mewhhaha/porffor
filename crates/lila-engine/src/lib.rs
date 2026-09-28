@@ -35,8 +35,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 mod agent_failure_tests;
 mod cache;
 mod execution_failure;
+mod gc_host;
+#[cfg(test)]
+mod gc_weak_tests;
 pub use execution_failure::WasmExecutionFailureKind;
 use execution_failure::{finish_wasm_execution, EngineExecutionFailure};
+mod intl_collator_host;
 mod intl_datetime_host;
 #[cfg(test)]
 mod intl_host_probe;
@@ -44,8 +48,12 @@ mod intl_host_request;
 mod intl_locale_host;
 mod intl_locale_info_host;
 mod intl_number_host;
+mod intl_plural_rules_host;
+mod intl_relative_time_host;
+mod intl_temporal_calendar_host;
 mod intl_time_zone_host;
 mod module_loader;
+mod stack_guard_host;
 mod wasmtime_policy;
 
 pub use cache::{cache_status, prune_caches, CacheDirectoryStatus, CachePruneReport, CacheStatus};
@@ -1101,6 +1109,9 @@ fn product_wasmtime_config(
     });
     config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
     config.max_wasm_stack(WASM_MAX_STACK_SIZE);
+    // Wasmtime 49 validates this bound for synchronous engines as well.
+    // Keep the same native-stack headroom as our execution worker.
+    config.async_stack_size(ENGINE_WORKER_STACK_SIZE);
     configure_wasm_linear_memory(&mut config);
     PRODUCT_WASMTIME_POLICY.configure(&mut config);
     config.parallel_compilation(compilation_jobs() > 1);
@@ -1760,6 +1771,23 @@ fn wasm_intl_call(
             request_span_wire,
             result_span_wire,
         ),
+        IntlHostOp::QueryTemporalCalendar => intl_temporal_calendar_host::query_temporal_calendar(
+            caller,
+            request_span_wire,
+            result_span_wire,
+        ),
+        IntlHostOp::ResolveCollatorLocale | IntlHostOp::CompareCollator => {
+            intl_collator_host::call(caller, operation, request_span_wire, result_span_wire)
+        }
+        IntlHostOp::ResolvePluralRulesLocale | IntlHostOp::SelectPluralCategory => {
+            intl_plural_rules_host::call(caller, operation, request_span_wire, result_span_wire)
+        }
+        IntlHostOp::ResolveRelativeTimeLocale => {
+            intl_relative_time_host::resolve_locale(caller, request_span_wire, result_span_wire)
+        }
+        IntlHostOp::FormatRelativeTime => {
+            intl_relative_time_host::format(caller, request_span_wire, result_span_wire)
+        }
         IntlHostOp::ResolveDateTimeLocale => intl_datetime_host::call::<
             lila_intl::ResolveDateTimeLocale,
         >(caller, request_span_wire, result_span_wire),
@@ -3347,6 +3375,8 @@ impl Engine {
         // user-program execution, so keep them outside the execution bound.
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&engine);
+        gc_host::register(&mut linker)?;
+        stack_guard_host::register(&mut linker, &module, bytes)?;
         if let Some(private_memory_type) = module.imports().find_map(|import| {
             (import.module() == WASM_HOST_IMPORT_NAMESPACE
                 && import.name() == WASM_HOST_IMPORT_PRIVATE_MEMORY)
@@ -6113,6 +6143,9 @@ report;
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::new(&wasm_engine);
+        gc_host::register(&mut linker).expect("Wasm collector host import should link");
+        stack_guard_host::register(&mut linker, &module, &artifact.bytes)
+            .expect("stack guard contract should validate");
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
@@ -6442,6 +6475,7 @@ locales.length === 1 && locales[0] === "he-IL";
             //   intrinsics: Number/BigInt.prototype.toLocaleString are ECMA-402
             //   provider callers that root the Intl namespace, whose
             //   DateTimeFormat reads the clock.
+            // - `stack_guard_can_enter` guards heap-backed JS-ABI functions.
             // The runtime-free counterpart below locks the elided surface.
             assert_eq!(
                 imports,
@@ -6450,6 +6484,7 @@ locales.length === 1 && locales[0] === "he-IL";
                     "lila_host::intl_call",
                     "lila_host::print_line_utf8",
                     "lila_host::reject_dynamic_source",
+                    "lila_host::stack_guard_can_enter",
                     "lila_host::wall_clock_millis",
                 ],
                 "{label} imports: {imports:?}"
@@ -9909,10 +9944,15 @@ Object.getOwnPropertyNames(array).join(",") === "length,visible"
   arguments[argumentsSymbol] = 4;
   const names = Object.getOwnPropertyNames(arguments);
   const symbols = Object.getOwnPropertySymbols(arguments);
+  const keys = Reflect.ownKeys(arguments);
   return names.length === 4
     && names.indexOf("visible") !== -1
-    && symbols.length === 1
-    && symbols[0] === argumentsSymbol;
+    && symbols.length === 2
+    && symbols[0] === Symbol.iterator
+    && symbols[1] === argumentsSymbol
+    && keys.length === names.length + symbols.length
+    && keys[4] === Symbol.iterator
+    && keys[5] === argumentsSymbol;
 })(0);
 "#,
                 CompileOptions::default(),
@@ -24920,7 +24960,10 @@ resultIsArray();
         for (source, expected) in [
             ("Function(\"return 1\")();", "number(1)"),
             ("new Function(\"return 1\")();", "number(1)"),
-            ("new Function(\"a\", \"b\", \"return a + b\")(2, 3);", "number(5)"),
+            (
+                "new Function(\"a\", \"b\", \"return a + b\")(2, 3);",
+                "number(5)",
+            ),
             (
                 "var f = Function(\"return 1\"); \
                  [typeof f, f.name, f.length, typeof f.prototype, \
@@ -35447,3 +35490,6 @@ mod array_present_index_tests;
 
 #[cfg(test)]
 mod module_async_runtime_tests;
+
+#[cfg(test)]
+mod stack_budget_tests;

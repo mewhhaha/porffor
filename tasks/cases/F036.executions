@@ -1,0 +1,12 @@
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-13.1.js
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-14.0.js
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-15.0.js
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-15.1.js
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-16.0.js
+sloppy-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-17.0.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-13.1.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-14.0.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-15.0.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-15.1.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-16.0.js
+strict-script:built-ins/RegExp/unicodeSets/generated/rgi-emoji-17.0.js

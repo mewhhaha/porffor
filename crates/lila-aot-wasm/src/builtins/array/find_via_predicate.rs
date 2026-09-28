@@ -153,16 +153,16 @@ impl<'a> FunctionBuilder<'a> {
         index: TaggedLocals,
         receiver: TaggedLocals,
         argc_local: u32,
-        argv_local: u32,
+        argv_local: crate::abi::ArgVectorLocal,
         result: TaggedLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let predicate = &predicate.0;
         self.emit_pre_evaluated_arg_vector(
             &[
-                (element.payload, element.tag),
-                (index.payload, index.tag),
-                (receiver.payload, receiver.tag),
+                TaggedLocals::new(element.payload, element.tag),
+                TaggedLocals::new(index.payload, index.tag),
+                TaggedLocals::new(receiver.payload, receiver.tag),
             ],
             argc_local,
             argv_local,
@@ -341,7 +341,7 @@ impl<'a> FunctionBuilder<'a> {
         let callback_result_payload_local = self.reserve_temp_local();
         let callback_result_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::LocalSet(receiver_brand_local));
@@ -467,7 +467,7 @@ impl<'a> FunctionBuilder<'a> {
         // Establish the no-match result after the loop, not before those calls.
         self.emit_initialize_find_result(&projection, function);
         self.release_find_predicate(predicate);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callback_result_tag_local);
         self.release_temp_local(callback_result_payload_local);
@@ -547,7 +547,7 @@ impl<'a> FunctionBuilder<'a> {
         let callback_result_payload_local = self.reserve_temp_local();
         let callback_result_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         // Generic Array methods observe public length even on Arguments and
         // TypedArrays. The shared operation owns ToObject, Get and ToLength,
@@ -632,7 +632,7 @@ impl<'a> FunctionBuilder<'a> {
         // Establish the no-match result after the loop, not before those calls.
         self.emit_initialize_find_result(&projection, function);
         self.release_find_predicate(predicate);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(callback_result_tag_local);
         self.release_temp_local(callback_result_payload_local);

@@ -1,0 +1,3 @@
+sloppy-script:language/global-code/decl-lex-restricted-global.js
+strict-script:language/global-code/decl-lex-restricted-global.js
+strict-script:language/identifier-resolution/assign-to-global-undefined.js

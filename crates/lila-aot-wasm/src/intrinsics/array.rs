@@ -6,6 +6,7 @@
 
 use super::super::*;
 use super::IntrinsicInstall;
+use crate::functions::NonArrayRealmIntrinsicSlot;
 
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn install_array_constructor_intrinsics(
@@ -481,13 +482,42 @@ impl<'a> FunctionBuilder<'a> {
                     "unsupported in lila wasm-aot first slice: missing builtin meta `Array.prototype.values`",
                 )
             })?;
-        self.emit_object_define_function_data_with_aliases(
-            object_local,
-            "values",
-            &["Symbol.iterator"],
-            values_meta,
+        self.emit_function_value_payload(values_meta, function)?;
+        function.instruction(&Instruction::LocalSet(payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::LocalSet(tag_local));
+        for name in ["values", "Symbol.iterator"] {
+            if self.is_main() {
+                self.emit_object_append_local_data_property_with_flags(
+                    object_local,
+                    name,
+                    payload_local,
+                    tag_local,
+                    true,
+                    false,
+                    true,
+                    function,
+                )?;
+            } else {
+                self.emit_object_define_local_data(
+                    object_local,
+                    name,
+                    payload_local,
+                    tag_local,
+                    function,
+                )?;
+            }
+        }
+        let realm_local = self.reserve_temp_local();
+        function.instruction(&Instruction::GlobalGet(CURRENT_REALM_GLOBAL_INDEX));
+        function.instruction(&Instruction::LocalSet(realm_local));
+        self.emit_store_non_array_realm_intrinsic(
+            realm_local,
+            NonArrayRealmIntrinsicSlot::ArrayValues,
+            payload_local,
             function,
-        )?;
+        );
+        self.release_temp_local(realm_local);
 
         let unscopables_local = self.reserve_temp_local();
         let unscopables_key_local = self.reserve_temp_local();

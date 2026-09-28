@@ -5,7 +5,6 @@ const DURATION_SOURCE: &str = include_str!("../src/builtins/temporal_duration.rs
 const PLAIN_DATE_TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_time.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-field-offset-table-privacy.md");
-const TASK: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -116,7 +115,7 @@ fn field_offset_tables_have_one_recursive_owner_and_frozen_evidence() {
         );
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `TEMPORAL_DURATION_FIELD_OFFSETS`"));
         assert!(evidence.contains("owner-private `TEMPORAL_PLAIN_DATE_TIME_FIELD_OFFSETS`"));
         assert!(

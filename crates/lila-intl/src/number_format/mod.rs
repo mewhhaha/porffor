@@ -7,6 +7,7 @@ mod partition;
 mod partition_resource;
 mod parts;
 mod plural_rules;
+mod plural_selection;
 mod profiles;
 
 pub use configuration::{
@@ -23,6 +24,7 @@ pub use parts::{
     NumberPart, NumberPartKind, NumberRangePart, RangeNumberPartition, RangePartSource,
     ScalarNumberPartition,
 };
+pub(crate) use plural_selection::plural_operands_for_selection;
 pub use profiles::{
     embedded_number_profiles, CurrencyFractionRecord, CurrencyFractions, InvalidNumberProfile,
     NumberProfileError, NumberProfileTable, NumberProfiles, NUMBER_FORMAT_DATA_SHA256,

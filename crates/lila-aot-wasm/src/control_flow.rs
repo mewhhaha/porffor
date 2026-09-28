@@ -877,10 +877,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::Return);
             }
             ReturnAbi::MultiValue => {
-                function.instruction(&Instruction::LocalGet(self.result_local));
-                function.instruction(&Instruction::LocalGet(self.result_tag_local));
-                function.instruction(&Instruction::LocalGet(self.completion_local));
-                function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+                self.emit_current_completion_values(function);
                 function.instruction(&Instruction::Return);
             }
         }

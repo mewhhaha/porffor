@@ -3,6 +3,7 @@
 //! `scripts/generate-intl-locale-info.py`.
 
 use icu_locale::{LocaleCanonicalizer, LocaleExpander};
+use std::sync::OnceLock;
 
 use crate::number_format::options::SingleUnit;
 use crate::number_format::{default_numbering_system_by_prefix, NumberProfiles};
@@ -21,6 +22,21 @@ use super::named_time_zones::NamedTimeZones;
 mod generated;
 
 pub(super) const PROVIDER_DATA_SHA256: [u8; 32] = generated::PROVIDER_DATA_SHA256;
+
+/// The exact locale inventory for `Intl.Collator` service matching. Keep this
+/// derived from the generated collation rows rather than reusing the wider
+/// NumberFormat locale inventory.
+pub(super) fn collator_available_locales() -> &'static [&'static str] {
+    static LOCALES: OnceLock<Box<[&'static str]>> = OnceLock::new();
+    LOCALES
+        .get_or_init(|| {
+            generated::COLLATOR_LOCALES
+                .iter()
+                .map(|(locale, _)| *locale)
+                .collect()
+        })
+        .as_ref()
+}
 
 /// ECMA-402 15.5.10 step 3.b: CollationsOfLocale without a Collator match.
 const UNMATCHED_COLLATIONS: &[&str] = &["emoji", "eor"];

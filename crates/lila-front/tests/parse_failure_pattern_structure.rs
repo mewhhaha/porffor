@@ -3,7 +3,6 @@ use std::path::Path;
 
 const SOURCE: &str = include_str!("../src/early_error_code.rs");
 const CONTRACT: &str = include_str!("../../../docs/rust-rewrite/contracts/early-error-taxonomy.md");
-const TASK: &str = include_str!("../../../tasks/07-parser-grammar-early-errors.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -566,9 +565,9 @@ fn all_six_parse_failure_pattern_consumers_are_exhaustive() {
 }
 
 #[test]
-fn contract_and_t07_record_intentional_copy_and_exhaustive_observation() {
+fn contract_records_intentional_copy_and_exhaustive_observation() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
         "ParseFailurePattern",
         "intentional static-table value semantics",
@@ -581,6 +580,5 @@ fn contract_and_t07_record_intentional_copy_and_exhaustive_observation() {
             contract_words.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(task_words.contains(marker), "missing T07 marker: {marker}");
     }
 }

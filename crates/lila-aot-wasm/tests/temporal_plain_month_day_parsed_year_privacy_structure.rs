@@ -5,7 +5,6 @@ const MONTH_DAY_SOURCE: &str = include_str!("../src/builtins/temporal_plain_mont
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/temporal-plain-month-day-parsed-year-privacy.md"
 );
-const TASK: &str = include_str!("../../../tasks/22-date-temporal.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -128,7 +127,7 @@ fn parsed_year_authority_has_one_recursive_owner_and_frozen_evidence() {
         1
     );
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `TemporalParsedMonthDayYear`"));
         assert!(
             evidence.contains("edd8d04d5cf6ec69edd44225d78506a09d49e857a028ad52071a39d78417a4be")

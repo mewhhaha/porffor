@@ -9,7 +9,6 @@ const SOURCE: &str = concat!(
 );
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/bigint-prototype-result-policy.md");
-const TASK: &str = include_str!("../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -394,7 +393,7 @@ fn emitter_consumes_each_result_authority_once() {
 }
 
 #[test]
-fn contract_and_task_record_the_move_only_boundary() {
+fn contract_records_the_move_only_boundary() {
     for marker in [
         "move-only result authority",
         "cannot be duplicated by",
@@ -404,7 +403,6 @@ fn contract_and_task_record_the_move_only_boundary() {
         "source-equivalent",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
 }
 

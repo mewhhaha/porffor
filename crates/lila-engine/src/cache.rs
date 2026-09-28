@@ -88,8 +88,8 @@ fn parse_cache_limit(raw: Option<&str>) -> u64 {
         .unwrap_or(DEFAULT_CACHE_LIMIT_BYTES)
 }
 
-const FUNCTION_CACHE_FORMAT: &str = "cranelift-functions-v1";
-const MODULE_CACHE_DIR: &str = "wasmtime-modules-v1";
+const FUNCTION_CACHE_FORMAT: &str = "cranelift-functions-v3";
+const MODULE_CACHE_DIR: &str = "wasmtime-modules-v3";
 const PROGRAM_CACHE_DIR: &str = "program-wasm-v1";
 
 // A process can own several cache instances for the same directory. Their

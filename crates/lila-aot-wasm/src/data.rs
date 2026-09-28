@@ -1404,7 +1404,6 @@ impl StringPool {
             "(?:)",
             "source",
             "flags",
-            "gc requires a real collector in wasm-aot",
             "parse",
             "stringify",
             "rawJSON",
@@ -2178,6 +2177,9 @@ impl StringPool {
         for value in crate::builtins::intl_date_time_format_pool_strings()
             .into_iter()
             .chain(crate::builtins::intl_number_format_pool_strings())
+            .chain(crate::builtins::intl_collator_pool_strings())
+            .chain(crate::builtins::intl_plural_rules_pool_strings())
+            .chain(crate::builtins::intl_relative_time_format_pool_strings())
             .chain(crate::builtins::intl_locale_info_pool_strings())
         {
             pool.intern_string(&value);
@@ -2187,6 +2189,9 @@ impl StringPool {
         }
         pool.intern_string(crate::builtins::INTL_FALLBACK_SYMBOL_DESCRIPTION);
         for value in crate::builtins::temporal_time_zone_pool_strings() {
+            pool.intern_string(value);
+        }
+        for value in crate::builtins::temporal_calendar_pool_strings() {
             pool.intern_string(value);
         }
         for index in 0..=31 {

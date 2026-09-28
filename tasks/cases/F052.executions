@@ -1,0 +1,4 @@
+sloppy-script:intl402/Intl/supportedValuesOf/numberingSystems-with-simple-digit-mappings.js
+sloppy-script:intl402/NumberFormat/prototype/format/numbering-systems.js
+strict-script:intl402/Intl/supportedValuesOf/numberingSystems-with-simple-digit-mappings.js
+strict-script:intl402/NumberFormat/prototype/format/numbering-systems.js

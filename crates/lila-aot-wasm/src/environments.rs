@@ -509,13 +509,31 @@ impl<'a> FunctionBuilder<'a> {
             })
             .collect::<Vec<_>>();
         let arguments_protocol = self.function_arguments_protocol.take_for_binding()?;
-        if let Some(arguments_protocol) = arguments_protocol.into_present() {
+        if let Some(arguments_action) = arguments_protocol.into_present_action() {
             let arguments_storage = self.allocate_dynamic_binding_storage(LEXICAL_ARGUMENTS_NAME);
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
                 .insert(LEXICAL_ARGUMENTS_NAME.to_string(), arguments_storage);
-            self.initialize_arguments_binding(arguments_storage, arguments_protocol, function)?;
+            match arguments_action {
+                ArgumentsBindingAction::Materialize(arguments_protocol) => {
+                    self.initialize_arguments_binding(
+                        arguments_storage,
+                        arguments_protocol,
+                        function,
+                    )?;
+                }
+                ArgumentsBindingAction::DeferMapped(plan) => {
+                    self.initialize_binding_undefined(arguments_storage, function);
+                    self.emit_defer_legacy_arguments(&plan, function);
+                }
+                ArgumentsBindingAction::ElideUnobserved => {
+                    // Keep the semantic binding for hoisted `var arguments`
+                    // writes. Its initial object cannot be observed by this
+                    // function or by a caller through legacy reflection.
+                    self.initialize_binding_undefined(arguments_storage, function);
+                }
+            }
         }
 
         for param in self.params {
@@ -907,16 +925,12 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(crate) const fn argc_param_local(&self) -> u32 {
-        5
-    }
-
-    pub(crate) const fn argv_param_local(&self) -> u32 {
-        6
+        crate::abi::JsCallParameter::Argc.index()
     }
 
     pub(crate) const fn new_target_payload_local(&self) -> Option<u32> {
         if matches!(self.return_abi(), ReturnAbi::MultiValue) {
-            Some(3)
+            Some(crate::abi::JsCallParameter::NewTargetPayload.index())
         } else {
             None
         }
@@ -924,7 +938,7 @@ impl<'a> FunctionBuilder<'a> {
 
     pub(crate) const fn new_target_tag_local(&self) -> Option<u32> {
         if matches!(self.return_abi(), ReturnAbi::MultiValue) {
-            Some(4)
+            Some(crate::abi::JsCallParameter::NewTargetTag.index())
         } else {
             None
         }
@@ -956,8 +970,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
         function.instruction(&Instruction::LocalSet(tag_local));
         function.instruction(&Instruction::Else);
-        self.emit_array_read(
-            self.argv_param_local(),
+        self.emit_arg_vector_read(
+            self.arg_vector_param_local(),
             index_local,
             payload_local,
             tag_local,

@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/conversion-abrupt-route-capabilities.md");
-const TASK: &str = include_str!("../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -132,7 +131,7 @@ fn conversion_abrupt_routes_move_into_one_exhaustive_finisher_each() {
         assert!(!consumer.contains("todo!"));
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for route in [
             "ToPrimitiveAbruptRoute",
             "PrimitiveToStringAbruptRoute",

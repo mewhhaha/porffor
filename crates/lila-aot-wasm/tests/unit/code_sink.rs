@@ -252,10 +252,12 @@ fn raw_branches_and_every_table_entry_are_range_checked() {
         Instruction::BrTable(Cow::Borrowed(&[0, 1]), 0),
     ];
     for instruction in invalid {
-        assert!(std::panic::catch_unwind(|| {
-            empty_body().instruction(&instruction);
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                empty_body().instruction(&instruction);
+            })
+            .is_err()
+        );
     }
 }
 
@@ -279,10 +281,58 @@ fn rewriting_locals_cannot_reopen_a_finished_body() {
 }
 
 #[test]
-#[should_panic(expected = "does not match planned local count")]
+#[should_panic(expected = "does not match the planned local types")]
 fn rewriting_locals_rejects_an_incorrect_plan() {
     let function = Function::new_with_locals_types([ValType::I64; 4]);
     let _ = function.rewrite_local_declaration(3, 2);
+}
+
+#[test]
+fn rewriting_locals_preserves_a_gc_reference_slot() {
+    let reference = ValType::Ref(wasm_encoder::RefType::ANYREF);
+    let planned = [ValType::I64, reference, ValType::I64];
+    let retained = [ValType::I64, reference];
+    let mut function = Function::new_with_locals_types(planned);
+    function.instruction(&Instruction::Nop);
+    function.instruction(&Instruction::End);
+
+    let rewritten = function.rewrite_local_declaration_types(&planned, &retained);
+    let mut expected = wasm_encoder::Function::new_with_locals_types(retained);
+    expected.instruction(&Instruction::Nop);
+    expected.instruction(&Instruction::End);
+    assert_eq!(
+        rewritten
+            .into_body_named(&"typed local test")
+            .into_raw_body(),
+        expected.into_raw_body(),
+    );
+}
+
+#[test]
+fn rewriting_locals_retypes_interleaved_temporary_slots_without_moving_indices() {
+    let reference = crate::gc_types::arg_vector::ref_type();
+    let planned = [ValType::I64; 5];
+    let emitted = [ValType::I64, reference, ValType::I64];
+    let mut function = Function::new_with_locals_types(planned);
+    function.instruction(&Instruction::LocalGet(1));
+    function.instruction(&Instruction::Drop);
+    function.instruction(&Instruction::LocalGet(2));
+    function.instruction(&Instruction::Drop);
+    function.instruction(&Instruction::End);
+
+    let rewritten = function.rewrite_local_declaration_types(&planned, &emitted);
+    let mut expected = wasm_encoder::Function::new_with_locals_types(emitted);
+    expected.instruction(&Instruction::LocalGet(1));
+    expected.instruction(&Instruction::Drop);
+    expected.instruction(&Instruction::LocalGet(2));
+    expected.instruction(&Instruction::Drop);
+    expected.instruction(&Instruction::End);
+    assert_eq!(
+        rewritten
+            .into_body_named(&"interleaved typed locals")
+            .into_raw_body(),
+        expected.into_raw_body(),
+    );
 }
 
 #[test]

@@ -9,7 +9,6 @@ const INVOCATION_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_array_to_locale_string_invocation.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/array-to-locale-string-receiver-kind.md");
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -227,7 +226,7 @@ fn contract_and_existing_product_witnesses_pin_both_entries() {
     assert!(CONTRACT.contains("ToLocaleStringReceiverKind"));
     assert!(CONTRACT
         .contains("cargo test -p lila-aot-wasm --test to_locale_string_receiver_kind_structure"));
-    assert!(TASK.contains("ToLocaleStringReceiverKind"));
+
     for registration in [
         "fn run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture()",
         "fn run_wasm_backend_succeeds_for_array_to_locale_string_invocation_fixture()",

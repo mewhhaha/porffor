@@ -5,10 +5,16 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+icu_decimal = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+icu_collator = { version = "=2.0.0", default-features = false, features = ["compiled_data", "serde"] }
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+icu_plurals = { version = "=2.0.0", default-features = false, features = ["experimental", "serde"] }
 icu_calendar = { version = "=2.0.6", default-features = false, features = ["compiled_data"] }
 icu_locale = { version = "=2.0.0", default-features = false, features = ["compiled_data"] }
 icu_locale_data = { version = "=2.0.0", default-features = false }
 icu_provider = { version = "=2.0.0", default-features = false, features = ["sync"] }
+icu_provider_adapters = { version = "=2.0.0", default-features = false }
+icu_provider_blob = { version = "=2.0.0", default-features = false }
 
 # Exact, locked data/selector inputs; no OS zone database is consulted.
 jiff-tzdb = "=0.1.6"

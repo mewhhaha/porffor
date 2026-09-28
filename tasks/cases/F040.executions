@@ -1,0 +1,8 @@
+sloppy-script:built-ins/Proxy/apply/arguments-realm.js
+sloppy-script:built-ins/Proxy/construct/arguments-realm.js
+sloppy-script:built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js
+sloppy-script:built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js
+strict-script:built-ins/Proxy/apply/arguments-realm.js
+strict-script:built-ins/Proxy/construct/arguments-realm.js
+strict-script:built-ins/Proxy/construct/trap-is-undefined-proto-from-cross-realm-newtarget.js
+strict-script:built-ins/Proxy/construct/trap-is-undefined-proto-from-newtarget-realm.js

@@ -7,7 +7,6 @@ const CLI_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_object_descriptor_core.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/object-define-property-descriptor-roles.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -148,5 +147,4 @@ fn focused_descriptor_behavior_and_evidence_remain_in_inventory() {
         );
     }
     assert!(CONTRACT.contains("ObjectDefinePropertyDescriptorLocals::{Data, Accessor}"));
-    assert!(TASK.contains("ObjectDefinePropertyDescriptorLocals::{Data, Accessor}"));
 }

@@ -7,7 +7,6 @@ const FUNCTION_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/function
 const TYPED_ARRAY_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/accessor-descriptor-local-roles.md");
-const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -158,7 +157,7 @@ fn focused_accessor_behavior_and_evidence_remain_in_inventory() {
     assert!(FUNCTION_CLI_TESTS.contains("fn run_wasm_class_auto_accessor_fixture()"));
     assert!(TYPED_ARRAY_CLI_TESTS
         .contains("fn run_wasm_backend_succeeds_for_typedarray_accessors_fixture()"));
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("`AccessorDescriptorLocals::{Getter, Setter, GetterAndSetter}`"));
         assert!(evidence.contains("`AccessorGetterLocals`"));
         assert!(evidence.contains("`AccessorSetterLocals`"));

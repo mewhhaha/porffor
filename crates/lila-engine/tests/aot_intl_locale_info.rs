@@ -83,7 +83,7 @@ fn supported_values_of_reads_one_closed_key_after_to_string() {
     assert_prints_ok(
         r#"
 var calendars = Intl.supportedValuesOf({ toString() { return 'calendar'; } });
-if (JSON.stringify(calendars) !== '["buddhist","chinese","gregory","indian","iso8601","persian","roc"]') throw 'calendars';
+if (JSON.stringify(calendars) !== '["buddhist","chinese","coptic","dangi","ethioaa","ethiopic","gregory","hebrew","indian","islamic-civil","islamic-tbla","islamic-umalqura","iso8601","japanese","persian","roc"]') throw 'calendars';
 for (var key of ['collation', 'currency', 'numberingSystem', 'timeZone', 'unit']) {
   var values = Intl.supportedValuesOf(key);
   if (!Array.isArray(values) || values.length === 0) throw key;

@@ -422,7 +422,8 @@ impl<'a> FunctionBuilder<'a> {
         let new_target_payload_local = self.reserve_temp_local();
         let new_target_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_array_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
         let target_constructable_local = self.reserve_temp_local();
         let new_target_constructable_local = self.reserve_temp_local();
 
@@ -491,11 +492,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_like_snapshot_payload(
             args_payload_local,
             args_tag_local,
-            argv_local,
+            argv_array_local,
             "Reflect.construct argumentsList must be array-like",
             function,
         )?;
-        self.load_i64_to_local_from_offset(argv_local, HEAP_LEN_OFFSET, argc_local, function);
+        self.load_i64_to_local_from_offset(argv_array_local, HEAP_LEN_OFFSET, argc_local, function);
+        self.emit_arg_vector_from_array(argv_array_local, argv_local, function);
         self.emit_function_or_proxy_construct_with_argv(
             target_payload_local,
             target_tag_local,
@@ -510,7 +512,8 @@ impl<'a> FunctionBuilder<'a> {
 
         self.release_temp_local(new_target_constructable_local);
         self.release_temp_local(target_constructable_local);
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
+        self.release_temp_local(argv_array_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(new_target_tag_local);
         self.release_temp_local(new_target_payload_local);
@@ -532,7 +535,8 @@ impl<'a> FunctionBuilder<'a> {
         let args_payload_local = self.reserve_temp_local();
         let args_tag_local = self.reserve_temp_local();
         let argc_local = self.reserve_temp_local();
-        let argv_local = self.reserve_temp_local();
+        let argv_array_local = self.reserve_temp_local();
+        let argv_local = self.reserve_arg_vector_local();
 
         self.emit_builtin_arg_to_locals(0, target_payload_local, target_tag_local, function);
         self.emit_builtin_arg_to_locals(1, this_arg_payload_local, this_arg_tag_local, function);
@@ -565,11 +569,12 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_array_like_snapshot_payload(
             args_payload_local,
             args_tag_local,
-            argv_local,
+            argv_array_local,
             "Reflect.apply argumentsList must be an array",
             function,
         )?;
-        self.load_i64_to_local_from_offset(argv_local, HEAP_LEN_OFFSET, argc_local, function);
+        self.load_i64_to_local_from_offset(argv_array_local, HEAP_LEN_OFFSET, argc_local, function);
+        self.emit_arg_vector_from_array(argv_array_local, argv_local, function);
         self.emit_prepare_legacy_tail_call(function);
         self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
             target_payload_local,
@@ -583,7 +588,8 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
 
-        self.release_temp_local(argv_local);
+        self.release_arg_vector_local(argv_local);
+        self.release_temp_local(argv_array_local);
         self.release_temp_local(argc_local);
         self.release_temp_local(args_tag_local);
         self.release_temp_local(args_payload_local);

@@ -5,7 +5,6 @@ const SOURCE: &str = include_str!("../src/builtins/array_from_async.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/array-from-async-iterator-result-property-domain.md"
 );
-const TASK: &str = include_str!("../../../tasks/16-arrays-and-array-builtins.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -411,21 +410,22 @@ fn four_continuations_own_one_done_then_value_pair_each() {
 }
 
 #[test]
-fn contract_and_t16_record_the_one_shot_property_authority() {
+fn contract_records_the_one_shot_property_authority() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+
     for marker in [
-        "non-derived `ArrayFromAsyncIteratorResultProperty::{Done, Value}` selection",
-        "exact 11 type mentions",
-        "four producers per variant",
-        "complete reader and all four continuation bodies",
+        "`ArrayFromAsyncIteratorResultProperty` has exactly two inhabitants",
+        "domain derives no capabilities",
+        "Four continuations each read `Done` before `Value`",
+        "eight typed reads and 11 total type mentions",
+        "full-body fingerprints and read order",
     ] {
         assert!(
-            contract_words.contains(marker) || task_words.contains(marker),
-            "missing contract/task marker: {marker}"
+            contract_words.contains(marker),
+            "missing contract marker: {marker}"
         );
     }
-    for text in [&contract_words, &task_words] {
+    for text in [&contract_words] {
         assert!(
             text.contains("full-body fingerprints")
                 || text.contains("fingerprints the complete reader")

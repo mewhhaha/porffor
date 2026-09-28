@@ -9,7 +9,6 @@ const ITERATOR_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_collection_iterator_receiver_realm.js");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/collection-receiver-error-domain.md");
-const TASK: &str = include_str!("../../../tasks/21-symbols-collections-weakrefs.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -331,7 +330,7 @@ fn receiver_representation_arms_select_the_exact_failure_in_order() {
 #[test]
 fn contract_and_existing_fixture_sources_cover_both_error_categories() {
     assert!(CONTRACT.contains("CollectionReceiverError"));
-    assert!(TASK.contains("collection-receiver-error-domain.md"));
+
     for test_name in [
         "fn run_wasm_backend_succeeds_for_collection_iterator_receiver_realm_fixture()",
         "fn run_wasm_backend_succeeds_for_collection_data_receiver_realm_fixture()",

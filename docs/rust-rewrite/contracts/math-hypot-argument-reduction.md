@@ -98,7 +98,7 @@ exceptional precedence.
 - `crates/lila-cli/tests/fixtures/wasm_math_hypot_argument_reduction.js`
 - `crates/lila-cli/tests/cli/language_numerics.rs`
 - this contract
-- `tasks/20-number-bigint-math-json.md`
+- `docs/rust-rewrite/conformance-ownership.md`
 
 The lane's freeze gates are scoped `rustfmt --check`, `node --check`, source
 inventory and `git diff --check`. Cargo, the focused CLI fixture, the pinned

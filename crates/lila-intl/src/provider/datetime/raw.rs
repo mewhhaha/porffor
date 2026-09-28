@@ -66,6 +66,7 @@ pub(super) struct Numbering {
 pub(super) struct Algorithmic {
     pub(super) identifier: String,
     pub(super) field: char,
+    pub(super) method: String,
     pub(super) minimum: u8,
     pub(super) values: Vec<String>,
     pub(super) source: String,

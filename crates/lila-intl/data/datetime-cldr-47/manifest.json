@@ -59,6 +59,16 @@
       "sha256": "a19cd8bea5cc68b132ace70dd99b65935edf8114367a835f7717b3a3dbd81118"
     },
     {
+      "path": "common/main/pl.xml",
+      "bytes": 758091,
+      "sha256": "57dfcb94f55aea5878d0f0d9198beb781d0d8dc681a6b0ece04d8cf1c2799cdc"
+    },
+    {
+      "path": "common/main/pl_PL.xml",
+      "bytes": 459,
+      "sha256": "a0eb2483f1e1b65f054072808eed0ce0c9f25577e21aa8161faa79168c4c93cc"
+    },
+    {
       "path": "common/main/root.xml",
       "bytes": 268212,
       "sha256": "1ac705812e9e186b8d904813a4989d160729cc4d217849ad3736257da10f69b0"
@@ -77,6 +87,11 @@
       "path": "common/main/zh_Hans_CN.xml",
       "bytes": 483,
       "sha256": "0a531ee82fcc7e4bfcb4dd2307d9f49ed5221491d178aa71c0d08037df042d0a"
+    },
+    {
+      "path": "common/rbnf/ja.xml",
+      "bytes": 5140,
+      "sha256": "309af27ba239cb732c00babd6ccaca9361a08129d26becb63d882657b4947c8c"
     },
     {
       "path": "common/rbnf/zh.xml",
@@ -120,9 +135,9 @@
     },
     {
       "path": "selector.json",
-      "bytes": 855,
-      "sha256": "d229f1ea8b3cc48e01b66a51d3d12d9961af6922dee572dfce412e7c04c2d0ad"
+      "bytes": 1196,
+      "sha256": "4b8fa8bd5eea61dadce4fa06652d709d44d892b11b9a2a63893418f932ace567"
     }
   ],
-  "total_bytes": 5421721
+  "total_bytes": 6185752
 }

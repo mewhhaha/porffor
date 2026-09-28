@@ -7,8 +7,6 @@ const FIXTURE: &str =
 const ITERATOR_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/iterator.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/iterator-close-error-realm.md");
-const README: &str = include_str!("../../../README.md");
-const TASK: &str = include_str!("../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -207,10 +205,7 @@ fn published_boundary_names_the_owner_routes_witness_and_nonclaims() {
     ] {
         assert!(CONTRACT.contains(marker), "contract marker: {marker}");
     }
-    for source in [README, TASK] {
-        assert!(source.contains("iterator-close-error-realm.md"));
-        assert!(source.contains("68"));
-    }
+
     for retired in ["LegacyMainRealm", "legacy main-Realm policy"] {
         assert!(
             !CONTRACT.contains(retired),

@@ -130,7 +130,7 @@ The 2026-09-12 storage correction updates the row-writer guard, token-slot
 initialization and pointer-layout guards, and Realm layout witnesses. Foreign
 private-member native controls pass in the 12-test finite-eval target. The
 three private/Realm structural targets pass 14/14, and the paired Test262
-replay passes 373/373; see the [batch verification](../expression-semantics-followup-20260912.md).
+replay passed 373/373 at that historical checkpoint, retained in Git history.
 The following results describe the earlier retyping
 checkpoint, whose Realm-list publication has now been replaced.
 

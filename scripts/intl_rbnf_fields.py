@@ -122,19 +122,35 @@ def algorithmic_field_tables(profile, locales):
     inspect(locales)
     tables = []
     for identifier, field in sorted(required):
-        # A day has a finite exact domain for every admitted calendar. Other
-        # algorithmic fields need their own complete domain before admission.
-        if field != "d":
-            raise ValueError(f"algorithmic numbering has no checked finite field domain: {identifier}/{field}")
         locale, grouping, ruleset = definitions[identifier]["rules"].split("/")
         path = f"common/rbnf/{locale}.xml"
         if path not in profile.documents:
             raise ValueError(f"missing pinned RBNF source: {path}")
+        if identifier == "jpanyear" and field == "y":
+            groups = profile.documents[path].findall(f"./rbnf/rulesetGrouping[@type='{grouping}']/ruleset[@type='{ruleset}']")
+            if len(groups) != 1:
+                raise ValueError("missing or duplicate Japanese year RBNF ruleset")
+            rules = [(node.attrib.get("value"), (node.text or "").strip()) for node in groups[0].findall("rbnfrule")]
+            # CLDR 47 spells year one as 元, and all other integral years use
+            # Latin decimal digits. Check the source rule closure, rather than
+            # inferring that behavior from a date formatting fixture.
+            if rules != [("x.x", "=0.0=;"), ("0", "=0=;"), ("1", "元;"), ("2", "=0=;")]:
+                raise ValueError("Japanese year RBNF rules changed")
+            tables.append({"identifier": identifier, "field": field,
+                           "method": "one_replaced_latin", "minimum": 1,
+                           "values": ["元"], "source": path, "ruleset": ruleset,
+                           "consumed_rules": [[ruleset, int(base), text[:-1]]
+                                              for base, text in rules if base in ("0", "1", "2")]})
+            continue
+        # A day has a finite exact domain for every admitted calendar. Other
+        # algorithmic fields need their own complete domain before admission.
+        if field != "d":
+            raise ValueError(f"algorithmic numbering has no checked finite field domain: {identifier}/{field}")
         compiler = FiniteRbnf(profile.documents[path], grouping)
         values = [compiler.format(ruleset, value) for value in range(1, 32)]
         if any(not value for value in values):
             raise ValueError(f"empty finite RBNF field: {identifier}/{field}")
-        tables.append({"identifier": identifier, "field": field, "minimum": 1,
+        tables.append({"identifier": identifier, "field": field, "method": "finite", "minimum": 1,
                        "values": values, "source": path, "ruleset": ruleset,
                        "consumed_rules": [list(rule) for rule in sorted(compiler.consumed)]})
     return tables

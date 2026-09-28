@@ -6,8 +6,8 @@ use super::temporal_plain_date::{
 };
 use super::temporal_plain_year_month_methods::TemporalPartialDateRewrite;
 use super::temporal_time_zone::{
-    TemporalDisambiguationSource, TemporalOffsetBehaviour, TemporalOffsetMatchSource,
-    TEMPORAL_INVALID_TIME_ZONE_MESSAGE,
+    TEMPORAL_INVALID_TIME_ZONE_MESSAGE, TemporalDisambiguationSource, TemporalOffsetBehaviour,
+    TemporalOffsetMatchSource,
 };
 use crate::intrinsics::temporal::TemporalIntrinsicFamily;
 use crate::operations::BigIntNumberPolicy;
@@ -3147,8 +3147,15 @@ impl<'a> FunctionBuilder<'a> {
         component_locals: [u32; 7],
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let [year_payload_local, month_payload_local, day_payload_local, hour_payload_local, minute_payload_local, second_payload_local, millisecond_payload_local] =
-            component_locals;
+        let [
+            year_payload_local,
+            month_payload_local,
+            day_payload_local,
+            hour_payload_local,
+            minute_payload_local,
+            second_payload_local,
+            millisecond_payload_local,
+        ] = component_locals;
         self.load_i64_to_local_from_offset(
             record_local,
             HEAP_TEMPORAL_ZONED_DATE_TIME_EPOCH_NANOSECONDS_PAYLOAD_OFFSET,
@@ -5335,6 +5342,31 @@ impl<'a> FunctionBuilder<'a> {
         for calendar in TemporalCalendarId::ALL {
             let canonical_payload = self.strings.payload(calendar.canonical());
             for &spelling in calendar.spellings() {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_calendar_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    calendar_annotation_payload_local,
+                    expected_calendar_payload_local,
+                    Some(case_fold_local),
+                    function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(calendar_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(matched_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+        for calendar in lila_intl::TemporalCalendar::ALL {
+            let canonical_payload = self.strings.payload(calendar.identifier());
+            for spelling in [calendar.identifier()].into_iter().chain(
+                super::temporal_calendar::calendar_aliases(calendar)
+                    .iter()
+                    .copied(),
+            ) {
                 function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
                 function.instruction(&Instruction::LocalSet(expected_calendar_payload_local));
                 function.instruction(&Instruction::I64Const(1));
@@ -7859,10 +7891,7 @@ impl<'a> FunctionBuilder<'a> {
         self.release_temp_local(year_local);
         self.release_temp_local(normalized_local);
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }
@@ -7885,7 +7914,7 @@ impl<'a> FunctionBuilder<'a> {
     ///   so the time parser's own RangeError can fall out as the final answer
     ///   without a fourth helper to catch it. The hoist is sound exactly while
     ///   no [`TemporalCalendarId::spellings`] entry is also a legal ISO date or
-    ///   time string; `"iso8601"`, `"gregory"` and `"gregorian"` all satisfy
+    ///   time string; `"iso8601"` and `"gregory"` satisfy
     ///   that (they are not `HHMMSS`, not `YYYYMMDD`, and contain letters an
     ///   ISO date cannot). A calendar spelled out of digits would break it, and
     ///   would have to move the compare below the time attempt.
@@ -7958,8 +7987,7 @@ impl<'a> FunctionBuilder<'a> {
             // recover": the four results land in scratch locals and a `Throw`
             // simply leaves `resolved` at zero so the next form runs.
             self.store_call_results_to(
-                probe_payload_local,
-                probe_tag_local,
+                crate::objects::TaggedLocals::new(probe_payload_local, probe_tag_local),
                 probe_completion_local,
                 probe_aux_local,
                 &mut function,
@@ -7986,6 +8014,31 @@ impl<'a> FunctionBuilder<'a> {
         for calendar in TemporalCalendarId::ALL {
             let canonical_payload = self.strings.payload(calendar.canonical());
             for &spelling in calendar.spellings() {
+                function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
+                function.instruction(&Instruction::LocalSet(expected_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(case_fold_local));
+                self.emit_string_payload_equality_i32_with_ascii_case_folding(
+                    0,
+                    expected_payload_local,
+                    Some(case_fold_local),
+                    &mut function,
+                );
+                function.instruction(&Instruction::If(BlockType::Empty));
+                function.instruction(&Instruction::I64Const(canonical_payload));
+                function.instruction(&Instruction::LocalSet(result_payload_local));
+                function.instruction(&Instruction::I64Const(1));
+                function.instruction(&Instruction::LocalSet(resolved_local));
+                function.instruction(&Instruction::End);
+            }
+        }
+        for calendar in lila_intl::TemporalCalendar::ALL {
+            let canonical_payload = self.strings.payload(calendar.identifier());
+            for spelling in [calendar.identifier()].into_iter().chain(
+                super::temporal_calendar::calendar_aliases(calendar)
+                    .iter()
+                    .copied(),
+            ) {
                 function.instruction(&Instruction::I64Const(self.strings.payload(spelling)));
                 function.instruction(&Instruction::LocalSet(expected_payload_local));
                 function.instruction(&Instruction::I64Const(1));
@@ -8047,10 +8100,7 @@ impl<'a> FunctionBuilder<'a> {
             self.release_temp_local(local);
         }
         self.pop_scope();
-        function.instruction(&Instruction::LocalGet(self.result_local));
-        function.instruction(&Instruction::LocalGet(self.result_tag_local));
-        function.instruction(&Instruction::LocalGet(self.completion_local));
-        function.instruction(&Instruction::LocalGet(self.completion_aux_local));
+        self.emit_current_completion_values(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
     }

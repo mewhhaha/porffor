@@ -1,0 +1,2 @@
+sloppy-script:staging/sm/lexical-environment/bug-1216623.js
+strict-script:staging/sm/lexical-environment/bug-1216623.js

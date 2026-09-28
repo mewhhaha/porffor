@@ -1,0 +1,6 @@
+sloppy-script:staging/sm/Function/function-name-computed-01.js
+sloppy-script:staging/sm/Function/function-name-computed-02.js
+sloppy-script:staging/sm/fields/numeric-fields.js
+strict-script:staging/sm/Function/function-name-computed-01.js
+strict-script:staging/sm/Function/function-name-computed-02.js
+strict-script:staging/sm/fields/numeric-fields.js

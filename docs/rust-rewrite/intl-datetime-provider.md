@@ -85,9 +85,8 @@ Observable regressions cover conversion order, inherited option access, primitiv
 option boxing, exact Temporal inputs, localized fields, parts/range agreement,
 calendar errors, Realm ownership and intrinsic locale-method entry points.
 
-On 2026-09-26, 18 focused provider tests pass and the pinned DateTimeFormat
-family passes 478/490 executions. Exact remaining failures and compiler identity
-are recorded in the [discovery checkpoint](failure-discovery-20260926.md).
+Current provider failures and replay evidence belong in the
+[failure backlog](../../tasks/README.md).
 Focused verification commands:
 
 ```sh

@@ -1,7 +1,7 @@
 use core::fmt;
 
 use super::super::options::{Notation, NumberFormatOptions, NumberStyle};
-use super::round::{round_scaled, ScaledDecimal};
+use super::round::{ScaledDecimal, round_scaled};
 use super::{
     FiniteValue, NumberFormatResourceError, NumberSign, NumericLimits, RoundedDecimal,
     RoundingSettings,

@@ -93,7 +93,8 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
 
     def test_selected_era_calendars_resolve_their_own_cldr_names(self):
         self.assertEqual(self.profile["selector"]["calendars"],
-                         ["gregory", "iso8601", "chinese", "buddhist", "indian", "persian", "roc", "dangi", "islamic-civil"])
+                         ["gregory", "iso8601", "chinese", "buddhist", "indian", "persian", "roc", "dangi", "islamic-civil",
+                          "coptic", "ethioaa", "ethiopic", "hebrew", "islamic-tbla", "islamic-umalqura", "japanese"])
         eras = {"buddhist": {0}, "indian": {0}, "persian": {0}, "roc": {0, 1}, "islamic-civil": {0, 1}}
         for locale in self.profile["locales"]:
             for calendar, expected in eras.items():
@@ -123,7 +124,7 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
             self.assertNotIn("islamicc", locale["calendar_preferences"])
 
     def test_finite_day_rules_preserve_the_pinned_algorithmic_calendar_override(self):
-        row, = self.profile["algorithmic_fields"]
+        row, = [row for row in self.profile["algorithmic_fields"] if row["identifier"] == "hanidays"]
         self.assertEqual((row["identifier"], row["field"], row["minimum"]), ("hanidays", "d", 1))
         self.assertEqual(row["values"], ["初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十", "丗一"])
         self.assertTrue(row["consumed_rules"])
@@ -132,6 +133,16 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
                 full = locale["calendars"]["chinese"]["styles"]["full"]["date"]
                 self.assertEqual(full["source"], "rU年MMMdEEEE")
                 self.assertEqual(full["numbering_overrides"], [{"field": "d", "numbering": "hanidays"}])
+
+    def test_japanese_year_override_is_bound_to_checked_rbnf_rules(self):
+        row, = [row for row in self.profile["algorithmic_fields"] if row["identifier"] == "jpanyear"]
+        self.assertEqual((row["field"], row["method"], row["values"]),
+                         ("y", "one_replaced_latin", ["元"]))
+        self.assertEqual(row["source"], "common/rbnf/ja.xml")
+        self.assertEqual(row["ruleset"], "spellout-numbering-year-latn")
+        japanese, = [row for row in self.profile["locales"] if row["locale"] == "ja"]
+        self.assertIn({"field": "y", "numbering": "jpanyear"},
+                      japanese["calendars"]["japanese"]["styles"]["full"]["date"]["numbering_overrides"])
 
     def test_distinct_unicode_digits_need_no_uniform_utf8_width_assumption(self):
         profile = GENERATOR.CldrProfile(SOURCES)

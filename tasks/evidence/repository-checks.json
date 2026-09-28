@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "verification_scope": "Inherited structural assertions encountered while verifying documentation cleanup; distinct from measured Test262 failures.",
+  "failing_test_count": 9,
+  "failures": [
+    {
+      "package": "lila-aot-wasm",
+      "target": "array_buffer_slice_copy_policy_structure",
+      "test": "grouped_slice_body_borrows_then_hands_off_the_policy_once",
+      "classification": "inherited",
+      "mechanism": "Preexisting ArrayBuffer slice argv migration uses reserve_arg_vector_local/release_arg_vector_local and TaggedLocals::new; its complete-body fingerprint predates those changes. Both tests call the unchanged fingerprint helper.",
+      "observed": {
+        "actual": [
+          14372,
+          4889133009862933116
+        ],
+        "expected": [
+          14326,
+          15020809141924629417
+        ]
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/array_buffer_slice_copy_policy_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/standard.rs",
+        "target/task-refresh/verification.log"
+      ],
+      "id": "R001",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "array_buffer_slice_copy_policy_structure",
+      "test": "slice_kind_is_one_capability_free_borrowed_authority",
+      "classification": "inherited",
+      "mechanism": "Preexisting ArrayBuffer slice argv migration uses reserve_arg_vector_local/release_arg_vector_local and TaggedLocals::new; its complete-body fingerprint predates those changes. Both tests call the unchanged fingerprint helper.",
+      "observed": {
+        "actual": [
+          14372,
+          4889133009862933116
+        ],
+        "expected": [
+          14326,
+          15020809141924629417
+        ]
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/array_buffer_slice_copy_policy_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/standard.rs",
+        "target/task-refresh/verification.log"
+      ],
+      "id": "R002",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "array_from_async_iterator_result_property_domain_structure",
+      "test": "four_continuations_own_one_done_then_value_pair_each",
+      "classification": "inherited",
+      "mechanism": "Preexisting argv migration changed emit_array_from_async_iterable_start to reserve/release a typed argument-vector local, splitting its release loop. The frozen continuation-body fingerprint predates this migration.",
+      "observed": {
+        "actual": [
+          9711,
+          2289232080525442947
+        ],
+        "expected": [
+          9629,
+          5963205854144443383
+        ]
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/array_from_async_iterator_result_property_domain_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/array_from_async.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R003",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "array_from_async_source_mode_structure",
+      "test": "eight_mode_projections_preserve_the_callback_algorithms",
+      "classification": "inherited",
+      "mechanism": "Preexisting Array.fromAsync argv migration changes two reserve/release sites, a TaggedLocals construction, and the release-loop shape. The full normalized source-mode algorithm fingerprint predates these changes.",
+      "observed": {
+        "actual": [
+          52097,
+          9631413227292527986
+        ],
+        "expected": [
+          51969,
+          1783152597886556543
+        ]
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/array_from_async_source_mode_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/array_from_async.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R004",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "array_from_async_stage_domain_structure",
+      "test": "nine_stage_comparisons_and_all_algorithms_recover_the_frozen_source",
+      "classification": "inherited",
+      "mechanism": "The same preexisting Array.fromAsync argv migration changes the stage algorithms normalized by this fingerprint. The stage domain, producer census, and contract checks pass.",
+      "observed": {
+        "actual": [
+          41158,
+          10513506922176697974
+        ],
+        "expected": [
+          41030,
+          15502114968900540329
+        ]
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/array_from_async_stage_domain_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/array_from_async.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R005",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "object_write_proxy_realm_structure",
+      "test": "object_mutation_realm_source_exhaustively_projects_every_helper_body",
+      "classification": "inherited",
+      "mechanism": "Preexisting emit.rs refactoring extracted typed local creation into FunctionBuilder::new_body. begin_helper_body now ends with self.new_body(), so the old textual end marker Function::new_with_locals_types no longer follows the entry marker.",
+      "observed": {
+        "missing_end_marker": "Function::new_with_locals_types",
+        "entry": "pub(crate) fn begin_helper_body(&mut self, helper: RuntimeHelperId) -> Function {"
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/object_write_proxy_realm_structure.rs",
+        "crates/lila-aot-wasm/src/emit.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R006",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "shadowed_property_read_arm_absence_structure",
+      "test": "private_types_and_imports_have_direct_owners",
+      "classification": "inherited",
+      "mechanism": "Preexisting host.rs imports added host_builtin_environment_argument and HostBuiltinEnvironmentArgument, moving RealmRecordLocal to the end of a shared import line. The direct import still exists, but the assertion demands its obsolete line indentation.",
+      "observed": {
+        "missing_exact_text": "    RealmRecordLocal,",
+        "current_import_line": "    NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext, RealmRecordLocal,"
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/shadowed_property_read_arm_absence_structure.rs",
+        "crates/lila-aot-wasm/src/builtins/host.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R007",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-aot-wasm",
+      "target": "stored_property_attributes_structure",
+      "test": "every_external_producer_names_its_kind_and_attributes",
+      "classification": "inherited",
+      "mechanism": "The preexisting Arguments work adds a real Symbol.iterator data-property descriptor in functions.rs (+1) and moves an existing producer from objects.rs (-1) into functions/lazy_arguments.rs (+1). The old workspace producer census remains 17 while current source contains 18.",
+      "observed": {
+        "actual": 18,
+        "expected": 17
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/tests/stored_property_attributes_structure.rs",
+        "crates/lila-aot-wasm/src/functions.rs",
+        "crates/lila-aot-wasm/src/objects.rs",
+        "crates/lila-aot-wasm/src/functions/lazy_arguments.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R008",
+      "status": "open",
+      "owner": "lila-aot-wasm",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "package": "lila-engine",
+      "target": "module_entry_source_authority_structure",
+      "test": "parsed_entry_handoffs_cannot_accept_a_second_source_authority",
+      "classification": "inherited",
+      "mechanism": "The global source-text assertion also scans cfg(test) code. The already committed module_graph_cache_digest_tracks_filesystem_symlink_retargeting regression creates a valid ModuleEntry::HostLoad; the source assertion incorrectly treats that fixture as a second product source authority. This exact text exists in Git HEAD (commit da359d3e9 added the cache regression on 2026-09-26).",
+      "observed": {
+        "unexpected_exact_text": "let entry = ModuleEntry",
+        "owning_test": "module_graph_cache_digest_tracks_filesystem_symlink_retargeting"
+      },
+      "cleanup_assessment": "The failing assertion was retained unchanged from the prior compiler work. Documentation migration affects separate contract assertions, which passed. Migrated tests use the workspace Rust formatting style; no production semantics were changed for this cleanup.",
+      "evidence_paths": [
+        "crates/lila-engine/tests/module_entry_source_authority_structure.rs",
+        "crates/lila-engine/src/lib.rs",
+        "target/task-refresh/verification-remaining.log"
+      ],
+      "id": "R009",
+      "status": "open",
+      "owner": "lila-engine",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    }
+  ],
+  "other_checks": [
+    {
+      "check": "scripts/check-module-boundaries.sh",
+      "classification": "inherited",
+      "mechanism": "Prior changes grew builtin_call_info.rs from 2315 lines in Git HEAD to 2334 current lines, exceeding the unchanged 2322-line boundary. This cleanup did not edit the file.",
+      "evidence_paths": [
+        "crates/lila-ir/src/lowering/builtin_call_info.rs",
+        "scripts/check-module-boundaries.sh"
+      ],
+      "actual": 2334,
+      "maximum": 2322,
+      "id": "R010",
+      "status": "open",
+      "owner": "repository tooling",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "check": "cargo fmt --all -- --check",
+      "classification": "inherited",
+      "mechanism": "Formatting differences in existing compiler and test changes outside the documentation migration. The changed structure-test files were individually formatted.",
+      "evidence_paths": [
+        "crates/lila-aot-wasm/src/builtins/intl_plural_rules/initialization.rs",
+        "crates/lila-aot-wasm/src/builtins/intl_relative_time_format.rs",
+        "crates/lila-aot-wasm/src/builtins/mod.rs",
+        "crates/lila-aot-wasm/src/builtins/temporal.rs",
+        "crates/lila-aot-wasm/src/emit/async_generator_dispatcher_tests.rs",
+        "crates/lila-aot-wasm/src/heap_intl_plural_rules_layout.rs",
+        "crates/lila-aot-wasm/tests/compiled_module_package_structure.rs",
+        "crates/lila-aot-wasm/tests/unit/code_sink.rs",
+        "crates/lila-engine/src/intl_plural_rules_host.rs",
+        "crates/lila-engine/src/module_async_runtime_tests.rs",
+        "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
+        "crates/lila-engine/src/stack_budget_tests.rs",
+        "crates/lila-intl/src/intl_plural_rules_protocol.rs",
+        "crates/lila-intl/src/intl_relative_time_protocol.rs",
+        "crates/lila-intl/src/lib.rs",
+        "crates/lila-intl/src/number_format/configuration.rs",
+        "crates/lila-intl/src/number_format/numeric/mod.rs",
+        "crates/lila-intl/src/number_format/numeric/notation.rs",
+        "crates/lila-intl/src/number_format/numeric/tests.rs",
+        "crates/lila-intl/src/number_format/partition/mod.rs",
+        "crates/lila-intl/src/number_format/partition/render.rs",
+        "crates/lila-intl/src/number_format/tests.rs",
+        "crates/lila-intl/src/number_format/tests/range_ownership.rs",
+        "crates/lila-intl/src/protocol.rs"
+      ],
+      "log": "target/task-refresh/check-format.log",
+      "id": "R011",
+      "status": "open",
+      "owner": "repository tooling",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    },
+    {
+      "check": "scripts/check-lila-identity.sh",
+      "classification": "inherited",
+      "mechanism": "Retained historical recovery JSON contains old repository paths and retired identifiers as evidence; the identity scanner currently treats this evidence as product identity. New frozen task evidence has a narrowly scoped exception.",
+      "evidence_paths": [
+        "docs/rust-rewrite/failure-discovery-20260926.json",
+        "docs/rust-rewrite/worktree-recovery-20260926.json"
+      ],
+      "log": "target/task-refresh/check-identity.log",
+      "id": "R012",
+      "status": "open",
+      "owner": "repository tooling",
+      "next_step": "Review the recorded mechanism and source boundary, repair the check or underlying invariant, then rerun this exact check. Do not suppress the failure."
+    }
+  ],
+  "observed_on": "2026-09-28",
+  "counting_rule": "These repository check failures are separate from the 3,727 Test262 failures and do not change that denominator.",
+  "not_run": "The full compiler/runtime and full Test262 suites were not rerun for this documentation cleanup."
+}

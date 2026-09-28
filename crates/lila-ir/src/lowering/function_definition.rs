@@ -268,6 +268,7 @@ impl<'a> ScriptLowerer<'a> {
                     }),
                 resumable_plan: resumable_plan.clone(),
                 strict: function.strict,
+                own_arguments_use: OwnArgumentsUse::conservative(),
                 class_element_execution_kind: ClassElementExecutionKind::None,
                 class_heritage_kind: ClassHeritageKind::None,
                 is_static_class_member: false,
@@ -564,6 +565,26 @@ impl<'a> ScriptLowerer<'a> {
 
         let body_environment = lowerer.begin_function_body_environment();
         lowerer.hoist_root_statement_items(function.body.statements());
+        // Without parameter expressions, a body `var arguments` declaration
+        // reuses the implicit arguments binding. Its initial value is the
+        // arguments object, even when the declaration has no initializer.
+        // A formal or hoisted function named `arguments` owns that name
+        // instead; neither can borrow the implicit binding's value facts.
+        if body_environment.is_none()
+            && function.protocol.flavor() == FunctionFlavor::Ordinary
+            && !parameter_names.iter().any(|name| name == "arguments")
+            && !function
+                .root_functions
+                .iter()
+                .any(|root| root.name == "arguments")
+        {
+            if let Some(binding) = lowerer.var_bindings.get_mut("arguments") {
+                binding.kind = ValueKind::Arguments;
+                binding.possible_kinds = KindSet::from_kind(ValueKind::Arguments);
+                binding.heap_shape = None;
+                binding.function_targets = FunctionTargetKnowledge::none();
+            }
+        }
 
         // 10.2.11 step 30: a function body is a statement-list scope too, and
         // its `let`/`const`/`class` names are uninitialized until their
@@ -689,9 +710,33 @@ impl<'a> ScriptLowerer<'a> {
         self.top_level_this_uses += lowerer.top_level_this_uses;
 
         let body_uses_super = summarize_block(&body).super_uses > 0;
+        let eval_environment = self.analysis.owner_eval_environment(&function.id);
+        let owned_env_bindings = self
+            .analysis
+            .owner_plans
+            .get(&function.id)
+            .map(|owner| {
+                owner
+                    .owned_env_slots
+                    .iter()
+                    .map(|(name, slot)| OwnedEnvBindingIr {
+                        name: name.clone(),
+                        slot: *slot,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .chain(lowerer.generated_owned_env_bindings)
+            .collect::<Vec<_>>();
+        let own_arguments_use = OwnArgumentsUse::from_source_analysis(
+            self.analysis.owner_free_refs.get(&function.id),
+            &owned_env_bindings,
+            eval_environment.as_ref(),
+        );
 
         FunctionIr {
-            eval_environment: self.analysis.owner_eval_environment(&function.id),
+            eval_environment,
             id: output_id,
             name: function.name.clone(),
             to_string_representation: function.to_string_representation.clone(),
@@ -708,6 +753,7 @@ impl<'a> ScriptLowerer<'a> {
                 }),
             resumable_plan,
             strict: function.strict,
+            own_arguments_use,
             class_element_execution_kind: ClassElementExecutionKind::None,
             class_heritage_kind: ClassHeritageKind::None,
             is_static_class_member: false,
@@ -734,24 +780,7 @@ impl<'a> ScriptLowerer<'a> {
                 .current_construct_this_info
                 .clone()
                 .unwrap_or_else(ValueInfo::undefined),
-            owned_env_bindings: self
-                .analysis
-                .owner_plans
-                .get(&function.id)
-                .map(|owner| {
-                    owner
-                        .owned_env_slots
-                        .iter()
-                        .map(|(name, slot)| OwnedEnvBindingIr {
-                            name: name.clone(),
-                            slot: *slot,
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .chain(lowerer.generated_owned_env_bindings)
-                .collect(),
+            owned_env_bindings,
             captured_bindings: function
                 .captures
                 .iter()

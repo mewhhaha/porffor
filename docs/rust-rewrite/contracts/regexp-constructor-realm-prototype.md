@@ -118,8 +118,8 @@ discovery.
 constructor identity after global replacement, constructor source/flags and
 prototype access order, matcher snapshots across input recompilation, flag
 errors in the defining realm, modifier grammar, and realm-local string iterator
-prototypes. These controls belong to the
-[2026-09-10 baseline repair batch](../latest-baseline-repairs.md).
+prototypes. Current failures and replay evidence belong in the
+[failure backlog](../../../tasks/README.md).
 
 ## Deferred gates
 

@@ -76,6 +76,12 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(proxy_handled_local));
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
+        self.emit_observe_legacy_arguments(
+            target_payload_local,
+            target_tag_local,
+            key_string_local,
+            function,
+        );
         self.emit_is_module_namespace_i32(target_payload_local, target_tag_local, function);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_namespace_descriptor_object(
@@ -380,52 +386,6 @@ impl<'a> FunctionBuilder<'a> {
             self.result_tag_local,
             function,
         )?;
-        function.instruction(&Instruction::End);
-
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::LocalGet(key_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Symbol.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::LocalGet(key_string_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        function.instruction(&Instruction::GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX));
-        function.instruction(&Instruction::LocalSet(entry_buffer_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Array.tag() as i64));
-        function.instruction(&Instruction::LocalSet(entry_len_local));
-        function.instruction(&Instruction::I64Const(
-            self.strings.property_key_symbol_payload("Symbol.iterator"),
-        ));
-        function.instruction(&Instruction::LocalSet(entry_key_local));
-        self.emit_object_read(
-            entry_buffer_local,
-            entry_len_local,
-            entry_buffer_local,
-            entry_len_local,
-            entry_key_local,
-            value_payload_local,
-            value_tag_local,
-            function,
-        )?;
-        self.emit_alloc_data_descriptor_from_locals(
-            value_payload_local,
-            value_tag_local,
-            true,
-            false,
-            true,
-            self.result_local,
-            function,
-        )?;
-        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
-        function.instruction(&Instruction::LocalSet(self.result_tag_local));
-        function.instruction(&Instruction::Br(1));
         function.instruction(&Instruction::End);
 
         function.instruction(&Instruction::LocalGet(target_tag_local));
@@ -906,10 +866,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::LocalGet(target_tag_local));
         function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-        function.instruction(&Instruction::I64Eq);
-        function.instruction(&Instruction::I32Or);
-        function.instruction(&Instruction::LocalGet(target_tag_local));
-        function.instruction(&Instruction::I64Const(ValueKind::Arguments.tag() as i64));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));

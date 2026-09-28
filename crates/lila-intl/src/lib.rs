@@ -10,12 +10,16 @@ use core::{fmt, fmt::Write as _};
 mod datetime;
 mod datetime_protocol;
 mod identifiers;
+mod intl_plural_rules_protocol;
+mod intl_relative_time_protocol;
+mod intl_services;
 mod locale_info;
 pub mod number_format;
 mod number_operation;
 mod number_protocol;
 mod protocol;
 mod provider;
+mod temporal_calendar;
 mod temporal_time_zone;
 mod time_zone;
 
@@ -31,69 +35,121 @@ pub use datetime::{
     DateTimeSupportedLocalesResult, DateTimeTextWidth, DateTimeValueKind, EncodedDateTimePlan,
 };
 pub use datetime_protocol::{
-    DateTimeWireError, DATE_TIME_COMPONENT_COUNT, DATE_TIME_INPUT_BYTES,
-    DATE_TIME_WIRE_HEADER_BYTES, DATE_TIME_WIRE_VERSION,
+    DATE_TIME_COMPONENT_COUNT, DATE_TIME_INPUT_BYTES, DATE_TIME_WIRE_HEADER_BYTES,
+    DATE_TIME_WIRE_VERSION, DateTimeWireError,
 };
 
 pub use locale_info::{
-    IsoWeekday, LocaleInfoError, LocaleInfoQuery, LocaleInfoRequest, LocaleInfoResponseKind,
-    LocaleInfoResult, LocaleInfoShape, LocaleInfoWireError, SupportedValuesKey,
-    SupportedValuesRequest, SupportedValuesResult, TextDirection, WeekInfo,
-    LOCALE_INFO_WIRE_HEADER_BYTES, LOCALE_INFO_WIRE_VERSION,
+    IsoWeekday, LOCALE_INFO_WIRE_HEADER_BYTES, LOCALE_INFO_WIRE_VERSION, LocaleInfoError,
+    LocaleInfoQuery, LocaleInfoRequest, LocaleInfoResponseKind, LocaleInfoResult, LocaleInfoShape,
+    LocaleInfoWireError, SupportedValuesKey, SupportedValuesRequest, SupportedValuesResult,
+    TextDirection, WeekInfo,
 };
 pub use number_operation::{
     NumberFormatOperationError, NumberFormatRequest, NumberRangeFormatRequest,
     NumberSupportedLocalesResult,
 };
 pub use number_protocol::{
-    NumberConfigurationWord, NumberNumericKind, NumberPrecisionKind, NumberWireError,
     NUMBER_APPROXIMATELY_SIGN_CODE, NUMBER_CONFIGURATION_WORDS, NUMBER_WIRE_HEADER_BYTES,
-    NUMBER_WIRE_VERSION,
+    NUMBER_WIRE_VERSION, NumberConfigurationWord, NumberNumericKind, NumberPrecisionKind,
+    NumberWireError,
+};
+
+pub use intl_plural_rules_protocol::{PLURAL_RULES_WIRE_HEADER_BYTES, PLURAL_RULES_WIRE_VERSION};
+pub use intl_relative_time_protocol::{
+    RELATIVE_TIME_WIRE_HEADER_BYTES, RELATIVE_TIME_WIRE_VERSION,
+};
+pub use intl_services::{
+    COLLATOR_WIRE_HEADER_BYTES, COLLATOR_WIRE_VERSION, CollationOption, CollatorCaseFirst,
+    CollatorCompareRequest, CollatorLocaleQuery, CollatorLocaleRequest, CollatorLocaleResult,
+    CollatorOptions, CollatorSensitivity, CollatorUsage, IntlServiceError, IntlServiceKind,
+    PluralCategory, PluralCategoryInput, PluralCategoryRequest, PluralRulesLocaleQuery,
+    PluralRulesLocaleRequest, PluralRulesLocaleResult, PluralRulesOptions, PluralRulesPrecision,
+    PluralRulesType, RelativeTimeFormatOptions, RelativeTimeFormatRequest, RelativeTimeLocaleQuery,
+    RelativeTimeLocaleRequest, RelativeTimeLocaleResult, RelativeTimeNumberKind,
+    RelativeTimeNumeric, RelativeTimePart, RelativeTimePartKind, RelativeTimeParts,
+    RelativeTimeStyle, RelativeTimeUnit, ResolvedCollator, ResolvedCollatorOptions,
+    ResolvedPluralRules, ResolvedRelativeTimeFormat, ServiceLocaleMatcher,
+    encode_collator_comparison, relative_time_available_locales,
+};
+
+pub use temporal_calendar::{
+    InvalidTemporalCalendarRequest, TEMPORAL_CALENDAR_FROM_FIELDS_DAY,
+    TEMPORAL_CALENDAR_FROM_FIELDS_ERA, TEMPORAL_CALENDAR_FROM_FIELDS_ERA_YEAR,
+    TEMPORAL_CALENDAR_FROM_FIELDS_MONTH, TEMPORAL_CALENDAR_FROM_FIELDS_MONTH_CODE,
+    TEMPORAL_CALENDAR_FROM_FIELDS_YEAR, TEMPORAL_CALENDAR_ISO_DAYS_LIMIT,
+    TEMPORAL_CALENDAR_REQUEST_BYTES, TEMPORAL_CALENDAR_REQUEST_CALENDAR_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_DAY_OFFSET, TEMPORAL_CALENDAR_REQUEST_DURATION_DAYS_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_DURATION_MONTHS_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_DURATION_WEEKS_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_DURATION_YEARS_OFFSET, TEMPORAL_CALENDAR_REQUEST_ERA_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_ERA_YEAR_OFFSET, TEMPORAL_CALENDAR_REQUEST_FLAGS_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_ISO_DAY_OFFSET, TEMPORAL_CALENDAR_REQUEST_ISO_MONTH_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_ISO_YEAR_OFFSET, TEMPORAL_CALENDAR_REQUEST_KIND_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_MONTH_CODE_OFFSET, TEMPORAL_CALENDAR_REQUEST_MONTH_OFFSET,
+    TEMPORAL_CALENDAR_REQUEST_OVERFLOW_OFFSET, TEMPORAL_CALENDAR_REQUEST_WORDS,
+    TEMPORAL_CALENDAR_REQUEST_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_BYTES,
+    TEMPORAL_CALENDAR_RESPONSE_DAY_OF_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_DAY_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_DAYS_IN_MONTH_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_DAYS_IN_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_ERA_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_ERA_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_IN_LEAP_YEAR_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_ISO_DAY_OFFSET, TEMPORAL_CALENDAR_RESPONSE_ISO_MONTH_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_ISO_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_MONTH_CODE_LEAP_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_MONTH_CODE_OFFSET, TEMPORAL_CALENDAR_RESPONSE_MONTH_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_MONTHS_IN_YEAR_OFFSET, TEMPORAL_CALENDAR_RESPONSE_STATUS_OFFSET,
+    TEMPORAL_CALENDAR_RESPONSE_WORDS, TEMPORAL_CALENDAR_RESPONSE_YEAR_OFFSET,
+    TEMPORAL_CALENDAR_STATUS_DATE, TemporalCalendar, TemporalCalendarAnswer, TemporalCalendarDate,
+    TemporalCalendarDateFields, TemporalCalendarDuration, TemporalCalendarEra,
+    TemporalCalendarError, TemporalCalendarOverflow, TemporalCalendarQuery,
+    TemporalCalendarQueryKind, TemporalCalendarRangeError, TemporalCalendarRequest,
+    TemporalIsoDate, TemporalMonthCode,
 };
 
 pub use time_zone::{
-    FixedTimeZoneOffset, InvalidTimeZoneData, InvalidTimeZoneRequest, LookupNamedTimeZoneRequest,
-    LookupNamedTimeZoneResult, NamedTimeZoneIdentity, ResolveTimeZoneRequest,
-    ResolvedTimeZoneSnapshot, TimeZoneEpochSeconds, TimeZoneKind, TimeZoneNameStyle,
-    TimeZoneResolveError, TimeZoneSelection, LOOKUP_TIME_ZONE_HEADER_BYTES,
-    LOOKUP_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET, LOOKUP_TIME_ZONE_PRIMARY_LENGTH_OFFSET,
-    RESOLVE_TIME_ZONE_EPOCH_SECONDS_OFFSET, RESOLVE_TIME_ZONE_FIXED_SECONDS_OFFSET,
-    RESOLVE_TIME_ZONE_HEADER_BYTES, RESOLVE_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET,
-    RESOLVE_TIME_ZONE_KIND_OFFSET, RESOLVE_TIME_ZONE_LOCALE_LENGTH_OFFSET,
-    RESOLVE_TIME_ZONE_NAME_STYLE_OFFSET, RESOLVE_TIME_ZONE_RESULT_HEADER_BYTES,
+    FixedTimeZoneOffset, InvalidTimeZoneData, InvalidTimeZoneRequest,
+    LOOKUP_TIME_ZONE_HEADER_BYTES, LOOKUP_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET,
+    LOOKUP_TIME_ZONE_PRIMARY_LENGTH_OFFSET, LookupNamedTimeZoneRequest, LookupNamedTimeZoneResult,
+    NamedTimeZoneIdentity, RESOLVE_TIME_ZONE_EPOCH_SECONDS_OFFSET,
+    RESOLVE_TIME_ZONE_FIXED_SECONDS_OFFSET, RESOLVE_TIME_ZONE_HEADER_BYTES,
+    RESOLVE_TIME_ZONE_IDENTIFIER_LENGTH_OFFSET, RESOLVE_TIME_ZONE_KIND_OFFSET,
+    RESOLVE_TIME_ZONE_LOCALE_LENGTH_OFFSET, RESOLVE_TIME_ZONE_NAME_STYLE_OFFSET,
+    RESOLVE_TIME_ZONE_RESULT_HEADER_BYTES, ResolveTimeZoneRequest, ResolvedTimeZoneSnapshot,
+    TimeZoneEpochSeconds, TimeZoneKind, TimeZoneNameStyle, TimeZoneResolveError, TimeZoneSelection,
 };
 
 pub use temporal_time_zone::{
-    temporal_offset_match_word, InvalidTemporalTimeZoneRequest, TemporalDisambiguation,
-    TemporalOffsetMatch, TemporalOffsetMinutes, TemporalOffsetMismatch, TemporalSeconds,
-    TemporalTimeZone, TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneQuery,
-    TemporalTimeZoneQueryKind, TemporalTimeZoneRangeError, TemporalTimeZoneRequest,
-    TemporalTransitionDirection, TEMPORAL_EPOCH_SECONDS_LIMIT, TEMPORAL_ISO_DAYS_LIMIT,
+    InvalidTemporalTimeZoneRequest, TEMPORAL_EPOCH_SECONDS_LIMIT, TEMPORAL_ISO_DAYS_LIMIT,
     TEMPORAL_TIME_ZONE_REQUEST_HEADER_BYTES, TEMPORAL_TIME_ZONE_REQUEST_KIND_OFFSET,
     TEMPORAL_TIME_ZONE_REQUEST_MATCH_OFFSET, TEMPORAL_TIME_ZONE_REQUEST_MODE_OFFSET,
     TEMPORAL_TIME_ZONE_REQUEST_OFFSET_NANOSECONDS_OFFSET,
     TEMPORAL_TIME_ZONE_REQUEST_SECONDS_OFFSET, TEMPORAL_TIME_ZONE_REQUEST_SUBSECOND_OFFSET,
     TEMPORAL_TIME_ZONE_RESPONSE_BYTES, TEMPORAL_TIME_ZONE_RESPONSE_STATUS_OFFSET,
     TEMPORAL_TIME_ZONE_RESPONSE_VALUE_OFFSET, TEMPORAL_TIME_ZONE_STATUS_NO_TRANSITION,
-    TEMPORAL_TIME_ZONE_STATUS_SECONDS,
+    TEMPORAL_TIME_ZONE_STATUS_SECONDS, TemporalDisambiguation, TemporalOffsetMatch,
+    TemporalOffsetMinutes, TemporalOffsetMismatch, TemporalSeconds, TemporalTimeZone,
+    TemporalTimeZoneAnswer, TemporalTimeZoneError, TemporalTimeZoneQuery,
+    TemporalTimeZoneQueryKind, TemporalTimeZoneRangeError, TemporalTimeZoneRequest,
+    TemporalTransitionDirection, temporal_offset_match_word,
 };
 
 pub use identifiers::{
     CanonicalLocaleId, InvalidCanonicalLocaleId, InvalidLocaleId, InvalidTimeZoneId, LocaleId,
-    TimeZoneId, MAX_TIME_ZONE_IDENTIFIER_BYTES,
+    MAX_TIME_ZONE_IDENTIFIER_BYTES, TimeZoneId,
 };
 pub use protocol::{
-    CanonicalizeLocale, FormatDateTimeParts, FormatDateTimeRangeParts, FormatNumberParts,
-    FormatNumberRangeParts, IntlHostCallOutcome, IntlHostOp, IntlHostReadSpan, IntlHostWriteSpan,
-    IntlKernel, IntlOperation, IntlOperationHandle, IntlOperationProvider, IntlProvider,
-    IntlProviderIdentityMismatch, LocaleInfo, LocaleTransformError, LocaleTransformRequest,
-    LocaleTransformResult, LookupNamedTimeZone, MaximizeLocale, MinimizeLocale,
-    MissingIntlCapabilities, QueryTemporalTimeZone, ResolveDateTimeLocale, ResolveNumberLocale,
-    ResolveTimeZone, SelectDateTimeFormat, SupportedDateTimeLocales, SupportedNumberLocales,
-    SupportedValues, UnknownTimeZone, UnsupportedLocale,
+    CanonicalizeLocale, CompareCollator, FormatDateTimeParts, FormatDateTimeRangeParts,
+    FormatNumberParts, FormatNumberRangeParts, FormatRelativeTime, IntlHostCallOutcome, IntlHostOp,
+    IntlHostReadSpan, IntlHostWriteSpan, IntlKernel, IntlOperation, IntlOperationHandle,
+    IntlOperationProvider, IntlProvider, IntlProviderIdentityMismatch, LocaleInfo,
+    LocaleTransformError, LocaleTransformRequest, LocaleTransformResult, LookupNamedTimeZone,
+    MaximizeLocale, MinimizeLocale, MissingIntlCapabilities, QueryTemporalCalendar,
+    QueryTemporalTimeZone, ResolveCollatorLocale, ResolveDateTimeLocale, ResolveNumberLocale,
+    ResolvePluralRulesLocale, ResolveRelativeTimeLocale, ResolveTimeZone, SelectDateTimeFormat,
+    SelectPluralCategory, SupportedDateTimeLocales, SupportedNumberLocales, SupportedValues,
+    UnknownTimeZone, UnsupportedLocale,
 };
 pub use provider::{
-    embedded_intl_data_identity, EmbeddedIntlProvider, EmbeddedIntlProviderSetupError,
+    EmbeddedIntlProvider, EmbeddedIntlProviderSetupError, embedded_intl_data_identity,
 };
 
 // The embedded provider crosses Wasmtime store and agent-thread boundaries.
@@ -738,18 +794,26 @@ mod tests {
             profile.services(),
             IntlServiceSet::EMPTY.with(IntlService::Locale)
         );
-        assert!(profile
-            .capabilities()
-            .contains(IntlDataCapability::TimeZoneTransitions));
-        assert!(profile
-            .capabilities()
-            .contains(IntlDataCapability::TimeZoneNames));
-        assert!(!profile
-            .capabilities()
-            .contains(IntlDataCapability::DateTimePatterns));
-        assert!(!profile
-            .capabilities()
-            .contains(IntlDataCapability::Calendars));
+        assert!(
+            profile
+                .capabilities()
+                .contains(IntlDataCapability::TimeZoneTransitions)
+        );
+        assert!(
+            profile
+                .capabilities()
+                .contains(IntlDataCapability::TimeZoneNames)
+        );
+        assert!(
+            !profile
+                .capabilities()
+                .contains(IntlDataCapability::DateTimePatterns)
+        );
+        assert!(
+            !profile
+                .capabilities()
+                .contains(IntlDataCapability::Calendars)
+        );
     }
 
     #[test]

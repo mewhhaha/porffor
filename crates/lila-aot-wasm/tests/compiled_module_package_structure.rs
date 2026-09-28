@@ -26,7 +26,7 @@ fn compiled_module_package_has_one_private_owner_and_narrow_reexport() {
     );
     assert!(!module_production.contains("\npub mod compiled_module_package;\n"));
     assert!(!module_production.contains("\nmod compiled_module_package {\n"));
-    assert!(OWNER_SOURCE.contains("\nuse super::*;\n\n"));
+    assert!(OWNER_SOURCE.lines().any(|line| line == "use super::*;"));
 
     let reexport = bounded(
         module_production,
@@ -88,8 +88,10 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
         );
     }
     assert!(OWNER_SOURCE.contains("const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>)"));
-    assert!(OWNER_SOURCE
-        .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)"));
+    assert!(
+        OWNER_SOURCE
+            .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)")
+    );
 
     let assembly = bounded(
         OWNER_SOURCE,
@@ -134,19 +136,20 @@ fn callable_function_table_is_a_mandatory_package_input() {
         );
     }
 
-    assert_eq!(
-        MODULE_SOURCE
-            .matches("pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = 1;")
-            .count(),
-        1
-    );
+    assert!(MODULE_SOURCE.contains(
+        "pub(crate) const JS_FUNCTION_TYPE_INDEX: u32 = crate::abi::CallAbi::Js.type_index();"
+    ));
     let type_registry = bounded(
         OWNER_SOURCE,
         "impl ModuleTypeRegistry {",
         "    /// Consumes every scalar/dynamic global",
     );
     let main_signature = "types.function([], [ValType::I64]);";
-    let javascript_signature = "types.function(\n            function_param_types(),\n            [ValType::I64, ValType::I64, ValType::I64, ValType::I64],\n        );";
+    let argument_vector_type = "types.arg_vector();";
+    let javascript_signature =
+        "types.function(CallAbi::Js.parameter_types(), CallAbi::Js.result_types())";
+    let raw_signature =
+        "types.function(CallAbi::Raw.parameter_types(), CallAbi::Raw.result_types())";
     let heap_allocation_signature = "types.function([ValType::I64], [ValType::I64]);";
     let registry_creation = "let mut types = ModuleTypeSectionBuilder::new();";
     let registry_creation_offset = type_registry
@@ -155,17 +158,25 @@ fn callable_function_table_is_a_mandatory_package_input() {
     let main_type = type_registry
         .find(main_signature)
         .expect("main function type registration");
+    let argument_vector = type_registry
+        .find(argument_vector_type)
+        .expect("native argument-vector type registration");
     let javascript_type = type_registry
         .find(javascript_signature)
         .expect("JavaScript function type registration");
+    let raw_type = type_registry
+        .find(raw_signature)
+        .expect("raw helper type registration");
     let heap_allocation_type = type_registry
         .find(heap_allocation_signature)
         .expect("heap-allocation function type registration");
     assert!(
         registry_creation_offset < main_type
-            && main_type < javascript_type
-            && javascript_type < heap_allocation_type,
-        "the registry must construct main, JavaScript and heap-allocation types in index order"
+            && main_type < argument_vector
+            && argument_vector < javascript_type
+            && javascript_type < raw_type
+            && raw_type < heap_allocation_type,
+        "the registry must construct main, argument vector, JavaScript, raw helper and heap-allocation types in index order"
     );
     assert!(
         type_registry[registry_creation_offset + registry_creation.len()..main_type]
@@ -174,18 +185,12 @@ fn callable_function_table_is_a_mandatory_package_input() {
         "the main signature must remain type index 0"
     );
     assert!(
-        type_registry[main_type + main_signature.len()..javascript_type]
+        type_registry[main_type + main_signature.len()..argument_vector]
             .trim()
             .is_empty(),
-        "the JavaScript signature must immediately follow the main signature"
+        "the native argument vector must immediately follow the main signature"
     );
-    assert!(
-        type_registry[javascript_type + javascript_signature.len()..heap_allocation_type]
-            .trim()
-            .is_empty(),
-        "the JavaScript signature must remain type index 1"
-    );
-    assert_eq!(type_registry.matches("function_param_types()").count(), 1);
+    assert_eq!(type_registry.matches(argument_vector_type).count(), 1);
 
     assert!(!OWNER_SOURCE.contains("pub(crate) struct CallableFunctionTableSections"));
     let callable_sections = bounded(

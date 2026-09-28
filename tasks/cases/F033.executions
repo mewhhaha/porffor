@@ -1,0 +1,12 @@
+module:language/module-code/top-level-await/syntax/for-in-await-expr-array-literal.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-func-expression.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-identifier.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-literal-number.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-literal-string.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-nested.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-new-expr.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-null.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-obj-literal.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-regexp.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-template-literal.js
+module:language/module-code/top-level-await/syntax/for-in-await-expr-this.js

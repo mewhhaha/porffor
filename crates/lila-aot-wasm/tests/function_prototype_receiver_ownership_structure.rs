@@ -5,8 +5,6 @@ const SOURCE: &str = include_str!("../src/builtins/function.rs");
 const STANDARD: &str = include_str!("../src/builtins/standard.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/function-prototype-receiver-ownership.md");
-const T02: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK: &str = include_str!("../../../tasks/09-functions-classes-private-elements.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -345,14 +343,13 @@ fn each_operation_keeps_payload_and_tag_on_the_same_carrier() {
 }
 
 #[test]
-fn contract_and_task_record_the_receiver_authority() {
+fn contract_records_the_receiver_authority() {
     for marker in [
         "paired Function prototype receiver authority",
         "cannot mix payload and tag sources",
         "function_prototype_receiver_ownership_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
     }
 
     let identifiers = rust_code(SOURCE).identifiers;
@@ -427,7 +424,7 @@ fn contract_and_task_record_the_receiver_authority() {
             "fixed Function producer `{variant}`"
         );
     }
-    for evidence in [CONTRACT, T02, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `FunctionBuiltin`"));
         assert!(evidence.contains("fixed Function entries"));
         assert!(evidence.contains("source-equivalent"));

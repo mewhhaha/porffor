@@ -33,7 +33,7 @@ impl ScriptLowerer<'_> {
                 None => FunctionBodyBindingValueIr::Undefined,
             };
             let info = if parameter_slot.is_some() {
-                self.lookup_binding(name)
+                self.lookup_binding(parameter_name)
                     .map(|binding| ValueInfo {
                         kind: binding.kind,
                         possible_kinds: binding.possible_kinds,

@@ -75,10 +75,7 @@ cargo test --locked -p lila-aot-wasm --test temporal_duration_number_fields_stru
 cargo test --locked -p lila-engine --test aot_temporal_duration_wide_fields --test aot_temporal_instant_methods --test aot_temporal_zoned_date_time_difference --test aot_temporal_plain_date_zoned -- --test-threads=1
 ```
 
-The change passes a deterministic independent integer/Fraction audit of the
-arithmetic algorithms. Integrated checkpoint seventeen revision one passes all
-eight native wide-Duration tests and all twelve Instant method tests. Its
-selected pinned Instant replay passes 227/229; the two remaining failures concern
-option-read order, not wide-field arithmetic. Compiler identities and full
-limitations are in the [completed-baseline notes](completed-baseline-follow-up.md).
-No published full-suite conformance count is changed here.
+The arithmetic has deterministic independent integer/Fraction audit coverage.
+Use the native wide-Duration and Instant method targets above when changing this
+boundary. Current failing executions and cause evidence belong in the
+[failure backlog](../../tasks/README.md); historical batch results remain in Git.

@@ -1,0 +1,4 @@
+module:language/module-code/export-expname-from-star-string.js
+module:language/module-code/export-expname-import-string-binding.js
+module:language/module-code/import-attributes/import-attribute-empty.js
+module:staging/sm/module/module-export-name-star.js
