@@ -1273,9 +1273,9 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    /// `TemporalMonthDayToString`. The reference year is prefixed only when the
-    /// calendar annotation is shown, which is the only way a round-trip could
-    /// otherwise lose it.
+    /// `TemporalMonthDayToString`. The reference ISO year is included for every
+    /// non-ISO calendar and when the caller requests always or critical,
+    /// independently of whether the calendar annotation is visible.
     pub(crate) fn emit_temporal_plain_month_day_to_string(
         &mut self,
         builtin: StandardBuiltinId,
@@ -1319,10 +1319,9 @@ impl<'a> FunctionBuilder<'a> {
             )?;
         }
 
-        // `TemporalMonthDayToString` step 2: the reference year is printed
-        // under exactly the condition that prints the calendar annotation, so
-        // `--01-05[u-ca=gregory]` is never emitted without its `1972-`.
-        self.emit_temporal_show_calendar_annotation_i32(
+        // A non-ISO calendar keeps its reference ISO year even with
+        // calendarName: "never"; only the annotation is suppressed.
+        self.emit_temporal_include_reference_iso_field_i32(
             show_calendar_local,
             calendar_payload_local,
             function,

@@ -14,6 +14,8 @@ const fn proxy_execution_realm_access(
             ProxyExecutionRealmAccess::MainRealmFallback
         }
         ProxyExecutionRealmSource::StandardBuiltinEnvironment
+        | ProxyExecutionRealmSource::BoundFunctionCallerEnvironment
+        | ProxyExecutionRealmSource::FunctionCallHelperArgument
         | ProxyExecutionRealmSource::ObjectReadHelperArgument
         | ProxyExecutionRealmSource::ProxyDispatchHelperArgument => {
             ProxyExecutionRealmAccess::TrustedCurrentEnvironment
@@ -107,6 +109,17 @@ mod tests {
 
     #[test]
     fn proxy_execution_realm_excludes_ordinary_lexical_environments() {
+        assert_eq!(
+            ProxyExecutionRealmSource::for_initial_body(
+                crate::emit::NumericErrorRealmSource::StandardBuiltinEnvironment,
+                Some(StandardBuiltinId::BoundFunctionInvoker),
+            ),
+            ProxyExecutionRealmSource::BoundFunctionCallerEnvironment,
+        );
+        assert_eq!(
+            ProxyExecutionRealmSource::for_runtime_helper(RuntimeHelperId::FunctionCall),
+            ProxyExecutionRealmSource::FunctionCallHelperArgument,
+        );
         let proxy_dispatch_helpers = RuntimeHelperId::ALL
             .iter()
             .copied()
@@ -147,6 +160,8 @@ mod tests {
 
         for source in [
             ProxyExecutionRealmSource::StandardBuiltinEnvironment,
+            ProxyExecutionRealmSource::BoundFunctionCallerEnvironment,
+            ProxyExecutionRealmSource::FunctionCallHelperArgument,
             ProxyExecutionRealmSource::ObjectReadHelperArgument,
             ProxyExecutionRealmSource::ProxyDispatchHelperArgument,
         ] {

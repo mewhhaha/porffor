@@ -318,7 +318,7 @@ fn each_operation_keeps_payload_and_tag_on_the_same_carrier() {
         ("PrototypeSymbolHasInstance", "PrototypeCall", 1, 1),
         ("PrototypeCall", "PrototypeApply", 1, 1),
         ("PrototypeApply", "PrototypeBind", 2, 2),
-        ("PrototypeBind", "PrototypeToString", 1, 2),
+        ("PrototypeBind", "PrototypeToString", 2, 2),
         ("PrototypeToString", "BoundFunctionInvoker", 2, 2),
     ] {
         let branch = bounded(
@@ -338,8 +338,20 @@ fn each_operation_keeps_payload_and_tag_on_the_same_carrier() {
             1
         );
     }
-    assert_eq!(operations.matches("receiver.payload_local()").count(), 7);
+    assert_eq!(operations.matches("receiver.payload_local()").count(), 8);
     assert_eq!(operations.matches("receiver.tag_local()").count(), 8);
+    let bind = bounded(
+        operations,
+        "FunctionBuiltin::PrototypeBind => {",
+        "FunctionBuiltin::PrototypeToString => {",
+    );
+    assert!(
+        bind.find("self.emit_is_callable_i32(").unwrap()
+            < bind
+                .find("self.emit_alloc_bound_function_for_bind(")
+                .unwrap(),
+        "bind must validate the same paired receiver before allocation"
+    );
 }
 
 #[test]

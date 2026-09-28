@@ -2033,9 +2033,9 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
-    /// `TemporalYearMonthToString`. The reference day is appended only when the
-    /// calendar annotation is shown, which is the only way a round-trip could
-    /// otherwise lose it.
+    /// `TemporalYearMonthToString`. The reference ISO day is included for every
+    /// non-ISO calendar and when the caller requests always or critical,
+    /// independently of whether the calendar annotation is visible.
     pub(crate) fn emit_temporal_plain_year_month_to_string(
         &mut self,
         builtin: StandardBuiltinId,
@@ -2094,10 +2094,9 @@ impl<'a> FunctionBuilder<'a> {
             number_payload_local,
             function,
         )?;
-        // `TemporalYearMonthToString` step 4: the reference day is printed
-        // under exactly the condition that prints the calendar annotation, so
-        // `2026-01[u-ca=gregory]` is never emitted without its `-01`.
-        self.emit_temporal_show_calendar_annotation_i32(
+        // A non-ISO calendar keeps its reference ISO day even with
+        // calendarName: "never"; only the annotation is suppressed.
+        self.emit_temporal_include_reference_iso_field_i32(
             show_calendar_local,
             calendar_payload_local,
             function,
@@ -2246,18 +2245,30 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    /// Leaves an `i32` on the stack: 1 when the calendar has to appear in the
-    /// output.
-    ///
-    /// `FormatCalendarAnnotation` steps 1-2: `never` never prints,
-    /// `always`/`critical` always print, and `auto` prints exactly when the
-    /// calendar is not `iso8601`. `TemporalYearMonthToString` step 4 (the
-    /// reference day) and `TemporalMonthDayToString` step 2 (the reference
-    /// year) are gated on the *same* condition, which is why this is one
-    /// emitter and not three copies of an `or` that could drift.
-    ///
-    /// Before a second calendar existed the `auto` half was unreachable and the
-    /// three sites each spelled out only the `always || critical` part.
+    /// Leaves an `i32` on the stack: 1 when MonthDay's reference ISO year or
+    /// YearMonth's reference ISO day must appear. The date field remains when
+    /// a non-ISO calendar is hidden by `calendarName: "never"`.
+    pub(crate) fn emit_temporal_include_reference_iso_field_i32(
+        &mut self,
+        show_calendar_local: u32,
+        calendar_payload_local: u32,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::LocalGet(show_calendar_local));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Always.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::LocalGet(show_calendar_local));
+        function.instruction(&Instruction::I64Const(ShowCalendarName::Critical.code()));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
+        self.emit_temporal_calendar_is_default_i32(calendar_payload_local, function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Or);
+    }
+
+    /// Leaves an `i32` on the stack: 1 when the calendar annotation appears.
+    /// `FormatCalendarAnnotation` suppresses it for never and for ISO with
+    /// auto; always and critical include it for every calendar.
     pub(crate) fn emit_temporal_show_calendar_annotation_i32(
         &mut self,
         show_calendar_local: u32,

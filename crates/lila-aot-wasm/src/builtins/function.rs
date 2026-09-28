@@ -301,13 +301,24 @@ impl<'a> FunctionBuilder<'a> {
                     FunctionPrototypeReceiverLocals::from_this(self, "Function.prototype.bind")?;
                 let bound_args_payload_local = self.reserve_temp_local();
 
+                self.emit_is_callable_i32(
+                    receiver.tag_local(),
+                    receiver.payload_local(),
+                    function,
+                )?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::If(BlockType::Empty));
+                self.emit_throw_current_function_realm_type_error(
+                    "Function.prototype.bind receiver is not callable",
+                    self.result_local,
+                    self.result_tag_local,
+                    function,
+                )?;
+                self.emit_return_current_completion(function);
+                function.instruction(&Instruction::End);
+
                 self.emit_rest_array_payload(1, function)?;
                 function.instruction(&Instruction::LocalSet(bound_args_payload_local));
-
-                function.instruction(&Instruction::LocalGet(receiver.tag_local()));
-                function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
-                function.instruction(&Instruction::I64Eq);
-                function.instruction(&Instruction::If(BlockType::Empty));
                 self.emit_alloc_bound_function_for_bind(
                     receiver.payload_local(),
                     receiver.tag_local(),
@@ -317,20 +328,6 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self.result_tag_local));
-                function.instruction(&Instruction::Else);
-                self.emit_throw_runtime_error(
-                    TYPE_ERROR_NAME,
-                    "Function.prototype.bind receiver is not callable",
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                self.emit_propagate_throw_from_locals_if_needed(
-                    self.result_local,
-                    self.result_tag_local,
-                    function,
-                )?;
-                function.instruction(&Instruction::End);
 
                 self.release_temp_local(bound_args_payload_local);
             }
@@ -430,7 +427,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(proxy_target_payload_local);
             }
             FunctionBuiltin::BoundFunctionInvoker => {
-                let record_local = self.current_env_local;
+                let record_local = self.reserve_temp_local();
+                function.instruction(&Instruction::LocalGet(self.current_env_local));
+                function.instruction(&Instruction::LocalSet(record_local));
                 let target_payload_local = self.reserve_temp_local();
                 let target_tag_local = self.reserve_temp_local();
                 let bound_this_payload_local = self.reserve_temp_local();
@@ -453,6 +452,15 @@ impl<'a> FunctionBuilder<'a> {
                     self_payload_local,
                     function,
                 );
+                // Bound [[Call]] and [[Construct]] do not push an execution
+                // context. The caller passes its trusted Realm context through
+                // the ignored `this` payload; the bound record is only slot
+                // storage and must never be passed to Proxy dispatch helpers.
+                function.instruction(&Instruction::LocalGet(
+                    self.this_payload_local
+                        .expect("bound invoker requires the JS call ABI"),
+                ));
+                function.instruction(&Instruction::LocalSet(self.current_env_local));
                 function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
                 function.instruction(&Instruction::LocalSet(self_tag_local));
                 self.emit_concat_argv_payloads(
@@ -472,10 +480,11 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
                 function.instruction(&Instruction::I64Eq);
                 function.instruction(&Instruction::If(BlockType::Empty));
-                self.emit_function_handle_call_with_argv(
+                self.emit_function_or_proxy_call_with_argv_without_throw_propagation(
                     target_payload_local,
                     target_tag_local,
-                    Some((bound_this_payload_local, Some(bound_this_tag_local))),
+                    bound_this_payload_local,
+                    bound_this_tag_local,
                     merged_argc_local,
                     merged_argv_local,
                     self.result_local,
@@ -496,7 +505,7 @@ impl<'a> FunctionBuilder<'a> {
                 function.instruction(&Instruction::LocalGet(target_tag_local));
                 function.instruction(&Instruction::LocalSet(forwarded_new_target_tag_local));
                 function.instruction(&Instruction::End);
-                self.emit_function_handle_construct_with_argv(
+                self.emit_function_or_proxy_construct_with_argv(
                     target_payload_local,
                     target_tag_local,
                     forwarded_new_target_payload_local,
@@ -520,6 +529,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.release_temp_local(bound_this_payload_local);
                 self.release_temp_local(target_tag_local);
                 self.release_temp_local(target_payload_local);
+                self.release_temp_local(record_local);
             }
         }
         Ok(())

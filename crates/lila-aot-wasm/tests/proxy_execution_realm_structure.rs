@@ -3,6 +3,7 @@ use std::path::Path;
 
 const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
+const FUNCTION_BUILTIN_SOURCE: &str = include_str!("../src/builtins/function.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const REALM_OWNER_SOURCE: &str = include_str!("../src/functions/proxy_execution_realm.rs");
 const GLOBAL_ENVIRONMENT_SOURCE: &str = include_str!("../src/environments/global_environment.rs");
@@ -63,6 +64,8 @@ fn proxy_execution_realm_source_is_closed_and_builder_owned() {
         [
             "MainRealmFallback,",
             "StandardBuiltinEnvironment,",
+            "BoundFunctionCallerEnvironment,",
+            "FunctionCallHelperArgument,",
             "ObjectReadHelperArgument,",
             "ProxyDispatchHelperArgument,",
         ]
@@ -86,12 +89,19 @@ fn proxy_execution_realm_source_is_closed_and_builder_owned() {
         "\n    }\n\n    pub(crate) const fn object_read_error_realm_source",
     ));
     assert_eq!(accessor, "self.proxy_execution_realm_source");
-    assert_eq!(
-        EMIT_SOURCE
-            .matches("ProxyExecutionRealmSource::for_initial_body(numeric_error_realm_source)")
-            .count(),
-        1
-    );
+    let initial_source = normalized(bounded(
+        EMIT_SOURCE,
+        "let standard_builtin = ",
+        "\n        Self {",
+    ));
+    assert!(initial_source.contains(concat!(
+        "function_id.as_ref().and_then(|id|functions.get(id))",
+        ".and_then(|meta|meta.standard_builtin);"
+    )));
+    assert!(initial_source.contains(concat!(
+        "ProxyExecutionRealmSource::for_initial_body(",
+        "numeric_error_realm_source,standard_builtin,)"
+    )));
 
     assert_eq!(
         FUNCTIONS_SOURCE
@@ -111,12 +121,14 @@ fn initial_and_helper_body_sources_project_exhaustively() {
     );
     let initial_projection = normalized(bounded(
         source_domain,
-        "const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {",
+        "pub(crate) const fn for_initial_body(",
         "\n    }\n\n    /// The closed body-domain transition",
     ));
     assert!(initial_projection.contains(concat!(
-        "NumericErrorRealmSource::StandardBuiltinEnvironment=>",
-        "Self::StandardBuiltinEnvironment,"
+        "NumericErrorRealmSource::StandardBuiltinEnvironment=>{",
+        "ifmatches!(standard_builtin,Some(StandardBuiltinId::BoundFunctionInvoker)){",
+        "Self::BoundFunctionCallerEnvironment",
+        "}else{Self::StandardBuiltinEnvironment}"
     )));
     assert!(initial_projection.contains(concat!(
         "NumericErrorRealmSource::GlobalFallback|",
@@ -146,6 +158,10 @@ fn initial_and_helper_body_sources_project_exhaustively() {
         (
             "Self::ProxyDispatchHelperArgument",
             concat!("RuntimeHelperId::ProxyCall|RuntimeHelperId::ProxyConstruct=>{",),
+        ),
+        (
+            "Self::FunctionCallHelperArgument",
+            "RuntimeHelperId::FunctionCall=>",
         ),
     ] {
         assert_eq!(
@@ -184,6 +200,8 @@ fn proxy_realm_methods_share_one_trusted_access_projection() {
     )));
     assert!(access_projection.contains(concat!(
         "ProxyExecutionRealmSource::StandardBuiltinEnvironment|",
+        "ProxyExecutionRealmSource::BoundFunctionCallerEnvironment|",
+        "ProxyExecutionRealmSource::FunctionCallHelperArgument|",
         "ProxyExecutionRealmSource::ObjectReadHelperArgument|",
         "ProxyExecutionRealmSource::ProxyDispatchHelperArgument=>{",
         "ProxyExecutionRealmAccess::TrustedCurrentEnvironment}"
@@ -259,6 +277,12 @@ fn proxy_realm_methods_share_one_trusted_access_projection() {
 #[test]
 fn proxy_and_object_read_helpers_restore_parameter_six_and_forward_it() {
     for (runtime_body_id, start, end, dispatch) in [
+        (
+            "RuntimeHelperId::FunctionCall",
+            "fn compile_function_call_helper(&mut self)",
+            "fn compile_dynamic_property_read_helper(&mut self)",
+            "self.emit_function_handle_call_with_argv_inner(",
+        ),
         (
             "RuntimeHelperId::ProxyCall",
             "fn compile_proxy_call_helper(&mut self)",
@@ -416,11 +440,11 @@ fn proxy_and_object_read_helpers_restore_parameter_six_and_forward_it() {
         "function.instruction(&Instruction::Else);",
     ));
     assert!(plain_function_tail.ends_with(concat!(
-        "function.instruction(&Instruction::LocalGet(argv_local));",
-        "function.instruction(&Instruction::I64Const(0));",
+        "function.instruction(&Instruction::LocalGet(argv_local.index()));",
+        "self.emit_proxy_execution_realm_argument(function);",
         "function.instruction(&Instruction::ReturnCall(function_helper));"
     )));
-    assert!(!plain_function_tail.contains("emit_proxy_execution_realm_argument"));
+    assert!(!plain_function_tail.contains("Instruction::I64Const(0)"));
 
     let proxy_tail = normalized(bounded(
         tail_dispatch,
@@ -433,11 +457,92 @@ fn proxy_and_object_read_helpers_restore_parameter_six_and_forward_it() {
         "function.instruction(&Instruction::LocalGet(this_payload_local));",
         "function.instruction(&Instruction::LocalGet(this_tag_local));",
         "function.instruction(&Instruction::LocalGet(argc_local));",
-        "function.instruction(&Instruction::LocalGet(argv_local));",
+        "function.instruction(&Instruction::LocalGet(argv_local.index()));",
         "self.emit_proxy_execution_realm_argument(function);",
         "function.instruction(&Instruction::ReturnCall(proxy_helper));"
     )));
     assert!(!proxy_tail.contains("Instruction::I64Const(0)"));
+}
+
+#[test]
+fn bound_dispatch_carries_the_callers_context_without_using_the_bound_record_as_a_realm() {
+    let common_call = bounded(
+        FUNCTIONS_SOURCE,
+        "pub(crate) fn emit_function_handle_call_with_argv_inner(",
+        "pub(crate) fn emit_prepare_super_construct_to_locals(",
+    );
+    let outlined = bounded(
+        common_call,
+        "if self.outline_function_call {",
+        "let callee_env_local",
+    );
+    assert!(normalized(outlined).contains(concat!(
+        "function.instruction(&Instruction::LocalGet(argv_local.index()));",
+        "self.emit_proxy_execution_realm_argument(function);",
+        "function.instruction(&Instruction::Call(helper));"
+    )));
+    let bound_call = bounded(
+        common_call,
+        "// Bound [[Call]] ignores the supplied thisArg.",
+        "if can_call_generator {",
+    );
+    let bound_flag = bound_call.find("FUNCTION_FLAG_BOUND as i64").unwrap();
+    let emit_context = bound_call
+        .find("self.emit_proxy_execution_realm_argument(function);")
+        .unwrap();
+    let store_context = bound_call
+        .find("Instruction::LocalSet(call_this_payload_local)")
+        .unwrap();
+    assert!(bound_flag < emit_context && emit_context < store_context);
+    assert!(!bound_call.contains("HEAP_BOUND_FUNCTION_SELF_PAYLOAD_OFFSET"));
+
+    let construct = bounded(
+        FUNCTIONS_SOURCE,
+        "pub(crate) fn emit_function_handle_construct_with_argv(",
+        "pub(crate) fn emit_function_handle_call(",
+    );
+    let direct_returning = bounded(
+        construct,
+        "for table_index in direct_returning_constructor_table_indices {",
+        "function.instruction(&Instruction::I64Const(self.strings.payload(\"prototype\")));",
+    );
+    let bound_branch = direct_returning
+        .find("if Some(table_index) == bound_function_invoker_table_index {")
+        .unwrap();
+    let emit_context = direct_returning
+        .find("self.emit_proxy_execution_realm_argument(function);")
+        .unwrap();
+    let other_constructors = direct_returning
+        .find("function.instruction(&Instruction::I64Const(0));")
+        .unwrap();
+    assert!(bound_branch < emit_context && emit_context < other_constructors);
+
+    let invoker = bounded(
+        FUNCTION_BUILTIN_SOURCE,
+        "FunctionBuiltin::BoundFunctionInvoker => {",
+        "self.release_temp_local(record_local);",
+    );
+    let save_record = invoker
+        .find("Instruction::LocalSet(record_local)")
+        .expect("bound record must be saved separately");
+    let load_slots = invoker
+        .find("self.emit_load_bound_function_record(")
+        .expect("bound internal slots must be read from that record");
+    let inherit_caller = invoker
+        .find("self.this_payload_local")
+        .expect("ignored this payload carries the caller context");
+    let use_caller = invoker
+        .find("Instruction::LocalSet(self.current_env_local)")
+        .expect("Proxy helpers receive the caller context");
+    let call_proxy = invoker
+        .find("self.emit_function_or_proxy_call_with_argv_without_throw_propagation(")
+        .expect("bound call must preserve the target Proxy");
+    let construct_proxy = invoker
+        .find("self.emit_function_or_proxy_construct_with_argv(")
+        .expect("bound construct must preserve the target Proxy");
+    assert!(save_record < load_slots && load_slots < inherit_caller);
+    assert!(inherit_caller < use_caller && use_caller < call_proxy && call_proxy < construct_proxy);
+    assert!(!invoker.contains("HEAP_FUNCTION_DEFINING_REALM_OFFSET"));
 }
 
 #[test]
@@ -598,7 +703,7 @@ fn call_and_construct_errors_and_argument_arrays_use_the_execution_realm() {
 
         assert_eq!(
             state_machine
-                .matches("self.emit_array_like_snapshot_payload(")
+                .matches("self.emit_arg_vector_snapshot_array(argv_local, trap_args_payload_local, function)?;")
                 .count(),
             1
         );
@@ -609,16 +714,20 @@ fn call_and_construct_errors_and_argument_arrays_use_the_execution_realm() {
             1
         );
         let after_snapshot = state_machine
-            .split_once("self.emit_array_like_snapshot_payload(")
-            .expect("argument Array snapshot")
-            .1
-            .split_once(")?;")
-            .expect("completed argument Array snapshot")
+            .split_once("self.emit_arg_vector_snapshot_array(argv_local, trap_args_payload_local, function)?;")
+            .expect("typed argument vector materialized as a trap Array")
             .1;
         assert!(normalized(after_snapshot).starts_with(concat!(
             "self.emit_install_proxy_execution_realm_array_prototype(",
             "trap_args_payload_local,function);"
         )));
+        let install_realm_prototype = after_snapshot
+            .find("emit_install_proxy_execution_realm_array_prototype(")
+            .unwrap();
+        let pass_trap_array = after_snapshot
+            .find("TaggedLocals::new(trap_args_payload_local, argv_tag_local)")
+            .unwrap();
+        assert!(install_realm_prototype < pass_trap_array);
     }
 }
 

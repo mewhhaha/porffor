@@ -35,6 +35,14 @@ impl<'a> FunctionBuilder<'a> {
         let length_local = self.reserve_temp_local();
         let argument_count_local = self.reserve_temp_local();
         let name_prefix_local = self.reserve_temp_local();
+        let property_key_tag_local = self.reserve_temp_local();
+        let get_own_descriptor_meta = self
+            .functions
+            .get(&StandardBuiltinId::ObjectGetOwnPropertyDescriptor.function_id())
+            .cloned()
+            .ok_or_else(|| {
+                EmitError::unsupported("missing Object.getOwnPropertyDescriptor builtin")
+            })?;
 
         self.emit_alloc_bound_function_from_exact_source(
             target_payload_local,
@@ -49,6 +57,32 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalSet(length_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("length")));
         function.instruction(&Instruction::LocalSet(property_key_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        // A callable Object is a Proxy. HasOwnProperty must invoke its
+        // [[GetOwnProperty]] trap before the separate Get("length") below.
+        function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
+        function.instruction(&Instruction::LocalSet(property_key_tag_local));
+        self.emit_direct_js_call_leave_throw_completion(
+            &get_own_descriptor_meta,
+            None,
+            &[
+                (target_payload_local, target_tag_local),
+                (property_key_local, property_key_tag_local),
+            ],
+            property_payload_local,
+            property_tag_local,
+            function,
+        )?;
+        self.emit_return_current_completion_if_throw(function);
+        function.instruction(&Instruction::LocalGet(property_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(has_length_local));
+        function.instruction(&Instruction::Else);
         self.emit_object_own_property_present(
             target_payload_local,
             target_tag_local,
@@ -56,6 +90,7 @@ impl<'a> FunctionBuilder<'a> {
             has_length_local,
             function,
         );
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::LocalGet(has_length_local));
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);
@@ -155,6 +190,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(bound_function_local));
         function.instruction(&Instruction::LocalSet(payload_local));
 
+        self.release_temp_local(property_key_tag_local);
         self.release_temp_local(name_prefix_local);
         self.release_temp_local(argument_count_local);
         self.release_temp_local(length_local);
@@ -216,18 +252,28 @@ impl<'a> FunctionBuilder<'a> {
                     bound_this_tag_local,
                     function,
                 );
-                self.load_i64_to_local_from_offset(
-                    target_payload_local,
-                    HEAP_PROTOTYPE_OFFSET,
-                    internal_prototype_local,
-                    function,
-                );
-                self.load_i64_to_local_from_offset(
-                    target_payload_local,
-                    HEAP_FUNCTION_INTERNAL_PROTOTYPE_TAG_OFFSET,
-                    internal_prototype_tag_local,
-                    function,
-                );
+                // BoundFunctionCreate begins with target.[[GetPrototypeOf]];
+                // a callable Proxy can run or throw from this trap.
+                if self
+                    .runtime_bootstrap_plan
+                    .should_initialize_standard_builtin(StandardBuiltinId::ProxyConstructor)
+                {
+                    self.emit_object_get_prototype_of(
+                        target_payload_local,
+                        target_tag_local,
+                        internal_prototype_local,
+                        internal_prototype_tag_local,
+                        function,
+                    )?;
+                } else {
+                    self.emit_object_get_prototype_of_without_proxy(
+                        target_payload_local,
+                        target_tag_local,
+                        internal_prototype_local,
+                        internal_prototype_tag_local,
+                        function,
+                    )?;
+                }
             }
             ExactBoundThisSource::ProxyRevocationObject {
                 proxy_payload_local,
@@ -291,6 +337,8 @@ impl<'a> FunctionBuilder<'a> {
         let buffer_local = self.reserve_temp_local();
         let record_local = self.reserve_temp_local();
         let flags_local = self.reserve_temp_local();
+        let source_function_payload_local = self.reserve_temp_local();
+        let source_function_tag_local = self.reserve_temp_local();
 
         self.emit_heap_alloc_const(HEAP_BOUND_FUNCTION_RECORD_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(record_local));
@@ -325,7 +373,49 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
 
-        self.emit_load_function_constructable_flag(target_payload_local, flags_local, function);
+        // The target stays exact in the bound record. Its constructor bit is
+        // the Proxy's own [[Construct]] capability, inherited from its target.
+        self.emit_is_constructor_i32(target_tag_local, target_payload_local, function)?;
+        function.instruction(&Instruction::I64ExtendI32U);
+        function.instruction(&Instruction::LocalSet(flags_local));
+
+        // Function records carry the defining-realm fields used by other
+        // compiled operations. A Proxy has an Object layout, so project only
+        // these representation fields from its underlying function. This does
+        // not replace the exact Proxy stored as [[BoundTargetFunction]].
+        function.instruction(&Instruction::LocalGet(target_payload_local));
+        function.instruction(&Instruction::LocalSet(source_function_payload_local));
+        function.instruction(&Instruction::LocalGet(target_tag_local));
+        function.instruction(&Instruction::LocalSet(source_function_tag_local));
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        function.instruction(&Instruction::LocalGet(source_function_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Function.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::BrIf(1));
+        function.instruction(&Instruction::LocalGet(source_function_tag_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Object.tag() as i64));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.load_i64_to_local_from_offset(
+            source_function_payload_local,
+            HEAP_OBJECT_BOXED_TAG_OFFSET,
+            source_function_tag_local,
+            function,
+        );
+        self.load_i64_to_local_from_offset(
+            source_function_payload_local,
+            HEAP_OBJECT_BOXED_PAYLOAD_OFFSET,
+            source_function_payload_local,
+            function,
+        );
+        function.instruction(&Instruction::Br(1));
+        function.instruction(&Instruction::End);
+        // The bind entry point has already established IsCallable(target).
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+
         self.emit_heap_alloc_const(HEAP_FUNCTION_OBJECT_SIZE, function)?;
         function.instruction(&Instruction::LocalSet(object_local));
         self.store_i64_local_at_offset(
@@ -364,7 +454,12 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         function.instruction(&Instruction::LocalGet(flags_local));
-        function.instruction(&Instruction::I64Const(FUNCTION_FLAG_BOUND as i64));
+        // [[Call]] ignores the incoming thisArg. Mark the synthetic invoker
+        // strict so the ordinary dispatcher does not coerce that value before
+        // it can carry the caller's Realm context to the bound target.
+        function.instruction(&Instruction::I64Const(
+            (FUNCTION_FLAG_BOUND | FUNCTION_FLAG_STRICT) as i64,
+        ));
         function.instruction(&Instruction::I64Or);
         function.instruction(&Instruction::LocalSet(flags_local));
         self.store_i64_local_at_offset(
@@ -392,7 +487,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_DEFINING_REALM_OFFSET,
             self.scratch_local,
             function,
@@ -404,7 +499,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_ARRAY_BUFFER_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -416,7 +511,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_DATA_VIEW_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -428,7 +523,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_AGGREGATE_ERROR_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -440,7 +535,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_NUMBER_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -452,7 +547,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_BOOLEAN_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -464,7 +559,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_REALM_TYPE_ERROR_PROTOTYPE_OFFSET,
             self.scratch_local,
             function,
@@ -477,7 +572,7 @@ impl<'a> FunctionBuilder<'a> {
         );
         for (_, _, offset) in error_realm_prototype_entries() {
             self.load_i64_to_local_from_offset(
-                target_payload_local,
+                source_function_payload_local,
                 offset,
                 self.scratch_local,
                 function,
@@ -485,12 +580,12 @@ impl<'a> FunctionBuilder<'a> {
             self.store_i64_local_at_offset(object_local, offset, self.scratch_local, function);
         }
         self.copy_function_realm_typed_array_prototypes(
-            target_payload_local,
+            source_function_payload_local,
             object_local,
             function,
         )?;
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_TYPED_ARRAY_BYTES_PER_ELEMENT_OFFSET,
             self.scratch_local,
             function,
@@ -502,7 +597,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         self.load_i64_to_local_from_offset(
-            target_payload_local,
+            source_function_payload_local,
             HEAP_FUNCTION_TYPED_ARRAY_ELEMENT_KIND_OFFSET,
             self.scratch_local,
             function,
@@ -523,6 +618,8 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(object_local));
         function.instruction(&Instruction::LocalSet(payload_local));
 
+        self.release_temp_local(source_function_tag_local);
+        self.release_temp_local(source_function_payload_local);
         self.release_temp_local(flags_local);
         self.release_temp_local(record_local);
         self.release_temp_local(buffer_local);

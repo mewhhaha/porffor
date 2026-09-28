@@ -46,9 +46,11 @@ replay list. Confirmed causes are distinguished from hypotheses that need a
 reproducer. The frozen baseline remains unchanged as individual tasks close;
 a new complete published run is required to change the conformance totals.
 
-The Wasm-AOT `parseInt` and `Number.parseInt` builtins now apply the full
-ECMAScript ToInt32 radix conversion, including large finite numbers whose
-32-bit residue is zero.
+Recent Wasm-AOT fixes cover full ToInt32 radix conversion for `parseInt`,
+binding callable Proxy targets, escaping RegExp source text, and retaining
+reference dates for non-ISO Temporal MonthDay/YearMonth values when calendar
+annotations are hidden. The backlog records focused verification for each fix
+separately from the full-suite baseline above.
 
 Fake fixtures check the runner and selected compiler behavior. They do not
 establish full ECMAScript conformance. Missing features, runtime errors,

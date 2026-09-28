@@ -1,6 +1,7 @@
 use super::super::*;
 
 mod constructor;
+mod regexp_source;
 use crate::operations::{PrimitiveToStringAbruptRoute, ToLengthAbruptRoute};
 use crate::runtime_helpers::{
     RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,
@@ -2009,6 +2010,8 @@ impl<'a> FunctionBuilder<'a> {
             flags_local,
             function,
         );
+        regexp_source::emit_escape_regexp_pattern(self, source_local, flags_local, function)?;
+        function.instruction(&Instruction::LocalSet(source_local));
         function.instruction(&Instruction::I64Const(self.strings.payload("")));
         function.instruction(&Instruction::LocalSet(canonical_flags_local));
         for flag in ['d', 'g', 'i', 'm', 's', 'u', 'v', 'y'] {
@@ -2066,6 +2069,7 @@ impl<'a> FunctionBuilder<'a> {
         })?;
         let defining_realm_local = self.reserve_temp_local();
         let expected_prototype_local = self.reserve_temp_local();
+        let flags_local = self.reserve_temp_local();
 
         self.load_i64_to_local_from_offset(
             self.current_env_local,
@@ -2106,9 +2110,19 @@ impl<'a> FunctionBuilder<'a> {
             self.result_local,
             function,
         );
+        self.load_i64_to_local_from_offset(
+            receiver_payload_local,
+            HEAP_REGEXP_ORIGINAL_FLAGS_PAYLOAD_OFFSET,
+            flags_local,
+            function,
+        );
+        let result_local = self.result_local;
+        regexp_source::emit_escape_regexp_pattern(self, result_local, flags_local, function)?;
+        function.instruction(&Instruction::LocalSet(self.result_local));
         function.instruction(&Instruction::I64Const(ValueKind::String.tag() as i64));
         function.instruction(&Instruction::LocalSet(self.result_tag_local));
 
+        self.release_temp_local(flags_local);
         self.release_temp_local(expected_prototype_local);
         self.release_temp_local(defining_realm_local);
         Ok(())

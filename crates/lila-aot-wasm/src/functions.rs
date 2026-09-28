@@ -2423,6 +2423,10 @@ impl<'a> FunctionBuilder<'a> {
             .functions
             .get(&StandardBuiltinId::ProxyConstructor.function_id())
             .map(|meta| meta.table_index as i64);
+        let bound_function_invoker_table_index = self
+            .functions
+            .get(&StandardBuiltinId::BoundFunctionInvoker.function_id())
+            .map(|meta| meta.table_index as i64);
         let aggregate_error_constructor_table_index = self
             .functions
             .get(&StandardBuiltinId::AggregateErrorConstructor.function_id())
@@ -2810,7 +2814,13 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I64Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             function.instruction(&Instruction::LocalGet(callee_env_local));
-            function.instruction(&Instruction::I64Const(0));
+            if Some(table_index) == bound_function_invoker_table_index {
+                // Bound [[Construct]] forwards without entering a new Realm.
+                // Its ignored `this` payload carries the caller's context.
+                self.emit_proxy_execution_realm_argument(function);
+            } else {
+                function.instruction(&Instruction::I64Const(0));
+            }
             function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
             function.instruction(&Instruction::LocalGet(new_target_payload_local));
             function.instruction(&Instruction::LocalGet(new_target_tag_local));
@@ -5541,7 +5551,7 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 function.instruction(&Instruction::LocalGet(argc_local));
                 function.instruction(&Instruction::LocalGet(argv_local.index()));
-                function.instruction(&Instruction::I64Const(0));
+                self.emit_proxy_execution_realm_argument(function);
                 function.instruction(&Instruction::Call(helper));
                 self.store_call_results(TaggedLocals::new(payload_local, tag_local), function);
                 match propagate_throw {
@@ -5691,6 +5701,20 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::LocalSet(call_this_tag_local));
             function.instruction(&Instruction::End);
         }
+        // Bound [[Call]] ignores the supplied thisArg. Use that ABI payload to
+        // carry the caller's execution-Realm context through the function-call
+        // dispatcher and any chain of bound functions.
+        function.instruction(&Instruction::LocalGet(flags_local));
+        function.instruction(&Instruction::I64Const(FUNCTION_FLAG_BOUND as i64));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_proxy_execution_realm_argument(function);
+        function.instruction(&Instruction::LocalSet(call_this_payload_local));
+        function.instruction(&Instruction::I64Const(ValueKind::Undefined.tag() as i64));
+        function.instruction(&Instruction::LocalSet(call_this_tag_local));
+        function.instruction(&Instruction::End);
         if can_call_generator {
             function.instruction(&Instruction::LocalGet(flags_local));
             function.instruction(&Instruction::I64Const(FUNCTION_FLAG_GENERATOR as i64));
@@ -9301,7 +9325,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::LocalGet(this_tag_local));
         function.instruction(&Instruction::LocalGet(argc_local));
         function.instruction(&Instruction::LocalGet(argv_local.index()));
-        function.instruction(&Instruction::I64Const(0));
+        self.emit_proxy_execution_realm_argument(function);
         function.instruction(&Instruction::ReturnCall(function_helper));
         function.instruction(&Instruction::Else);
         function.instruction(&Instruction::LocalGet(callee_payload_local));

@@ -1,6 +1,7 @@
 # Proxy call and construct execution Realm
 
-Status: focused-verified on 2026-08-29; dynamic-source materializers retired on
+Status: bound-function caller Realm transport added on 2026-09-28. Earlier
+verification below is historical; dynamic-source materializers retired on
 2026-09-01.
 
 ## Specification scope
@@ -19,29 +20,34 @@ Realm.
 
 ## Closed Realm source
 
-`ProxyExecutionRealmSource` classifies every function body into one of four
+`ProxyExecutionRealmSource` classifies every function body into one of six
 states:
 
 - `MainRealmFallback` covers the main body and ordinary user or host bodies;
 - `StandardBuiltinEnvironment` covers a standard builtin whose self-backed
   environment records its defining Realm;
-- `ObjectReadHelperArgument` covers the outlined ordinary and Proxy-aware
-  object-read helpers, whose parameter 6 preserves the projection while an
-  accessor or Proxy trap is invoked;
+- `BoundFunctionCallerEnvironment` covers the bound invoker, which inherits
+  the caller's context without entering the target's Realm;
+- `FunctionCallHelperArgument` covers the outlined function-call dispatcher,
+  whose parameter 6 carries the caller's projected context;
+- `ObjectReadHelperArgument` covers outlined property-read and conversion
+  helpers whose parameter 6 preserves the projection while an accessor or
+  Proxy trap is invoked;
 - `ProxyDispatchHelperArgument` covers the outlined `ProxyCall` and
   `ProxyConstruct` helpers, whose parameter 6 contains the already-projected
   standard-builtin environment or zero.
 
-Initial bodies derive this source from the existing closed body
-classification. `for_runtime_helper` exhaustively assigns every
-`RuntimeHelperId`; only `ObjectRead` and `ObjectReadProxy` receive
-`ObjectReadHelperArgument`, while only `ProxyCall` and `ProxyConstruct` receive
-`ProxyDispatchHelperArgument`. A new helper or Realm source therefore requires
-an explicit mapping before Rust builds.
+Initial bodies derive this source from the closed body classification and
+standard builtin identity. `for_runtime_helper` exhaustively assigns every
+`RuntimeHelperId`; only `FunctionCall` receives `FunctionCallHelperArgument`,
+while only `ProxyCall` and `ProxyConstruct` receive
+`ProxyDispatchHelperArgument`. The property-read and conversion helper set is
+also explicit. A new helper or Realm source requires a mapping before Rust
+builds.
 
 The private `ProxyExecutionRealmAccess` projection has only
-`TrustedCurrentEnvironment` and `MainRealmFallback`. Standard builtins, the two
-object-read helpers and the two Proxy helper bodies select the trusted route.
+`TrustedCurrentEnvironment` and `MainRealmFallback`. Standard builtins, the
+bound invoker, and the classified helper bodies select the trusted route.
 All other bodies select the fallback. An ordinary lexical-environment pointer
 cannot be interpreted as a function object or Realm record.
 
@@ -55,6 +61,15 @@ object-read helper entries also restore and forward it before invoking accessor
 getters or Proxy traps. The helper chain therefore preserves the original
 execution-Realm word through nested targets, handler reads and callable Proxy
 traps.
+
+Bound `[[Call]]` and `[[Construct]]` forward to their target without creating
+an execution context. Their invoker receives the caller's context through its
+otherwise ignored `this` payload. It saves the bound record separately before
+installing that context as the environment used by Proxy helpers. Bound
+functions carry the strict flag so the discarded incoming `thisArg` is never
+coerced. Neither the bound record nor the target's defining Realm substitutes
+for the caller's context. This also applies through chains of bound functions
+and calls made by another Realm's `Reflect.apply` or `Reflect.construct`.
 
 `emit_proxy_execution_realm_type_error` owns every TypeError emitted directly
 by the shared Proxy Call and Construct dispatchers. It selects the current
@@ -107,7 +122,18 @@ The fixture is registered as
 `object::run_wasm_backend_uses_execution_realms_for_proxy_call_and_construct`;
 its exact Wasm-AOT run passes `1/1`.
 
-## Verification
+## Bound-function verification (2026-09-28)
+
+The six Wasm-AOT regressions in
+`crates/lila-engine/tests/aot_bind_callable_proxy.rs` cover observable metadata
+reads, trap calls, construction, and abrupt completion. They also check both
+directions across Realms: trap argument Arrays and revoked-Proxy TypeErrors
+belong to the caller's Realm. The closed source projection and context transport
+are checked by `proxy_execution_realm_structure` and its companion unit test.
+F048 retains the exact pinned-suite replay and adjacent-family evidence in the
+[failure backlog](../../../tasks/F048-bind-callable-proxy.md).
+
+## Historical verification (2026-08-29)
 
 The coordinated checkpoint passed the four focused and neighboring structure
 targets `16/16`, the three matching exhaustive Realm-source projection units
@@ -127,8 +153,6 @@ Reflect, or prove the full pinned Proxy tree. It does not change user-thrown
 trap or accessor completions. Proxy `[[Get]]` TypeErrors other than revocation,
 including a noncallable live `get` trap and Proxy invariant violations, still
 use the object-read error authority and are separate T11 work. It does not add
-a Realm word to the separate
-`IndexedElementRead` helper, which cannot occur during the named `apply` or
-`construct` trap lookup covered here. The apply and construct dynamic-source
-leaves remain unsupported until T13 can compile their created-Realm source; no
-Test262 materializer hides that boundary.
+a new helper ABI parameter: existing parameter 6 carries the context. The
+apply and construct dynamic-source leaves remain unsupported until T13 can
+compile their created-Realm source; no Test262 materializer hides that boundary.

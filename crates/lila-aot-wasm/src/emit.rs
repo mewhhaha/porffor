@@ -351,21 +351,36 @@ impl NumericErrorRealmSource {
 ///
 /// Main, user and host bodies can carry ordinary lexical environments, so
 /// they use the entry-Realm fallback. Standard builtins carry a self-backed
-/// function environment. The outlined object-read and Proxy dispatch helpers
-/// receive only that trusted environment-or-zero projection through ABI
-/// parameter 6.
+/// function environment, except [[BoundFunctionInvoke]], which inherits its
+/// caller's context through the otherwise ignored `this` payload. The outlined
+/// function-call, object-read and Proxy dispatch helpers receive only that
+/// trusted environment-or-zero projection through ABI parameter 6.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProxyExecutionRealmSource {
     MainRealmFallback,
     StandardBuiltinEnvironment,
+    BoundFunctionCallerEnvironment,
+    FunctionCallHelperArgument,
     ObjectReadHelperArgument,
     ProxyDispatchHelperArgument,
 }
 
 impl ProxyExecutionRealmSource {
-    const fn for_initial_body(numeric_source: NumericErrorRealmSource) -> Self {
+    pub(crate) const fn for_initial_body(
+        numeric_source: NumericErrorRealmSource,
+        standard_builtin: Option<StandardBuiltinId>,
+    ) -> Self {
         match numeric_source {
-            NumericErrorRealmSource::StandardBuiltinEnvironment => Self::StandardBuiltinEnvironment,
+            NumericErrorRealmSource::StandardBuiltinEnvironment => {
+                if matches!(
+                    standard_builtin,
+                    Some(StandardBuiltinId::BoundFunctionInvoker)
+                ) {
+                    Self::BoundFunctionCallerEnvironment
+                } else {
+                    Self::StandardBuiltinEnvironment
+                }
+            }
             NumericErrorRealmSource::GlobalFallback
             | NumericErrorRealmSource::NumericConversionHelperArgument => Self::MainRealmFallback,
         }
@@ -388,6 +403,7 @@ impl ProxyExecutionRealmSource {
             RuntimeHelperId::ProxyCall | RuntimeHelperId::ProxyConstruct => {
                 Self::ProxyDispatchHelperArgument
             }
+            RuntimeHelperId::FunctionCall => Self::FunctionCallHelperArgument,
             RuntimeHelperId::HeapAlloc
             | RuntimeHelperId::ObjectAppendDataProperty
             | RuntimeHelperId::ObjectAppendAccessorProperty
@@ -412,7 +428,6 @@ impl ProxyExecutionRealmSource {
             | RuntimeHelperId::ModuleFulfilled
             | RuntimeHelperId::ModuleRejected
             | RuntimeHelperId::ModuleDeferredImport
-            | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::DynamicPropertyRead
             | RuntimeHelperId::OrdinarySetDataOnReceiver
             | RuntimeHelperId::OrdinarySetDataOnReceiverWithFallback
@@ -4140,8 +4155,14 @@ impl<'a> FunctionBuilder<'a> {
             ObjectReadErrorRealmSource::for_initial_body(numeric_error_realm_source);
         let object_mutation_error_realm_source =
             ObjectMutationErrorRealmSource::for_initial_body(numeric_error_realm_source);
-        let proxy_execution_realm_source =
-            ProxyExecutionRealmSource::for_initial_body(numeric_error_realm_source);
+        let standard_builtin = function_id
+            .as_ref()
+            .and_then(|id| functions.get(id))
+            .and_then(|meta| meta.standard_builtin);
+        let proxy_execution_realm_source = ProxyExecutionRealmSource::for_initial_body(
+            numeric_error_realm_source,
+            standard_builtin,
+        );
         Self {
             body,
             module_prelude_id: None,
@@ -5723,11 +5744,14 @@ impl<'a> FunctionBuilder<'a> {
     ///
     /// Wasm signature is [`JS_FUNCTION_TYPE_INDEX`]. Params: 0=callee payload,
     /// 1=callee tag, 2=this payload, 3=this tag, 4=argc, 5=argv. Param 6 is
-    /// unused. Results are the `(result, result_tag, completion, aux)` tuple;
+    /// the caller's trusted execution-Realm context or zero. Results are the
+    /// `(result, result_tag, completion, aux)` tuple;
     /// throws are surfaced through the completion rather than propagated.
     fn compile_function_call_helper(&mut self) -> Result<Function, EmitError> {
         let mut function = self.begin_helper_body(RuntimeHelperId::FunctionCall);
         self.push_scope();
+        function.instruction(&Instruction::LocalGet(6));
+        function.instruction(&Instruction::LocalSet(self.current_env_local));
         self.set_completion_kind(CompletionKind::Normal, &mut function);
         self.emit_statement_result(&mut function, ValueKind::Undefined);
         self.emit_function_handle_call_with_argv_inner(
