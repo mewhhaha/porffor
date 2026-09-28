@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "task_id": "F054",
+  "fixing_revision": "2ad1bf30e1fa203720de048d1dc5f1041e8fc47e",
+  "checkpoint_revision": "df9c8f64809bd7c6646395aebdc5e0bb4ac21c48",
+  "implementation": {
+    "model": "gpt-6-sol",
+    "reasoning_effort": "max",
+    "review": "Accepted after independent source review and runtime checks; no implementation corrections requested."
+  },
+  "compiler_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd",
+  "focused_cli_regression": {
+    "name": "functions::run_wasm_backend_converts_parse_int_radix_with_int32_semantics",
+    "passed": 1,
+    "total": 1,
+    "fixture": "crates/lila-cli/tests/fixtures/wasm_parse_int_radix_int32.js",
+    "fixture_sha256": "dca66ce7091f496f84e443feba82760bd078c60ac36ce3a61750a36165effb6b"
+  },
+  "exact_native_replay": {
+    "binary": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-sol-20260928/replay/compiler",
+    "binary_source": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+    "suite_root": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/test262/vendor/test262",
+    "binary_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd",
+    "execution_list_sha256": "ea6468a0e1d944cd97628ff2c4d4bdc0051a31f3e832888819046854e3b86058",
+    "execution_list": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-sol-20260928/replay/executions",
+    "execution_list_source": "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/tasks/cases/F054.executions",
+    "total": 4,
+    "outcomes": {
+      "Success": 4,
+      "NotImplemented": 0,
+      "Crash": 0,
+      "Bug": 0
+    },
+    "results": [
+      {
+        "execution_id": "sloppy-script:staging/sm/Number/parseInt-01.js",
+        "exit_code": 0,
+        "transcript": "65d67eb16bded53c8e68773b61c82759b3a0e6132a51fd0d254f8bfc15987124.log",
+        "outcome": "Success"
+      },
+      {
+        "execution_id": "sloppy-script:staging/sm/global/parseInt-01.js",
+        "exit_code": 0,
+        "transcript": "05bf386fa8e319a70dd0c15bad00461af53204c65e4c69fdcb45b050b7eaf0f3.log",
+        "outcome": "Success"
+      },
+      {
+        "execution_id": "strict-script:staging/sm/Number/parseInt-01.js",
+        "exit_code": 0,
+        "transcript": "5d0594840656f074d98a5fc1a99ad28656777a33ebf440a4d3d9e44cde0dfa20.log",
+        "outcome": "Success"
+      },
+      {
+        "execution_id": "strict-script:staging/sm/global/parseInt-01.js",
+        "exit_code": 0,
+        "transcript": "ae41d6ae20b2671e55cf5d5ac2129ea5bfc3dfe07110a03932bf6a6e629cd236.log",
+        "outcome": "Success"
+      }
+    ]
+  },
+  "adjacent_native_snapshots": [
+    {
+      "path": "target/test262-scratch/F054-sol-20260928/adjacent-snapshots/F054-adjacent-global-3259377492426291360.json",
+      "sha256": "7e447a86414dc3a7cfbb5745c397adcf5d1e817691faf260d7775905045a3d1d",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 3259377492426291360,
+        "run_kind": "full",
+        "total": 110,
+        "passed": 110,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 110
+        },
+        "slowest_tests": [
+          {
+            "test_id": "strict-script:built-ins/parseInt/prop-desc.js",
+            "path": "built-ins/parseInt/prop-desc.js",
+            "duration_ms": 10994
+          },
+          {
+            "test_id": "sloppy-script:built-ins/parseInt/S15.1.2.2_A9.5.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A9.5.js",
+            "duration_ms": 7607
+          },
+          {
+            "test_id": "sloppy-script:built-ins/parseInt/prop-desc.js",
+            "path": "built-ins/parseInt/prop-desc.js",
+            "duration_ms": 7156
+          },
+          {
+            "test_id": "strict-script:built-ins/parseInt/S15.1.2.2_A8.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A8.js",
+            "duration_ms": 6377
+          },
+          {
+            "test_id": "strict-script:built-ins/parseInt/not-a-constructor.js",
+            "path": "built-ins/parseInt/not-a-constructor.js",
+            "duration_ms": 5717
+          },
+          {
+            "test_id": "strict-script:built-ins/parseInt/S15.1.2.2_A9.5.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A9.5.js",
+            "duration_ms": 5545
+          },
+          {
+            "test_id": "sloppy-script:built-ins/parseInt/S15.1.2.2_A8.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A8.js",
+            "duration_ms": 4440
+          },
+          {
+            "test_id": "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+            "duration_ms": 4334
+          },
+          {
+            "test_id": "strict-script:built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+            "duration_ms": 4201
+          },
+          {
+            "test_id": "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T7.js",
+            "path": "built-ins/parseInt/S15.1.2.2_A3.1_T7.js",
+            "duration_ms": 3525
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/parseInt/15.1.2.2-2-1.js",
+          "strict-script:built-ins/parseInt/15.1.2.2-2-1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T4.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T4.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T5.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T5.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T6.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T6.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A1_T7.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A1_T7.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T10.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T10.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T10_U180E.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T10_U180E.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T4.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T4.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T5.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T5.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T6.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T6.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T7.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T7.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T8.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T8.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A2_T9.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A2_T9.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T4.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T4.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T5.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T5.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T6.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T6.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.1_T7.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.1_T7.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.2_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.2_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.2_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.2_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A3.2_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A3.2_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A4.1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A4.1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A4.1_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A4.1_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A4.2_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A4.2_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A4.2_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A4.2_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A5.1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A5.1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A5.2_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A5.2_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A5.2_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A5.2_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T4.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T4.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T5.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T5.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A6.1_T6.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A6.1_T6.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.1_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.1_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.1_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.1_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.2_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.2_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.2_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.2_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.2_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.2_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.3_T1.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.3_T2.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.3_T2.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A7.3_T3.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A7.3_T3.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A8.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A8.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A9.5.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A9.5.js",
+          "sloppy-script:built-ins/parseInt/S15.1.2.2_A9.6.js",
+          "strict-script:built-ins/parseInt/S15.1.2.2_A9.6.js",
+          "sloppy-script:built-ins/parseInt/not-a-constructor.js",
+          "strict-script:built-ins/parseInt/not-a-constructor.js",
+          "sloppy-script:built-ins/parseInt/prop-desc.js",
+          "strict-script:built-ins/parseInt/prop-desc.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      }
+    },
+    {
+      "path": "target/test262-scratch/F054-sol-20260928/adjacent-snapshots/F054-adjacent-number-14494803472711966161.json",
+      "sha256": "3383b8d826d19c60d03efc88f01f8411931ec84f14d93f75ee745cbea704df4c",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 14494803472711966161,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:built-ins/Number/parseInt/not-a-constructor.js",
+            "path": "built-ins/Number/parseInt/not-a-constructor.js",
+            "duration_ms": 4173
+          },
+          {
+            "test_id": "strict-script:built-ins/Number/parseInt/not-a-constructor.js",
+            "path": "built-ins/Number/parseInt/not-a-constructor.js",
+            "duration_ms": 2669
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:built-ins/Number/parseInt/not-a-constructor.js",
+          "strict-script:built-ins/Number/parseInt/not-a-constructor.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      }
+    },
+    {
+      "path": "target/test262-scratch/F054-sol-20260928/adjacent-snapshots/F054-adjacent-staging-default-8585604040150078543.json",
+      "sha256": "cd29d5c8a466f7cf6b81513578ca2db9875d48f5fe69f8891307e3f10755f977",
+      "snapshot": {
+        "snapshot_version": 7,
+        "producer": "lila",
+        "matrix_strategy_version": 3,
+        "execution_backend": "wasm-aot",
+        "pinned_revisions": {
+          "ecma262": "ecma262-current-draft",
+          "test262": "91b2052adad1f066ae031e2ff3a1e9bd6d732886"
+        },
+        "manifest_hash": 8585604040150078543,
+        "run_kind": "full",
+        "total": 2,
+        "passed": 2,
+        "counts_per_kind": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "counts_per_outcome": {
+          "Bug": 0,
+          "Crash": 0,
+          "NotImplemented": 0,
+          "Success": 2
+        },
+        "slowest_tests": [
+          {
+            "test_id": "sloppy-script:staging/sm/global/parseInt-default-to-decimal.js",
+            "path": "staging/sm/global/parseInt-default-to-decimal.js",
+            "duration_ms": 4085
+          },
+          {
+            "test_id": "strict-script:staging/sm/global/parseInt-default-to-decimal.js",
+            "path": "staging/sm/global/parseInt-default-to-decimal.js",
+            "duration_ms": 2648
+          }
+        ],
+        "timeout_test_ids": [],
+        "failures": [],
+        "completed_test_ids": [
+          "sloppy-script:staging/sm/global/parseInt-default-to-decimal.js",
+          "strict-script:staging/sm/global/parseInt-default-to-decimal.js"
+        ],
+        "matrix_path": [],
+        "completed_nodes": [],
+        "aggregate_counts_so_far": {
+          "EarlyError": 0,
+          "HostHarness": 0,
+          "Lowering": 0,
+          "Parser": 0,
+          "Runtime": 0,
+          "Unsupported": 0,
+          "WasmBackend": 0
+        },
+        "aggregate_entries": []
+      }
+    }
+  ],
+  "independent_numeric_review": {
+    "unique_number_inputs": 420,
+    "checks": 1680,
+    "oracle": "Python arbitrary-precision int(number) modulo 2^32, then signed range interpretation; independent of Wasm floating reduction",
+    "fixture": "target/test262-scratch/F054-parent-review/independent-radices.js",
+    "fixture_sha256": "ec69b5075c5ba50d7389edff62fc6bbf408e33387ce3cab9fd1b2ec7b89874bd",
+    "result": {
+      "name": "independent-radices",
+      "command": [
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/release/lila",
+        "--jobs",
+        "1",
+        "run",
+        "--execution-backend",
+        "wasm-aot",
+        "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/F054-parent-review/independent-radices.js"
+      ],
+      "exit_code": 0,
+      "expected_success": true,
+      "verified": true,
+      "elapsed_seconds": 6.92,
+      "compiler_sha256": "394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd"
+    }
+  },
+  "negative_control": {
+    "name": "original-compiler-negative-control",
+    "command": [
+      "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/target/test262-scratch/full-native-gc-20260927/lila",
+      "--jobs",
+      "1",
+      "run",
+      "--execution-backend",
+      "wasm-aot",
+      "/home/mewhhaha/src/porffor/.claude/worktrees/t262-upstream/crates/lila-cli/tests/fixtures/wasm_parse_int_radix_int32.js"
+    ],
+    "exit_code": 1,
+    "expected_success": false,
+    "verified": true,
+    "elapsed_seconds": 2.56,
+    "compiler_sha256": "2a3f86d17b6735d941d747d7791c9a45b94dd1f4cf19c7dbe2454228c5cc4202"
+  },
+  "agent_verification_log": {
+    "path": "target/test262-scratch/F054-sol-20260928-service.log",
+    "sha256": "cd12af55ac82de28928db89d00602e56e2aa1f95787cbabbabff3373151395a1"
+  },
+  "resource_limits": {
+    "cpus": 10,
+    "memory_max_bytes": 50149513216,
+    "swap_max_bytes": 0
+  },
+  "full_matrix_rerun": false,
+  "published_baseline_unchanged": true
+}

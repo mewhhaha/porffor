@@ -5228,12 +5228,12 @@
       "title": "Use ECMAScript ToInt32 for large parseInt radix arguments",
       "owner": "lila-aot-wasm builtins/host.rs",
       "cause_status": "confirmed",
-      "root_cause": "parseInt converts finite radix with saturating f64-to-i64 then wraps to i32. Values beyond the i64 range saturate before modulo reduction, unlike ECMAScript ToInt32; the fixture expects radix 0 from 1e308 and therefore parses 0x10 as 16.",
+      "root_cause": "The frozen compiler converted finite radices with a saturating f64-to-i64 conversion followed by an i32 wrap. Values beyond the i64 range lost their required modulo residue; the fixture requires radix 0 from 1e308 and therefore expects 0x10 to parse as 16.",
       "evidence": [
         {
           "path": "crates/lila-aot-wasm/src/builtins/host.rs",
-          "line": 338,
-          "note": "Saturating truncation in radix conversion loses the required modulo behavior."
+          "line": 320,
+          "note": "The radix site previously saturated the Number to i64 before wrapping; it now calls the shared 32-bit residue emitter."
         },
         {
           "path": "test262/vendor/test262/test/staging/sm/Number/parseInt-01.js",
@@ -5241,7 +5241,7 @@
           "note": "The large-radix expectation is explicit."
         }
       ],
-      "fix": "Use the shared correct ToInt32 conversion for radix rather than I64TruncSatF64S followed by wrapping.",
+      "fix": "Use the shared 32-bit Number residue emitter for the radix, then interpret the residue as signed ToInt32.",
       "validation": "Run Number.parseInt and global parseInt staging cases including 1e308, large positive/negative multiples of 2^32, NaN, and infinities.",
       "test_ids": [
         "sloppy-script:staging/sm/Number/parseInt-01.js",
@@ -5255,9 +5255,10 @@
         "NotImplemented": 0,
         "Crash": 0
       },
-      "status": "open",
+      "status": "fixed",
       "document": "F054-parseint-radix-int32.md",
-      "cases": "cases/F054.executions"
+      "cases": "cases/F054.executions",
+      "resolution": "Fixed in `2ad1bf30e1fa203720de048d1dc5f1041e8fc47e` and accepted after independent review. The Wasm-AOT builtin obtains the full 32-bit residue before signed interpretation. [Verification record](evidence/resolutions/F054.json) retains native outcomes and compiler identity.\n\n- Fresh release compiler: `394fbf4adfb31011551aabad7b22990104af6ba0343e0fbdb168caf84f71dadd`.\n- Exact replay: **4/4 Success**, with native evidence in `target/test262-scratch/F054-sol-20260928/replay/`.\n- Adjacent Test262: **114/114 Success** — global parseInt 110, Number.parseInt 2, and staging default-to-decimal 2. Native snapshots are in `target/test262-scratch/F054-sol-20260928/adjacent-snapshots/`.\n- Focused Wasm-AOT CLI regression: **1/1 passed**. The same fixture fails on the original frozen compiler at the large positive radix expectation.\n- Independent review: **1,680 checks passed** across 420 numeric inputs, using Python arbitrary-precision integer modulo for expected results. Evidence is in `target/test262-scratch/F054-parent-review/`.\n\nGPT-6-Sol at max reasoning produced the implementation and regression without code corrections from review. Builds and runs were capped at 10 CPUs and half physical RAM, with swap disabled. The full pinned matrix was not rerun; frozen evidence and published README counts remain unchanged."
     },
     {
       "id": "F055",

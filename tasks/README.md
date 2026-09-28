@@ -70,7 +70,7 @@ Tasks with crashes come first, followed by required failure groups ordered by si
 | [F051: Emit modules whose only statements are import/export declarations](F051-empty-module-ir.md) | 4 | 0 | 4 | 0 | suspected | open |
 | [F052: Refresh decimal numbering data to include Tolong Siki (tols)](F052-intl-numbering-data.md) | 4 | 4 | 0 | 0 | confirmed | open |
 | [F053: Observe inherited and mutated replacer array elements](F053-json-replacer-array-get.md) | 4 | 4 | 0 | 0 | suspected | open |
-| [F054: Use ECMAScript ToInt32 for large parseInt radix arguments](F054-parseint-radix-int32.md) | 4 | 4 | 0 | 0 | confirmed | open |
+| [F054: Use ECMAScript ToInt32 for large parseInt radix arguments](F054-parseint-radix-int32.md) | 4 | 4 | 0 | 0 | confirmed | fixed |
 | [F055: Parse nested property and super destructuring assignment targets](F055-parser-destructuring-targets.md) | 4 | 4 | 0 | 0 | suspected | open |
 | [F056: Allocate builtin-created arrays in the active function realm](F056-realm-created-array-prototypes.md) | 4 | 4 | 0 | 0 | suspected | open |
 | [F057: Escape RegExp source for slash and line terminators](F057-regexp-source-escaping.md) | 4 | 4 | 0 | 0 | confirmed | open |
