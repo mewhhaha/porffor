@@ -190,15 +190,38 @@ macro_rules! decode_methods {
 
 impl<'de, D: Deserializer<'de>> Deserializer<'de> for Bounded<'_, D> {
     type Error = D::Error;
-    decode_methods!(deserialize_any, deserialize_bool, deserialize_i8, deserialize_i16,
-        deserialize_i32, deserialize_i64, deserialize_i128, deserialize_u8, deserialize_u16,
-        deserialize_u32, deserialize_u64, deserialize_u128, deserialize_f32, deserialize_f64,
-        deserialize_char, deserialize_str, deserialize_string, deserialize_bytes, deserialize_byte_buf,
-        deserialize_option, deserialize_unit, deserialize_unit_struct(name: &'static str),
-        deserialize_newtype_struct(name: &'static str), deserialize_seq,
-        deserialize_tuple(len: usize), deserialize_tuple_struct(name: &'static str, len: usize),
-        deserialize_map, deserialize_enum(name: &'static str, variants: &'static [&'static str]),
-        deserialize_identifier, deserialize_ignored_any);
+    decode_methods!(
+        deserialize_any,
+        deserialize_bool,
+        deserialize_i8,
+        deserialize_i16,
+        deserialize_i32,
+        deserialize_i64,
+        deserialize_i128,
+        deserialize_u8,
+        deserialize_u16,
+        deserialize_u32,
+        deserialize_u64,
+        deserialize_u128,
+        deserialize_f32,
+        deserialize_f64,
+        deserialize_char,
+        deserialize_str,
+        deserialize_string,
+        deserialize_bytes,
+        deserialize_byte_buf,
+        deserialize_option,
+        deserialize_unit,
+        deserialize_unit_struct(name: &'static str),
+        deserialize_newtype_struct(name: &'static str),
+        deserialize_seq,
+        deserialize_tuple(len: usize),
+        deserialize_tuple_struct(name: &'static str, len: usize),
+        deserialize_map,
+        deserialize_enum(name: &'static str, variants: &'static [&'static str]),
+        deserialize_identifier,
+        deserialize_ignored_any
+    );
     fn deserialize_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
